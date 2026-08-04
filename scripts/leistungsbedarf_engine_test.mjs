@@ -16,6 +16,7 @@
    Teil 7  Grenzen werden GEMELDET, nicht stillschweigend gedeckelt
    Teil 8  Ladeinfrastruktur — Budget, Lastmanagement, Mindest-Ladestrom
    Teil 9  Ladeinfrastruktur — Zuleitung, Schieflast, PV/Batterie
+   Teil 10 Blindleistungs-Kompensation — Q_C, Kondensator, Wirtschaftlichkeit
    ════════════════════════════════════════════════════════════════════════ */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -487,6 +488,218 @@ ok(r.evse === null && r.status === 'leer', 'ausgeschaltet ändert sie nichts');
 r = lbCalc(mitEv({ hausA:'', uvA:'' }));
 ok(r.evse.pLade === null && hatTyp(r, 'err') && enthaelt(r, 'fehlen Angaben'),
    'ohne Anschlussdaten kein Ergebnis, aber eine Meldung');
+
+/* ════════════════════════════════════════════════════════════════════════
+   Teil 10 — Blindleistungs-Kompensation
+   ════════════════════════════════════════════════════════════════════════
+   Referenzfall von Hand: P = 50 kW, cos φ₁ = 0.75 → cos φ₂ = 0.95, 400 V 3~.
+     tan φ = √(1−cos²φ)/cos φ
+     tan φ₁ = √0.4375/0.75 = 0.6614378277661477/0.75 = 0.8819171036881969
+     tan φ₂ = √0.0975/0.95 = 0.31224989991991997/0.95 = 0.3286841051788631
+     Q_C    = 50 · (0.8819171036881969 − 0.3286841051788631) = 27.66164992546669 kvar
+     S₁ = 50/0.75 = 66.66666666666667 kVA   S₂ = 50/0.95 = 52.63157894736842 kVA
+     I₁ = 66666.66666666667/(√3·400) = 96.22504486493763 A
+     I₂ = 52631.57894736842/(√3·400) = 75.96714068284549 A
+   ════════════════════════════════════════════════════════════════════════ */
+console.log('\n── Teil 10: Blindleistungs-Kompensation ──');
+
+const komp = o => Object.assign({ aktiv:true, p:'50', cos1:'0.75', cos2:'0.95',
+  schaltung:'dreieck', stunden:'', cosGrenz:'', preisBlind:'', preisWirk:'', invest:'' }, o || {});
+const mitK = (k, extra) => lbCalc(mit(Object.assign({ komp:komp(k) }, extra || {})));
+
+const TAN1 = 0.8819171036881969;
+const TAN2 = 0.3286841051788631;
+const QC   = 27.66164992546669;
+const I1   = 96.22504486493763;
+const I2   = 75.96714068284549;
+
+let k = mitK().komp;
+ok(!!k, 'Kompensation wird gerechnet, wenn sie eingeschaltet ist');
+nah(k.tan1, TAN1, 1e-12, 'tan φ₁ aus cos φ₁ = 0.75');
+nah(k.tan2, TAN2, 1e-12, 'tan φ₂ aus cos φ₂ = 0.95');
+nah(k.qc,   QC,   1e-9,  'Q_C = P · (tan φ₁ − tan φ₂)');
+nah(k.s1, 66.66666666666667, 1e-9, 'S₁ = P / cos φ₁');
+nah(k.s2, 52.63157894736842, 1e-9, 'S₂ = P / cos φ₂');
+nah(k.i1, I1, 1e-9, 'I₁ = S₁ · 1000 / (√3 · U)');
+nah(k.i2, I2, 1e-9, 'I₂ = S₂ · 1000 / (√3 · U)');
+nah(k.di, I1 - I2, 1e-9, 'ΔI = I₁ − I₂ = 20.257904 A');
+ok(k.moeglich === true, 'Kompensation ist möglich');
+
+/* Ausgeschaltet ändert sie nichts. */
+ok(lbCalc(mit({ komp:komp({ aktiv:false }) })).komp === null,
+   'ausgeschaltet liefert die Kompensation null');
+
+/* ── Kondensator: Stufe, Kapazität, Strom ──
+   Nächstgrössere Richtwert-Stufe ≥ 27.6616 kvar = 30 kvar.
+   C = Q/(3·ω·U²) = 30000/(3 · 2π·50 · 400²) = 30000/150796447.3721139
+     = 1.9894367886486916e-4 F = 198.94367886486916 µF
+   I_C = 30000/(√3·400) = 43.30127018922194 A  ·  Absicherung 1.5 × = 64.95190528383291 A */
+nah(k.kondStufe, 30, 1e-12, 'nächstgrössere Kondensator-Stufe ≥ Q_C');
+nah(k.kapaz, 198.94367886486916, 1e-6, 'Kapazität je Strang in Dreieckschaltung');
+nah(k.ic, 43.30127018922194, 1e-9, 'Kondensator-Strom I_C = Q/(√3·U)');
+nah(k.icAbsich, 64.95190528383291, 1e-9, 'Absicherungs-Richtwert 1.5 · I_C');
+ok(k.inKond === 80, 'nächste Sicherung ≥ 64.95 A ist 80 A');
+
+/* Stern braucht die dreifache Kapazität — C = Q/(1·ω·U²). */
+const kStern = mitK({ schaltung:'stern' }).komp;
+nah(kStern.kapaz, 198.94367886486916 * 3, 1e-6, 'Sternschaltung braucht die dreifache Kapazität');
+ok(kStern.ic === k.ic, 'der Kondensator-Strom hängt nicht an der Schaltung');
+
+/* ── cos φ aus der Verbraucherliste (Daten einmal erfassen) ──
+   Motor 10 kW cos 0.8 + Verbraucher 10 kW cos 1.0:
+     Σ P = 20 kW,  Σ P·tan φ = 10 · 0.75 + 10 · 0 = 7.5 kvar
+     cos φ_mix = 20/√(20² + 7.5²) = 20/√456.25 = 20/21.360009363293827
+               = 0.9363291775690445                                        */
+const COSMIX = 0.9363291775690445;
+let r10 = lbCalc(mit({
+  rows:[ motor({ pkw:'10', cosphi:'0.8', eta:'1' }), allg({ pkw:'10', cosphi:'1' }) ],
+  komp: komp({ p:'', cos1:'' })
+}));
+nah(r10.komp.cos1, COSMIX, 1e-12, 'cos φ der Anlage aus dem Leistungsdreieck über alle Verbraucher');
+nah(r10.komp.p, 20, 1e-9, 'Wirkleistung = Bedarfsleistung der Liste');
+ok(r10.komp.cosQuelle === 'liste' && r10.komp.pQuelle === 'liste',
+   'Herkunft ist als «aus der Liste» ausgewiesen');
+
+/* Der Gleichzeitigkeitsfaktor kürzt sich im cos φ heraus, die Leistung folgt ihm. */
+r10 = lbCalc(mit({
+  gGlobal:0.8,
+  rows:[ motor({ pkw:'10', cosphi:'0.8', eta:'1' }), allg({ pkw:'10', cosphi:'1' }) ],
+  komp: komp({ p:'', cos1:'' })
+}));
+nah(r10.komp.cos1, COSMIX, 1e-12, 'Gleichzeitigkeit ändert den cos φ nicht');
+nah(r10.komp.p, 16, 1e-9, 'Gleichzeitigkeit senkt die Wirkleistung auf 16 kW');
+
+/* Eine eigene Eingabe gewinnt IMMER über den Listenwert. */
+r10 = lbCalc(mit({
+  rows:[ motor({ pkw:'10', cosphi:'0.8', eta:'1' }) ],
+  komp: komp({ p:'50', cos1:'0.75' })
+}));
+ok(r10.komp.p === 50 && Math.abs(r10.komp.cos1 - 0.75) < 1e-12,
+   'eingetragene Werte übersteuern die Liste');
+ok(r10.komp.pQuelle === 'eingabe' && r10.komp.cosQuelle === 'eingabe',
+   'Herkunft ist dann «Eingabe»');
+
+/* ── Blindarbeits-Kosten ──
+   cos φ_Grenz 0.9 → tan = √0.19/0.9 = 0.4358898943540674/0.9 = 0.4843221048378527
+   Q_über,1 = 50 · (0.8819171036881969 − 0.4843221048378527) = 19.87974994251721 kvar
+   Q_über,2 = 50 · (0.3286841051788631 − 0.4843221048378527) < 0 → 0
+   W₁ = 19.87974994251721 · 2000 h = 39759.49988503442 kvarh/a
+   Kosten₁ = 39759.49988503442 · 0.05 = 1987.974994251721 CHF/a                */
+const SPAR_BLIND = 1987.974994251721;
+k = mitK({ stunden:'2000', cosGrenz:'0.9', preisBlind:'0.05' }).komp;
+nah(k.tanGrenz, 0.4843221048378527, 1e-12, 'tan φ zum Grenz-cos-φ 0.9');
+nah(k.blind.qUeber1, 19.87974994251721, 1e-9, 'verrechnete Blindleistung vorher');
+ok(k.blind.qUeber2 === 0, 'nach der Kompensation liegt nichts mehr über dem Grenzwert');
+nah(k.blind.w1, 39759.49988503442, 1e-6, 'Blindarbeit im Jahr');
+nah(k.blind.spar, SPAR_BLIND, 1e-9, 'Ersparnis Blindarbeit = 1987.97 CHF/a');
+
+/* Ohne Tarife wird nichts gerechnet — und nichts geschätzt. */
+ok(mitK({ stunden:'2000' }).komp.blind === null,
+   'ohne Preis je kvarh keine Blindarbeits-Rechnung');
+ok(mitK({ preisBlind:'0.05' }).komp.blind === null,
+   'ohne Betriebsstunden keine Blindarbeits-Rechnung');
+
+/* Liegt der cos φ schon über dem Grenzwert, wird nichts verrechnet — mit Hinweis. */
+let rOk = mitK({ cos1:'0.95', cos2:'0.98', stunden:'2000', cosGrenz:'0.9', preisBlind:'0.05' });
+ok(rOk.komp.blind.qUeber1 === 0 && rOk.komp.blind.spar === 0,
+   'über dem Grenzwert gibt es keine Blindarbeits-Ersparnis');
+ok(enthaelt(rOk, 'bereits über dem Grenzwert'),
+   'das wird gesagt, statt eine Ersparnis von 0 unkommentiert zu lassen');
+
+/* ── Verlustreduktion aus der BEMESSENEN Zuleitung ──
+   P_V ∝ I², also P_V2/P_V1 = (cos φ₁/cos φ₂)². Der Absolutwert kommt aus
+   der Leitung, die das Modul selbst bemessen hat.                          */
+let rV = mitK({ stunden:'2000', preisWirk:'0.28' },
+               { laenge:40, rows:[ motor({ pkw:'30', cosphi:'0.75', eta:'1' }) ] });
+/* KAPPA ist oben unabhängig gerechnet: κ(Cu, 70 °C) = 56/1.1965 = 46.8031 m/(Ω·mm²). */
+const A_ZUL = rV.zuleitung.A;
+ok(A_ZUL > 0, 'die Zuleitung ist bemessen (Grundlage der Verlustrechnung)');
+const PV1_ERW = 3 * rV.komp.i1 * rV.komp.i1 * 40 / (KAPPA * A_ZUL);
+nah(rV.komp.verlust.pv1, PV1_ERW, 1e-9, 'P_V,1 = 3 · I₁² · L / (κ · A) mit κ bei 70 °C');
+nah(rV.komp.verlust.pv2, PV1_ERW * Math.pow(0.75 / 0.95, 2), 1e-9,
+    'P_V,2 = P_V,1 · (cos φ₁/cos φ₂)²');
+nah(rV.komp.verlust.e, (PV1_ERW - PV1_ERW * Math.pow(0.75 / 0.95, 2)) / 1000 * 2000, 1e-9,
+    'Energieersparnis = ΔP_V · h');
+nah(rV.komp.verlust.spar, ((PV1_ERW - PV1_ERW * Math.pow(0.75 / 0.95, 2)) / 1000 * 2000) * 0.28,
+    1e-9, 'Ersparnis Verluste = ΔP_V · h · Preis');
+/* Gegenprobe: κ bei 20 °C würde die Verluste rund 16 % zu günstig rechnen. */
+ok(Math.abs(E.elKappa('cu', 70) - KAPPA) < 1e-9 && KAPPA < E.elKappa('cu', 20),
+   'gerechnet wird mit κ bei Betriebstemperatur, nicht κ₂₀');
+
+/* Ohne Länge wird die Ersparnis NICHT geschätzt, sondern gemeldet. */
+let rOhne = mitK({ stunden:'2000', preisWirk:'0.28' }, { laenge:0 });
+ok(rOhne.komp.verlust === null, 'ohne Leitungsdaten keine Verlustrechnung');
+ok(enthaelt(rOhne, 'schätzt sie bewusst nicht'),
+   'der Verzicht auf eine Schätzung wird begründet');
+
+/* ── Summe und Amortisation ── */
+k = mitK({ stunden:'2000', cosGrenz:'0.9', preisBlind:'0.05', invest:'5000' }).komp;
+nah(k.sparJahr, SPAR_BLIND, 1e-9, 'Jahresersparnis ohne Verlustanteil');
+nah(k.amort, 5000 / SPAR_BLIND, 1e-9, 'Amortisation = Investition / Ersparnis');
+ok(mitK({ invest:'5000' }).komp.amortNie === true,
+   'ohne Ersparnis wird keine Amortisation erfunden');
+
+/* ── Grenzen werden GEMELDET, nicht gedeckelt ── */
+let rG = mitK({ cos1:'0.9', cos2:'0.85' });
+ok(rG.komp.qc === 0 && rG.komp.moeglich === false,
+   'ein schlechterer Zielwert ergibt keine negative Kompensationsleistung');
+ok(hatTyp(rG, 'warn') && enthaelt(rG, 'nichts zu kompensieren'),
+   'stattdessen wird gesagt, dass es nichts zu kompensieren gibt');
+
+rG = mitK({ cos1:'0' });
+ok(rG.komp.tan1 === null && hatTyp(rG, 'err') && enthaelt(rG, 'kein gültiger Leistungsfaktor'),
+   'cos φ = 0 wird gemeldet statt auf einen Randwert geklemmt');
+rG = mitK({ cos2:'1.4' });
+ok(rG.komp.tan2 === null && hatTyp(rG, 'err'),
+   'ein Ziel-cos-φ über 1 wird gemeldet');
+
+rG = mitK({ cos2:'1' });
+ok(rG.komp.moeglich === true && hatTyp(rG, 'warn') && enthaelt(rG, 'Vollkompensation'),
+   'Vollkompensation wird gerechnet, aber als ungünstige Auslegung gewarnt');
+
+/* Q_C über der Richtwert-Reihe (grösste Stufe 500 kvar). */
+rG = mitK({ p:'2000', cos1:'0.6', cos2:'0.95' });
+ok(rG.komp.ueberReihe === true && rG.komp.kondStufe === null,
+   'über der Kondensator-Reihe gibt es keine stille Stufe');
+ok(hatTyp(rG, 'warn') && enthaelt(rG, 'über der grössten hinterlegten Kondensator'),
+   'das wird gemeldet');
+
+/* Ohne Wirkleistung wird nichts gerechnet, aber gesagt was fehlt. */
+rG = lbCalc(mit({ rows:[], komp:komp({ p:'', cos1:'' }) }));
+ok(rG.komp.qc === null && enthaelt(rG, 'fehlt die Wirkleistung'),
+   'ohne P wird gesagt, was fehlt');
+
+/* ── Oberschwingungen: Hinweis aus der Verbraucherliste ── */
+let rU = lbCalc(mit({
+  rows:[ motor({ pkw:'30', cosphi:'0.8', eta:'1', anlaufart:'umr' }),
+         allg({ pkw:'10', cosphi:'1' }) ],
+  komp: komp({ p:'', cos1:'' })
+}));
+nah(rU.komp.pUmrAnteil, 30 / 40, 1e-9, 'Anteil der Umrichter-Antriebe an der Leistung');
+ok(hatTyp(rU, 'warn') && enthaelt(rU, 'verdrosselte'),
+   'ein hoher Umrichter-Anteil führt zum Hinweis auf verdrosselte Ausführung');
+let rD = lbCalc(mit({
+  rows:[ motor({ pkw:'30', cosphi:'0.8', eta:'1', anlaufart:'direkt' }) ],
+  komp: komp({ p:'', cos1:'' })
+}));
+ok(!enthaelt(rD, 'verdrosselte'), 'ohne Umrichter kein Resonanz-Hinweis');
+
+/* ── Beurteilt wird der IST-Zustand, nicht der Zielwert ──
+   (Im Quell-Rechner beurteilte die Statuszeile den TARGET — damit hiess ein
+   tiefes Ziel «dringend nötig», obwohl die Anlage längst gut dasteht.)      */
+ok(mitK({ cos1:'0.95', cos2:'0.98' }).komp.urteil === 'ok',
+   'gute Anlage → i.O., unabhängig vom gewählten Ziel');
+ok(mitK({ cos1:'0.85' }).komp.urteil === 'warn', 'cos φ 0.85 → zu prüfen');
+ok(mitK({ cos1:'0.7'  }).komp.urteil === 'err',  'cos φ 0.70 → deutlich zu tief');
+ok(mitK({ cos1:'0.95', cos2:'0.85' }).komp.urteil === 'ok',
+   'ein schlechter Zielwert macht eine gute Anlage nicht schlecht');
+
+/* ── 1~ rechnet ohne √3 ── */
+const k1 = lbCalc(mit({ systemId:'1p230', komp:komp({ p:'5', cos1:'0.75', cos2:'0.95' }) })).komp;
+nah(k1.i1, (5 / 0.75) * 1000 / 230, 1e-9, '1~: I = S · 1000 / U (ohne √3)');
+nah(k1.kapaz, 5 * (0.8819171036881969 - 0.3286841051788631) >= 0
+     ? E.elKondKapazitaet(k1.qDim, 230, 1, 'dreieck', 50) : 0, 1e-9,
+    '1~: C = Q/(ω·U²), keine Dreieck-Teilung');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

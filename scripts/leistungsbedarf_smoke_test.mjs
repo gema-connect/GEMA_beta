@@ -10,8 +10,9 @@
      D  Summe, Zuleitung und Anlauf-Spannungsfall
      E  Grenzen werden angezeigt statt verschwiegen
      F  Ladeinfrastruktur (E-Mobilität)
-     G  Persistenz über einen Reload (GemaAutoSave + Snapshot-Fallback)
-     H  Kein Zugriff für role_monteur
+     G  Blindleistungs-Kompensation
+     H  Persistenz über einen Reload (GemaAutoSave + Snapshot-Fallback)
+     I  Kein Zugriff für role_monteur
 
    Ohne playwright-core/Chromium bricht der Test mit Hinweis ab — nie still.
    ════════════════════════════════════════════════════════════════════════ */
@@ -72,8 +73,8 @@ console.log('── A: Boot & Aufbau ──');
   const { page, ctx, fehler } = await oeffne();
   ok(fehler.length === 0, 'keine pageerrors — ' + fehler.join(' | '));
   ok(await page.locator('.el-stub').count() === 0, 'Gerüst-Banner ist entfernt');
-  ok(await page.locator('.el-card').count() === 6, '6 Schritt-Karten');
-  for (const f of ['netz', 'verbraucher', 'anschluss', 'anlauf', 'evse', 'ergebnis'])
+  ok(await page.locator('.el-card').count() === 7, '7 Schritt-Karten');
+  for (const f of ['netz', 'verbraucher', 'anschluss', 'anlauf', 'evse', 'komp', 'ergebnis'])
     ok(await page.locator('.el-card[data-fold="' + f + '"]').count() === 1, 'Karte «' + f + '» vorhanden');
 
   ok(await page.locator('input[type="number"]').count() === 0, 'kein einziges type="number" (GEMA-Kanon)');
@@ -303,8 +304,118 @@ console.log('\n── F: Ladeinfrastruktur ──');
   await ctx.close();
 }
 
-/* ══ G — Persistenz über einen Reload ════════════════════════════════ */
-console.log('\n── G: Persistenz ──');
+/* ══ G — Blindleistungs-Kompensation ═════════════════════════════════ */
+console.log('\n── G: Blindleistungs-Kompensation ──');
+{
+  const { page, ctx, fehler } = await oeffne();
+  ok(!(await page.locator('#lb_kompBody').isVisible()),
+     'die Karte startet zugeklappt (ausgeschaltet)');
+  await page.check('#lb_kompAktiv');
+  await page.waitForTimeout(240);
+  ok(await page.locator('#lb_kompBody').isVisible(), 'der Haken klappt sie auf');
+
+  /* Formelzeichen dürfen nicht durch text-transform:uppercase entstellt werden:
+     «cos φ» würde sonst zu «COS Φ» — und Φ ist der Fluss, nicht der Winkel. */
+  const symTf = await page.locator('#lb_k_cos1').evaluate(el => {
+    const lab = el.closest('.fg').querySelector('label .sym');
+    return lab ? getComputedStyle(lab).textTransform : 'FEHLT';
+  });
+  ok(symTf === 'none', 'Formelzeichen in der Beschriftung bleiben klein (' + symTf + ')');
+
+  /* Der cos φ kommt aus der Verbraucherliste — der Startmotor steht schon da. */
+  enthaelt(await txt(page, '#lb_k_cos1Hint'), 'aus der Verbraucherliste',
+           'der cos φ wird aus der Liste gebildet, nicht abgefragt');
+  enthaelt(await txt(page, '#lb_k_pHint'), 'aus der Verbraucherliste',
+           'ebenso die Wirkleistung');
+
+  /* Referenzfall von Hand: 50 kW, cos φ 0.75 → 0.95 ⇒ Q_C = 27.66 kvar,
+     nächste Kondensatorstufe 30 kvar, C = 198.9 µF, I_C = 43.30 A. */
+  await setzeFeld(page, '#lb_k_p', '50');
+  await setzeFeld(page, '#lb_k_cos1', '0.75');
+  await setzeFeld(page, '#lb_k_cos2', '0.95');
+  enthaelt(await txt(page, '#lb_k_qc'), '27.66', 'Q_C = P · (tan φ₁ − tan φ₂) = 27.66 kvar');
+  enthaelt(await txt(page, '#lb_k_stufe'), '30', 'nächstgrössere Kondensatorstufe 30 kvar');
+  enthaelt(await txt(page, '#lb_k_stufe'), 'Richtwert',
+           'die Stufe ist als Richtwert-Reihe gekennzeichnet, nicht als Norm');
+  enthaelt(await txt(page, '#lb_k_kapaz'), '198.9', 'Kapazität je Strang 198.9 µF');
+  enthaelt(await txt(page, '#lb_k_ic'), '43.30', 'Kondensator-Strom 43.30 A');
+  enthaelt(await txt(page, '#lb_k_ic'), '64.95', 'Absicherungs-Richtwert 1.5 · I_C');
+  enthaelt(await txt(page, '#lb_k_s'), '66.67', 'Scheinleistung vorher 66.67 kVA');
+  enthaelt(await txt(page, '#lb_k_s'), '52.63', 'Scheinleistung nachher 52.63 kVA');
+  enthaelt(await txt(page, '#lb_k_i'), '96.23', 'Strom vorher 96.23 A');
+  enthaelt(await txt(page, '#lb_k_i'), '75.97', 'Strom nachher 75.97 A');
+  enthaelt(await txt(page, '#lb_k_i'), '20.26', 'Stromreduktion 20.26 A');
+
+  /* Der Formel-Chip folgt der Schaltung — ein fester Chip würde lügen. */
+  enthaelt(await txt(page, '#lb_k_frmlC'), '3 · ω', 'Chip zeigt die Dreieck-Teilung');
+  await page.selectOption('#lb_k_schaltung', 'stern');
+  await page.waitForTimeout(220);
+  enthaelt(await txt(page, '#lb_k_frmlC'), '1 · ω', 'bei Stern folgt der Chip mit');
+  enthaelt(await txt(page, '#lb_k_kapaz'), '596.8', 'und Stern braucht die dreifache Kapazität');
+  await page.selectOption('#lb_k_schaltung', 'dreieck');
+  await page.waitForTimeout(220);
+
+  /* Wirtschaftlichkeit: Blindarbeit 1987.97 CHF/a bei 2000 h und 0.05 CHF/kvarh. */
+  await setzeFeld(page, '#lb_k_stunden', '2000');
+  await setzeFeld(page, '#lb_k_cosGrenz', '0.9');
+  await setzeFeld(page, '#lb_k_preisBlind', '0.05');
+  enthaelt(await txt(page, '#lb_k_sparBlind'), '1’987.97', 'Ersparnis Blindarbeit 1987.97 CHF/a');
+  enthaelt(await txt(page, '#lb_k_spar'), '1’987.97', 'Jahresersparnis übernimmt sie');
+  await setzeFeld(page, '#lb_k_invest', '5000');
+  enthaelt(await txt(page, '#lb_k_amort'), '2.5', 'Amortisation 2.5 Jahre');
+
+  /* Ohne Leitungsdaten wird die Verlustersparnis NICHT geschätzt. */
+  await setzeFeld(page, '#lb_k_preisWirk', '0.28');
+  enthaelt(await txt(page, '#lb_k_verl'), 'Länge und Querschnitt',
+           'ohne Leitungsdaten sagt das Feld, was fehlt');
+  enthaelt(await txt(page, '#lb_meldungen'), 'schätzt sie bewusst nicht',
+           'und der Verzicht auf eine Schätzung wird begründet');
+  await setzeFeld(page, '#lb_laenge', '40');
+  enthaelt(await txt(page, '#lb_k_verl'), 'W', 'mit Länge wird der Verlust gerechnet');
+  enthaelt(await txt(page, '#lb_k_sparVerl'), 'CHF/a', 'und die Ersparnis daraus');
+
+  /* Der Status beurteilt den IST-Zustand, nicht den Zielwert. */
+  enthaelt(await txt(page, '#lb_k_status'), 'deutlich zu tief',
+           'cos φ 0.75 wird als deutlich zu tief beurteilt');
+  await setzeFeld(page, '#lb_k_cos1', '0.95');
+  enthaelt(await txt(page, '#lb_k_status'), 'bereits über dem Grenzwert',
+           'eine gute Anlage wird als gut beurteilt');
+  ok((await page.getAttribute('#lb_k_status', 'class') || '').indexOf('ok') >= 0,
+     'und die Statuszeile ist grün');
+
+  /* Ein Zielwert unter dem Ist ergibt keine negative Kompensationsleistung. */
+  await setzeFeld(page, '#lb_k_cos2', '0.85');
+  enthaelt(await txt(page, '#lb_k_qc'), 'nicht besser als heute',
+           'ein schlechterer Zielwert wird benannt statt negativ gerechnet');
+  enthaelt(await txt(page, '#lb_meldungen'), 'nichts zu kompensieren',
+           'mit einer Meldung dazu');
+  ok((await txt(page, '#lb_k_status') || '').indexOf('bereits über dem Grenzwert') >= 0,
+     'die Beurteilung der Anlage bleibt davon unberührt');
+
+  /* Vollkompensation wird gerechnet, aber gewarnt. */
+  await setzeFeld(page, '#lb_k_cos1', '0.8');
+  await setzeFeld(page, '#lb_k_cos2', '1');
+  enthaelt(await txt(page, '#lb_meldungen'), 'Vollkompensation',
+           'Ziel-cos-φ 1 wird als ungünstige Auslegung gewarnt');
+
+  ok(fehler.length === 0, 'keine pageerrors — ' + fehler.join(' | '));
+  await ctx.close();
+}
+
+/* Der Hinweis auf verdrosselte Ausführung kommt aus der Verbraucherliste. */
+{
+  const { page, ctx } = await oeffne();
+  await page.check('#lb_kompAktiv');
+  await page.waitForTimeout(200);
+  await page.locator('tr.lb-det select').first().selectOption('umr');
+  await page.waitForTimeout(240);
+  enthaelt(await txt(page, '#lb_meldungen'), 'verdrosselte',
+           'ein Umrichter-Antrieb führt zum Hinweis auf Resonanz');
+  await ctx.close();
+}
+
+/* ══ H — Persistenz über einen Reload ════════════════════════════════ */
+console.log('\n── H: Persistenz ──');
 {
   const { page, ctx } = await oeffne();
   await setzeFeld(page, '#lb_laenge', '42');
@@ -313,6 +424,13 @@ console.log('\n── G: Persistenz ──');
   await page.waitForTimeout(220);
   await setzeFeld(page, '#lb_ev_uvA', '50');
   await page.selectOption('#lb_ev_lm', 'statisch');
+  await page.waitForTimeout(200);
+  await page.check('#lb_kompAktiv');
+  await page.waitForTimeout(220);
+  await setzeFeld(page, '#lb_k_cos2', '0.92');
+  await setzeFeld(page, '#lb_k_stunden', '3000');
+  await setzeFeld(page, '#lb_k_preisBlind', '0.06');
+  await page.selectOption('#lb_k_schaltung', 'stern');
   await page.waitForTimeout(200);
   await page.click('.lb-add button >> nth=1');            // ＋ Verbraucher
   await page.waitForTimeout(200);
@@ -336,6 +454,13 @@ console.log('\n── G: Persistenz ──');
   ok(await page.inputValue('#lb_ev_uvA') === '50', 'die Vorsicherung überlebt den Reload');
   ok(await page.inputValue('#lb_ev_lm') === 'statisch', 'das Lastmanagement überlebt den Reload');
   enthaelt(await txt(page, '#lb_ev_pJe'), 'kW', 'und die Ladeinfrastruktur rechnet sofort wieder');
+  ok(await page.isChecked('#lb_kompAktiv'), 'die Kompensation ist nach dem Reload wieder eingeschaltet');
+  ok(await page.locator('#lb_kompBody').isVisible(), 'und ihre Karte ist wieder aufgeklappt');
+  ok(await page.inputValue('#lb_k_cos2') === '0.92', 'der Ziel-cos-φ überlebt den Reload');
+  ok(await page.inputValue('#lb_k_stunden') === '3000', 'die Betriebsstunden überleben den Reload');
+  ok(await page.inputValue('#lb_k_preisBlind') === '0.06', 'der Blindarbeits-Preis überlebt den Reload');
+  ok(await page.inputValue('#lb_k_schaltung') === 'stern', 'die Schaltung überlebt den Reload');
+  enthaelt(await txt(page, '#lb_k_qc'), 'kvar', 'und die Kompensation rechnet sofort wieder');
 
   /* Der Fold-Zustand ist Geräte-UI und darf NIE im AutoSave-Schnappschuss liegen. */
   const snap = await page.evaluate(() => localStorage.getItem('gema_leistungsbedarf') || '');
@@ -350,8 +475,8 @@ console.log('\n── G: Persistenz ──');
   await ctx.close();
 }
 
-/* ══ H — Kein Zugriff ════════════════════════════════════════════════ */
-console.log('\n── H: Kein Zugriff für role_monteur ──');
+/* ══ I — Kein Zugriff ════════════════════════════════════════════════ */
+console.log('\n── I: Kein Zugriff für role_monteur ──');
 {
   const { page, ctx } = await oeffne(['role_monteur']);
   const body = (await page.textContent('body')) || '';

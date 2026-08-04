@@ -742,3 +742,89 @@ G.EL_EVSE_IMIN=EL_EVSE_IMIN; G.EL_EVSE_STUFEN=EL_EVSE_STUFEN; G.EL_LM=EL_LM;
 G.elEvseStufe=elEvseStufe; G.elLm=elLm; G.elULN=elULN;
 G.elLeistungAusStrom=elLeistungAusStrom; G.elStromAusLeistung=elStromAusLeistung;
 })();
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ANHANG — Blindleistungs-Kompensation
+   ══════════════════════════════════════════════════════════════════════════
+   Ergänzt window.GemaElektro; ändert KEINE bestehenden Werte.
+   Konsument: el_leistungsbedarf (Karte «Blindleistungs-Kompensation»).
+
+   Quellen und Abgrenzung
+     · Q_C = P · (tan φ₁ − tan φ₂) — Leistungsdreieck, allgemeingültig
+     · Kondensator-Nennleistungen sind HERSTELLER-Reihen, keine Norm. Die
+       Liste unten ist ein Richtwert für die Grobwahl; massgebend bleibt der
+       Katalog des Herstellers.
+     · Der Abrechnungs-Grenzwert cos φ (üblich 0.9) ist eine Vorgabe des
+       NETZBETREIBERS und je Werk verschieden — er ist darum eine Eingabe
+       im Modul und hier nur als Vorgabewert hinterlegt.
+     · Oberschwingungen, Resonanz und die Auslegung der Verdrosselung sind
+       NICHT abgedeckt (dafür braucht es eine Netzanalyse).
+   ══════════════════════════════════════════════════════════════════════════ */
+(function(){
+var G = window.GemaElektro; if(!G) return;
+
+/** Netzfrequenz CH/EU [Hz]. */
+var EL_NETZ_F = 50;
+
+/** Üblicher Abrechnungs-Grenzwert cos φ des Netzbetreibers — VORGABE, keine
+    Norm. Jedes Werk legt ihn selbst fest; im Modul ist er eine Eingabe. */
+var EL_COSPHI_GRENZ = 0.9;
+
+/** Gebräuchliche Kondensator-Nennleistungen [kvar]. RICHTWERT-Reihe aus den
+    Katalogen der üblichen Hersteller — bewusst als solche gekennzeichnet,
+    damit sie nie wie eine Normreihe gelesen wird. */
+var EL_KOND_STUFEN = [1, 2.5, 5, 6.25, 7.5, 10, 12.5, 15, 20, 25, 30, 40, 50,
+                      60, 75, 100, 125, 150, 200, 250, 300, 400, 500];
+var EL_KOND_RICHTWERT = true;
+
+/** Schaltung der Kondensatoren. Leistungskondensatoren werden üblicherweise
+    in DREIECK geschaltet — sie brauchen für dieselbe Blindleistung nur ein
+    Drittel der Kapazität. `fC` ist der Nenner in C = Q/(fC · ω · U²). */
+var EL_KOND_SCHALTUNG = [
+  { id:'dreieck', name:'Dreieck (üblich)', fC:3 },
+  { id:'stern',   name:'Stern',            fC:1 }
+];
+
+/** tan φ aus cos φ. Liefert null ausserhalb 0 < cos φ ≤ 1 — der Aufrufer
+    MUSS das melden, statt still auf einen Randwert zu klemmen. */
+function elTanPhi(cosphi){
+  var c = Number(cosphi);
+  if(!(c > 0) || c > 1) return null;
+  return Math.tan(Math.acos(c));
+}
+
+/** Nächstgrössere Kondensator-Nennleistung. null über der Reihe — kein
+    stiller Deckel, der Aufrufer meldet es. */
+function elKondStufe(q){
+  var Q = Number(q);
+  if(!(Q > 0)) return null;
+  for(var i = 0; i < EL_KOND_STUFEN.length; i++){
+    if(EL_KOND_STUFEN[i] >= Q - 1e-9) return EL_KOND_STUFEN[i];
+  }
+  return null;
+}
+
+/** Schaltung nach id (Fallback: Dreieck). */
+function elKondSchaltung(id){
+  for(var i = 0; i < EL_KOND_SCHALTUNG.length; i++){
+    if(EL_KOND_SCHALTUNG[i].id === String(id)) return EL_KOND_SCHALTUNG[i];
+  }
+  return EL_KOND_SCHALTUNG[0];
+}
+
+/** Kapazität je Strang [µF] aus Q [kvar] und Spannung [V].
+    3~: C = Q / (fC · ω · U_LL²)   ·   1~: C = Q / (ω · U²) */
+function elKondKapazitaet(qkvar, u, phasen, schaltungId, f){
+  var Q = Number(qkvar), U = Number(u);
+  if(!(Q > 0) || !(U > 0)) return null;
+  var w = 2 * Math.PI * (Number(f) > 0 ? Number(f) : EL_NETZ_F);
+  var fC = (Number(phasen) === 3) ? elKondSchaltung(schaltungId).fC : 1;
+  return Q * 1000 / (fC * w * U * U) * 1e6;
+}
+
+G.EL_NETZ_F=EL_NETZ_F; G.EL_COSPHI_GRENZ=EL_COSPHI_GRENZ;
+G.EL_KOND_STUFEN=EL_KOND_STUFEN; G.EL_KOND_RICHTWERT=EL_KOND_RICHTWERT;
+G.EL_KOND_SCHALTUNG=EL_KOND_SCHALTUNG;
+G.elTanPhi=elTanPhi; G.elKondStufe=elKondStufe;
+G.elKondSchaltung=elKondSchaltung; G.elKondKapazitaet=elKondKapazitaet;
+})();

@@ -54,6 +54,10 @@
 .lb-mini{padding:3px 9px;border-radius:6px;border:1.5px solid var(--el-bd);background:var(--el-bg);color:var(--el-dk);font-size:10.5px;font-weight:800;cursor:pointer;font-family:inherit;margin-right:7px}
 .lb-mini:hover{border-color:var(--el)}
 .el-sub-tt{margin:16px 0 8px;font-size:12px;font-weight:800;color:var(--txt2);letter-spacing:.02em;padding-bottom:5px;border-bottom:1.5px solid var(--brd)}
+/* Formelzeichen in den Feld-Beschriftungen: `.fg>label` in el_base.css schreibt
+   alles gross. Aus «cos φ» würde damit «COS Φ» — und Φ ist der magnetische
+   bzw. Lichtstrom, nicht der Phasenwinkel. Kleinschreibung hier erhalten. */
+.fg>label .sym{text-transform:none;letter-spacing:0}
 </style>
 <script src="gema_db.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
@@ -532,10 +536,195 @@
     </div>
   </div>
 
-  <!-- ═══ 6. ERGEBNIS ═══ -->
-  <div class="el-card" data-fold="ergebnis">
+  <!-- ═══ 6. BLINDLEISTUNGS-KOMPENSATION ═══ -->
+  <div class="el-card" data-fold="komp">
     <div class="el-card-hd" onclick="lbFold(this)">
       <span class="el-cx">▸</span><span class="el-secnum">6</span>
+      <span class="el-card-tt">Blindleistungs-Kompensation</span>
+      <span class="el-card-sub">cos φ anheben, Blindarbeit sparen</span>
+    </div>
+    <div class="el-card-bd">
+      <label class="lb-check"><input type="checkbox" id="lb_kompAktiv" onchange="lbKompToggle()"/>
+        <span>Kompensation für diese Anlage rechnen</span></label>
+
+      <div id="lb_kompBody" style="display:none">
+        <div class="frml-block" style="margin-top:11px">
+          <b>Der cos φ kommt aus der Verbraucherliste</b> — er wird über das Leistungsdreieck
+          aller erfassten Verbraucher gebildet (Σ P und Σ P·tan φ), nicht geschätzt. Beide
+          Felder lassen sich übersteuern; dann gilt der eingetragene Wert.
+        </div>
+
+        <div class="el-grid" style="margin-top:10px">
+          <div class="fg">
+            <label>Wirkleistung <span class="sym">P</span></label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="lb_k_p" type="text" inputmode="decimal" value=""
+                     placeholder="aus Liste" onblur="fixLeadingZero(this)" oninput="lbRecalc()"/>
+              <span class="g-inp-unit">kW</span>
+            </div>
+            <div class="fg-hint" id="lb_k_pHint"></div>
+          </div>
+          <div class="fg">
+            <label><span class="sym">cos φ</span> heute</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="lb_k_cos1" type="text" inputmode="decimal" value=""
+                     placeholder="aus Liste" onblur="fixLeadingZero(this)" oninput="lbRecalc()"/>
+              <span class="g-inp-unit">—</span>
+            </div>
+            <div class="fg-hint" id="lb_k_cos1Hint"></div>
+          </div>
+          <div class="fg">
+            <label>Ziel-<span class="sym">cos φ</span></label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="lb_k_cos2" type="text" inputmode="decimal" value="0.95"
+                     placeholder="0.95" onblur="fixLeadingZero(this)" oninput="lbRecalc()"/>
+              <span class="g-inp-unit">—</span>
+            </div>
+            <div class="fg-hint">Üblich 0.92–0.95. Vollkompensation (≈ 1) wird nicht ausgelegt.</div>
+          </div>
+          <div class="fg">
+            <label>Schaltung der Kondensatoren</label>
+            <select id="lb_k_schaltung" onchange="lbRecalc()"></select>
+            <div class="fg-hint">Dreieck braucht für dieselbe Blindleistung ein Drittel der Kapazität.</div>
+          </div>
+        </div>
+
+        <div class="el-res">
+          <div class="el-res-lbl">Erforderliche Kompensationsleistung
+            <span class="frml">Q<sub>C</sub> = P · (tan φ₁ − tan φ₂)</span></div>
+          <div class="el-res-val hl" id="lb_k_qc">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl">Kondensator-Nennleistung
+            <span class="frml">nächstgrössere Stufe ≥ Q<sub>C</sub></span></div>
+          <div class="el-res-val" id="lb_k_stufe">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl">Kapazität je Strang
+            <span class="frml" id="lb_k_frmlC">C = Q<sub>C</sub> / (3 · ω · U²)</span></div>
+          <div class="el-res-val" id="lb_k_kapaz">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl">Kondensator-Strom und Absicherung
+            <span class="frml">I<sub>C</sub> = Q<sub>C</sub> / (√3 · U) · Richtwert 1.5 · I<sub>C</sub></span></div>
+          <div class="el-res-val" id="lb_k_ic">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl">Scheinleistung vorher → nachher
+            <span class="frml">S = P / cos φ</span></div>
+          <div class="el-res-val" id="lb_k_s">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl">Strom vorher → nachher
+            <span class="frml" id="lb_k_frmlI">I = S / (√3 · U) · 1000</span></div>
+          <div class="el-res-val" id="lb_k_i">—</div>
+        </div>
+
+        <div class="el-sub-tt">Wirtschaftlichkeit</div>
+        <div class="frml-block">
+          <b>Tarife sind Eingaben, keine Tabelle.</b> Grenz-cos-φ und der Preis je kvarh legt
+          der Netzbetreiber fest und sie ändern sich — eine hinterlegte Tabelle wäre binnen
+          kurzem still veraltet. Werte aus der Stromrechnung bzw. beim Werk erfragen.
+        </div>
+        <div class="el-grid" style="margin-top:10px">
+          <div class="fg">
+            <label>Betriebsstunden im Jahr</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="lb_k_stunden" type="text" inputmode="decimal" value="2000"
+                     placeholder="2000" onblur="fixLeadingZero(this)" oninput="lbRecalc()"/>
+              <span class="g-inp-unit">h/a</span>
+            </div>
+          </div>
+          <div class="fg">
+            <label>Grenz-<span class="sym">cos φ</span> des Netzbetreibers</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="lb_k_cosGrenz" type="text" inputmode="decimal" value="0.9"
+                     placeholder="0.9" onblur="fixLeadingZero(this)" oninput="lbRecalc()"/>
+              <span class="g-inp-unit">—</span>
+            </div>
+            <div class="fg-hint">Ab hier wird Blindarbeit verrechnet — werkabhängig.</div>
+          </div>
+          <div class="fg">
+            <label>Preis Blindarbeit</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="lb_k_preisBlind" type="text" inputmode="decimal" value=""
+                     placeholder="z.B. 0.05" onblur="fixLeadingZero(this)" oninput="lbRecalc()"/>
+              <span class="g-inp-unit">CHF/kvarh</span>
+            </div>
+          </div>
+          <div class="fg">
+            <label>Preis Wirkarbeit</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="lb_k_preisWirk" type="text" inputmode="decimal" value=""
+                     placeholder="z.B. 0.28" onblur="fixLeadingZero(this)" oninput="lbRecalc()"/>
+              <span class="g-inp-unit">CHF/kWh</span>
+            </div>
+            <div class="fg-hint">Für die Verlustersparnis in der eigenen Zuleitung.</div>
+          </div>
+          <div class="fg">
+            <label>Investition Kompensationsanlage</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="lb_k_invest" type="text" inputmode="decimal" value=""
+                     placeholder="0" onblur="fixLeadingZero(this)" oninput="lbRecalc()"/>
+              <span class="g-inp-unit">CHF</span>
+            </div>
+            <div class="fg-hint">Leer lassen, wenn die Amortisation nicht interessiert.</div>
+          </div>
+        </div>
+
+        <div class="el-res">
+          <div class="el-res-lbl">Verrechnete Blindarbeit vorher → nachher
+            <span class="frml">W<sub>b</sub> = P · (tan φ − tan φ<sub>Grenz</sub>) · h</span></div>
+          <div class="el-res-val" id="lb_k_blind">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl">Ersparnis Blindarbeit
+            <span class="frml">ΔW<sub>b</sub> · Preis</span></div>
+          <div class="el-res-val" id="lb_k_sparBlind">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl">Verluste der Zuleitung vorher → nachher
+            <span class="frml">P<sub>V</sub> = f<sub>P</sub> · I² · L / (κ · A) · (cos φ₁/cos φ₂)²</span></div>
+          <div class="el-res-val" id="lb_k_verl">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl">Ersparnis Verluste
+            <span class="frml">ΔP<sub>V</sub> · h · Preis</span></div>
+          <div class="el-res-val" id="lb_k_sparVerl">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl">Ersparnis im Jahr
+            <span class="frml">Blindarbeit + Verluste</span></div>
+          <div class="el-res-val hl" id="lb_k_spar">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl">Amortisation
+            <span class="frml">Investition / Ersparnis</span></div>
+          <div class="el-res-val" id="lb_k_amort">—</div>
+        </div>
+
+        <div class="el-status ok" id="lb_k_status" style="margin-top:12px">—</div>
+
+        <div class="frml-block" style="margin-top:12px">
+          <b>Was diese Rechnung nicht abdeckt:</b>
+          Oberschwingungen, Resonanz und die Auslegung der Verdrosselung — dafür braucht es eine
+          Netzanalyse; der Anteil der Umrichter-Antriebe erscheint nur als Hinweis. &nbsp;·&nbsp;
+          Die Aufteilung in Einzel-, Gruppen- oder Zentralkompensation und die Stufung einer
+          geregelten Anlage. &nbsp;·&nbsp; Die Kondensator-Stufen sind eine
+          <b>Richtwert-Reihe aus Herstellerkatalogen</b>, keine Normreihe. &nbsp;·&nbsp;
+          Gerechnet wird mit gleichbleibenden Preisen; Tarifänderungen verschieben die
+          Amortisation. &nbsp;·&nbsp; Ströme und Scheinleistungen dieser Karte folgen dem
+          Leistungsdreieck (S = P/cos φ) — der Bemessungsstrom in Karte 3 ist die arithmetische
+          Summe der Einzelströme und damit bewusst konservativer.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 7. ERGEBNIS ═══ -->
+  <div class="el-card" data-fold="ergebnis">
+    <div class="el-card-hd" onclick="lbFold(this)">
+      <span class="el-cx">▸</span><span class="el-secnum">7</span>
       <span class="el-card-tt">Ergebnis</span>
       <span class="el-card-sub">Bewertung und Hinweise</span>
     </div>
@@ -669,10 +858,14 @@ function lbCalc(inp){
   if(!rows.length){
     out.evse = lbEvse(inp, { E:E, u:u, phasen:phasen, sys:sys, iso:iso, matId:matId,
                              kappa:out.kappa, pBed:0 }, mld);
+    /* Ohne Verbraucherliste rechnet die Kompensation mit P und cos φ von Hand. */
+    out.komp = lbKomp(inp, { E:E, u:u, phasen:phasen, sys:sys, kappa:out.kappa,
+                             zeilen:null, summe:null, laenge:inp.laenge, A:null }, mld);
     var hatErr0 = false, hatWarn0 = false;
     out.meldungen.forEach(function(m){
       if(m.typ === 'err') hatErr0 = true; if(m.typ === 'warn') hatWarn0 = true; });
-    out.status = out.evse ? (hatErr0 ? 'err' : (hatWarn0 ? 'warn' : 'ok')) : 'leer';
+    out.status = (out.evse || (out.komp && out.komp.p > 0))
+               ? (hatErr0 ? 'err' : (hatWarn0 ? 'warn' : 'ok')) : 'leer';
     return out;
   }
 
@@ -749,6 +942,13 @@ function lbCalc(inp){
   /* ── Ladeinfrastruktur ── */
   out.evse = lbEvse(inp, { E:E, u:u, phasen:phasen, sys:sys, iso:iso, matId:matId,
                            kappa:out.kappa, pBed:summe.pBed }, mld);
+
+  /* ── Blindleistungs-Kompensation ──
+     Bekommt die Verbraucherliste (für den gemischten cos φ) und die bemessene
+     Zuleitung (für die Verlustersparnis) — beides ist hier bereits gerechnet. */
+  out.komp = lbKomp(inp, { E:E, u:u, phasen:phasen, sys:sys, kappa:out.kappa,
+                           zeilen:out.zeilen, summe:summe,
+                           laenge:inp.laenge, A:zul.A }, mld);
 
   /* ── Status ── */
   var hatErr = false, hatWarn = false;
@@ -958,6 +1158,204 @@ function lbEvse(inp, ctx, mld){
   o.eZusatz = o.pZusatz * o.hop;
   return o;
 }
+
+/* ── Blindleistungs-Kompensation ─────────────────────────────────────────
+   Motoren und Umrichter ziehen neben der Wirkleistung Blindleistung. Die
+   verrichtet keine Arbeit, belastet aber Leitung, Trafo und Sicherung und
+   wird vom Netzbetreiber ab einem Grenz-cos-φ verrechnet. Ein Kondensator
+   liefert sie vor Ort, statt sie über das Netz zu holen.
+
+   Diese Rechnung hängt an derselben Verbraucherliste: der cos φ der Anlage
+   wird aus dem Leistungsdreieck ÜBER ALLE erfassten Verbraucher gebildet
+   (Σ P und Σ P·tan φ), nicht geschätzt. Ohne Liste sind P und cos φ Eingaben.
+
+   Getroffene Annahmen — stehen so auch im UI:
+   · Q_C = P · (tan φ₁ − tan φ₂). Bezugsgrösse ist die BEDARFS-Wirkleistung
+     (nach Gleichzeitigkeit), nicht die installierte.
+   · Die Blindarbeits-Kosten sind der eigentliche wirtschaftliche Treiber.
+     Grenz-cos-φ und Preis je kvarh legt der NETZBETREIBER fest und sind
+     darum Eingaben — GEMA führt dazu bewusst keine Tabelle.
+   · Die Verlustersparnis wird aus der IM MODUL bemessenen Zuleitung
+     gerechnet (κ bei Betriebstemperatur, Länge und Querschnitt aus der
+     Anschluss-Karte), nicht aus einem pauschalen Prozentsatz. Fehlt die
+     Länge, wird sie nicht geschätzt, sondern gemeldet.
+   · Ströme und Scheinleistungen dieser Karte folgen dem Leistungsdreieck
+     (S = P/cos φ). Der Bemessungsstrom in der Anschluss-Karte ist die
+     ARITHMETISCHE Summe der Einzelströme und damit bewusst konservativer.
+   · Oberschwingungen und Resonanz sind NICHT gerechnet. Der Anteil der
+     Umrichter-Antriebe wird nur als Hinweis auf eine verdrosselte
+     Ausführung ausgewiesen — die Entscheidung braucht eine Netzanalyse. */
+function lbKomp(inp, ctx, mld){
+  var E = ctx.E, k = inp.komp;
+  if(!k || !k.aktiv) return null;
+  var u = ctx.u, phasen = ctx.phasen;
+  var o = { u:u, phasen:phasen, pQuelle:'eingabe', cosQuelle:'eingabe',
+            qc:null, kondStufe:null, ueberReihe:false, moeglich:false };
+
+  /* ── P und cos φ₁: bevorzugt aus der Verbraucherliste ── */
+  var pListe = null, cosListe = null, pUmr = 0, pMotor = 0;
+  if(ctx.zeilen && ctx.zeilen.length){
+    var pS = 0, qS = 0;
+    ctx.zeilen.forEach(function(z){
+      var t = E.elTanPhi(z.cosphi);
+      if(t === null || !(z.pBed > 0)) return;
+      pS += z.pBed;
+      qS += z.pBed * t;
+      if(z.art === 'motor'){
+        pMotor += z.pBed;
+        if(z.anlaufart && z.anlaufart.id === 'umr') pUmr += z.pBed;
+      }
+    });
+    if(pS > 0){
+      /* Der Gleichzeitigkeitsfaktor kürzt sich im cos φ heraus (er skaliert
+         P und Q gleich) — für die Leistung gilt aber der Bedarfswert. */
+      pListe   = ctx.summe ? ctx.summe.pBed : pS;
+      cosListe = pS / Math.sqrt(pS * pS + qS * qS);
+    }
+  }
+  var pEin = E.elNum(k.p), cosEin = E.elNum(k.cos1);
+  o.p    = (pEin   > 0) ? pEin   : (pListe   !== null ? pListe   : 0);
+  o.cos1 = (cosEin > 0) ? cosEin : (cosListe !== null ? cosListe : 0);
+  if(!(pEin   > 0) && pListe   !== null) o.pQuelle   = 'liste';
+  if(!(cosEin > 0) && cosListe !== null) o.cosQuelle = 'liste';
+  o.pListe = pListe; o.cosListe = cosListe;
+  o.pUmrAnteil = (pMotor > 0 && o.p > 0) ? pUmr / o.p : null;
+
+  if(!(o.p > 0)){
+    mld('info','Für die Blindleistungs-Kompensation fehlt die Wirkleistung — Verbraucher erfassen oder P von Hand eintragen.');
+    return o;
+  }
+
+  /* ── Zielwert ── */
+  var cosZ = E.elNum(k.cos2);
+  o.cos2 = (cosZ > 0) ? cosZ : 0.95;
+  o.cos2Quelle = (cosZ > 0) ? 'eigen' : 'vorgabe';
+
+  /* Kein stiller Deckel: ein cos φ ausserhalb 0 < cos φ ≤ 1 wird gemeldet,
+     nicht auf den Randwert geklemmt. */
+  o.tan1 = E.elTanPhi(o.cos1);
+  o.tan2 = E.elTanPhi(o.cos2);
+  if(o.tan1 === null){
+    mld('err','Der cos φ der Anlage muss zwischen 0 und 1 liegen — «' + o.cos1 + '» ist kein gültiger Leistungsfaktor.');
+    return o;
+  }
+
+  /* Grenzwert und Beurteilung des IST-Zustands stehen VOR der Zielprüfung:
+     ein unsinniger Zielwert darf die Aussage über die bestehende Anlage
+     nicht verschlucken. Beurteilt wird cos φ₁ — im Quell-Rechner hing die
+     Statuszeile am ZIEL und meldete «dringend nötig», obwohl die Anlage
+     längst gut dastand. */
+  var cosG = E.elNum(k.cosGrenz);
+  o.cosGrenz = (cosG > 0) ? cosG : E.EL_COSPHI_GRENZ;
+  o.tanGrenz = E.elTanPhi(o.cosGrenz);
+  if(o.tanGrenz === null){
+    mld('err','Der Grenz-cos-φ des Netzbetreibers muss zwischen 0 und 1 liegen.');
+  }
+  if(o.cos1 >= o.cosGrenz)      o.urteil = 'ok';
+  else if(o.cos1 >= 0.8)        o.urteil = 'warn';
+  else                          o.urteil = 'err';
+
+  if(o.tan2 === null){
+    mld('err','Der Ziel-cos-φ muss zwischen 0 und 1 liegen — «' + o.cos2 + '» ist kein gültiger Leistungsfaktor.');
+    return o;
+  }
+
+  o.s1 = o.p / o.cos1;
+  o.q1 = o.p * o.tan1;
+  o.s2 = o.p / o.cos2;
+  o.q2 = o.p * o.tan2;
+  o.i1 = E.elStromAusLeistung(o.s1, u, phasen);
+  o.i2 = E.elStromAusLeistung(o.s2, u, phasen);
+  o.di = (o.i1 !== null && o.i2 !== null) ? o.i1 - o.i2 : null;
+
+  if(o.cos2 <= o.cos1 + 1e-9){
+    mld('warn','Der Ziel-cos-φ (' + E.elFmt(o.cos2,2) + ') ist nicht besser als der heutige (' + E.elFmt(o.cos1,2) + '). Es gibt nichts zu kompensieren — Zielwert höher setzen.');
+    o.qc = 0;
+    return o;
+  }
+  o.moeglich = true;
+  o.qc = o.p * (o.tan1 - o.tan2);
+
+  /* Vollkompensation ist keine gute Auslegung: schon kleine Lastwechsel
+     kippen die Anlage ins Kapazitive, und übererregt reagieren Netz und
+     Abrechnung ungünstig. */
+  if(o.cos2 >= 0.99){
+    mld('warn','Ein Ziel-cos-φ von ' + E.elFmt(o.cos2,2) + ' kommt einer Vollkompensation gleich. Schon kleine Lastschwankungen führen dann zu kapazitivem (übererregtem) Betrieb — üblich sind 0.92 bis 0.95.');
+  }
+
+  /* ── Kondensator: Nennleistung, Strom, Kapazität ── */
+  o.kondStufe = E.elKondStufe(o.qc);
+  o.ueberReihe = (o.kondStufe === null);
+  if(o.ueberReihe){
+    mld('warn','Die erforderlichen ' + E.elFmt(o.qc,1) + ' kvar liegen über der grössten hinterlegten Kondensator-Richtwert-Stufe (' + E.EL_KOND_STUFEN[E.EL_KOND_STUFEN.length-1] + ' kvar) — Anlage aus mehreren Einheiten aufbauen, Auslegung mit dem Hersteller.');
+  }
+  var qDim = o.kondStufe !== null ? o.kondStufe : o.qc;
+  o.qDim = qDim;
+  o.schaltung = E.elKondSchaltung(k.schaltung);
+  o.ic = E.elStromAusLeistung(qDim, u, phasen);
+  o.kapaz = E.elKondKapazitaet(qDim, u, phasen, o.schaltung.id, E.EL_NETZ_F);
+  /* Kondensatorkreise werden wegen Einschaltstrom und Oberschwingungen
+     höher abgesichert als der reine Nennstrom — Richtwert 1.5 × I_C. */
+  o.icAbsich = (o.ic !== null) ? o.ic * 1.5 : null;
+  o.inKond = (o.icAbsich !== null) ? E.elNaechsteSicherung(o.icAbsich) : null;
+  if(o.icAbsich !== null && o.inKond === null){
+    mld('warn','Der Absicherungs-Richtwert des Kondensators (' + E.elFmt(o.icAbsich,1) + ' A) liegt über der hinterlegten Sicherungsreihe — Schutzorgan von Hand wählen.');
+  }
+
+  /* ── Blindarbeits-Kosten ── */
+  var h = E.elNum(k.stunden);
+  o.stunden = (h > 0) ? h : 0;
+  o.preisBlind = E.elNum(k.preisBlind);
+  o.preisWirk  = E.elNum(k.preisWirk);
+  o.blind = null;
+  if(o.tanGrenz !== null && o.stunden > 0 && o.preisBlind > 0){
+    var qUeber1 = Math.max(0, o.p * (o.tan1 - o.tanGrenz));
+    var qUeber2 = Math.max(0, o.p * (o.tan2 - o.tanGrenz));
+    o.blind = {
+      qUeber1:qUeber1, qUeber2:qUeber2,
+      w1:qUeber1 * o.stunden, w2:qUeber2 * o.stunden,
+      kosten1:qUeber1 * o.stunden * o.preisBlind,
+      kosten2:qUeber2 * o.stunden * o.preisBlind
+    };
+    o.blind.spar = o.blind.kosten1 - o.blind.kosten2;
+    if(qUeber1 <= 0){
+      mld('info','Der heutige cos φ liegt bereits über dem Grenzwert des Netzbetreibers (' + E.elFmt(o.cosGrenz,2) + ') — Blindarbeit wird nicht verrechnet. Die Kompensation lohnt sich dann nur über die Verlustreduktion.');
+    }
+  }
+
+  /* ── Verlustreduktion in der eigenen Zuleitung ──
+     P_V ∝ I², und bei gleicher Wirkleistung ist I ∝ 1/cos φ. Das Verhältnis
+     ist damit (cos φ₁/cos φ₂)² — unabhängig davon, welchen Strombezug man
+     wählt. Der Absolutwert kommt aus der bemessenen Leitung. */
+  o.verlust = null;
+  var L = E.elNum(ctx.laenge), A = ctx.A;
+  if(o.stunden > 0 && o.preisWirk > 0){
+    if(L > 0 && A > 0 && ctx.kappa > 0 && o.i1 !== null){
+      var pv1 = ctx.sys.fP * o.i1 * o.i1 * L / (ctx.kappa * A);          // W
+      var pv2 = pv1 * Math.pow(o.cos1 / o.cos2, 2);
+      o.verlust = {
+        laenge:L, a:A, pv1:pv1, pv2:pv2, dpv:Math.max(0, pv1 - pv2),
+        e:Math.max(0, pv1 - pv2) / 1000 * o.stunden
+      };
+      o.verlust.spar = o.verlust.e * o.preisWirk;
+    } else {
+      mld('info','Die Verlustersparnis lässt sich nicht rechnen, solange Länge und Querschnitt der Zuleitung fehlen. GEMA schätzt sie bewusst nicht — die Blindarbeits-Ersparnis steht unabhängig davon.');
+    }
+  }
+
+  o.sparJahr = (o.blind ? o.blind.spar : 0) + (o.verlust ? o.verlust.spar : 0);
+  var inv = E.elNum(k.invest);
+  o.invest = (inv > 0) ? inv : 0;
+  o.amort = (o.invest > 0 && o.sparJahr > 0) ? o.invest / o.sparJahr : null;
+  o.amortNie = (o.invest > 0 && o.sparJahr <= 0);
+
+  /* ── Oberschwingungen: Hinweis, keine Rechnung ── */
+  if(o.pUmrAnteil !== null && o.pUmrAnteil > 0.15){
+    mld('warn','Rund ' + E.elFmt(o.pUmrAnteil * 100,0) + ' % der Leistung läuft über Frequenzumrichter. Unverdrosselte Kondensatoren können mit der Netzinduktivität in Resonanz geraten und Oberschwingungen verstärken — verdrosselte Ausführung prüfen. Die Auslegung braucht eine Netzanalyse, GEMA rechnet sie nicht.');
+  }
+
+  return o;
+}
 /*ENGINE-END*/
 
 /* ── Oberfläche ─────────────────────────────────────────────────────────── */
@@ -1158,6 +1556,18 @@ function lbRead(){
       batKW:     g('lb_ev_bat'),
       hop:       g('lb_ev_hop'),
       evKWh100:  g('lb_ev_verbr')
+    },
+    komp: {
+      aktiv:      !!(document.getElementById('lb_kompAktiv') || {}).checked,
+      p:          g('lb_k_p'),
+      cos1:       g('lb_k_cos1'),
+      cos2:       g('lb_k_cos2'),
+      schaltung:  g('lb_k_schaltung') || 'dreieck',
+      stunden:    g('lb_k_stunden'),
+      cosGrenz:   g('lb_k_cosGrenz'),
+      preisBlind: g('lb_k_preisBlind'),
+      preisWirk:  g('lb_k_preisWirk'),
+      invest:     g('lb_k_invest')
     }
   };
 }
@@ -1189,6 +1599,13 @@ function lbEvLmChanged(){
   if(h) h.textContent = lm.hinweis;
   lbRecalc();
 }
+/* ── Blindleistungs-Kompensation — UI ────────────────────────────────── */
+function lbKompToggle(){
+  var cb = document.getElementById('lb_kompAktiv'), bd = document.getElementById('lb_kompBody');
+  if(bd) bd.style.display = (cb && cb.checked) ? 'block' : 'none';
+  lbRecalc();
+}
+
 /* Reserve = die berechnete Anschlussleistung des Gebäudes (Daten einmal erfassen). */
 function lbEvReserveUebernehmen(){
   var E = GemaElektro, r;
@@ -1226,6 +1643,9 @@ function lbFillSelects(){
   }).join(''));
   f('lb_ev_lm', E.EL_LM.map(function(l){
     return '<option value="' + l.id + '"' + (l.id === 'dyn' ? ' selected' : '') + '>' + lbEsc(l.name) + '</option>';
+  }).join(''));
+  f('lb_k_schaltung', E.EL_KOND_SCHALTUNG.map(function(s){
+    return '<option value="' + s.id + '">' + lbEsc(s.name) + '</option>';
   }).join(''));
 }
 /* Verlegearten hängen an der Bauart — nur bei echtem Wechsel neu bauen. */
@@ -1364,6 +1784,76 @@ function lbRecalc(){
           + (ev.eZusatz > 0 ? '  ·  davon bis ' + fmt(ev.eZusatz,1) + ' kWh aus PV/Batterie' : ''));
   }
 
+  /* Blindleistungs-Kompensation */
+  var kp = r.komp;
+  if(kp){
+    var pfeil = function(a, b, e){ return fmt(a,e) + ' → ' + fmt(b,e); };
+    set('lb_k_pHint', kp.pQuelle === 'liste'
+        ? 'aus der Verbraucherliste: ' + fmt(kp.p,2) + ' kW'
+        : (kp.pListe !== null ? 'Liste ergäbe ' + fmt(kp.pListe,2) + ' kW' : 'Bedarfs-Wirkleistung der Anlage.'));
+    set('lb_k_cos1Hint', kp.cosQuelle === 'liste'
+        ? 'aus der Verbraucherliste: ' + fmt(kp.cos1,3)
+        : (kp.cosListe !== null ? 'Liste ergäbe ' + fmt(kp.cosListe,3) : 'Leistungsfaktor der Anlage.'));
+    /* Der Formel-Chip folgt der Schaltung und dem Netzsystem — ein fester
+       Chip würde beim Umschalten lügen (Regel aus el_spannungsfall). */
+    html('lb_k_frmlC', (r.phasen === 3)
+        ? 'C = Q<sub>C</sub> / (' + (kp.schaltung ? kp.schaltung.fC : 3) + ' · ω · U²)'
+        : 'C = Q<sub>C</sub> / (ω · U²)');
+    html('lb_k_frmlI', (r.phasen === 3)
+        ? 'I = S · 1000 / (√3 · U)' : 'I = S · 1000 / U');
+
+    var qcEl = document.getElementById('lb_k_qc');
+    if(qcEl){
+      qcEl.textContent = (kp.qc === null) ? '— (Angaben unvollständig)'
+        : (kp.moeglich ? fmt(kp.qc,2) + ' kvar' : '0 kvar — Ziel nicht besser als heute');
+      qcEl.className = 'el-res-val hl' + (kp.moeglich ? '' : ' warn');
+    }
+    set('lb_k_stufe', !kp.moeglich ? '—'
+        : (kp.kondStufe !== null
+            ? fmt(kp.kondStufe,2) + ' kvar (Richtwert-Reihe)'
+            : 'über der Richtwert-Reihe — mehrere Einheiten nötig'));
+    set('lb_k_kapaz', (kp.kapaz === null || kp.kapaz === undefined) ? '—'
+        : fmt(kp.kapaz,1) + ' µF' + (kp.schaltung ? '  ·  ' + kp.schaltung.name : '')
+          + '  bei ' + fmt(r.u,0) + ' V / ' + GemaElektro.EL_NETZ_F + ' Hz');
+    set('lb_k_ic', (kp.ic === null || kp.ic === undefined) ? '—'
+        : fmt(kp.ic,2) + ' A  ·  Absicherung Richtwert ' + fmt(kp.icAbsich,2) + ' A'
+          + (kp.inKond ? '  →  ' + fmt(kp.inKond,0) + ' A' : ''));
+    set('lb_k_s', !(kp.s1 > 0) ? '—' : pfeil(kp.s1, kp.s2, 2) + ' kVA');
+    set('lb_k_i', (kp.i1 === null || kp.i1 === undefined) ? '—'
+        : pfeil(kp.i1, kp.i2, 2) + ' A  ·  −' + fmt(kp.di,2) + ' A');
+
+    var bl = kp.blind;
+    set('lb_k_blind', !bl ? '— (Stunden und Preis je kvarh nötig)'
+        : pfeil(bl.w1, bl.w2, 0) + ' kvarh/a'
+          + '  (über cos φ ' + fmt(kp.cosGrenz,2) + ': ' + pfeil(bl.qUeber1, bl.qUeber2, 2) + ' kvar)');
+    set('lb_k_sparBlind', !bl ? '—' : fmt(bl.spar,2) + ' CHF/a');
+    var vl = kp.verlust;
+    set('lb_k_verl', !vl ? '— (Länge und Querschnitt der Zuleitung nötig)'
+        : pfeil(vl.pv1, vl.pv2, 1) + ' W  bei ' + fmt(vl.laenge,1) + ' m / ' + fmt(vl.a,1) + ' mm²'
+          + '  ·  −' + fmt(vl.e,1) + ' kWh/a');
+    set('lb_k_sparVerl', !vl ? '—' : fmt(vl.spar,2) + ' CHF/a');
+    var sparEl = document.getElementById('lb_k_spar');
+    if(sparEl){
+      var hatSpar = !!(bl || vl);
+      sparEl.textContent = hatSpar ? fmt(kp.sparJahr,2) + ' CHF/a' : '— (Tarife eintragen)';
+      sparEl.className = 'el-res-val hl' + (hatSpar && kp.sparJahr > 0 ? ' ok' : '');
+    }
+    set('lb_k_amort', kp.amortNie ? 'keine — es gibt nichts zu sparen'
+        : (kp.amort !== null && kp.amort !== undefined
+            ? fmt(kp.amort,1) + ' Jahre  bei ' + fmt(kp.invest,0) + ' CHF'
+            : '— (Investition eintragen)'));
+
+    var kst = document.getElementById('lb_k_status');
+    if(kst){
+      var urt = kp.urteil;
+      kst.className = 'el-status ' + (urt === 'ok' ? 'ok' : urt === 'warn' ? 'warn' : urt === 'err' ? 'err' : 'warn');
+      kst.textContent = !(kp.p > 0) ? 'Für die Kompensation fehlt die Wirkleistung.'
+        : urt === 'ok'   ? '✓ cos φ ' + fmt(kp.cos1,2) + ' — liegt bereits über dem Grenzwert des Netzbetreibers (' + fmt(kp.cosGrenz,2) + '). Blindarbeit wird nicht verrechnet.'
+        : urt === 'warn' ? '⚠ cos φ ' + fmt(kp.cos1,2) + ' — unter dem Grenzwert von ' + fmt(kp.cosGrenz,2) + '. Der Netzbetreiber verrechnet die Blindarbeit darüber.'
+        :                  '✗ cos φ ' + fmt(kp.cos1,2) + ' — deutlich zu tief. Blindleistung belastet Leitung und Trafo erheblich, eine Kompensation drängt sich auf.';
+    }
+  }
+
   /* Status + Meldungen */
   var st = document.getElementById('lb_status');
   if(st){
@@ -1401,7 +1891,9 @@ var LB_FELDER = ['lb_system','lb_u','lb_gGlobal','lb_bauart','lb_isolation','lb_
                  'lb_material','lb_tumg','lb_laenge','lb_duAnlauf',
                  'lb_ev_hausA','lb_ev_uvA','lb_ev_reserve','lb_ev_n','lb_ev_stufe','lb_ev_lpKW',
                  'lb_ev_lpPh','lb_ev_lm','lb_ev_g','lb_ev_buendel','lb_ev_laenge','lb_ev_duMax',
-                 'lb_ev_pv','lb_ev_bat','lb_ev_hop','lb_ev_verbr'];
+                 'lb_ev_pv','lb_ev_bat','lb_ev_hop','lb_ev_verbr',
+                 'lb_k_p','lb_k_cos1','lb_k_cos2','lb_k_schaltung','lb_k_stunden',
+                 'lb_k_cosGrenz','lb_k_preisBlind','lb_k_preisWirk','lb_k_invest'];
 function lbSnapKey(){
   var basis = 'gema_leistungsbedarf';
   try{
@@ -1421,6 +1913,10 @@ function lbSnapshotLoad(){
   var cb = document.getElementById('lb_evAktiv');
   if(cb && d.lb_evAktiv !== undefined && cb.checked !== !!d.lb_evAktiv){
     cb.checked = !!d.lb_evAktiv; lbEvToggle(); geaendert = true;
+  }
+  var cbK = document.getElementById('lb_kompAktiv');
+  if(cbK && d.lb_kompAktiv !== undefined && cbK.checked !== !!d.lb_kompAktiv){
+    cbK.checked = !!d.lb_kompAktiv; lbKompToggle(); geaendert = true;
   }
   LB_FELDER.forEach(function(id){
     if(d[id] === undefined || d[id] === null) return;
@@ -1448,7 +1944,7 @@ document.addEventListener('DOMContentLoaded', function(){
   lbFoldInit();
   lbFillSelects();
   lbFillVerlegeart('meh');
-  lbEvToggle(); lbEvStufeChanged(); lbEvLmChanged();
+  lbEvToggle(); lbEvStufeChanged(); lbEvLmChanged(); lbKompToggle();
   /* Startzustand: ein Motor — sonst steht die Seite leer da. Sofort
      persistieren, damit der AutoSave-Schnappschuss beim Objektwechsel keine
      leere Tabelle einfriert (Persist-Guard wie in sb_grundleitungen). */
