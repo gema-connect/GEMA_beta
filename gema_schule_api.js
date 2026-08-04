@@ -371,11 +371,44 @@
     try{localStorage.setItem(store,JSON.stringify(arr));}catch(e){}
   }
   function _emit(){try{w.dispatchEvent(new CustomEvent('gema-schule-changed'));}catch(e){}}
+
+  // ── PreBoot-Journal (KRITISCH — Muster _plPreBoot in pm_plaene) ──────
+  // Der Boot-Pull (bindCollection) läuft asynchron, die Seite ist längst
+  // bedienbar. Legte jemand im Boot-Fenster eine Klasse an (Seite öffnen →
+  // sofort «＋ Neue Klasse»), überschrieb der ÄLTERE Cloud-Snapshot beim
+  // Eintreffen den lokalen Pool: die frische Klasse verschwand still, und
+  // jede weitere Eingabe im offenen Detail lief über klasseById(null) ins
+  // Leere — «Namen geben und Module freischalten geht, aber speichern kann
+  // man sie nicht». Darum werden alle Writes bis zum Abschluss des Binds
+  // journal't und nach JEDEM Pool-Bind wieder ÜBER den frisch geschriebenen
+  // Cache gelegt (idempotent; der Cloud-Push lief ohnehin schon bzw. liegt
+  // in der GemaSync-Outbox).
+  var _preBoot=[],_bindStarted=false;
+  function _pbNote(store,rec,delId){
+    if(!_bindStarted||_cloudLoaded)return;
+    if(_preBoot.length>400)return; // Notbremse — bind hängt, Pool bleibt eh lokal
+    _preBoot.push({store:store,rec:rec?JSON.parse(JSON.stringify(rec)):null,del:delId||null});
+  }
+  function _pbApply(store){
+    var arr=null;
+    _preBoot.forEach(function(op){
+      if(op.store!==store)return;
+      if(arr===null)arr=_readPool(store);
+      if(op.del){arr=arr.filter(function(x){return !x||x.id!==op.del;});}
+      else if(op.rec){
+        var i=arr.findIndex(function(x){return x&&x.id===op.rec.id;});
+        if(i>=0)arr[i]=op.rec;else arr.unshift(op.rec);
+      }
+    });
+    if(arr!==null)_writePool(store,arr);
+  }
+
   function _persist(pool,rec){
     var arr=_readPool(pool.store);
     var i=arr.findIndex(function(x){return x&&x.id===rec.id;});
     if(i>=0)arr[i]=rec;else arr.unshift(rec);
     _writePool(pool.store,arr);
+    _pbNote(pool.store,rec,null);
     var s=_sync();
     var pr=Promise.resolve({ok:false});
     // Cloud-Fehler nie in die UI-Kette durchreichen — der lokale Cache ist
@@ -390,6 +423,7 @@
   function _remove(pool,id){
     var arr=_readPool(pool.store).filter(function(x){return !x||x.id!==id;});
     _writePool(pool.store,arr);
+    _pbNote(pool.store,null,id);
     var s=_sync();
     var pr=Promise.resolve();
     if(s&&s.deleteRecord)pr=s.deleteRecord(MODULE_KEY,pool.prefix+id).catch(function(){});
@@ -409,16 +443,24 @@
     syncZeit(); // Serverzeit-Abgleich parallel anstossen (blockiert nichts)
     var s=_sync();
     if(!s||!s.bindCollection){_cloudLoaded=true;_readyResolve();return Promise.resolve();}
+    _bindStarted=true;
     var jobs=[];
     ['klassen','material','aufgaben','pruefungen'].forEach(function(k){
       if(opts[k]===false)return;
-      jobs.push(s.bindCollection(MODULE_KEY,POOLS[k].store,POOLS[k].prefix,'id').catch(function(){}));
+      jobs.push(s.bindCollection(MODULE_KEY,POOLS[k].store,POOLS[k].prefix,'id')
+        .then(function(){_pbApply(POOLS[k].store);})
+        .catch(function(){}));
     });
     // Lösungen NUR auf Dozenten-Seiten binden (nie in Studierenden-Storage)
     if(opts.loesungen===true){
-      jobs.push(s.bindCollection(MODULE_KEY,POOLS.loesungen.store,POOLS.loesungen.prefix,'id').catch(function(){}));
+      jobs.push(s.bindCollection(MODULE_KEY,POOLS.loesungen.store,POOLS.loesungen.prefix,'id')
+        .then(function(){_pbApply(POOLS.loesungen.store);})
+        .catch(function(){}));
     }
     return Promise.all(jobs).then(function(){
+      // Journal ein letztes Mal über ALLE Pools legen (idempotent), dann aus.
+      Object.keys(POOLS).forEach(function(k){_pbApply(POOLS[k].store);});
+      _preBoot.length=0;
       _cloudLoaded=true;_readyResolve();_emit();
     });
   }
