@@ -323,6 +323,32 @@ async function registerThrottleOk(event) {
   return true;
 }
 
+// ── Klassencode: Brute-Force-Schutz (KRITISCH) ────────────────────────
+// class_info UND register_student verraten beide, ob ein Code existiert
+// (404 «Klassencode ungueltig») — beide sind damit ein Rate-Oracle fuer
+// das Durchprobieren der 31^6 ≈ 887 Mio Codes.
+// Gezaehlt werden bewusst NUR FALSCHE Codes: eine ganze Schulklasse sitzt
+// typischerweise hinter EINER Schul-IP (NAT) — eine Drossel auf allen
+// Anfragen wuerde ab dem N-ten Studierenden die ganze Klasse aussperren.
+// Wer den richtigen Code hat, kostet nichts; wer raet, ist nach
+// CODE_MAX_FAILS Fehlversuchen pro Stunde draussen.
+const CODE_MAX_FAILS = parseInt(process.env.GEMA_CLASSCODE_MAX_FAILS || '15', 10) || 15;
+const CODE_FAIL_WINDOW_MS = 3600000;
+// Zusaetzlich gegen Massen-Konten mit einem GELEAKTEN Code (dort ist der
+// Code ja richtig, die Fehler-Drossel greift also nicht). Grosszuegig
+// genug fuer eine ganze Klasse hinter einer IP.
+const STUD_REG_MAX_PER_HOUR = parseInt(process.env.GEMA_STUDENT_REG_MAX_PER_HOUR || '40', 10) || 40;
+
+async function codeGuessBlocked(event) {
+  const ip = clientIp(event);
+  if (!ip) return false;               // keine IP ermittelbar → nicht blockieren
+  return await throttleOver('klcode', ip, CODE_MAX_FAILS, CODE_FAIL_WINDOW_MS);
+}
+async function codeGuessFail(event) {
+  const ip = clientIp(event);
+  if (ip) await throttleBump('klcode', ip, CODE_FAIL_WINDOW_MS);
+}
+
 async function actionRegister(body, event) {
   if (!REGISTRATION_OPEN) {
     return resp(403, { error: 'Selbst-Registrierung ist deaktiviert — bitte wende dich an deinen GEMA-Administrator.' });
@@ -363,9 +389,20 @@ async function findKlasseByCode(code) {
 
 // class_info: oeffentlicher Lookup VOR der Registrierung (zeigt dem
 // Studierenden, welcher Klasse er beitritt). Der Code ist das Geheimnis.
-async function actionClassInfo(body) {
+// Folgt DEMSELBEN Schalter wie register_student — sonst waere der Lookup
+// auch bei geschlossener Registrierung ein offenes Code-Orakel.
+async function actionClassInfo(body, event) {
+  if (!STUDENT_REGISTRATION_OPEN) {
+    return resp(403, { error: 'Selbst-Registrierung ist deaktiviert — bitte wende dich an deinen GEMA-Administrator.' });
+  }
+  if (await codeGuessBlocked(event)) {
+    return resp(429, { error: 'Zu viele falsche Klassencodes von dieser Verbindung — bitte in einer Stunde erneut versuchen.' });
+  }
   const klasse = await findKlasseByCode(body.code);
-  if (!klasse) return resp(404, { error: 'Klassencode ungueltig' });
+  if (!klasse) {
+    await codeGuessFail(event);
+    return resp(404, { error: 'Klassencode ungueltig' });
+  }
   const org = await getRecord('org:' + klasse.orgId);
   return resp(200, {
     ok: true,
@@ -373,9 +410,12 @@ async function actionClassInfo(body) {
   });
 }
 
-async function actionRegisterStudent(body) {
+async function actionRegisterStudent(body, event) {
   if (!STUDENT_REGISTRATION_OPEN) {
     return resp(403, { error: 'Selbst-Registrierung ist deaktiviert — bitte wende dich an deinen GEMA-Administrator.' });
+  }
+  if (await codeGuessBlocked(event)) {
+    return resp(429, { error: 'Zu viele falsche Klassencodes von dieser Verbindung — bitte in einer Stunde erneut versuchen.' });
   }
   const code = normCode(body.code);
   const name = String(body.name || '').trim();
@@ -384,7 +424,10 @@ async function actionRegisterStudent(body) {
   if (!code || !name || !email || !password) return resp(400, { error: 'Angaben unvollstaendig' });
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return resp(400, { error: 'E-Mail ungueltig' });
   const klasse = await findKlasseByCode(code);
-  if (!klasse) return resp(404, { error: 'Klassencode ungueltig' });
+  if (!klasse) {
+    await codeGuessFail(event);
+    return resp(404, { error: 'Klassencode ungueltig' });
+  }
 
   const users = await loadUsers();
   const exists = users.find(u => u && (
@@ -411,6 +454,14 @@ async function actionRegisterStudent(body) {
     return resp(200, { ok: true, token: tEx.token, exp: tEx.exp, user: stripPassword(exists), klasse: { id: klasse.id, name: klasse.name } });
   }
 
+  // Neues Konto — hier greift die zweite Drossel (gegen Massen-Anlage mit
+  // einem geleakten Code). Der Klassen-Beitritt eines BESTEHENDEN Kontos
+  // oben ist davon bewusst ausgenommen: er ist passwort-geprueft und legt
+  // kein Konto an.
+  const _regIp = clientIp(event);
+  if (_regIp && await throttleOver('studreg', _regIp, STUD_REG_MAX_PER_HOUR, 3600000)) {
+    return resp(429, { error: 'Zu viele Registrierungen von dieser Verbindung — bitte spaeter erneut versuchen oder den Dozenten informieren.' });
+  }
   const uid = 'user_stud_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   const user = {
     id: uid, username: email, name: name,
@@ -424,6 +475,7 @@ async function actionRegisterStudent(body) {
   if (klasse.studentIds.indexOf(uid) < 0) klasse.studentIds.push(uid);
   await putModuleRecord('schule', 'sklasse:' + klasse.id, klasse);
   await notifyBeitritt(klasse, user);
+  if (_regIp) await throttleBump('studreg', _regIp, 3600000);
   const t = mintToken(user);
   return resp(200, { ok: true, token: t.token, exp: t.exp, user: user, klasse: { id: klasse.id, name: klasse.name } });
 }
@@ -655,8 +707,8 @@ exports.handler = async function (event) {
     switch (body.action) {
       case 'login': return await actionLogin(body, event);
       case 'register': return await actionRegister(body, event);
-      case 'register_student': return await actionRegisterStudent(body);
-      case 'class_info': return await actionClassInfo(body);
+      case 'register_student': return await actionRegisterStudent(body, event);
+      case 'class_info': return await actionClassInfo(body, event);
       case 'activate': return await actionActivate(body);
       case 'persist_auth': return await actionPersistAuth(body, claims);
       case 'refresh': return await actionRefresh(claims);
