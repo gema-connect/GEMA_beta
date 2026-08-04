@@ -1,0 +1,1142 @@
+<!doctype html>
+<html lang="de">
+<head>
+<script src="gema_sync.js"></script>
+<script src="gema_auth.js"></script>
+<script src="gema_recent.js"></script>
+<meta charset="utf-8"/>
+<meta name="theme-color" content="#0f172a"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="GEMA"/>
+<title>GEMA – Beleuchtungsberechnung</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,600;9..40,700;9..40,800;9..40,900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="el_base.css"/>
+<style>
+/* ── Modul-eigenes CSS ───────────────────────────────────────────────────
+   Die gemeinsame Optik kommt aus el_base.css. Hier NUR ergänzen, was dieses
+   Modul zusätzlich braucht (eigene Tabellen, Schema-SVG, Spezialzeilen).
+   SVG-Schemata: ausschliesslich literale Hex-Farben — var() rastert
+   GemaPDF/html2canvas falsch. */
+
+/* Untergruppe innerhalb einer Karte (Raum / Leuchte / Wirkungsgrad) */
+.bt-grp{margin-top:14px;padding-top:12px;border-top:1px dashed var(--brd2)}
+.bt-grp:first-child{margin-top:0;padding-top:0;border-top:none}
+.bt-grp-tt{font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;
+  color:var(--el-dk);margin-bottom:9px;display:flex;align-items:center;gap:6px}
+.bt-opt{font-size:9.5px;font-weight:800;letter-spacing:.3px;color:var(--mut2);
+  background:var(--bg2);border:1px solid var(--brd);border-radius:5px;padding:1px 6px}
+
+/* Ergebnis-Kacheln */
+.bt-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;
+  margin-top:12px}
+.bt-kpi{border:1px solid var(--brd);border-radius:10px;padding:10px 12px;background:var(--bg2)}
+.bt-kpi.ok{border-color:#a3d9a5;background:#f2fbf3}
+.bt-kpi.warn{border-color:#fcd34d;background:#fffbeb}
+.bt-kpi.err{border-color:#fca5a5;background:#fef2f2}
+.bt-kpi-tt{font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.4px;
+  color:var(--mut2)}
+.bt-kpi-val{font-size:20px;font-weight:900;color:var(--el-dk);margin-top:3px;line-height:1.15}
+.bt-kpi-sub{font-size:10.5px;color:var(--mut2);font-weight:600;margin-top:3px}
+
+/* Formelzeichen in den Feld-Beschriftungen: `.fg>label` schreibt alles gross,
+   und ein griechisches η wird dabei zu Η — von einem lateinischen H nicht mehr
+   zu unterscheiden («Betriebswirkungsgrad H B»). Gleiches Problem bei den
+   tiefgestellten Indizes: E_m wäre als E_M das falsche Formelzeichen.
+   (Dieselbe Falle wie «l/s» → «L/S» in sa_enthaertung.) */
+.fg>label .sym{text-transform:none}
+
+.bt-annahmen{margin:6px 0 0 16px;padding:0}
+.bt-annahmen li{margin:3px 0;line-height:1.5}
+#btPlan{width:100%;height:auto;display:block}
+</style>
+<script src="gema_db.js"></script>
+<script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
+<script src="gema_objekte_api.js"></script>
+<script src="gema_pdf.js"></script>
+<script src="gema_autosave.js"></script>
+<script src="gema_elektro.js"></script>
+<script src="gema_dialog.js"></script>
+<link rel="stylesheet" href="gema_responsive.css"/>
+</head>
+<body>
+<nav class="g-nav">
+  <div class="g-nav-inner">
+    <a class="g-nav-logo" href="index.html">
+      <div class="g-nav-mark"><svg xmlns="http://www.w3.org/2000/svg" viewBox="80 196 415 175" height="28" preserveAspectRatio="xMidYMid meet"><defs><clipPath id="gn_c1"><path d="M 29 17 L 145 17 L 145 151 L 29 151 Z" clip-rule="nonzero"/></clipPath><clipPath id="gn_c2"><path d="M 58.367188 0.613281 L 173.855469 67.289062 L 116.105469 167.3125 L 0.621094 100.636719 Z" clip-rule="nonzero"/></clipPath><clipPath id="gn_c3"><path d="M 73 47.414062 L 123.597656 47.414062 L 123.597656 98 L 73 98 Z" clip-rule="nonzero"/></clipPath><clipPath id="gn_c4"><rect x="0" width="174" y="0" height="168"/></clipPath></defs><g transform="matrix(1,0,0,1,83,199)"><g clip-path="url(#gn_c4)"><g clip-path="url(#gn_c1)"><g clip-path="url(#gn_c2)"><path fill="#000" d="M 144.929688 50.640625 L 144.929688 117.292969 L 87.207031 150.617188 L 29.484375 117.292969 L 29.484375 50.640625 L 87.207031 17.3125 Z" fill-opacity="1" fill-rule="nonzero"/></g></g></g><path fill="#fff" d="M 98.042969 73.117188 C 96.210938 71.285156 93.945312 69.882812 91.488281 69.070312 C 85.503906 75.054688 85.019531 75.28125 84.257812 77.097656 C 90.328125 76.699219 95.191406 82.253906 93.839844 88.324219 C 93.011719 92.078125 84.535156 99.5 76.90625 107.300781 C 73.34375 110.933594 67.460938 110.898438 63.863281 107.300781 C 60.265625 103.703125 60.265625 97.855469 63.863281 94.257812 L 71.992188 86.128906 C 70.988281 82.390625 71.214844 78.445312 72.476562 74.933594 L 57.203125 90.210938 C 50.664062 96.75 50.664062 107.40625 57.203125 113.960938 C 63.757812 120.515625 74.378906 120.515625 80.953125 113.960938 L 98.042969 96.871094 C 104.550781 90.363281 104.652344 79.726562 98.042969 73.117188 Z"/><g clip-path="url(#gn_c3)"><path fill="#fff" d="M 118.835938 76.078125 C 122.003906 72.910156 123.75 68.691406 123.75 64.210938 C 123.75 54.9375 116.242188 47.414062 106.953125 47.414062 C 102.472656 47.414062 98.253906 49.160156 95.085938 52.324219 C 90.8125 56.597656 82.269531 65.144531 77.996094 69.417969 C 71.507812 75.902344 71.371094 86.542969 77.996094 93.167969 C 79.828125 95 82.09375 96.402344 84.550781 97.214844 C 90.503906 91.265625 91.019531 91.023438 91.78125 89.1875 C 89.152344 89.363281 86.574219 88.410156 84.671875 86.507812 C 81.039062 82.875 81.109375 77.027344 84.671875 73.464844 C 87.855469 70.28125 95.882812 62.253906 99.132812 59.003906 C 102.734375 55.402344 108.578125 55.386719 112.179688 59.003906 C 115.777344 62.601562 115.777344 68.449219 112.179688 72.046875 L 104.046875 80.175781 C 105.066406 84.015625 104.824219 87.890625 103.5625 91.367188 Z"/></g></g></g><g fill="#000" fill-opacity="1"><g transform="translate(243.214799,313.539633)"><path d="M 62.46875 -35.8125 L 62.46875 -21.9375 C 60.8125 -14.34375 57.191406 -8.59375 51.609375 -4.6875 C 46.035156 -0.789062 39.8125 1.15625 32.9375 1.15625 C 24.3125 1.15625 16.960938 -2.070312 10.890625 -8.53125 C 4.816406 -14.988281 1.78125 -22.789062 1.78125 -31.9375 C 1.78125 -41.226562 4.75 -49.078125 10.6875 -55.484375 C 16.632812 -61.890625 24.050781 -65.09375 32.9375 -65.09375 C 43.320312 -65.09375 51.535156 -61.453125 57.578125 -54.171875 L 48.046875 -43.703125 C 44.640625 -49.179688 39.890625 -51.921875 33.796875 -51.921875 C 29.296875 -51.921875 25.457031 -49.96875 22.28125 -46.0625 C 19.101562 -42.164062 17.515625 -37.457031 17.515625 -31.9375 C 17.515625 -26.507812 19.101562 -21.867188 22.28125 -18.015625 C 25.457031 -14.171875 29.296875 -12.25 33.796875 -12.25 C 37.515625 -12.25 40.753906 -13.367188 43.515625 -15.609375 C 46.273438 -17.859375 47.65625 -20.84375 47.65625 -24.5625 L 32.9375 -24.5625 L 32.9375 -35.8125 Z"/></g></g><g fill="#000" fill-opacity="1"><g transform="translate(307.462326,313.539633)"><path d="M 41.234375 -63.9375 L 41.234375 -51.15625 L 19.21875 -51.15625 L 19.21875 -38.4375 L 40.296875 -38.4375 L 40.296875 -25.65625 L 19.21875 -25.65625 L 19.21875 -12.78125 L 41.234375 -12.78125 L 41.234375 0 L 4.65625 0 L 4.65625 -63.9375 Z"/></g></g><g fill="#000" fill-opacity="1"><g transform="translate(352.412344,313.539633)"><path d="M 57.5 0 L 54.484375 -37.890625 L 54.09375 -37.890625 L 41 -0.390625 L 32.3125 -0.390625 L 19.21875 -37.890625 L 18.828125 -37.890625 L 15.8125 0 L 1.234375 0 L 6.96875 -63.9375 L 22.46875 -63.9375 L 36.65625 -27.046875 L 50.84375 -63.9375 L 66.34375 -63.9375 L 72.078125 0 Z"/></g></g><g fill="#000" fill-opacity="1"><g transform="translate(425.727374,313.539633)"><path d="M 37.125 -63.9375 L 62.9375 0 L 47.28125 0 L 42.546875 -12.78125 L 18.21875 -12.78125 L 13.484375 0 L -2.171875 0 L 23.640625 -63.9375 Z M 37.59375 -25.578125 L 30.453125 -44.171875 L 30.296875 -44.171875 L 23.171875 -25.578125 Z"/></g></g></svg></div>
+    </a>
+    <div class="g-nav-bc">
+      <a class="bc-cat" href="el_index.html">Elektroberechnungen</a><span class="bc-sep">›</span>
+      <span class="bc-cur">Beleuchtung</span>
+    </div>
+    <div class="g-nav-right">
+      <button class="g-nav-btn no-print" onclick="GemaPDF.export({title:'Beleuchtung',color:'#ca8a04'})">📄 PDF</button>
+      <button class="g-nav-btn no-print" onclick="window.print()">🖨 Drucken</button>
+      <button class="gema-feedback-btn no-print" onclick="GemaFeedback.start()">🔴 Feedback</button>
+    </div>
+  </div>
+</nav>
+
+<div class="pg">
+
+  <div class="gema-hero">
+    <div class="gema-hero-in">
+      <div class="gema-hero-ic">💡</div>
+      <div>
+        <div class="gema-hero-title">Beleuchtungsberechnung</div>
+        <div class="gema-hero-norm" title="Berechnungsgrundlage">📖 SN EN 12464-1</div>
+        <div class="gema-hero-sub">Wirkungsgradverfahren — Beleuchtungsstärke, Leuchtenzahl, Anschlussleistung</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Kennzahlen-Leiste: die 2–4 wichtigsten Ergebnisse, live nachgeführt -->
+  <div class="sum-bar" id="btSumBar">
+    <span class="sum-item">Leuchten <b class="hl" id="bt_sum1">—</b></span>
+    <span class="sum-sep"></span>
+    <span class="sum-item">Anschlussleistung <b id="bt_sum2">—</b></span>
+    <span class="sum-sep"></span>
+    <span class="sum-item">spezifisch <b id="bt_sum3">—</b></span>
+  </div>
+
+  <!-- PROJEKT-LEISTE — Objektbezug (AutoSave speichert pro Objekt/Phase) -->
+  <div class="project-bar">
+    <div class="pf"><label>Objekt <a href="pm_objekte.html" title="Neues Objekt anlegen" style="margin-left:6px;margin-right:auto;width:16px;height:16px;border-radius:4px;background:#ca8a04;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:14px;font-weight:400;text-decoration:none!important;line-height:0;flex-shrink:0;padding:0;vertical-align:middle;font-family:Arial,sans-serif">+</a><button class="obj-combo-toggle" id="objComboBtn" onclick="toggleObjektInput()">Freies Objekt</button></label>
+      <div class="obj-combo">
+        <div class="obj-combo-row" id="objComboSelect">
+          <select id="metaObjektDropdown" onchange="onObjektSelect()">
+            <option value="">– Objekt wählen –</option>
+          </select>
+        </div>
+        <div class="obj-combo-row" id="objComboManual" style="display:none">
+          <input type="text" id="metaProjekt" placeholder="z.B. MFH Musterstrasse 12, Basel"/>
+        </div>
+      </div>
+    </div>
+    <div class="pf"><label>Bearbeiter</label><input type="text" id="metaBearbeiter" placeholder="Name"></div>
+    <div class="pf"><label>Datum</label><input type="date" id="metaDatum"></div>
+  </div>
+
+  <!-- ═══ 1. EINGABE ═══ -->
+  <div class="el-card" data-fold="eingabe">
+    <div class="el-card-hd" onclick="btFold(this)">
+      <span class="el-cx">▸</span>
+      <span class="el-secnum">1</span>
+      <span class="el-card-tt">Eingabe</span>
+      <span class="el-card-sub">Raum · Anforderung · Leuchte</span>
+    </div>
+    <div class="el-card-bd">
+
+      <!-- ── 1a Raum ────────────────────────────────────────────────── -->
+      <div class="bt-grp">
+        <div class="bt-grp-tt">📐 Raum</div>
+        <div class="el-grid">
+          <div class="fg">
+            <label>Länge</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="bt_laenge" type="text" inputmode="decimal"
+                     value="10" placeholder="0.0" onblur="fixLeadingZero(this)" oninput="btRecalc()"/>
+              <span class="g-inp-unit">m</span>
+            </div>
+          </div>
+          <div class="fg">
+            <label>Breite</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="bt_breite" type="text" inputmode="decimal"
+                     value="6" placeholder="0.0" onblur="fixLeadingZero(this)" oninput="btRecalc()"/>
+              <span class="g-inp-unit">m</span>
+            </div>
+          </div>
+          <div class="fg">
+            <label>Raumhöhe</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="bt_hoehe" type="text" inputmode="decimal"
+                     value="3" placeholder="0.0" onblur="fixLeadingZero(this)" oninput="btRecalc()"/>
+              <span class="g-inp-unit">m</span>
+            </div>
+          </div>
+          <div class="fg">
+            <label>Höhe der Nutzebene</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="bt_nutz" type="text" inputmode="decimal"
+                     value="0.85" placeholder="0.0" onblur="fixLeadingZero(this)" oninput="btRecalc()"/>
+              <span class="g-inp-unit">m</span>
+            </div>
+            <div class="fg-hint">0.85 m für Schreibtischarbeit, 0 m für Verkehrsflächen und Lager.</div>
+          </div>
+          <div class="fg">
+            <label>Abhängehöhe der Leuchten</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="bt_abhaeng" type="text" inputmode="decimal"
+                     value="0" placeholder="0.0" onblur="fixLeadingZero(this)" oninput="btRecalc()"/>
+              <span class="g-inp-unit">m</span>
+            </div>
+            <div class="fg-hint">0 für Einbau- und Anbauleuchten. Pendelleuchten hängen tiefer —
+              das verkleinert die Nutzhöhe und damit den Raumindex.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 1b Anforderung ─────────────────────────────────────────── -->
+      <div class="bt-grp">
+        <div class="bt-grp-tt">🎯 Anforderung</div>
+        <div class="el-grid">
+          <div class="fg">
+            <label>Wartungswert der Beleuchtungsstärke <span class="sym">E<sub>m</sub></span></label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="bt_em" type="text" inputmode="decimal"
+                     value="500" placeholder="0" onblur="fixLeadingZero(this)" oninput="btRecalc()"/>
+              <span class="g-inp-unit">lx</span>
+            </div>
+            <div class="fg-hint">Der geforderte Wert für die Sehaufgabe steht in SN EN 12464-1
+              bzw. SIA 387/4 — er hängt an der Raumnutzung, nicht am Raum. Übliche Grössen:
+              Verkehrsfläche 100, Lager 150, Treppe 150, Schulzimmer und Verkauf 300,
+              Büro und Labor 500, Präzisionsarbeit 750–1000 lx.</div>
+          </div>
+          <div class="fg">
+            <label>Wartungsfaktor</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="bt_wf" type="text" inputmode="decimal"
+                     value="0.8" placeholder="0.0" onblur="fixLeadingZero(this)" oninput="btRecalc()"/>
+              <span class="g-inp-unit">—</span>
+            </div>
+            <div class="fg-hint">Verhältnis Wartungswert zu Neuwert. Richtwerte: 0.9 sehr sauber
+              mit kurzem Wartungsintervall, 0.8 Büro und Schule, 0.7 Werkstatt,
+              0.6 staubige Umgebung. Verbindlich ist der Wartungsplan.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 1c Leuchte ─────────────────────────────────────────────── -->
+      <div class="bt-grp">
+        <div class="bt-grp-tt">💡 Leuchte</div>
+        <div class="el-grid">
+          <div class="fg">
+            <label>Vorlage übernehmen</label>
+            <select id="bt_vorlage" onchange="btVorlage()"></select>
+            <div class="fg-hint">Füllt Lichtstrom und Leistung. Beides bleibt frei
+              überschreibbar — verbindlich ist das Datenblatt.</div>
+          </div>
+          <div class="fg">
+            <label>Lichtstrom je Leuchte <span class="sym">Φ<sub>L</sub></span></label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="bt_phi" type="text" inputmode="decimal"
+                     value="4320" placeholder="0" onblur="fixLeadingZero(this)" oninput="btRecalc()"/>
+              <span class="g-inp-unit">lm</span>
+            </div>
+            <div class="fg-hint">Lichtstrom der LEUCHTE, nicht der Lampe — bei LED-Leuchten ist
+              das der Wert auf dem Datenblatt.</div>
+          </div>
+          <div class="fg">
+            <label>Leistungsaufnahme je Leuchte</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="bt_p" type="text" inputmode="decimal"
+                     value="36" placeholder="0.0" onblur="fixLeadingZero(this)" oninput="btRecalc()"/>
+              <span class="g-inp-unit">W</span>
+            </div>
+            <div class="fg-hint">Systemleistung inklusive Betriebsgerät.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 1d Wirkungsgrad ────────────────────────────────────────── -->
+      <div class="bt-grp">
+        <div class="bt-grp-tt">📊 Betriebswirkungsgrad</div>
+        <div class="el-grid">
+          <div class="fg">
+            <label>Reflexionsgrade Decke / Wand / Boden</label>
+            <select id="bt_refl" onchange="btRecalc()"></select>
+          </div>
+          <div class="fg">
+            <label>Betriebswirkungsgrad <span class="sym">η<sub>B</sub></span></label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="bt_eta" type="text" inputmode="decimal"
+                     value="" placeholder="leer = Richtwert" onblur="fixLeadingZero(this)" oninput="btRecalc()"/>
+              <span class="g-inp-unit">—</span>
+            </div>
+            <div class="fg-hint" id="bt_etaHint"></div>
+          </div>
+          <div class="fg">
+            <label>Grösstes Abstandsverhältnis <span class="sym">a / h<sub>m</sub></span></label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="bt_shr" type="text" inputmode="decimal"
+                     value="1.5" placeholder="0.0" onblur="fixLeadingZero(this)" oninput="btRecalc()"/>
+              <span class="g-inp-unit">—</span>
+            </div>
+            <div class="fg-hint">Bis zu welchem Leuchtenabstand die Gleichmässigkeit noch
+              eingehalten wird. Steht als SHR im Datenblatt; 1.5 ist ein Richtwert für
+              breitstrahlende Leuchten.</div>
+          </div>
+        </div>
+        <div class="el-note" style="margin-top:8px">
+          Der Betriebswirkungsgrad hängt an der <b>Lichtverteilung der konkreten Leuchte</b> und
+          steht als Tabelle im Datenblatt (englisch <i>Utilisation Factor</i>). Der Richtwert hier
+          gilt für <b>direktstrahlende</b> Leuchten; indirekte und Pendelleuchten weichen deutlich
+          ab. Für die Ausführungsplanung ist der Datenblattwert einzutragen.
+        </div>
+      </div>
+
+      <!-- ── 1e Elektrischer Anschluss ──────────────────────────────── -->
+      <div class="bt-grp">
+        <div class="bt-grp-tt">🔌 Elektrischer Anschluss</div>
+        <div class="el-grid">
+          <div class="fg">
+            <label>Netzsystem</label>
+            <select id="bt_netz" onchange="btRecalc()"></select>
+          </div>
+          <div class="fg">
+            <label>Leistungsfaktor <span class="sym">cos φ</span></label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="bt_cos" type="text" inputmode="decimal"
+                     value="0.95" placeholder="0.0" onblur="fixLeadingZero(this)" oninput="btRecalc()"/>
+              <span class="g-inp-unit">—</span>
+            </div>
+            <div class="fg-hint">LED-Betriebsgeräte liegen typisch bei 0.9–0.98. Mit 1.0
+              gerechnet fällt der Strom zu klein aus.</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══ 2. BERECHNUNG ═══ -->
+  <div class="el-card" data-fold="berechnung">
+    <div class="el-card-hd" onclick="btFold(this)">
+      <span class="el-cx">▸</span>
+      <span class="el-secnum">2</span>
+      <span class="el-card-tt">Berechnung</span>
+      <span class="el-card-sub">Wirkungsgradverfahren</span>
+    </div>
+    <div class="el-card-bd">
+
+      <div class="el-res">
+        <div class="el-res-lbl">Raumfläche</div>
+        <div class="el-res-val" id="bt_flaeche">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Nutzhöhe h<sub>m</sub>
+          <span class="frml">h<sub>m</sub> = H − h<sub>Nutz</sub> − h<sub>Abhäng</sub></span></div>
+        <div class="el-res-val" id="bt_hm">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Raumindex k
+          <span class="frml">k = a · b / (h<sub>m</sub> · (a + b))</span></div>
+        <div class="el-res-val hl" id="bt_k">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Betriebswirkungsgrad η<sub>B</sub></div>
+        <div class="el-res-val" id="bt_etaB">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Erforderlicher Gesamtlichtstrom
+          <span class="frml">Φ<sub>ges</sub> = E<sub>m</sub> · A / (η<sub>B</sub> · WF)</span></div>
+        <div class="el-res-val hl" id="bt_phiGes">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Rechnerische Leuchtenzahl
+          <span class="frml">n = Φ<sub>ges</sub> / Φ<sub>L</sub></span></div>
+        <div class="el-res-val" id="bt_nRoh">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Lichtausbeute der Leuchte</div>
+        <div class="el-res-val" id="bt_lmw">—</div>
+      </div>
+
+      <div class="frml-block" id="bt_legende">
+        a Länge · b Breite · H Raumhöhe · h<sub>m</sub> Abstand der Leuchten über der Nutzebene ·
+        k Raumindex · η<sub>B</sub> Betriebswirkungsgrad · WF Wartungsfaktor ·
+        Φ<sub>L</sub> Lichtstrom je Leuchte. Bei LED-Leuchten ist der Datenblatt-Lichtstrom
+        bereits der Wert der Leuchte — ein zusätzlicher Leuchtenbetriebswirkungsgrad entfällt.
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 3. ERGEBNIS ═══ -->
+  <div class="el-card" data-fold="ergebnis">
+    <div class="el-card-hd" onclick="btFold(this)">
+      <span class="el-cx">▸</span>
+      <span class="el-secnum">3</span>
+      <span class="el-card-tt">Ergebnis</span>
+      <span class="el-card-sub">Leuchtenzahl, Anordnung und Anschluss</span>
+    </div>
+    <div class="el-card-bd">
+
+      <div class="el-res">
+        <div class="el-res-lbl">Gewählte Anordnung</div>
+        <div class="el-res-val hl" id="bt_anordnung">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Leuchtenabstände
+          <span class="frml">a = Raumkante / Anzahl, Wandabstand = a / 2</span></div>
+        <div class="el-res-val" id="bt_abstand">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Erreichte Beleuchtungsstärke
+          <span class="frml">E<sub>ist</sub> = n · Φ<sub>L</sub> · η<sub>B</sub> · WF / A</span></div>
+        <div class="el-res-val hl" id="bt_eIst">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Anschlussleistung</div>
+        <div class="el-res-val" id="bt_pGes">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Betriebsstrom
+          <span class="frml" id="bt_frmlI">I = P / (√3 · U<sub>n</sub> · cos φ)</span></div>
+        <div class="el-res-val" id="bt_iBetrieb">—</div>
+      </div>
+
+      <div class="bt-kpis">
+        <div class="bt-kpi" id="bt_kpiSpez">
+          <div class="bt-kpi-tt">Spezifische Leistung</div>
+          <div class="bt-kpi-val" id="bt_spezVal">—</div>
+          <div class="bt-kpi-sub" id="bt_spezSub">je m² Raumfläche</div>
+        </div>
+        <div class="bt-kpi" id="bt_kpiGleich">
+          <div class="bt-kpi-tt">Gleichmässigkeit</div>
+          <div class="bt-kpi-val" id="bt_gleichVal">—</div>
+          <div class="bt-kpi-sub" id="bt_gleichSub">Abstandsverhältnis a / h<sub>m</sub></div>
+        </div>
+        <div class="bt-kpi" id="bt_kpiUeber">
+          <div class="bt-kpi-tt">Überdeckung</div>
+          <div class="bt-kpi-val" id="bt_ueberVal">—</div>
+          <div class="bt-kpi-sub" id="bt_ueberSub">gegenüber dem geforderten Wert</div>
+        </div>
+      </div>
+
+      <div class="el-status ok" id="bt_status" style="margin-top:12px">
+        Noch keine Berechnung.
+      </div>
+
+      <div class="el-hint" id="bt_annahmenBox" style="margin-top:12px">
+        <b>Annahmen und Abgrenzungen dieser Berechnung</b>
+        <ul class="bt-annahmen" id="bt_annahmen"></ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 4. ANORDNUNG ═══ -->
+  <div class="el-card" data-fold="plan">
+    <div class="el-card-hd" onclick="btFold(this)">
+      <span class="el-cx">▸</span>
+      <span class="el-secnum">4</span>
+      <span class="el-card-tt">Anordnung</span>
+      <span class="el-card-sub">Leuchtenraster im Grundriss</span>
+    </div>
+    <div class="el-card-bd">
+      <div class="el-scroll"><svg id="btPlan" viewBox="0 0 860 460"
+        preserveAspectRatio="xMidYMid meet" role="img"
+        aria-label="Grundriss mit vorgeschlagenem Leuchtenraster"></svg></div>
+      <div class="el-note" style="margin-top:8px">
+        Vorschlag für ein gleichmässiges Raster mit halbem Leuchtenabstand zur Wand. Wo
+        Trennwände, Träger oder Arbeitsplätze das verlangen, wird davon abgewichen — die
+        Anzahl bleibt dabei massgebend.
+      </div>
+    </div>
+  </div>
+
+</div>
+
+
+<script>
+/*ENGINE-START*/
+/* ── Rechenkern — DOM-FREI ───────────────────────────────────────────────
+   Beleuchtungsberechnung nach dem WIRKUNGSGRADVERFAHREN: aus der
+   geforderten Beleuchtungsstärke, der Raumgeometrie und den Daten der
+   gewählten Leuchte ergibt sich die Leuchtenzahl, daraus die Anordnung,
+   die Anschlussleistung und der Betriebsstrom.
+
+   Kette:  k = a·b / (h_m·(a+b))
+           Φ_ges = E_m · A / (η_B · WF)
+           n = ⌈Φ_ges / Φ_L⌉      → Raster n_l × n_b
+           E_ist = n · Φ_L · η_B · WF / A
+
+   Der BETRIEBSWIRKUNGSGRAD ist der Knackpunkt. Er hängt an der
+   Lichtverteilung der konkreten Leuchte und steht als Tabelle im
+   Datenblatt. GEMA hält dafür nur RICHTWERTE für direktstrahlende
+   Leuchten bereit (über den Raumindex interpoliert) — der Datenblattwert
+   übersteuert sie und ist für die Ausführungsplanung zu verwenden.
+   Eine geschlossene Formel für η_B gibt es NICHT; wer eine ansetzt,
+   erfindet sie.
+
+   Grunddaten (Netzsysteme, Sicherungsreihe, Zahlen-Helfer) kommen aus
+   GemaElektro und werden hier NIE dupliziert. */
+
+/* Leuchten-VORLAGEN — füllen Lichtstrom und Leistung, beides bleibt frei
+   überschreibbar. Marktübliche Grössenordnungen für LED-Leuchten; das
+   Datenblatt der gewählten Leuchte ist verbindlich. */
+var BT_LEUCHTEN = [
+  {id:'p6060',  name:'LED-Panel 600 × 600',        phi:4320,  p:36},
+  {id:'p12030', name:'LED-Panel 1200 × 300',       phi:4800,  p:40},
+  {id:'p12060', name:'LED-Panel 1200 × 600',       phi:6000,  p:50},
+  {id:'dl200',  name:'LED-Downlight Ø 200',        phi:2000,  p:18},
+  {id:'dl240',  name:'LED-Downlight Ø 240',        phi:3200,  p:28},
+  {id:'lb35',   name:'LED-Lichtband 1.5 m · 35 W', phi:5000,  p:35},
+  {id:'lb50',   name:'LED-Lichtband 1.5 m · 50 W', phi:7500,  p:50},
+  {id:'wa45',   name:'LED-Wannenleuchte 1.5 m',    phi:6000,  p:45},
+  {id:'hb100',  name:'LED-Hallenstrahler 100 W',   phi:15000, p:100},
+  {id:'hb150',  name:'LED-Hallenstrahler 150 W',   phi:22500, p:150},
+  {id:'hb200',  name:'LED-Hallenstrahler 200 W',   phi:30000, p:200},
+  {id:'st20',   name:'LED-Strahler 20 W',          phi:2400,  p:20},
+  {id:'fl50',   name:'LED-Fluter 50 W',            phi:5500,  p:50},
+  {id:'fl100',  name:'LED-Fluter 100 W',           phi:11000, p:100}
+];
+
+/* RICHTWERTE für den Betriebswirkungsgrad direktstrahlender Leuchten,
+   über den Raumindex k. Drei Reflexionsgrad-Kombinationen
+   Decke / Wand / Boden. Orientierungswerte für die Vordimensionierung —
+   die Tabelle des Leuchten-Datenblatts ist verbindlich und weicht je nach
+   Lichtverteilung ab. */
+var BT_REFLEX = [
+  {id:'hell',   label:'70 / 50 / 20 % — heller Raum, weisse Decke'},
+  {id:'mittel', label:'50 / 30 / 20 % — mittlere Reflexion'},
+  {id:'dunkel', label:'30 / 30 / 10 % — dunkler Raum, Industrie'}
+];
+var BT_ETA_K   = [0.60, 0.80, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 4.00, 5.00];
+var BT_ETA_TAB = {
+  hell:   [0.45, 0.53, 0.58, 0.63, 0.67, 0.72, 0.75, 0.78, 0.81, 0.83],
+  mittel: [0.38, 0.45, 0.50, 0.55, 0.59, 0.65, 0.68, 0.72, 0.75, 0.78],
+  dunkel: [0.32, 0.38, 0.43, 0.48, 0.52, 0.58, 0.62, 0.66, 0.70, 0.73]
+};
+
+function btLeuchte(id){
+  for(var i=0;i<BT_LEUCHTEN.length;i++){ if(BT_LEUCHTEN[i].id===id) return BT_LEUCHTEN[i]; }
+  return null;
+}
+function btReflex(id){
+  for(var i=0;i<BT_REFLEX.length;i++){ if(BT_REFLEX[i].id===id) return BT_REFLEX[i]; }
+  return BT_REFLEX[0];
+}
+
+/* Richtwert für η_B: linear über k interpoliert, ausserhalb der Stützstellen
+   auf den Randwert geklemmt. Die Klemmung wird gemeldet, nicht verschwiegen —
+   bei sehr kleinem k liegt der wahre Wert tiefer. */
+function btEtaRichtwert(k, reflId){
+  var tab = BT_ETA_TAB[reflId] || BT_ETA_TAB.hell;
+  if(!(k > 0)) return null;
+  if(k <= BT_ETA_K[0])                    return {eta:tab[0], geklemmt:'unten'};
+  if(k >= BT_ETA_K[BT_ETA_K.length-1])    return {eta:tab[tab.length-1], geklemmt:'oben'};
+  for(var i=0;i<BT_ETA_K.length-1;i++){
+    if(k >= BT_ETA_K[i] && k <= BT_ETA_K[i+1]){
+      var f = (k - BT_ETA_K[i]) / (BT_ETA_K[i+1] - BT_ETA_K[i]);
+      return {eta: tab[i] + f * (tab[i+1] - tab[i]), geklemmt:''};
+    }
+  }
+  return {eta:tab[0], geklemmt:''};
+}
+
+/* Raster für n Leuchten in einem a × b grossen Raum: gesucht ist die
+   Aufteilung mit möglichst QUADRATISCHEN Feldern und wenig Überzahl.
+   Beides gegeneinander abgewogen — ein perfekt quadratisches Raster mit
+   fünf Leuchten zu viel wäre keine gute Lösung. */
+function btRaster(n, a, b){
+  if(!(n >= 1 && a > 0 && b > 0)) return null;
+  var best = null;
+  for(var nb=1; nb<=n; nb++){
+    var nl = Math.ceil(n/nb);
+    var al = a/nl, ab = b/nb;
+    var verh = Math.max(al,ab) / Math.min(al,ab);      // 1 = quadratisch
+    var ueber = nl*nb - n;
+    var score = (verh - 1) + ueber * 0.08;
+    if(best === null || score < best.score){
+      best = {nl:nl, nb:nb, aL:al, aB:ab, gesamt:nl*nb, ueber:ueber,
+              verh:verh, score:score};
+    }
+  }
+  return best;
+}
+
+function btCalc(inp){
+  var E = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
+  var hinweise = [];
+
+  /* ── Geometrie ───────────────────────────────────────────────────── */
+  var a = inp.laenge, b = inp.breite;
+  var flaeche = (a > 0 && b > 0) ? a*b : null;
+  var hm = inp.hoehe - inp.nutz - inp.abhaeng;
+  var geoFehlt = !(flaeche > 0 && hm > 0);
+  var k = geoFehlt ? null : flaeche / (hm * (a + b));
+
+  if(!geoFehlt && hm <= 0){
+    hinweise.push('Die Leuchten hängen auf oder unter der Nutzebene — die Geometrie prüfen.');
+  }
+  if(inp.hoehe > 0 && hm <= 0){
+    hinweise.push('Nutzebene und Abhängehöhe zusammen erreichen die Raumhöhe — es bleibt '
+      + 'keine Nutzhöhe übrig, der Raumindex lässt sich nicht bilden.');
+  }
+
+  /* ── Betriebswirkungsgrad ────────────────────────────────────────── */
+  var refl = btReflex(inp.refl);
+  var richt = k !== null ? btEtaRichtwert(k, refl.id) : null;
+  var etaEigen = inp.eta > 0;
+  var eta = etaEigen ? inp.eta : (richt ? richt.eta : null);
+
+  if(etaEigen && inp.eta > 0.95){
+    hinweise.push('Ein Betriebswirkungsgrad über 0.95 ist bei realen Leuchten nicht erreichbar — '
+      + 'den Wert gegen die Tabelle im Datenblatt prüfen.');
+  }
+  if(!etaEigen && richt && richt.geklemmt === 'unten'){
+    hinweise.push('Der Raumindex liegt unter dem Bereich der Richtwert-Tabelle (k < 0.6): '
+      + 'sehr schmaler oder sehr hoher Raum. Gerechnet wird mit dem Randwert — der wirkliche '
+      + 'Wirkungsgrad liegt tiefer, die Leuchtenzahl damit höher.');
+  }
+  if(!etaEigen && richt && richt.geklemmt === 'oben'){
+    hinweise.push('Der Raumindex liegt über dem Bereich der Richtwert-Tabelle (k > 5); '
+      + 'gerechnet wird mit dem Randwert.');
+  }
+  if(!etaEigen){
+    hinweise.push('Der Betriebswirkungsgrad ist ein RICHTWERT für direktstrahlende Leuchten. '
+      + 'Er hängt an der Lichtverteilung der konkreten Leuchte und steht als Tabelle im '
+      + 'Datenblatt — für die Ausführungsplanung ist der Datenblattwert einzutragen.');
+  }
+
+  /* ── Lichtstrom und Leuchtenzahl ─────────────────────────────────── */
+  var wf = inp.wf > 0 ? inp.wf : 0;
+  var phiGes = null, nRoh = null, n = null;
+  if(flaeche > 0 && inp.em > 0 && eta > 0 && wf > 0){
+    phiGes = inp.em * flaeche / (eta * wf);
+    if(inp.phi > 0){
+      nRoh = phiGes / inp.phi;
+      n = Math.ceil(nRoh);
+    }
+  }
+  if(inp.wf > 1){
+    hinweise.push('Der Wartungsfaktor ist ein Verhältnis und liegt immer unter 1 — '
+      + 'ein Wert darüber rechnet die Anlage zu klein.');
+  }
+
+  /* ── Anordnung ───────────────────────────────────────────────────── */
+  var raster = (n !== null && flaeche > 0) ? btRaster(n, a, b) : null;
+  var aMax = null, shrOk = null;
+  if(raster && hm > 0){
+    aMax = Math.max(raster.aL, raster.aB);
+    if(inp.shr > 0) shrOk = (aMax / hm) <= inp.shr;
+  }
+
+  /* ── Erreichte Beleuchtungsstärke ────────────────────────────────────
+     Aufgerundet wird auf ganze Leuchten — der Istwert liegt darum über
+     dem geforderten. Bei ungünstigem Raster kommt die Überzahl des
+     Rasters dazu; gerechnet wird mit der WIRKLICH gesetzten Zahl. */
+  var nGesetzt = raster ? raster.gesamt : n;
+  var eIst = null, ueberdeckung = null;
+  if(nGesetzt !== null && inp.phi > 0 && eta > 0 && wf > 0 && flaeche > 0){
+    eIst = nGesetzt * inp.phi * eta * wf / flaeche;
+    if(inp.em > 0) ueberdeckung = eIst / inp.em;
+  }
+
+  /* ── Leistung und Strom ──────────────────────────────────────────── */
+  var pGes = (nGesetzt !== null && inp.p > 0) ? nGesetzt * inp.p : null;
+  var spez = (pGes !== null && flaeche > 0) ? pGes / flaeche : null;
+  var lmw  = (inp.phi > 0 && inp.p > 0) ? inp.phi / inp.p : null;
+
+  var sys = E ? E.elSystem(inp.netz) : {u:400, leiter:3};
+  var cos = inp.cos > 0 ? Math.min(inp.cos, 1) : 1;
+  var iBetrieb = null, sicherung = null, sicherungWeg = false;
+  if(pGes !== null && pGes > 0){
+    var nenner = (sys.leiter === 3) ? Math.sqrt(3)*sys.u*cos : sys.u*cos;
+    iBetrieb = pGes / nenner;
+    if(E){
+      sicherung = E.elNaechsteSicherung(iBetrieb);
+      sicherungWeg = (sicherung === null);
+    }
+  }
+  if(sicherungWeg){
+    hinweise.push('Der Betriebsstrom liegt über der hinterlegten Sicherungsreihe — die '
+      + 'Beleuchtung ist auf mehrere Stromkreise aufzuteilen.');
+  }
+  if(inp.cos >= 1){
+    hinweise.push('Mit cos φ = 1 gerechnet. LED-Betriebsgeräte liegen darunter, der wirkliche '
+      + 'Strom ist also höher — den Wert aus dem Datenblatt übernehmen.');
+  }
+  hinweise.push('Der Betriebsstrom ist der Dauerstrom. LED-Betriebsgeräte ziehen beim '
+    + 'Einschalten ein Vielfaches davon; wie viele Leuchten an einen Schalter oder '
+    + 'Leitungsschutzschalter dürfen, entscheidet der Einschaltstrom aus dem Datenblatt.');
+  hinweise.push('Ob die Zuleitung diesen Strom trägt, entscheidet die Strombelastbarkeit nach '
+    + 'Verlegeart und Häufung — hier wird nur der Betriebsstrom bestimmt.');
+
+  /* ── Bewertung ───────────────────────────────────────────────────── */
+  var status = 'leer';
+  if(eIst !== null && pGes !== null){
+    if(shrOk === false)                    status = 'warn';
+    else if(ueberdeckung > 1.30)           status = 'warn';
+    else                                   status = 'ok';
+  }
+
+  /* Vereinfachungen, die immer gelten — sie gehören sichtbar ins UI. */
+  hinweise.push('Das Wirkungsgradverfahren liefert die MITTLERE Beleuchtungsstärke über die '
+    + 'ganze Nutzebene. Gleichmässigkeit, Blendungsbegrenzung (UGR), Farbwiedergabe und die '
+    + 'Beleuchtung des unmittelbaren Umgebungsbereichs weist es nicht nach — dafür braucht es '
+    + 'eine Lichtberechnung mit den Lichtstärkeverteilungskurven der Leuchten.');
+  hinweise.push('Tageslicht, Verschattung durch Einrichtung und Regelung (Präsenz, '
+    + 'Konstantlicht) sind nicht berücksichtigt; sie senken den tatsächlichen Energiebedarf '
+    + 'gegenüber der Anschlussleistung deutlich.');
+
+  return {
+    flaeche:flaeche, hm:hm, k:k, geoFehlt:geoFehlt,
+    refl:refl, eta:eta, etaEigen:etaEigen,
+    etaRichtwert: richt ? richt.eta : null,
+    etaGeklemmt: richt ? richt.geklemmt : '',
+    phiGes:phiGes, nRoh:nRoh, n:n, raster:raster, nGesetzt:nGesetzt,
+    aMax:aMax, shrOk:shrOk,
+    eIst:eIst, ueberdeckung:ueberdeckung,
+    pGes:pGes, spez:spez, lmw:lmw,
+    iBetrieb:iBetrieb, sicherung:sicherung, sicherungWeg:sicherungWeg,
+    netz:sys, cos:cos,
+    status:status, hinweise:hinweise
+  };
+}
+/*ENGINE-END*/
+
+/* ── Oberfläche ─────────────────────────────────────────────────────────── */
+function fixLeadingZero(el){
+  var v = el.value.trim();
+  if(v === '') return;
+  v = v.replace(',', '.');
+  if(/^\./.test(v)) v = '0' + v;
+  if(/^-\./.test(v)) v = '-0' + v.slice(1);
+  var n = parseFloat(v);
+  el.value = isFinite(n) ? String(n) : '';
+}
+
+/* Fold: Zustand pro Gerät, NIE im AutoSave-Snapshot (Geräte-UI). */
+var btFOLD_KEY = 'gema_el_fold_v1';
+function btFoldState(){
+  try{ return JSON.parse(localStorage.getItem(btFOLD_KEY) || '{}'); }catch(e){ return {}; }
+}
+function btFold(hd){
+  var card = hd.closest('.el-card');
+  if(!card) return;
+  card.classList.toggle('zu');
+  var st = btFoldState();
+  st['el_beleuchtung.' + (card.getAttribute('data-fold')||'')] = card.classList.contains('zu');
+  try{ localStorage.setItem(btFOLD_KEY, JSON.stringify(st)); }catch(e){}
+}
+function btFoldInit(){
+  var st = btFoldState();
+  document.querySelectorAll('.el-card[data-fold]').forEach(function(c){
+    if(st['el_beleuchtung.' + c.getAttribute('data-fold')]) c.classList.add('zu');
+  });
+}
+
+function btEsc(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+
+function btFillSelects(){
+  var E = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
+
+  var vor = document.getElementById('bt_vorlage');
+  if(vor && !vor.options.length){
+    vor.innerHTML = '<option value="">– eigene Werte –</option>' + BT_LEUCHTEN.map(function(l){
+      return '<option value="'+btEsc(l.id)+'">'+btEsc(l.name)+' — '+l.phi+' lm · '+l.p+' W</option>';
+    }).join('');
+  }
+  var refl = document.getElementById('bt_refl');
+  if(refl && !refl.options.length){
+    refl.innerHTML = BT_REFLEX.map(function(r){
+      return '<option value="'+btEsc(r.id)+'">'+btEsc(r.label)+'</option>';
+    }).join('');
+  }
+  var netz = document.getElementById('bt_netz');
+  if(netz && !netz.options.length && E){
+    netz.innerHTML = E.EL_SYSTEME.map(function(s){
+      return '<option value="'+btEsc(s.id)+'"'+(s.id==='3p400'?' selected':'')
+           + '>'+btEsc(s.label)+'</option>';
+    }).join('');
+  }
+}
+
+/* Vorlage füllt Lichtstrom und Leistung — beides bleibt frei überschreibbar. */
+function btVorlage(){
+  var sel = document.getElementById('bt_vorlage');
+  if(!sel || !sel.value) return;
+  var l = btLeuchte(sel.value);
+  if(!l) return;
+  var phi = document.getElementById('bt_phi'), p = document.getElementById('bt_p');
+  if(phi) phi.value = String(l.phi);
+  if(p)   p.value   = String(l.p);
+  btRecalc();
+}
+
+/* Übertippt jemand Lichtstrom oder Leistung, passt die Vorlage nicht mehr —
+   die Anzeige löst sich dann (Muster Herkunfts-Chip in sb_saugpumpe). */
+function btVorlageSync(inp){
+  var sel = document.getElementById('bt_vorlage');
+  if(!sel || !sel.value) return;
+  var l = btLeuchte(sel.value);
+  if(!l) return;
+  if(inp.phi !== l.phi || inp.p !== l.p) sel.value = '';
+}
+
+function btRead(){
+  var E = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
+  var num = E ? E.elNum : function(v){ return parseFloat(String(v).replace(',','.')) || 0; };
+  var g = function(id){ var e = document.getElementById(id); return e ? e.value : ''; };
+  return {
+    laenge:  num(g('bt_laenge')),
+    breite:  num(g('bt_breite')),
+    hoehe:   num(g('bt_hoehe')),
+    nutz:    num(g('bt_nutz')),
+    abhaeng: num(g('bt_abhaeng')),
+    em:      num(g('bt_em')),
+    wf:      num(g('bt_wf')),
+    phi:     num(g('bt_phi')),
+    p:       num(g('bt_p')),
+    refl:    g('bt_refl') || 'hell',
+    eta:     num(g('bt_eta')),
+    shr:     num(g('bt_shr')),
+    netz:    g('bt_netz') || '3p400',
+    cos:     num(g('bt_cos'))
+  };
+}
+
+function btRecalc(){
+  var E = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
+  var fmt = E ? E.elFmt : function(v,d){ return Number(v).toFixed(d===undefined?2:d); };
+  var inp = btRead(), r;
+  try{ r = btCalc(inp); }catch(e){ console.warn('btCalc:', e); return; }
+  btVorlageSync(inp);
+
+  var set = function(id, txt){ var el = document.getElementById(id); if(el) el.textContent = txt; };
+  var setH = function(id, html){ var el = document.getElementById(id); if(el) el.innerHTML = html; };
+  var klasse = function(id, basis, zusatz){
+    var el = document.getElementById(id); if(el) el.className = basis + (zusatz ? ' ' + zusatz : '');
+  };
+
+  /* ── Karte 2: Zwischenwerte ──────────────────────────────────────── */
+  set('bt_flaeche', r.flaeche === null ? '—' : fmt(r.flaeche, 2) + ' m²');
+  set('bt_hm',      r.hm > 0 ? fmt(r.hm, 2) + ' m' : '—');
+  set('bt_k',       r.k === null ? '—' : fmt(r.k, 2));
+  set('bt_etaB',    r.eta ? fmt(r.eta, 3) + (r.etaEigen ? ' (Datenblatt)' : ' (Richtwert)') : '—');
+  set('bt_phiGes',  r.phiGes === null ? '—' : fmt(r.phiGes, 0) + ' lm');
+  set('bt_nRoh',    r.nRoh === null ? '—'
+                    : fmt(r.nRoh, 2) + ' → aufgerundet ' + r.n + ' Leuchten');
+  set('bt_lmw',     r.lmw === null ? '—' : fmt(r.lmw, 1) + ' lm/W');
+
+  /* Herkunft des Betriebswirkungsgrads — direkt am Feld erklärt. */
+  var hint = '';
+  if(r.etaEigen){
+    hint = 'Eigener Wert aus dem Datenblatt.'
+         + (r.etaRichtwert !== null
+            ? ' Der Richtwert für k = ' + fmt(r.k, 2) + ' läge bei ' + fmt(r.etaRichtwert, 2) + '.'
+            : '');
+  } else if(r.etaRichtwert !== null){
+    hint = 'Leer — gerechnet wird mit dem Richtwert ' + fmt(r.etaRichtwert, 3)
+         + ' für k = ' + fmt(r.k, 2) + ' und ' + btEsc(r.refl.label.split('—')[0].trim()) + '.'
+         + (r.etaGeklemmt === 'unten' ? ' Der Raumindex liegt UNTER der Tabelle (k < 0.6) — der wirkliche Wert liegt tiefer.'
+          : r.etaGeklemmt === 'oben'  ? ' Der Raumindex liegt ÜBER der Tabelle (k > 5) — gerechnet mit dem Randwert.' : '');
+  } else {
+    hint = 'Leer — sobald die Raumgeometrie steht, erscheint hier der Richtwert.';
+  }
+  set('bt_etaHint', hint);
+
+  /* ── Karte 3: Ergebnis ───────────────────────────────────────────── */
+  if(r.raster){
+    set('bt_anordnung', r.raster.nl + ' × ' + r.raster.nb + ' = ' + r.raster.gesamt + ' Leuchten'
+      + (r.raster.ueber > 0 ? ' (' + r.raster.ueber + ' mehr als rechnerisch nötig)' : ''));
+    set('bt_abstand', 'längs ' + fmt(r.raster.aL, 2) + ' m · quer ' + fmt(r.raster.aB, 2) + ' m'
+      + ' · Wandabstand ' + fmt(r.raster.aL/2, 2) + ' / ' + fmt(r.raster.aB/2, 2) + ' m');
+  } else {
+    set('bt_anordnung', '—');
+    set('bt_abstand', '—');
+  }
+  set('bt_eIst', r.eIst === null ? '—' : fmt(r.eIst, 0) + ' lx');
+
+  var pTxt = '—';
+  if(r.pGes !== null){
+    pTxt = fmt(r.pGes, 0) + ' W';
+    if(r.pGes >= 1000) pTxt += ' (' + fmt(r.pGes/1000, 2) + ' kW)';
+  }
+  set('bt_pGes', pTxt);
+
+  /* Der Formel-Chip folgt dem Netzsystem — ein fester Chip würde beim
+     Umschalten lügen (Regel aus el_spannungsfall). */
+  setH('bt_frmlI', r.netz.leiter === 3
+    ? 'I = P / (√3 · U<sub>n</sub> · cos φ)'
+    : 'I = P / (U<sub>n</sub> · cos φ)');
+  var iTxt = '—';
+  if(r.iBetrieb !== null){
+    iTxt = fmt(r.iBetrieb, 2) + ' A';
+    if(r.sicherung !== null)   iTxt += ' → nächste Sicherung ' + r.sicherung + ' A';
+    else if(r.sicherungWeg)    iTxt += ' → über der Sicherungsreihe';
+  }
+  set('bt_iBetrieb', iTxt);
+
+  /* Kacheln */
+  set('bt_spezVal', r.spez === null ? '—' : fmt(r.spez, 2) + ' W/m²');
+  set('bt_spezSub', (r.spez !== null && inp.em > 0)
+    ? fmt(r.spez / (inp.em/100), 2) + ' W/m² je 100 lx — vergleichbare Kennzahl'
+    : 'je m² Raumfläche');
+  klasse('bt_kpiSpez', 'bt-kpi', '');
+
+  if(r.aMax !== null && r.hm > 0){
+    set('bt_gleichVal', fmt(r.aMax / r.hm, 2));
+    set('bt_gleichSub', inp.shr > 0
+      ? 'grösstes a / hₘ · zulässig ≤ ' + fmt(inp.shr, 2)
+      : 'grösstes a / hₘ — kein Grenzwert erfasst');
+    klasse('bt_kpiGleich', 'bt-kpi', r.shrOk === false ? 'warn' : (r.shrOk === true ? 'ok' : ''));
+  } else {
+    set('bt_gleichVal', '—'); set('bt_gleichSub', 'Abstandsverhältnis a / hₘ');
+    klasse('bt_kpiGleich', 'bt-kpi', '');
+  }
+
+  if(r.ueberdeckung !== null){
+    var proz = (r.ueberdeckung - 1) * 100;
+    set('bt_ueberVal', (proz >= 0 ? '+' : '−') + fmt(Math.abs(proz), 0) + ' %');
+    set('bt_ueberSub', fmt(r.eIst, 0) + ' lx statt geforderter ' + fmt(inp.em, 0) + ' lx');
+    klasse('bt_kpiUeber', 'bt-kpi', r.ueberdeckung > 1.30 ? 'warn' : 'ok');
+  } else {
+    set('bt_ueberVal', '—'); set('bt_ueberSub', 'gegenüber dem geforderten Wert');
+    klasse('bt_kpiUeber', 'bt-kpi', '');
+  }
+
+  /* Status */
+  var st = document.getElementById('bt_status');
+  if(st){
+    st.className = 'el-status ' + (r.status === 'leer' ? 'ok' : r.status);
+    var txt;
+    if(r.status === 'leer'){
+      txt = 'Raum, geforderte Beleuchtungsstärke und Leuchtendaten erfassen — '
+          + 'danach stehen Leuchtenzahl und Anordnung.';
+    } else {
+      txt = r.nGesetzt + ' Leuchten in ' + r.raster.nl + ' × ' + r.raster.nb
+          + ' — erreicht werden ' + fmt(r.eIst, 0) + ' lx gegenüber geforderten '
+          + fmt(inp.em, 0) + ' lx.';
+      if(r.shrOk === false){
+        txt += ' Der grösste Leuchtenabstand überschreitet das zulässige Abstandsverhältnis: '
+             + 'die Gleichmässigkeit ist damit nicht nachgewiesen — enger anordnen oder eine '
+             + 'breiter strahlende Leuchte wählen.';
+      }
+      if(r.ueberdeckung > 1.30){
+        txt += ' Die Anlage liegt über 30 % über dem geforderten Wert — eine kleinere Leuchte '
+             + 'oder ein grösserer Wartungsfaktor spart Leistung.';
+      }
+      if(r.status === 'ok') txt += ' Die Auslegung ist plausibel.';
+    }
+    st.textContent = txt;
+  }
+
+  /* Annahmen und Abgrenzungen — nichts bleibt unausgesprochen. */
+  setH('bt_annahmen', r.hinweise.map(function(h){
+    return '<li>' + btEsc(h) + '</li>';
+  }).join(''));
+
+  /* Kennzahlen-Leiste */
+  set('bt_sum1', r.nGesetzt === null ? '—' : String(r.nGesetzt));
+  set('bt_sum2', r.pGes === null ? '—'
+    : (r.pGes >= 1000 ? fmt(r.pGes/1000, 2) + ' kW' : fmt(r.pGes, 0) + ' W'));
+  set('bt_sum3', r.spez === null ? '—' : fmt(r.spez, 2) + ' W/m²');
+
+  btPlanDraw(r, inp);
+}
+
+/* ── Grundriss mit Leuchtenraster ────────────────────────────────────────
+   NUR literale Hex-Farben — var() rastert GemaPDF/html2canvas falsch. */
+function btPlanDraw(r, inp){
+  var svg = document.getElementById('btPlan');
+  if(!svg) return;
+  var E = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
+  var fmt = E ? E.elFmt : function(v,d){ return Number(v).toFixed(d===undefined?2:d); };
+  var W = 860, H = 460, p = [];
+
+  if(!r || !r.raster || !(inp.laenge > 0 && inp.breite > 0)){
+    svg.innerHTML = '<rect x="0" y="0" width="'+W+'" height="'+H+'" rx="10" fill="#f8fafc"/>'
+      + '<text x="'+(W/2)+'" y="'+(H/2)+'" text-anchor="middle" font-family="DM Sans,sans-serif"'
+      + ' font-size="14" font-weight="700" fill="#94a3b8">Raum und Leuchtendaten erfassen —'
+      + ' danach erscheint hier das Raster.</text>';
+    return;
+  }
+
+  var a = inp.laenge, b = inp.breite, ra = r.raster;
+  var boxX = 96, boxY = 62, boxW = 660, boxH = 306;
+  var sc = Math.min(boxW / a, boxH / b);
+  var rw = a * sc, rh = b * sc;
+  var x0 = boxX + (boxW - rw)/2, y0 = boxY + (boxH - rh)/2;
+
+  p.push('<rect x="0" y="0" width="'+W+'" height="'+H+'" rx="10" fill="#fbfcfe"/>');
+  /* Raum */
+  p.push('<rect x="'+x0.toFixed(1)+'" y="'+y0.toFixed(1)+'" width="'+rw.toFixed(1)
+    + '" height="'+rh.toFixed(1)+'" fill="#ffffff" stroke="#0f172a" stroke-width="2.5"/>');
+
+  /* Leuchten */
+  var dx = rw / ra.nl, dy = rh / ra.nb;
+  var lw = Math.max(10, Math.min(34, dx * 0.45));
+  var lh = Math.max(6,  Math.min(20, dy * 0.35));
+  for(var j=0; j<ra.nb; j++){
+    for(var i=0; i<ra.nl; i++){
+      var cx = x0 + (i + 0.5) * dx, cy = y0 + (j + 0.5) * dy;
+      p.push('<rect x="'+(cx-lw/2).toFixed(1)+'" y="'+(cy-lh/2).toFixed(1)+'" width="'+lw.toFixed(1)
+        + '" height="'+lh.toFixed(1)+'" rx="2.5" fill="#fde68a" stroke="#ca8a04" stroke-width="1.6"/>');
+      p.push('<line x1="'+(cx-lw/2+3).toFixed(1)+'" y1="'+cy.toFixed(1)+'" x2="'+(cx+lw/2-3).toFixed(1)
+        + '" y2="'+cy.toFixed(1)+'" stroke="#a16207" stroke-width="1.2"/>');
+    }
+  }
+
+  /* Massketten: Wandabstand + erster Leuchtenabstand, längs unten */
+  var yM = y0 + rh + 30;
+  var mass = function(xa, xb, y, txt, farbe){
+    p.push('<line x1="'+xa.toFixed(1)+'" y1="'+y+'" x2="'+xb.toFixed(1)+'" y2="'+y
+      + '" stroke="'+farbe+'" stroke-width="1.4"/>');
+    p.push('<line x1="'+xa.toFixed(1)+'" y1="'+(y-5)+'" x2="'+xa.toFixed(1)+'" y2="'+(y+5)
+      + '" stroke="'+farbe+'" stroke-width="1.4"/>');
+    p.push('<line x1="'+xb.toFixed(1)+'" y1="'+(y-5)+'" x2="'+xb.toFixed(1)+'" y2="'+(y+5)
+      + '" stroke="'+farbe+'" stroke-width="1.4"/>');
+    p.push('<text x="'+((xa+xb)/2).toFixed(1)+'" y="'+(y-9)+'" text-anchor="middle"'
+      + ' font-family="DM Sans,sans-serif" font-size="11" font-weight="800" fill="'+farbe+'">'
+      + txt + '</text>');
+  };
+  var massV = function(ya, yb, x, txt, farbe){
+    p.push('<line x1="'+x+'" y1="'+ya.toFixed(1)+'" x2="'+x+'" y2="'+yb.toFixed(1)
+      + '" stroke="'+farbe+'" stroke-width="1.4"/>');
+    p.push('<line x1="'+(x-5)+'" y1="'+ya.toFixed(1)+'" x2="'+(x+5)+'" y2="'+ya.toFixed(1)
+      + '" stroke="'+farbe+'" stroke-width="1.4"/>');
+    p.push('<line x1="'+(x-5)+'" y1="'+yb.toFixed(1)+'" x2="'+(x+5)+'" y2="'+yb.toFixed(1)
+      + '" stroke="'+farbe+'" stroke-width="1.4"/>');
+    p.push('<text x="'+(x-9)+'" y="'+((ya+yb)/2).toFixed(1)+'" text-anchor="middle"'
+      + ' font-family="DM Sans,sans-serif" font-size="11" font-weight="800" fill="'+farbe+'"'
+      + ' transform="rotate(-90 '+(x-9)+' '+((ya+yb)/2).toFixed(1)+')">' + txt + '</text>');
+  };
+  mass(x0, x0 + dx/2, yM, fmt(ra.aL/2, 2) + ' m', '#64748b');
+  if(ra.nl >= 2) mass(x0 + dx/2, x0 + dx*1.5, yM, fmt(ra.aL, 2) + ' m', '#ca8a04');
+  massV(y0, y0 + dy/2, x0 - 22, fmt(ra.aB/2, 2) + ' m', '#64748b');
+  if(ra.nb >= 2) massV(y0 + dy/2, y0 + dy*1.5, x0 - 22, fmt(ra.aB, 2) + ' m', '#ca8a04');
+
+  /* Raumkanten */
+  p.push('<text x="'+(x0 + rw/2).toFixed(1)+'" y="'+(y0 - 14)+'" text-anchor="middle"'
+    + ' font-family="DM Sans,sans-serif" font-size="12.5" font-weight="800" fill="#0f172a">'
+    + fmt(a, 2) + ' m</text>');
+  p.push('<text x="'+(x0 + rw + 16).toFixed(1)+'" y="'+(y0 + rh/2).toFixed(1)
+    + '" text-anchor="middle" font-family="DM Sans,sans-serif" font-size="12.5"'
+    + ' font-weight="800" fill="#0f172a" transform="rotate(90 '+(x0+rw+16).toFixed(1)+' '
+    + (y0+rh/2).toFixed(1)+')">' + fmt(b, 2) + ' m</text>');
+
+  /* Kopf- und Fusszeile */
+  p.push('<text x="'+boxX+'" y="34" font-family="DM Sans,sans-serif" font-size="13"'
+    + ' font-weight="900" fill="#0f172a">' + ra.nl + ' × ' + ra.nb + ' = ' + ra.gesamt
+    + ' Leuchten</text>');
+  p.push('<text x="'+(W-boxX)+'" y="34" text-anchor="end" font-family="DM Sans,sans-serif"'
+    + ' font-size="12" font-weight="700" fill="#64748b">' + fmt(r.eIst, 0) + ' lx · '
+    + fmt(r.pGes, 0) + ' W</text>');
+
+  var fussFarbe = (r.shrOk === false) ? '#b45309' : '#64748b';
+  var fuss = 'Grösster Leuchtenabstand ' + fmt(r.aMax, 2) + ' m bei hₘ = '
+           + fmt(r.hm, 2) + ' m → a / hₘ = ' + fmt(r.aMax / r.hm, 2)
+           + (inp.shr > 0 ? ' (zulässig ≤ ' + fmt(inp.shr, 2) + ')' : '');
+  p.push('<text x="'+boxX+'" y="'+(H-22)+'" font-family="DM Sans,sans-serif" font-size="11.5"'
+    + ' font-weight="700" fill="'+fussFarbe+'">' + fuss + '</text>');
+
+  svg.innerHTML = p.join('');
+}
+
+/* ── Snapshot-Fallback (KRITISCH) ────────────────────────────────────────
+   GemaAutoSave stellt beim Seitenstart NUR wieder her, wenn ein Objekt
+   gewählt ist («Initial load for current object»). Wer ohne Projektbezug
+   rechnet — freies Objekt, schnelle Kontrollrechnung — verlöre seine
+   Eingaben sonst bei jedem Reload, obwohl sie gespeichert sind.
+   Darum lesen wir den Snapshot direkt aus dem Speicher nach, solange der
+   Benutzer nichts angefasst hat (Muster glSnapshotLoad in sb_grundleitungen).
+   `e.isTrusted` unterscheidet echte Eingaben von programmatischen. */
+var _btTouched = false;
+document.addEventListener('input',  function(e){ if(e.isTrusted) _btTouched = true; }, true);
+document.addEventListener('change', function(e){ if(e.isTrusted) _btTouched = true; }, true);
+
+function btSnapshotKey(){
+  var sel = document.getElementById('metaObjektDropdown');
+  var basis = 'gema_beleuchtung';
+  if(!sel || !sel.value) return basis;
+  try{
+    if(typeof GemaObjekte !== 'undefined' && GemaObjekte.storageKey) return GemaObjekte.storageKey(basis);
+  }catch(e){}
+  return basis + '__' + sel.value;
+}
+
+function btSnapshotLoad(){
+  if(_btTouched) return;
+  var daten;
+  try{ daten = JSON.parse(localStorage.getItem(btSnapshotKey()) || 'null'); }catch(e){ return; }
+  if(!daten) return;
+  var gesetzt = false;
+  Object.keys(daten).forEach(function(id){
+    if(id.charAt(0) === '_') return;              // _ts u.ä. sind Metadaten
+    if(id.indexOf('bt_') !== 0) return;         // nur die Felder dieses Moduls
+    var el = document.getElementById(id);
+    if(!el || el.value === daten[id]) return;
+    el.value = daten[id];
+    gesetzt = true;
+  });
+  if(gesetzt) btRecalc();
+}
+
+document.addEventListener('DOMContentLoaded', function(){
+  btFoldInit();
+  btFillSelects();
+  btRecalc();
+  /* Gestaffelt, weil der Objekt-Bezug und der Cloud-Pull später eintreffen. */
+  setTimeout(btSnapshotLoad, 700);
+  setTimeout(btSnapshotLoad, 1800);
+  setTimeout(btSnapshotLoad, 3500);
+});
+/* AutoSave-Restore setzt Werte programmatisch — danach neu rechnen. */
+window.addEventListener('gema-autosave-restored', function(){ btFillSelects(); btRecalc(); });
+window.addEventListener('gema-objekte-loaded', function(){ setTimeout(btSnapshotLoad, 300); });
+</script>
+
+<script>
+// ── PROJECT META (auto-save) ──
+(function(){
+  var MK='gema_meta_'+location.pathname.split('/').pop().replace('.html','');
+  function saveMeta(){try{var oid=document.getElementById('metaObjektDropdown')?.value||'';localStorage.setItem(MK,JSON.stringify({p:document.getElementById('metaProjekt')?.value||'',b:document.getElementById('metaBearbeiter')?.value||'',d:document.getElementById('metaDatum')?.value||'',oid:oid}));}catch(e){}}
+  function loadMeta(){try{var d=JSON.parse(localStorage.getItem(MK));if(d){if(document.getElementById('metaProjekt'))document.getElementById('metaProjekt').value=d.p||'';if(document.getElementById('metaBearbeiter'))document.getElementById('metaBearbeiter').value=d.b||'';if(document.getElementById('metaDatum'))document.getElementById('metaDatum').value=d.d||'';if(d.oid&&document.getElementById('metaObjektDropdown')){document.getElementById('metaObjektDropdown').value=d.oid;_prevObjektId=d.oid;}}}catch(e){}if(!document.getElementById('metaDatum')?.value){var el=document.getElementById('metaDatum');if(el)el.value=new Date().toISOString().slice(0,10);}}
+  var _prevObjektId='';
+  function _escHtml(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  function populateObjektDropdown(){
+    if(typeof GemaObjekte==='undefined') return;
+    var sel=document.getElementById('metaObjektDropdown');
+    if(!sel) return;
+    var objs=GemaObjekte.getAll();
+    var activeId=GemaObjekte.getActiveId();
+    sel.innerHTML='<option value="">\u2013 Objekt w\u00e4hlen \u2013</option>'+
+      objs.map(function(o){return '<option value="'+o.id+'"'+(o.id===activeId?' selected':'')+'>'+
+        _escHtml(GemaObjekte.displayName(o))+'</option>';}).join('');
+    var savedOid=_prevObjektId;
+    if(savedOid && objs.find(function(o){return o.id===savedOid;})){
+      sel.value=savedOid;
+    } else if(activeId && !document.getElementById('metaProjekt').value){
+      sel.value=activeId;_prevObjektId=activeId;onObjektSelect();
+    }
+  }
+  function onObjektSelect(){
+    var sel=document.getElementById('metaObjektDropdown');
+    var inp=document.getElementById('metaProjekt');
+    if(!sel||!inp) return;
+    if(sel.value && typeof GemaObjekte!=='undefined'){
+      var o=GemaObjekte.getAll().find(function(x){return x.id===sel.value;});
+      if(o){var parts=[o.name];if(o.strasse)parts.push(o.strasse);if(o.plz||o.ort)parts.push([o.plz,o.ort].filter(Boolean).join(' '));inp.value=parts.join(', ');}
+    } else { inp.value=''; }
+    _prevObjektId=sel.value;saveMeta();
+  }
+  function toggleObjektInput(forceManual){
+    var isManual=typeof forceManual==='boolean'?forceManual:document.getElementById('objComboManual').style.display==='none';
+    document.getElementById('objComboSelect').style.display=isManual?'none':'flex';
+    document.getElementById('objComboManual').style.display=isManual?'flex':'none';
+    document.getElementById('objComboBtn').textContent=isManual?'Stammdaten':'Freies Objekt';
+    if(!isManual) populateObjektDropdown();
+  }
+  window.onObjektSelect=onObjektSelect;
+  window.toggleObjektInput=toggleObjektInput;
+  window.populateObjektDropdown=populateObjektDropdown;
+  document.addEventListener('DOMContentLoaded',function(){loadMeta();populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('beleuchtung');});
+  window.addEventListener('gema-objekte-loaded',function(){populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('beleuchtung');});
+  ['metaProjekt','metaBearbeiter','metaDatum'].forEach(function(id){var el=document.getElementById(id);if(el)el.addEventListener('input',saveMeta);});
+})();</script>
+<script>
+document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('beleuchtung', 'Beleuchtungsberechnung');});
+</script>
+<script src="gema_scroll.js"></script>
+<script src="gema_mobile_menu.js"></script>
+</body></html>
