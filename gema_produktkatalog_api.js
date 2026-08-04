@@ -1391,6 +1391,17 @@ function match(kategorie, berechnungswerte){
 }
 
 function createProdukt(kategorie, lieferantId, lieferantFirma, daten, quelle){
+  // Objekt-Signatur (Excel-/Prüfbericht-Import): createProdukt({kategorie,
+  // lieferantId, lieferantFirma?, daten, status?, quelle?}). Der CSV-Import
+  // im Lieferanten-Dashboard rief diese Form schon immer — positional kam
+  // dann das ganze Objekt als «kategorie» an (stiller Datenmüll).
+  if(kategorie && typeof kategorie === 'object'){
+    const o = kategorie;
+    const lf = o.lieferantFirma || (o.lieferantId && (getLieferant(o.lieferantId)||{}).firma) || '';
+    const po = createProdukt(o.kategorie, o.lieferantId, lf, o.daten, o.quelle || 'lieferant');
+    if(po && o.status && po.status !== o.status){ po.status = o.status; save(); }
+    return po;
+  }
   const id = 'prod_' + Date.now() + '_' + Math.random().toString(36).substring(2,6);
   const isAdmin = quelle === 'admin';
   const p = {

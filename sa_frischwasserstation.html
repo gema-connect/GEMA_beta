@@ -559,6 +559,9 @@ table.fw{border-collapse:collapse;width:100%;font-size:12.5px}
 .fw-kpi .l{font-size:10.5px;color:var(--muted);font-weight:700;margin-top:2px}
 .fw-kpi .s{font-size:10.5px;color:var(--muted2);margin-top:1px;font-variant-numeric:tabular-nums}
 .fw-sec{font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin:14px 0 8px}
+/* Kaskaden-Auslegung: 🔥-Kennzeichnung heizungsrelevanter Werte (Koordination Heizungsplaner) */
+.hz-tag{display:inline-flex;align-items:center;gap:3px;font-size:9px;font-weight:800;color:#c2410c;background:rgba(234,88,12,.09);border:1px solid rgba(234,88,12,.28);border-radius:4px;padding:1px 6px;margin-left:6px;vertical-align:middle;cursor:help;white-space:nowrap;text-transform:none;letter-spacing:0}
+#fwkSchema svg{width:100%;height:auto;display:block}
 @media(max-width:640px){.fw-kpis{grid-template-columns:repeat(2,1fr)}}
 </style>
 
@@ -601,7 +604,7 @@ table.fw{border-collapse:collapse;width:100%;font-size:12.5px}
     <div>
       <div class="gema-hero-title">Frischwasserstation</div>
       <div class="gema-hero-norm" title="Berechnungsgrundlage" style="display:inline-block;font-size:11px;color:rgba(255,255,255,.92);background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);padding:2px 8px;border-radius:6px;margin-top:6px;font-weight:700;letter-spacing:.2px">📖 SIA 385/2 · Nutzungseinheiten + Gleichzeitigkeit · Gauss/Poisson-Duschprofil</div>
-      <div class="gema-hero-sub">Tagesbedarf · Spitzenvolumenstrom · Mischkreuz · Gastro/Spez-Anlagen · Statistische Gauss-Bemessung · Leistung mit Zirkulationsabzug</div>
+      <div class="gema-hero-sub">Tagesbedarf · Spitzenvolumenstrom · Mischkreuz · Gastro/Spez-Anlagen · Statistische Gauss-Bemessung · Leistung mit Zirkulationsabzug · Kaskaden-Auslegung mit Pufferspeicher</div>
     </div>
   </div>
 </div>
@@ -689,7 +692,9 @@ table.fw{border-collapse:collapse;width:100%;font-size:12.5px}
         <b>3.</b> Mischkreuz rechnet den Warmwasser-Anteil (Station liefert WW, gezapft wird Mischwasser).<br>
         <b>4.</b> Gastro-/Spezialgeräte: gleichzeitige Geräte ankreuzen.<br>
         <b>5.</b> Optional: statistische Gauss-Bemessung (Duschprofil + Poisson) als Plausibilisierung.<br>
-        <b>6.</b> Leistung = ṁ·c<sub>p</sub>·ΔT minus Zirkulationsabzug — unten Anlage wählen &amp; Offerte anfragen.
+        <b>6.</b> Leistung = ṁ·c<sub>p</sub>·ΔT minus Zirkulationsabzug — unten Anlage wählen &amp; Offerte anfragen.<br>
+        <b>7.</b> Optional: Kaskaden-Auslegung — Leistung auf mehrere Stationen verteilen, Pufferspeicher-Zonen
+        und Ladeleistung; Werte mit 🔥 gehen an den Heizungsplaner.
       </div>
     </div>
   </div>
@@ -976,6 +981,130 @@ table.fw{border-collapse:collapse;width:100%;font-size:12.5px}
   </div>
 </div>
 
+<!-- 7 · KASKADEN-AUSLEGUNG + PUFFERSPEICHER (nach Kaskaden-Prinzipschema, z.B. BMS TE 136105) -->
+<div class="g-card" style="margin-top:14px" id="fwKaskadeCard">
+  <div class="g-card-hd">
+    <h2>7 · Kaskaden-Auslegung &amp; Pufferspeicher</h2>
+    <label class="g-switch-wrap no-print" style="cursor:pointer"><span style="font-weight:700">verwenden</span>
+      <span class="g-switch"><input type="checkbox" id="fwk_on" onchange="fwkToggle()"/><span class="g-switch-slider"></span></span>
+    </label>
+  </div>
+  <div class="g-card-bd">
+    <div class="g-info" style="margin-bottom:14px">
+      Grosse Leistungen werden auf <b>mehrere Frischwasserstationen als Kaskade</b> aufgeteilt
+      (Redundanz, besseres Teillastverhalten) — optional übernimmt eine <b>separate Zirkulationsstation Z</b>
+      nur die Warmhaltung der Zirkulation. Der <b>Pufferspeicher</b> gliedert sich in Stundenspitze,
+      Steuervolumen und Reserve; aus der Ladung folgt die erforderliche Wärmeerzeuger-Leistung.
+      Werte mit <span class="hz-tag" title="Angabe für den Heizungsplaner (Wärmeerzeugung / Primärseite)">🔥 Heizung</span>
+      betreffen die <b>Heizungsseite</b> und gehören in die Koordination mit dem Heizungsplaner.
+    </div>
+    <div id="fwkBody" style="display:none">
+      <div class="g-main-grid">
+        <div>
+          <div class="fw-sec">Kaskade</div>
+          <div class="fg">
+            <div class="fg-lbl">Anzahl Stationen<br><span class="lbl-hint">nebeneinander an der Wand — inkl. allfälliger Zirkulationsstation</span></div>
+            <select class="fg-inp" id="fwk_n" style="text-align:left" onchange="fwRecalc()">
+              <option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option>
+            </select>
+            <span class="fg-unit">Stk</span>
+          </div>
+          <div class="fg">
+            <div class="fg-lbl">Separate Zirkulationsstation<br><span class="lbl-hint">letzte Station (Z) hält nur die Zirkulation warm — die Zapfleistung teilen sich die übrigen</span></div>
+            <select class="fg-inp" id="fwk_sep" style="text-align:left;width:210px" onchange="fwRecalc()">
+              <option value="nein">Nein — alle Stationen laden</option>
+              <option value="ja">Ja — letzte Station nur Zirkulation</option>
+            </select>
+            <span class="fg-unit">–</span>
+          </div>
+          <div class="fw-sec">Primärseite Speicher → Stationen <span class="hz-tag" title="Angabe für den Heizungsplaner (Wärmeerzeugung / Primärseite)">🔥 Heizung</span></div>
+          <div class="fg">
+            <div class="fg-lbl">Vorlauf Primär (ab Speicher)<br><span class="lbl-hint">Speicher oben → Stationen (WW-Solltemperatur + Grädigkeit beachten)</span></div>
+            <input class="fg-inp" onblur="fixLeadingZero(this)" id="fwk_primVl" type="text" inputmode="decimal" value="65" oninput="fwRecalc()"/>
+            <span class="fg-unit">°C</span>
+          </div>
+          <div class="fg">
+            <div class="fg-lbl">Rücklauf Primär (zum Speicher)<br><span class="lbl-hint">tiefer Rücklauf = gute Speicher-Schichtung</span></div>
+            <input class="fg-inp" onblur="fixLeadingZero(this)" id="fwk_primRl" type="text" inputmode="decimal" value="40" oninput="fwRecalc()"/>
+            <span class="fg-unit">°C</span>
+          </div>
+          <div class="fw-sec">Wärmeerzeugung &amp; Gebäude <span class="hz-tag" title="Angabe für den Heizungsplaner (Wärmeerzeugung / Primärseite)">🔥 Heizung</span></div>
+          <div class="fg">
+            <div class="fg-lbl">Heizleistung Wärmeerzeuger<br><span class="lbl-hint">verfügbare Leistung für die Speicherladung (Vorrangschaltung) — 0 = keine Ladeberechnung</span></div>
+            <input class="fg-inp" onblur="fixLeadingZero(this)" id="fwk_hl" type="text" inputmode="decimal" value="0" oninput="fwRecalc()"/>
+            <span class="fg-unit">kW</span>
+          </div>
+          <div class="fg">
+            <div class="fg-lbl">Spez. Wärmebedarf Gebäude<br><span class="lbl-hint">für die zulässige Heiz-Unterbruchsdauer während der WW-Ladung</span></div>
+            <input class="fg-inp" onblur="fixLeadingZero(this)" id="fwk_qheiz" type="text" inputmode="decimal" value="35" oninput="fwRecalc()"/>
+            <span class="fg-unit">W/m²</span>
+          </div>
+          <div class="fg">
+            <div class="fg-lbl">Wärmespeicherfähigkeit Gebäude<br><span class="lbl-hint">spezifisch, z.B. Massivbau ≈ 105 Wh/m²K</span></div>
+            <input class="fg-inp" onblur="fixLeadingZero(this)" id="fwk_cgeb" type="text" inputmode="decimal" value="105" oninput="fwRecalc()"/>
+            <span class="fg-unit">Wh/m²K</span>
+          </div>
+          <div class="fg">
+            <div class="fg-lbl">Zulässige Auskühlung<br><span class="lbl-hint">tolerierter Raumtemperatur-Abfall während der Ladung</span></div>
+            <input class="fg-inp" onblur="fixLeadingZero(this)" id="fwk_dtzul" type="text" inputmode="decimal" value="0.5" oninput="fwRecalc()"/>
+            <span class="fg-unit">K</span>
+          </div>
+          <div class="fw-sec">Pufferspeicher</div>
+          <div class="fg">
+            <div class="fg-lbl">Stundenspitze<br><span class="lbl-hint">Anteil am Nutzbedarf (SIA 385/2-Profile: Altersheim 19.3 · Spital 14 · Hotel 12.5 · Büro 20 · Restaurant 13.5 · Studentenheim 6.6 %)</span></div>
+            <input class="fg-inp" onblur="fixLeadingZero(this)" id="fwk_spitze" type="text" inputmode="decimal" value="19.3" oninput="fwRecalc()"/>
+            <span class="fg-unit">%</span>
+          </div>
+          <div class="fg">
+            <div class="fg-lbl">Reserve bis Wärmeerzeuger bereit<br><span class="lbl-hint">Anlaufzeit der Wärmeerzeugung — Reserve = Spitzenstunde anteilig</span></div>
+            <input class="fg-inp" onblur="fixLeadingZero(this)" id="fwk_reserveMin" type="text" inputmode="decimal" value="10" oninput="fwRecalc()"/>
+            <span class="fg-unit">min</span>
+          </div>
+        </div>
+        <div>
+          <div class="fw-sec">Stationen</div>
+          <div class="g-result-list" style="margin-bottom:10px">
+            <div class="g-result-row"><span class="g-result-lbl">Aufteilung</span><span class="g-result-val" id="fwk_out_nlade">–</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">Leistung je Station <span class="frml" style="display:inline;margin:0;">P<sub>theor</sub> / n<sub>Lade</sub></span></span><span class="g-result-val big" id="fwk_out_pst">–</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">Volumenstrom je Station</span><span class="g-result-val" id="fwk_out_vst">–</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">Zirkulationsstation Z (Warmhaltung)</span><span class="g-result-val" id="fwk_out_z">–</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">Deckung bei Ausfall einer Station</span><span class="g-result-val" id="fwk_out_ausfall">–</span></div>
+          </div>
+          <div class="fw-sec">Primärseite <span class="hz-tag" title="Angabe für den Heizungsplaner (Wärmeerzeugung / Primärseite)">🔥 Heizung</span></div>
+          <div class="g-result-list" style="margin-bottom:10px">
+            <div class="g-result-row"><span class="g-result-lbl">Spreizung primär</span><span class="g-result-val" id="fwk_out_dtprim">–</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">Massenstrom primär total <span class="frml" style="display:inline;margin:0;">P·3600/(c<sub>p</sub>·ΔT<sub>prim</sub>)</span></span><span class="g-result-val" id="fwk_out_mprim">–</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">Massenstrom primär je Station</span><span class="g-result-val" id="fwk_out_mprimst">–</span></div>
+          </div>
+          <div class="fw-sec">Ladung &amp; Pufferspeicher</div>
+          <div class="g-result-list">
+            <div class="g-result-row"><span class="g-result-lbl">Tagesenergie Warmwasser <span class="frml" style="display:inline;margin:0;">V·c<sub>p</sub>·ΔT/3600</span></span><span class="g-result-val" id="fwk_out_qd">–</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">Ladedauer <span class="frml" style="display:inline;margin:0;">Q<sub>d</sub>/HL</span><span class="hz-tag" title="Angabe für den Heizungsplaner">🔥 Heizung</span></span><span class="g-result-val" id="fwk_out_td">–</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">WW-Zuschlag (Sperrzeit) <span class="frml" style="display:inline;margin:0;">HL·24/(24−t<sub>d</sub>) − HL</span><span class="hz-tag" title="Angabe für den Heizungsplaner">🔥 Heizung</span></span><span class="g-result-val" id="fwk_out_zuschlag">–</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">Ladeleistung Wärmeerzeuger <span class="hz-tag" title="Angabe für den Heizungsplaner">🔥 Heizung</span></span><span class="g-result-val big" id="fwk_out_plade">–</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">Max. Heiz-Unterbruch <span class="frml" style="display:inline;margin:0;">C·ΔT<sub>zul</sub>/q̇</span><span class="hz-tag" title="Angabe für den Heizungsplaner">🔥 Heizung</span></span><span class="g-result-val" id="fwk_out_tab">–</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">Ladungen pro Tag <span class="frml" style="display:inline;margin:0;">⌈t<sub>d</sub>/t<sub>max</sub>⌉</span></span><span class="g-result-val" id="fwk_out_ladungen">–</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">Steuervolumen <span class="frml" style="display:inline;margin:0;">V<sub>d</sub>/Ladungen</span></span><span class="g-result-val" id="fwk_out_vsteuer">–</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">Stundenspitze (Spitzendeckung)</span><span class="g-result-val" id="fwk_out_vspitze">–</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">Reserve bis Wärmeerzeuger bereit</span><span class="g-result-val" id="fwk_out_vreserve">–</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">Pufferspeicher (Vorschlag, min.)</span><span class="g-result-val big" id="fwk_out_vspeicher">–</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="warn-box" id="fwk_msg" style="display:none;margin-top:12px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Kaskaden-Schema (nur bei aktiver Kaskade sichtbar) -->
+<div class="g-card" style="margin-top:14px;display:none" id="fwkSchemaCard">
+  <div class="g-card-hd"><h2>📊 Kaskaden-Schema</h2><span style="font-size:11px;color:var(--muted)">Wärmeerzeuger · Pufferspeicher · Stationsreihe — 🔥 = Heizungsplaner</span></div>
+  <div class="g-card-bd">
+    <div id="fwkSchema" style="width:100%"></div>
+    <div id="fwkSchemaNote" class="g-hint" style="margin-top:8px"></div>
+  </div>
+</div>
+
 <textarea id="fw_rows" style="display:none"></textarea>
 </div>
 
@@ -1112,6 +1241,63 @@ function fwgCalc(inp){
   if(dtWW<=0)r.warn.push('Mischkreuz: Warmwasser- muss über Kaltwassertemperatur liegen.');
   if(ohneFlaeche>0)r.warn.push(ohneFlaeche+' Wohnung(en) ohne Fläche ANF — Personenzahl dort nur 1.3 P/Whg. Fläche in Abschnitt 2 erfassen oder Personen-Override setzen.');
   if(dtPrim<=0)r.warn.push('Primärspreizung: Vorlauf muss über Rücklauf liegen.');
+  return r;
+}
+
+// ═══ Kaskaden-Auslegung + Pufferspeicher (DOM-frei, Node-testbar) ═══
+// Nach dem Kaskaden-Prinzipschema einer FWS-Kaskade (BMS-Energietechnik
+// TE 136105 «Alterszentrum Alban-Breite Basel», Lösungsblatt 05/2026):
+// mehrere Stationen teilen sich die Zapfleistung (Blatt: 274 kW / 3 = 92 kW
+// je Station), optional übernimmt eine SEPARATE Station (Z) nur die
+// Zirkulations-Warmhaltung (Blatt: 1.35 kW). Der Pufferspeicher gliedert
+// sich in Stundenspitze / Steuervolumen / Reserve; die Ladeleistung der
+// Wärmeerzeugung bekommt den Sperrzeit-Zuschlag (Formel wie hz_waermegruppen:
+// Φoff = HL·24/(24−toff) − HL). Max. Heiz-Unterbruch = C·ΔTzul/q̇ (Blatt:
+// 105·0.5/35 = 1.5 h → 2 Ladungen → 2600/2 = 1300 l Steuervolumen).
+function fwkCalc(inp){
+  // inp: {n, sepZirk, pTheor[kW], vMass[l/min], pZirk[kW], zirkV[l/h], tww, tkw,
+  //       primVl, primRl, tagesbedarf[l/d inkl. Verluste], nutzTotal[l/d netto],
+  //       hl[kW], qHeiz[W/m²], cGeb[Wh/m²K], dtZul[K], spitzePct[%], reserveMin, cp}
+  var r={warn:[]};
+  var cp=(parseFloat(inp.cp)||0)>0?parseFloat(inp.cp):4.187;
+  var n=Math.max(1,Math.round(parseFloat(inp.n)||0)||1);
+  var sep=!!inp.sepZirk;
+  if(sep&&n<2){sep=false;r.warn.push('Separate Zirkulationsstation braucht mind. 2 Stationen — Zirkulation läuft über die Kaskade.');}
+  r.n=n;r.sep=sep;
+  r.nLade=sep?n-1:n;
+  var pT=parseFloat(inp.pTheor)||0, vM=parseFloat(inp.vMass)||0;
+  r.pStation=r.nLade>0?pT/r.nLade:0;
+  r.vStation=r.nLade>0?vM/r.nLade:0;
+  r.pZirk=parseFloat(inp.pZirk)||0;
+  var zirkV=parseFloat(inp.zirkV)||0;
+  r.ausfallPct=r.nLade>1?(r.nLade-1)/r.nLade*100:0; // Restdeckung, wenn EINE Ladestation ausfällt
+  if(sep&&!(zirkV>0))r.warn.push('Separate Zirkulationsstation gewählt, aber kein Zirkulations-Volumenstrom in Abschnitt 6 erfasst — die Station Z hat keine Last.');
+  if(sep&&zirkV>0)r.warn.push('Zirkulationsstation Z lädt dauernd über den Speicher — der Rücklauf bleibt warm. Erhöhte Speicher-Rücklauftemperatur mit dem Heizungsplaner abstimmen (🔥).');
+  // Primärseite (Heizungsplaner): Massenstrom Speicher → Stationen
+  var vl=parseFloat(inp.primVl)||0, rl=parseFloat(inp.primRl)||0;
+  r.dtPrim=vl-rl;
+  r.mPrim=r.dtPrim>0?pT/(cp*r.dtPrim)*3600:0;   // kg/h gesamt
+  r.mPrimStation=r.nLade>0?r.mPrim/r.nLade:0;   // kg/h je Ladestation
+  if(vl>0&&rl>0&&r.dtPrim<=0)r.warn.push('Primärseite Kaskade: Vorlauf muss über dem Rücklauf liegen.');
+  // Ladung & Pufferspeicher
+  var vd=parseFloat(inp.tagesbedarf)||0;        // l/d à TWW (inkl. Verluste)
+  var dt=(parseFloat(inp.tww)||0)-(parseFloat(inp.tkw)||0);
+  r.qd=(vd>0&&dt>0)?vd*cp*dt/3600:0;            // kWh/d (1 l ≈ 1 kg)
+  var hl=parseFloat(inp.hl)||0;
+  r.hl=hl;
+  r.td=(hl>0&&r.qd>0)?r.qd/hl:0;                // Ladedauer h/d
+  r.wwZuschlag=(hl>0&&r.td>0&&r.td<24)?hl*24/(24-r.td)-hl:0; // Sperrzeit-Formel
+  r.pLade=hl>0?hl+r.wwZuschlag:0;
+  var q=parseFloat(inp.qHeiz)||0,c=parseFloat(inp.cGeb)||0,dz=parseFloat(inp.dtZul)||0;
+  r.tAbMax=q>0?c*dz/q:0;                        // h — max. Heiz-Unterbruch
+  r.ladungen=(r.td>0&&r.tAbMax>0)?Math.max(1,Math.ceil(r.td/r.tAbMax)):(r.td>0?1:0);
+  r.vSteuer=r.ladungen>0?vd/r.ladungen:0;
+  var basis=parseFloat(inp.nutzTotal)||0;       // Spitze auf dem NUTZbedarf (ohne Verluste)
+  r.vSpitze=basis*(parseFloat(inp.spitzePct)||0)/100;
+  r.vReserve=r.vSpitze/60*(parseFloat(inp.reserveMin)||0);
+  r.vSpeicher=r.vSpitze+r.vSteuer+r.vReserve;
+  if(hl<=0&&vd>0)r.warn.push('Heizleistung der Wärmeerzeugung erfassen — Ladedauer, WW-Zuschlag und Steuervolumen bleiben sonst leer.');
+  if(hl>0&&r.qd>0&&r.td>=24)r.warn.push('Heizleistung zu klein — die Warmwasser-Ladung braucht mehr als 24 h pro Tag.');
   return r;
 }
 /*ENGINE-END*/
@@ -1331,7 +1517,7 @@ function fwPersist(){
   try{ta.dispatchEvent(new Event('change',{bubbles:true}));}catch(e){}
   _fwInternal=false;
 }
-function fwRecalc(){var res=fwCalc();fwRenderCalc(res);fwgRecalc(res);}
+function fwRecalc(){var res=fwCalc();fwRenderCalc(res);fwgRecalc(res);fwkRecalc(res);}
 
 // ── Gauss-Bemessung: UI-Anbindung ──
 var _fwgLast=null;
@@ -1474,6 +1660,59 @@ function fwgRenderChart(g){
   ctx.fillStyle='#dc2626';ctx.fillText('- - Bemessung '+fwFmt(g.qBem,1)+' l/min',padL+200,padT+10);
   ctx.fillStyle='#6b7280';ctx.save();ctx.translate(11,padT+H/2);ctx.rotate(-Math.PI/2);ctx.textAlign='center';ctx.fillText('qWW [l/min]',0,0);ctx.restore();
 }
+// ── Kaskaden-Auslegung: UI-Anbindung (Abschnitt 7) ──
+var _fwkLast=null;
+function fwkActive(){var el=document.getElementById('fwk_on');return !!(el&&el.checked);}
+function fwkToggle(){
+  var body=document.getElementById('fwkBody');
+  if(body)body.style.display=fwkActive()?'':'none';
+  fwRecalc();
+}
+function fwkRecalc(res){
+  var body=document.getElementById('fwkBody'),card=document.getElementById('fwkSchemaCard');
+  if(!body)return;
+  body.style.display=fwkActive()?'':'none';
+  if(card)card.style.display=fwkActive()?'':'none';
+  if(!fwkActive()){_fwkLast=null;return;}
+  var selN=document.getElementById('fwk_n'),selS=document.getElementById('fwk_sep');
+  var k=fwkCalc({
+    n:selN?parseInt(selN.value,10):2,
+    sepZirk:selS?selS.value==='ja':false,
+    pTheor:res.pTheor,vMass:res.vMass,pZirk:res.pRed,zirkV:fwNum('fw_zirkV'),
+    tww:fwNum('fw_tww'),tkw:fwNum('fw_tkw'),
+    primVl:fwNum('fwk_primVl'),primRl:fwNum('fwk_primRl'),
+    tagesbedarf:res.tagesbedarf,nutzTotal:res.nutzTotal,
+    hl:fwNum('fwk_hl'),qHeiz:fwNum('fwk_qheiz'),cGeb:fwNum('fwk_cgeb'),dtZul:fwNum('fwk_dtzul'),
+    spitzePct:fwNum('fwk_spitze'),reserveMin:fwNum('fwk_reserveMin'),cp:FW_CP
+  });
+  _fwkLast=k;
+  function setTxt(id,txt){var el=document.getElementById(id);if(el)el.textContent=txt;}
+  setTxt('fwk_out_nlade',k.sep?(k.nLade+' Ladestation(en) + 1 Zirkulationsstation Z'):(k.n+' Stationen — laden gemeinsam'));
+  setTxt('fwk_out_pst',k.pStation>0?fwFmt(k.pStation,2)+' kW':'–');
+  setTxt('fwk_out_vst',k.vStation>0?fwFmt(k.vStation,2)+' l/min ('+fwFmt(k.vStation/60,2)+' l/s)':'–');
+  setTxt('fwk_out_z',k.sep?((k.pZirk>0?fwFmt(k.pZirk,2)+' kW':'–')+' · '+fwFmt(fwNum('fw_zirkV'),0)+' l/h'):'— Zirkulation über die Kaskade');
+  setTxt('fwk_out_ausfall',k.nLade>1?fwFmt(k.ausfallPct,0)+' % mit '+(k.nLade-1)+' Station(en)':'– (keine Redundanz)');
+  setTxt('fwk_out_dtprim',k.dtPrim>0?fwFmt(k.dtPrim,2)+' K ('+fwFmt(fwNum('fwk_primVl'),0)+' → '+fwFmt(fwNum('fwk_primRl'),0)+' °C)':'–');
+  setTxt('fwk_out_mprim',k.mPrim>0?fwFmt(k.mPrim,0)+' kg/h ('+fwFmt(k.mPrim/3600,2)+' l/s)':'–');
+  setTxt('fwk_out_mprimst',k.mPrimStation>0?fwFmt(k.mPrimStation,0)+' kg/h':'–');
+  setTxt('fwk_out_qd',k.qd>0?fwFmt(k.qd,2)+' kWh/d':'–');
+  setTxt('fwk_out_td',k.td>0?fwFmt(k.td,2)+' h/d':'–');
+  setTxt('fwk_out_zuschlag',k.wwZuschlag>0?'+ '+fwFmt(k.wwZuschlag,2)+' kW':'–');
+  setTxt('fwk_out_plade',k.pLade>0?fwFmt(k.pLade,2)+' kW':'–');
+  setTxt('fwk_out_tab',k.tAbMax>0?fwFmt(k.tAbMax,2)+' h':'–');
+  setTxt('fwk_out_ladungen',k.ladungen>0?fwFmt(k.ladungen,0)+' ×/d':'–');
+  setTxt('fwk_out_vsteuer',k.vSteuer>0?fwFmt(k.vSteuer,0)+' l':'–');
+  setTxt('fwk_out_vspitze',k.vSpitze>0?fwFmt(k.vSpitze,0)+' l':'–');
+  setTxt('fwk_out_vreserve',k.vReserve>0?fwFmt(k.vReserve,0)+' l':'–');
+  setTxt('fwk_out_vspeicher',k.vSpeicher>0?fwFmt(k.vSpeicher,0)+' l':'–');
+  var msg=document.getElementById('fwk_msg');
+  if(msg){
+    if(k.warn.length){msg.style.display='';msg.innerHTML='⚠ '+k.warn.map(fwEsc).join('<br>⚠ ');}
+    else msg.style.display='none';
+  }
+  // Schema liegt in einem EIGENEN Script-Block (Cross-Block-Scope-Regel)
+  if(window._fwKaskadeDraw)try{window._fwKaskadeDraw(res,k);}catch(e){}
+}
 function fwOnTableInput(e){
   var tr=e.target.closest('tr');if(!tr)return;
   var kind=tr.dataset.kind,i=parseInt(tr.dataset.i,10),k=e.target.dataset.k;
@@ -1530,12 +1769,20 @@ document.addEventListener('DOMContentLoaded', function(){
     getBerechnungswerte: function(){
       // KRITISCH: berechnete Projektwerte, NIE Datenblatt-Werte der Anlage
       var r=_fwLast||{};
-      return {
+      var w={
         leistung: Math.round((r.pFws||0)*10)/10,        // kW netto
         zapfleistung: Math.round((r.vMass||r.total||0)*10)/10, // l/min WW (massgebend inkl. Override/Gauss)
         tagesbedarf: Math.round(r.tagesbedarf||0),      // l/d à 60°C
         wwTemp: fwNum('fw_tww')
       };
+      // Kaskaden-Auslegung (Abschnitt 7): pro Station bemessen, nicht als Einzelgerät
+      try{
+        if(typeof fwkActive==='function'&&fwkActive()&&_fwkLast&&_fwkLast.pStation>0){
+          w.kaskadeStationen=_fwkLast.n+(_fwkLast.sep?' (davon 1 Zirkulationsstation)':'');
+          w.leistungJeStation=Math.round(_fwkLast.pStation*10)/10; // kW
+        }
+      }catch(e){}
+      return w;
     },
     getProjekt: function(){
       var name=(document.getElementById('metaProjekt')||{}).value||'';
@@ -1709,6 +1956,207 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('fris
       note.textContent = (pFws>0)
         ? 'Das Trinkwasser wird im Durchlauf von '+fmt(tkw,2)+' °C auf '+fmt(tww,2)+' °C erwärmt — massgebender Volumenstrom '+fmt(vMass,2)+' l/min, theoretische Leistung '+fmt(pTheor,2)+' kW, nach Abzug der Zirkulation '+fmt(pFws,2)+' kW. Chips sind klickbar und führen zum Eingabefeld.'
         : 'Erfasse Nutzungseinheiten bzw. Zapfstellen — Volumenstrom und Leistung erscheinen dann im Schema. Chips sind klickbar und führen zum Eingabefeld.';
+    }
+  };
+})();
+</script>
+<script>
+/* ════════════════════════════════════════════════════════════════════════
+   Kaskaden-Schema (Abschnitt 7) — nach dem Kaskaden-Prinzipschema einer
+   FWS-Kaskade (Wärmeerzeuger → Pufferspeicher mit Zonen → Stationsreihe
+   W1..Wn + Z, Sekundärseite TKW/TWW/TWZ). Eigener Script-Block, Aufruf
+   geguardet aus fwkRecalc über window._fwKaskadeDraw (Cross-Block-Regel).
+   NUR literale Hex-Farben (GemaPDF/html2canvas-Regel). Heizungsseitige
+   Angaben sind orange und mit 🔥 markiert (Koordination Heizungsplaner).
+   Kreuzende Leitungen bekommen eine weisse «Brücke» (bridge) — die
+   gekreuzte Sammelleitung erscheint unterbrochen, wie im Hydraulikschema.
+   ════════════════════════════════════════════════════════════════════════ */
+(function(){
+  function fmt(x,d){if(x==null||!isFinite(x))return '–';return x.toLocaleString('de-CH',{minimumFractionDigits:d,maximumFractionDigits:d});}
+  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  function num(id){var e=document.getElementById(id);if(!e)return 0;var v=parseFloat(String(e.value).replace(',','.'));return isFinite(v)?v:0;}
+  document.addEventListener('click',function(e){
+    var g=e.target&&e.target.closest?e.target.closest('#fwkSchema [data-fwziel]'):null;
+    if(g&&window._fwZielKlick)window._fwZielKlick(g.getAttribute('data-fwziel'));
+  });
+  function chip(x,y,txt,ziel,fill,stroke,col){
+    var w=Math.round(String(txt).length*6.1)+18;
+    return '<g'+(ziel?' data-fwziel="'+ziel+'" style="cursor:pointer"':'')+'>'
+      +'<rect x="'+x+'" y="'+(y-14)+'" width="'+w+'" height="21" rx="10.5" fill="'+(fill||'#ffffff')+'" stroke="'+(stroke||'#cbd5e1')+'" stroke-width="1.2"/>'
+      +'<text x="'+(x+w/2)+'" y="'+(y+1)+'" text-anchor="middle" font-size="10.5" font-weight="700" fill="'+(col||'#334155')+'">'+esc(txt)+'</text></g>';
+  }
+  function pfeil(x,y,dir,col){
+    return dir==='r' ? '<path d="M'+x+' '+(y-6)+' l11 6 -11 6 z" fill="'+col+'"/>'
+                     : '<path d="M'+x+' '+(y-6)+' l-11 6 11 6 z" fill="'+col+'"/>';
+  }
+  function bridge(x,yMid){ // weisse Unterbrechung der gekreuzten Sammelleitung
+    return '<line x1="'+x+'" y1="'+(yMid-8)+'" x2="'+x+'" y2="'+(yMid+8)+'" stroke="#ffffff" stroke-width="9"/>';
+  }
+  window._fwKaskadeDraw=function(res,k){
+    var host=document.getElementById('fwkSchema'),note=document.getElementById('fwkSchemaNote');
+    if(!host||!k)return;
+    res=res||{};
+    var tww=num('fw_tww'),tkw=num('fw_tkw'),zirkV=num('fw_zirkV');
+    var vl=num('fwk_primVl'),rl=num('fwk_primRl');
+    var n=k.n,sep=k.sep,nLade=k.nLade;
+    var W=980,H=496;
+    // Vertikale Ordnung (kreuzungsarm): TWW 92 · Primär-VL 124 · Boxen 168–280 ·
+    // TKW 336 · Zirkulation 362 · Primär-RL 392 · Chips 452 · Legende 476
+    var yWW=92,yVL=124,yBox=168,hBox=112,yBot=yBox+hBox;
+    var yKW=336,yZ=362,yRL=392;
+    var xS=150,wS=112,yT=84,hS=272;               // Pufferspeicher
+    var xWE=16,wWE=96,yWE=176,hWE=88;             // Wärmeerzeuger
+    var xR=W-24;
+    var stW=n<=4?92:76,gap=n<=4?22:14,sx0=334;
+    var stX=[];for(var i=0;i<n;i++)stX.push(sx0+i*(stW+gap));
+    var lastX=stX[n-1];
+    var s='';
+    // ── Kopfzeilen ──
+    s+='<text x="16" y="30" font-size="11.5" font-weight="800" fill="#9a3412">🔥 Heizungsseite (primär) — Angaben für den Heizungsplaner</text>';
+    s+='<text x="'+(W-16)+'" y="30" text-anchor="end" font-size="11.5" font-weight="800" fill="#0f172a">Sanitärseite (sekundär)</text>';
+    // ── Sammelleitungen (zuerst — Stubs überlagern sie mit Brücken) ──
+    // Primär-VL: Speicher oben → alle Stationen
+    s+='<line x1="'+(xS+wS)+'" y1="'+yVL+'" x2="'+(lastX+18)+'" y2="'+yVL+'" stroke="#ea580c" stroke-width="4" stroke-dasharray="12 4 3 4"/>';
+    s+=pfeil(sx0-26,yVL,'r','#ea580c');
+    // Primär-RL: Stationen → Speicher unten (gestrichelt)
+    s+='<line x1="'+(xS+56)+'" y1="'+yRL+'" x2="'+(lastX+18)+'" y2="'+yRL+'" stroke="#f59e0b" stroke-width="4" stroke-dasharray="8 5"/>';
+    s+='<line x1="'+(xS+56)+'" y1="'+(yT+hS)+'" x2="'+(xS+56)+'" y2="'+yRL+'" stroke="#f59e0b" stroke-width="4" stroke-dasharray="8 5"/>';
+    s+=pfeil(xS+56+52,yRL,'l','#f59e0b');
+    // Warmwasser-Sammelleitung: erste Station → rechts (Gebäude)
+    var twwX0=stX[0]+stW-18;
+    s+='<line x1="'+twwX0+'" y1="'+yWW+'" x2="'+xR+'" y2="'+yWW+'" stroke="#dc2626" stroke-width="5"/>';
+    s+=pfeil(xR-14,yWW,'r','#dc2626');
+    // Kaltwasser-Sammelleitung: von rechts → Ladestationen (Z hat kein Kaltwasser)
+    s+='<line x1="'+twwX0+'" y1="'+yKW+'" x2="'+xR+'" y2="'+yKW+'" stroke="#2563eb" stroke-width="5"/>';
+    s+=pfeil(twwX0+28,yKW,'l','#2563eb');
+    // Zirkulation (nur mit erfasstem Wert)
+    if(zirkV>0){
+      if(sep){
+        var zx=lastX+stW-18;
+        s+='<line x1="'+zx+'" y1="'+yZ+'" x2="'+xR+'" y2="'+yZ+'" stroke="#7c3aed" stroke-width="3" stroke-dasharray="7 5"/>';
+        s+=pfeil(zx+24,yZ,'l','#7c3aed');
+      }else{
+        var xJ=xR-36;
+        s+='<line x1="'+xJ+'" y1="'+yZ+'" x2="'+xR+'" y2="'+yZ+'" stroke="#7c3aed" stroke-width="3" stroke-dasharray="7 5"/>';
+        s+='<line x1="'+xJ+'" y1="'+yKW+'" x2="'+xJ+'" y2="'+yZ+'" stroke="#7c3aed" stroke-width="3" stroke-dasharray="7 5"/>';
+        s+='<circle cx="'+xJ+'" cy="'+yKW+'" r="4" fill="#7c3aed"/>';
+        s+=pfeil(xJ+24,yZ,'l','#7c3aed');
+      }
+    }
+    // ── Stationen: Stubs + Boxen ──
+    for(i=0;i<n;i++){
+      var x=stX[i],isZ=sep&&i===n-1;
+      var xP=x+18,xSek=x+stW-18;
+      // Primär-VL-Stub (oben links) + Stationspumpe
+      s+='<line x1="'+xP+'" y1="'+yVL+'" x2="'+xP+'" y2="'+(yBox+8)+'" stroke="#ea580c" stroke-width="3.4" stroke-dasharray="10 3 3 3"/>';
+      s+='<circle cx="'+xP+'" cy="'+(yVL+22)+'" r="8" fill="#ffffff" stroke="#ea580c" stroke-width="2.2"/>';
+      s+='<path d="M'+(xP-4)+' '+(yVL+19)+' L'+(xP+4)+' '+(yVL+19)+' L'+xP+' '+(yVL+27)+' Z" fill="#ea580c"/>';
+      // Primär-RL-Stub (unten links) — Brücke über Kaltwasser (ab 2. Station gekreuzt)
+      if(i>0)s+=bridge(xP,yKW);
+      s+='<line x1="'+xP+'" y1="'+(yBot-8)+'" x2="'+xP+'" y2="'+yRL+'" stroke="#f59e0b" stroke-width="3.4" stroke-dasharray="6 4"/>';
+      // Warmwasser-Stub (oben rechts) — Brücke über Primär-VL (letzte Station endet daneben)
+      if(i<n-1)s+=bridge(xSek,yVL);
+      s+='<line x1="'+xSek+'" y1="'+yWW+'" x2="'+xSek+'" y2="'+(yBox+8)+'" stroke="#dc2626" stroke-width="3.4"/>';
+      // Kaltwasser- bzw. Zirkulations-Stub (unten rechts)
+      if(isZ){
+        if(zirkV>0){
+          s+=bridge(xSek,yKW);
+          s+='<line x1="'+xSek+'" y1="'+(yBot-8)+'" x2="'+xSek+'" y2="'+yZ+'" stroke="#7c3aed" stroke-width="3" stroke-dasharray="7 5"/>';
+        }
+      }else{
+        s+='<line x1="'+xSek+'" y1="'+(yBot-8)+'" x2="'+xSek+'" y2="'+yKW+'" stroke="#2563eb" stroke-width="3.4"/>';
+      }
+      // Stationsbox mit Plattenwärmetauscher-Schraffur
+      s+='<rect x="'+x+'" y="'+yBox+'" width="'+stW+'" height="'+hBox+'" rx="9" fill="#ffffff" stroke="'+(isZ?'#7c3aed':'#0f172a')+'" stroke-width="2.6"/>';
+      for(var p=0;p<4;p++){
+        var px=x+16+p*((stW-32)/3);
+        s+='<line x1="'+px.toFixed(1)+'" y1="'+(yBox+32)+'" x2="'+px.toFixed(1)+'" y2="'+(yBox+hBox-16)+'" stroke="#cbd5e1" stroke-width="2.2"/>';
+      }
+      s+='<text x="'+(x+stW/2)+'" y="'+(yBox+21)+'" text-anchor="middle" font-size="11.5" font-weight="800" fill="'+(isZ?'#6d28d9':'#0f172a')+'">'+(isZ?'Z':'W'+(i+1))+'</text>';
+      s+='<text x="'+(x+stW/2)+'" y="'+(yBot+18)+'" text-anchor="middle" font-size="9.5" font-weight="700" fill="'+(isZ?'#6d28d9':'#475569')+'">'+(isZ?fmt(k.pZirk,2):fmt(k.pStation,1))+' kW</text>';
+    }
+    // ── Pufferspeicher mit Zonen (Grössenverhältnis) ──
+    var parts=[
+      {v:k.vSpitze||0, f:'#fee2e2', b:'#ef4444', lbl:'Spitze',  ziel:'fwk_spitze'},
+      {v:k.vSteuer||0, f:'#ffedd5', b:'#f59e0b', lbl:'Steuer',  ziel:'fwk_hl'},
+      {v:k.vReserve||0,f:'#dcfce7', b:'#22c55e', lbl:'Reserve', ziel:'fwk_reserveMin'}
+    ].filter(function(pz){return pz.v>0;});
+    if(parts.length){
+      var sum=0;parts.forEach(function(pz){sum+=pz.v;});
+      var innerH=hS-4,raw=parts.map(function(pz){return Math.max(30,pz.v/sum*innerH);});
+      var rs=0;raw.forEach(function(h){rs+=h;});
+      var sc=innerH/rs,yy=yT+2;
+      parts.forEach(function(pz,idx){
+        var hh=raw[idx]*sc;
+        s+='<g'+(pz.ziel?' data-fwziel="'+pz.ziel+'" style="cursor:pointer"':'')+'><rect x="'+(xS+2)+'" y="'+yy.toFixed(1)+'" width="'+(wS-4)+'" height="'+hh.toFixed(1)+'" fill="'+pz.f+'" stroke="'+pz.b+'" stroke-width="1.6"/>';
+        if(hh>=34){
+          s+='<text x="'+(xS+wS/2)+'" y="'+(yy+hh/2-2).toFixed(1)+'" text-anchor="middle" font-size="10" font-weight="800" fill="#334155">'+pz.lbl+'</text>';
+          s+='<text x="'+(xS+wS/2)+'" y="'+(yy+hh/2+11).toFixed(1)+'" text-anchor="middle" font-size="9.5" fill="#475569">'+fmt(pz.v,0)+' l</text>';
+        }else if(hh>=14){ // schmale Zone: einzeilig, damit das Label nie fehlt
+          s+='<text x="'+(xS+wS/2)+'" y="'+(yy+hh/2+3.5).toFixed(1)+'" text-anchor="middle" font-size="8.5" font-weight="700" fill="#334155">'+pz.lbl+' '+fmt(pz.v,0)+' l</text>';
+        }
+        s+='</g>';
+        pz._y1=yy+hh;yy+=hh;
+      });
+      // Fühler Ein/Aus an den Zonengrenzen (Speicherbewirtschaftung)
+      if(parts.length>=2){
+        var yEin=parts[0]._y1;
+        s+='<line x1="'+(xS-10)+'" y1="'+yEin.toFixed(1)+'" x2="'+xS+'" y2="'+yEin.toFixed(1)+'" stroke="#334155" stroke-width="2"/>';
+        s+='<text x="'+(xS-13)+'" y="'+(yEin+3).toFixed(1)+'" text-anchor="end" font-size="9" font-weight="700" fill="#334155">Ein</text>';
+        if(parts.length>=3){
+          var yAus=parts[1]._y1;
+          s+='<line x1="'+(xS-10)+'" y1="'+yAus.toFixed(1)+'" x2="'+xS+'" y2="'+yAus.toFixed(1)+'" stroke="#334155" stroke-width="2"/>';
+          s+='<text x="'+(xS-13)+'" y="'+(yAus+3).toFixed(1)+'" text-anchor="end" font-size="9" font-weight="700" fill="#334155">Aus</text>';
+        }
+      }
+    }else{
+      s+='<rect x="'+(xS+2)+'" y="'+(yT+2)+'" width="'+(wS-4)+'" height="'+(hS-4)+'" fill="#fff7ed"/>';
+      s+='<text x="'+(xS+wS/2)+'" y="'+(yT+hS/2)+'" text-anchor="middle" font-size="9.5" fill="#9a3412">Bedarf + HL</text>';
+      s+='<text x="'+(xS+wS/2)+'" y="'+(yT+hS/2+13)+'" text-anchor="middle" font-size="9.5" fill="#9a3412">erfassen</text>';
+    }
+    s+='<rect x="'+xS+'" y="'+yT+'" width="'+wS+'" height="'+hS+'" rx="8" fill="none" stroke="#c2410c" stroke-width="2.8"/>';
+    s+='<text x="'+(xS+wS/2)+'" y="'+(yT+hS+18)+'" text-anchor="middle" font-size="11" font-weight="800" fill="#9a3412">Pufferspeicher</text>';
+    if(k.vSpeicher>0)s+='<text x="'+(xS+wS/2)+'" y="'+(yT+hS+33)+'" text-anchor="middle" font-size="10" font-weight="700" fill="#c2410c">≥ '+fmt(k.vSpeicher,0)+' l</text>';
+    // ── Wärmeerzeuger + Ladeleitungen ──
+    s+='<rect x="'+xWE+'" y="'+yWE+'" width="'+wWE+'" height="'+hWE+'" rx="12" fill="#fff7ed" stroke="#c2410c" stroke-width="2.6"/>';
+    s+='<text x="'+(xWE+wWE/2)+'" y="'+(yWE+34)+'" text-anchor="middle" font-size="10.5" font-weight="800" fill="#9a3412">Wärme-</text>';
+    s+='<text x="'+(xWE+wWE/2)+'" y="'+(yWE+48)+'" text-anchor="middle" font-size="10.5" font-weight="800" fill="#9a3412">erzeuger</text>';
+    if(k.pLade>0)s+='<text x="'+(xWE+wWE/2)+'" y="'+(yWE+68)+'" text-anchor="middle" font-size="10" font-weight="800" fill="#c2410c">'+fmt(k.pLade,1)+' kW</text>';
+    s+='<line x1="'+(xWE+wWE)+'" y1="196" x2="'+xS+'" y2="196" stroke="#ea580c" stroke-width="4" stroke-dasharray="12 4 3 4"/>';
+    s+='<circle cx="'+((xWE+wWE+xS)/2)+'" cy="196" r="7" fill="#ffffff" stroke="#ea580c" stroke-width="2.2"/>';
+    s+='<path d="M'+((xWE+wWE+xS)/2-3)+' 192 L'+((xWE+wWE+xS)/2+5)+' 196 L'+((xWE+wWE+xS)/2-3)+' 200 Z" fill="#ea580c"/>';
+    s+='<line x1="'+xS+'" y1="242" x2="'+(xWE+wWE)+'" y2="242" stroke="#f59e0b" stroke-width="4" stroke-dasharray="8 5"/>';
+    s+=pfeil(xWE+wWE+16,242,'l','#f59e0b');
+    s+=chip(xWE,yWE+hWE+26,'🔥 Ladeleistung '+(k.pLade>0?fmt(k.pLade,2)+' kW':'–'),'fwk_hl','#fff7ed','#fdba74','#c2410c');
+    // ── Chips an den Leitungen ──
+    s+=chip(xS+wS+6,yVL-22,'🔥 VL '+fmt(vl,0)+' °C','fwk_primVl','#fff7ed','#fdba74','#c2410c');
+    s+=chip(300,yRL+24,'🔥 RL '+fmt(rl,0)+' °C · '+(k.mPrim>0?fmt(k.mPrim,0)+' kg/h':'–'),'fwk_primRl','#fff7ed','#fdba74','#c2410c');
+    s+=chip(twwX0+34,yWW-22,'Warmwasser '+fmt(tww,0)+' °C · '+fmt(res.vMass,1)+' l/min','fw_tww','#fef2f2','#fca5a5','#b91c1c');
+    s+=chip(xR-238,yKW+9,'Kaltwasser '+fmt(tkw,0)+' °C','fw_tkw','#eff6ff','#93c5fd','#1d4ed8');
+    if(zirkV>0)s+=chip(xR-330,yZ+12,'Zirkulation '+fmt(zirkV,0)+' l/h · '+fmt(res.tZirk,1)+' °C','fw_zirkV','#f5f3ff','#c4b5fd','#6d28d9');
+    // ── Kennwerte-Zeile ──
+    s+=chip(16,452,'je Station '+(k.pStation>0?fmt(k.pStation,2)+' kW · '+fmt(k.vStation,1)+' l/min':'–'),'fwk_n','#ecfdf5','#6ee7b7','#047857');
+    s+=chip(330,452,'🔥 Ladung '+(k.td>0?fmt(k.td,2)+' h/d · '+fmt(k.ladungen,0)+' Ladung(en)':'–'),'fwk_hl','#fff7ed','#fdba74','#c2410c');
+    s+=chip(600,452,'Speicher-Vorschlag '+(k.vSpeicher>0?'≥ '+fmt(k.vSpeicher,0)+' l':'–'),'fwk_spitze','#f8fafc','#cbd5e1','#334155');
+    // ── Legende ──
+    function leg(x,txt,col,dash,w){
+      return '<line x1="'+x+'" y1="476" x2="'+(x+26)+'" y2="476" stroke="'+col+'" stroke-width="'+(w||4)+'"'+(dash?' stroke-dasharray="6 4"':'')+'/>'
+        +'<text x="'+(x+32)+'" y="480" font-size="9.5" fill="#475569">'+esc(txt)+'</text>';
+    }
+    s+='<line x1="16" y1="476" x2="42" y2="476" stroke="#ea580c" stroke-width="4" stroke-dasharray="8 3 2 3"/><text x="48" y="480" font-size="9.5" fill="#475569">Primär-Vorlauf</text>';
+    s+=leg(136,'Primär-Rücklauf','#f59e0b',true);
+    s+=leg(262,'Warmwasser','#dc2626');
+    s+=leg(362,'Kaltwasser','#2563eb');
+    s+=leg(458,'Zirkulation','#7c3aed',true,3);
+    s+='<text x="'+(W-16)+'" y="480" text-anchor="end" font-size="9.5" font-weight="700" fill="#c2410c">🔥 = Angabe für den Heizungsplaner</text>';
+    host.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Kaskaden-Schema Frischwasserstation">'+s+'</svg>';
+    if(note){
+      note.textContent = k.pStation>0
+        ? 'Kaskade mit '+nLade+' Ladestation(en) à '+fmt(k.pStation,2)+' kW ('+fmt(k.vStation,1)+' l/min)'
+          +(sep?' + separater Zirkulationsstation Z ('+fmt(k.pZirk,2)+' kW)':' — die Zirkulation läuft über die Kaskade')
+          +'. Pufferspeicher-Zonen: Stundenspitze, Steuervolumen (Ladung), Reserve — die Fühler Ein/Aus schalten die Ladung. '
+          +'🔥-Werte (VL/RL, Massenstrom, Ladeleistung) mit dem Heizungsplaner abstimmen. Chips sind klickbar und führen zum Eingabefeld.'
+        : 'Volumenstrom/Leistung in den Abschnitten 1–6 erfassen — die Kaskade übernimmt die Werte automatisch. Chips sind klickbar.';
     }
   };
 })();
