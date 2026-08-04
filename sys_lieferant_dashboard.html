@@ -214,6 +214,7 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
            ausfüllen, mehrere Anlagen auf einmal importieren. -->
       <button class="btn btn-s" id="btnXlsVorlage" onclick="_liefXlsVorlageOpen()" title="Vorlage je Anlagentyp herunterladen">📥 Excel-Vorlage</button>
       <button class="btn btn-s" id="btnXlsImport" onclick="_liefXlsImportOpen()" title="Ausgefüllte Vorlage importieren">📤 Excel-Import</button>
+      <button class="btn btn-s" id="btnKennImport" onclick="_liefKennImportOpen()" title="Pumpen-Prüfbericht (Excel) importieren — Kopfdaten + gemessene Kennlinie">📈 Prüfbericht</button>
       <button class="btn btn-p" id="btnNewProd" onclick="openProdEditor(null)">+ Neues Produkt</button>
     </div>
     <div class="card"><div id="prodList" style="min-height:80px"></div></div>
@@ -396,6 +397,8 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
       </div>
       <div class="fg"><label class="fl">Modell</label><input class="fc" id="peModell"/></div>
       <div id="peFelder"></div>
+      <!-- Pumpenkennlinie aus dem Prüfbericht-Import (nur wenn vorhanden) -->
+      <div id="peKennlinie"></div>
 
       <!-- Dokumente (Revisions-Set) -->
       <div style="margin-top:20px;border-top:1.5px solid var(--brd);padding-top:16px">
@@ -485,6 +488,11 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
 <script src="gema_produktkatalog_api.js"></script>
 <script src="gema_bestellungen_api.js"></script>
 <script src="gema_armaturen_api.js"></script>
+<!-- Prüfbericht-Import (Pumpenkennlinie): der XLSX-Reader kommt aus der
+     ERP-Migration (eine Wahrheit, CDN-frei), das Diagramm aus dem
+     geteilten Kennlinien-Helper. -->
+<script src="gema_erp_import.js"></script>
+<script src="gema_pumpenkennlinie.js"></script>
 <script src="gema_storage.js"></script>
 <script src="gema_dialog.js"></script>
 <script src="gema_aktivitaetslog.js"></script>
@@ -1143,7 +1151,7 @@ function renderProdukte(){
     return '<div class="prod-row" onclick="openProdEditor(\''+E(p.id)+'\')" style="padding:14px 20px">'+
       (d.bild?'<img src="'+E(d.bild)+'" alt="" style="width:44px;height:44px;object-fit:contain;border-radius:8px;border:1px solid var(--brd);background:#fff;flex-shrink:0"/>':'')+
       '<div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:700">'+E(d.serie||'—')+' '+E(d.modell||'')+(d.bezeichnung?' <span style="font-weight:600;color:var(--mut);font-size:12px">· '+E(d.bezeichnung)+'</span>':'')+'</div>'+
-      '<div style="font-size:12px;color:var(--mut);margin-top:2px">'+E(p.kategorie)+' · '+(d.nenndurchfluss||d.permeatleistung||d.foerdermenge||'—')+' '+(d.nenndurchfluss?'l/min':d.permeatleistung?'l/h':d.foerdermenge?'l/s':'')+(docs?' · '+docs+' Dok.':'')+'</div></div>'+
+      '<div style="font-size:12px;color:var(--mut);margin-top:2px">'+E(p.kategorie)+' · '+(d.nenndurchfluss||d.permeatleistung||d.foerdermenge||'—')+' '+(d.nenndurchfluss?'l/min':d.permeatleistung?'l/h':d.foerdermenge?'l/s':'')+(docs?' · '+docs+' Dok.':'')+(d.kennlinie&&d.kennlinie.punkte&&d.kennlinie.punkte.length?' · 📈 Kennlinie':'')+'</div></div>'+
       '<span class="badge '+cls+'">'+E(st.icon||'')+' '+E(st.label||p.status)+'</span></div>';
   }).join('');
 }
@@ -1166,11 +1174,45 @@ function openProdEditor(id){
     document.getElementById('peBadge').innerHTML = '';
   }
   renderPeFelder();
+  renderPeKennlinie();
   renderPeDocs();
   renderPeWorkflow();
   document.getElementById('prodEditorOverlay').style.display = 'block';
 }
 function closeProdEditor(){ document.getElementById('prodEditorOverlay').style.display='none'; renderAll(); }
+
+// ── Pumpenkennlinie im Produkt-Editor (aus dem Prüfbericht-Import) ──
+// Die Kennlinie ist KEIN Schema-Feld — saveProd sammelt nur [data-fid],
+// updateProdukt merged daten → sie überlebt jedes normale Speichern.
+function renderPeKennlinie(){
+  var host = document.getElementById('peKennlinie');
+  if(!host) return;
+  var kl = _editProd && (_editProd.daten||{}).kennlinie;
+  if(!kl || !kl.punkte || !kl.punkte.length || typeof GemaPumpenkennlinie==='undefined'){ host.innerHTML=''; return; }
+  host.innerHTML = '<section class="pe-grp pe-grp-sep"><div class="grp-hd">📈 Pumpenkennlinie (aus Prüfbericht)</div>'
+    + '<div style="font-size:12px;color:var(--mut);margin:4px 0 8px">'+E(kl.typ||'')
+      + (kl.datum?' · Prüfbericht '+E(kl.datum):'') + (kl.norm?' · '+E(kl.norm):'')
+      + ' · '+kl.punkte.length+' Messpunkte</div>'
+    + '<div id="peKennDia" style="max-width:640px;border:1.5px solid var(--brd);border-radius:10px;padding:8px;background:#fff"></div>'
+    + (_liefCanEditProdukte()?'<button type="button" class="btn btn-s btn-sm" onclick="_peKennlinieEntfernen()" style="margin-top:8px">✕ Kennlinie entfernen</button>':'')
+    + '</section>';
+  try{ GemaPumpenkennlinie.zeichnen(document.getElementById('peKennDia'), kl); }catch(e){}
+}
+window._peKennlinieEntfernen=function(){
+  if(!_editProd) return;
+  if(!_liefCanEditProdukte() || _liefBlockedInaktiv()) return;
+  GemaDialog.confirm({
+    title:'Kennlinie entfernen',
+    message:'Die gemessene Pumpenkennlinie aus dem Prüfbericht von diesem Produkt entfernen?',
+    confirmLabel:'Entfernen', danger:true
+  }).then(function(ok){
+    if(!ok) return;
+    GemaProdukte.updateProdukt(_editProd.id, { kennlinie:null });
+    _editProd = GemaProdukte.getProdukt(_editProd.id);
+    renderPeKennlinie();
+    toast('Kennlinie entfernt');
+  });
+};
 
 function renderPeFelder(){
   var katId = document.getElementById('peKat').value;
@@ -3406,6 +3448,190 @@ window._liefXlsImportieren=_liefXlsImportieren;
 window._liefXlsClose=_liefXlsClose;
 window._liefXlsAlle=_liefXlsAlle;
 window._xlsHooks={spalten:_xlsSpalten,vorlage:_xlsVorlageText,parse:_xlsParse,pruefeKopf:_xlsPruefeKopf,kats:_liefXlsKats};
+
+// ── Prüfbericht-Import (Pumpenkennlinie aus der Hersteller-Excel) ────────
+// Hersteller führen ihre Pumpen-Prüfberichte bereits als Excel im ERP
+// (z.B. BIRAL «Import aus ABAS»): Kopfdaten + gemessene H/Q-Kennlinie nach
+// ISO 9906. Der Import liest die Original-Datei (GemaErpImport.leseXlsx →
+// GemaPumpenkennlinie.parse), zeigt Kopfdaten + Diagramm zur Kontrolle und
+// legt ein neues Produkt an (Entwurf) ODER ergänzt ein bestehendes —
+// dort werden NUR LEERE Felder befüllt (nie erfasste Werte überschrieben),
+// einzig die Kennlinie ersetzt eine allfällige alte.
+var _kennImp = null; // {parsed, kl}
+function _liefKennPumpenKats(){
+  if(typeof GemaPumpenkennlinie==='undefined') return [];
+  var alle = (typeof GemaProdukte!=='undefined' && GemaProdukte.KATEGORIEN) ? GemaProdukte.KATEGORIEN : {};
+  var eigene = (_lief && Array.isArray(_lief.lieferantKategorien)) ? _lief.lieferantKategorien.map(function(k){
+    return (GemaProdukte.normKatId?GemaProdukte.normKatId(k):k);
+  }) : [];
+  return GemaPumpenkennlinie.PUMPEN_KATEGORIEN
+    .filter(function(id){ return !!alle[id]; })
+    .map(function(id){ var k=alle[id]||{}; return { id:id, label:((k.icon?k.icon+' ':'')+(k.name||k.label||id)), eigen:eigene.indexOf(id)>=0 }; })
+    .sort(function(a,b){ return (b.eigen?1:0)-(a.eigen?1:0) || a.label.localeCompare(b.label,'de'); });
+}
+function _liefKennImportOpen(){
+  if(!_liefCanEditProdukte()){ toast('Keine Berechtigung zum Erfassen von Produkten','error'); return; }
+  if(_liefBlockedInaktiv()) return;
+  if(typeof GemaPumpenkennlinie==='undefined' || typeof GemaErpImport==='undefined'){
+    toast('Kennlinien-Import nicht geladen — bitte Seite neu laden.','error'); return;
+  }
+  _kennImp = null;
+  var kats = _liefKennPumpenKats();
+  var pumpKatIds = kats.map(function(k){ return k.id; });
+  var prods = getMyProdukte(null, null).filter(function(p){ return pumpKatIds.indexOf(p.kategorie)>=0; });
+  var ov = document.getElementById('kennImportOv');
+  if(ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'kennImportOv';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:400;background:rgba(15,23,42,.5);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.innerHTML = '<div style="background:var(--sur);border-radius:16px;max-width:720px;width:100%;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.24)">'
+    + '<div style="padding:16px 20px;border-bottom:1.5px solid var(--brd);display:flex;align-items:center;gap:10px">'
+      + '<h2 style="flex:1;font-size:16px;font-weight:800">📈 Prüfbericht-Import (Pumpenkennlinie)</h2>'
+      + '<button class="btn btn-g btn-sm" onclick="_liefXlsClose(\'kennImportOv\')">✕</button></div>'
+    + '<div style="padding:16px 20px;overflow-y:auto">'
+      + '<div style="font-size:12.5px;color:var(--mut);line-height:1.55;margin-bottom:12px">Excel-Prüfbericht des Herstellers (z.B. aus dem ERP): '
+        + 'Kopfdaten (P1, Drehzahl, Spannung, Stutzen …) und die gemessene <b>H/Q-Kennlinie</b> nach ISO 9906 werden '
+        + 'ausgelesen und dem Produkt hinterlegt — inkl. Pumpendiagramm in der Anlagenwahl der Planer.</div>'
+      + '<div class="fg"><label class="fl">Prüfbericht (.xlsx)</label>'
+        + '<input type="file" class="fc" id="kennImpFile" accept=".xlsx,.xlsm" onchange="_liefKennPruefen()" style="padding:6px;font-size:12px"></div>'
+      + '<div id="kennImpReport" style="font-size:12.5px;line-height:1.55"></div>'
+      + '<div id="kennImpZielWrap" style="display:none">'
+        + '<div class="g2">'
+          + '<div class="fg"><label class="fl">Ziel</label><select class="fc" id="kennImpZiel" onchange="_liefKennZielChanged()">'
+            + '<option value="">＋ Neues Produkt anlegen (Entwurf)</option>'
+            + prods.map(function(p){ var d=p.daten||{}; return '<option value="'+E(p.id)+'" data-kat="'+E(p.kategorie)+'">'+E((d.serie||'—')+(d.modell?' '+d.modell:''))+' · '+E(p.kategorie)+'</option>'; }).join('')
+          + '</select></div>'
+          + '<div class="fg"><label class="fl">Anlagentyp</label><select class="fc" id="kennImpKat" onchange="_liefKennMapRender()">'
+            + kats.map(function(k){ return '<option value="'+E(k.id)+'">'+E(k.label)+(k.eigen?' ✓':'')+'</option>'; }).join('')
+          + '</select></div>'
+        + '</div>'
+        + '<div id="kennImpMap" style="font-size:12.5px;line-height:1.6"></div>'
+      + '</div>'
+    + '</div>'
+    + '<div style="padding:12px 20px;border-top:1px solid var(--brd);display:flex;justify-content:flex-end;gap:8px">'
+      + '<button class="btn btn-g btn-sm" onclick="_liefXlsClose(\'kennImportOv\')">Abbrechen</button>'
+      + '<button class="btn btn-p btn-sm" id="kennImpBtn" onclick="_liefKennImportieren()" disabled>⬆ Importieren</button></div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  ov.addEventListener('click', function(e){ if(e.target===ov) _liefXlsClose('kennImportOv'); });
+}
+function _liefKennPruefen(){
+  var f = (document.getElementById('kennImpFile')||{}).files;
+  var rep = document.getElementById('kennImpReport');
+  var btn = document.getElementById('kennImpBtn');
+  var zielWrap = document.getElementById('kennImpZielWrap');
+  _kennImp = null;
+  if(btn) btn.disabled = true;
+  if(zielWrap) zielWrap.style.display = 'none';
+  if(!f || !f[0]){ if(rep) rep.innerHTML=''; return; }
+  if(/\.(csv|txt)$/i.test(f[0].name)){
+    rep.innerHTML = '<div style="color:#b45309;font-weight:700">Für CSV-Vorlagen bitte den «📤 Excel-Import» verwenden — der Prüfbericht-Import liest die Original-Excel (.xlsx).</div>';
+    return;
+  }
+  rep.innerHTML = '<div style="color:var(--mut)">Datei wird gelesen …</div>';
+  f[0].arrayBuffer().then(function(buf){
+    return GemaErpImport.leseXlsx(buf);
+  }).then(function(wb){
+    var p = GemaPumpenkennlinie.parse(wb);
+    var kl = GemaPumpenkennlinie.kennlinieVon(p);
+    var html = '';
+    (p.warn||[]).forEach(function(w){
+      html += '<div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;padding:10px 13px;margin-bottom:10px;color:#78350f"><b style="color:#b45309">⚠</b> '+E(w)+'</div>';
+    });
+    if(!kl){
+      rep.innerHTML = html + '<div style="color:#dc2626;font-weight:700">Keine Kennlinie gefunden — ist das ein Pumpen-Prüfbericht?</div>';
+      return;
+    }
+    var k = p.kopf||{};
+    function kv(l,v,u){ return v!=null&&v!==''? '<div><span style="color:var(--mut)">'+l+'</span> <b>'+E(String(v))+(u?' '+u:'')+'</b></div>' : ''; }
+    html += '<div style="background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:10px;padding:11px 13px;margin-bottom:10px">'
+      + '<b style="color:#0369a1">✓ Prüfbericht gelesen'+(k.typ?' — '+E(k.typ):'')+'</b>'
+      + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:2px 14px;margin-top:6px;font-size:12px">'
+      + kv('Kennlinie:', kl.punkte.length+' Messpunkte','')
+      + kv('P1:', k.p1KW,'kW') + kv('Drehzahl:', k.drehzahl,'min⁻¹')
+      + kv('Spannung:', k.spannungV?(k.spannungV+' V / '+(k.frequenzHz||'–')+' Hz'):'','')
+      + kv('Q max:', k.qmaxM3h,'m³/h') + kv('Norm:', k.testnorm,'')
+      + kv('Prüfdatum:', k.datum,'') + kv('Saug-/Druckstutzen:', (k.saugstutzenMm&&k.druckstutzenMm)?(k.saugstutzenMm+' / '+k.druckstutzenMm):'', 'mm')
+      + '</div></div>'
+      + '<div id="kennImpDia" style="border:1.5px solid var(--brd);border-radius:10px;padding:8px;background:#fff;margin-bottom:10px"></div>';
+    rep.innerHTML = html;
+    try{ GemaPumpenkennlinie.zeichnen(document.getElementById('kennImpDia'), kl); }catch(e){}
+    _kennImp = { parsed:p, kl:kl };
+    if(zielWrap) zielWrap.style.display = '';
+    _liefKennZielChanged();
+    if(btn) btn.disabled = false;
+  }).catch(function(e){
+    rep.innerHTML = '<div style="color:#dc2626;font-weight:700">⚠ Datei konnte nicht gelesen werden</div>'
+      + '<div style="color:#7f1d1d;margin-top:4px">'+E((e&&e.message)||String(e))+'</div>';
+  });
+}
+// Ziel «bestehendes Produkt» → der Anlagentyp folgt dem Produkt (gesperrt).
+function _liefKennZielChanged(){
+  var ziel = document.getElementById('kennImpZiel');
+  var katSel = document.getElementById('kennImpKat');
+  if(!ziel || !katSel) return;
+  var opt = ziel.options[ziel.selectedIndex];
+  var prodKat = opt && opt.getAttribute('data-kat');
+  if(ziel.value && prodKat){ katSel.value = prodKat; katSel.disabled = true; }
+  else katSel.disabled = false;
+  _liefKennMapRender();
+}
+// Vorschau der übernommenen Werte (Labels/Einheiten aus dem Kategorie-Schema)
+function _liefKennMapRender(){
+  var host = document.getElementById('kennImpMap');
+  if(!host || !_kennImp){ if(host) host.innerHTML=''; return; }
+  var katId = (document.getElementById('kennImpKat')||{}).value;
+  var zielId = (document.getElementById('kennImpZiel')||{}).value;
+  var kat = GemaProdukte.getKategorie(katId) || {};
+  var felder = {}; (kat.felder||[]).forEach(function(f){ felder[f.id]=f; });
+  var d = GemaPumpenkennlinie.zuDaten(_kennImp.parsed, katId);
+  var zeilen = ['<div>📈 <b>Kennlinie</b> ('+_kennImp.kl.punkte.length+' Punkte'+(_kennImp.kl.drehzahl?(', n = '+_kennImp.kl.drehzahl+' min⁻¹'):'')+')</div>'];
+  Object.keys(d).forEach(function(id){
+    if(id==='kennlinie') return;
+    var f = felder[id];
+    zeilen.push('<div>'+E(f?f.label:id)+': <b>'+E(String(d[id]))+'</b>'+(f&&f.einheit?' '+E(f.einheit):'')+'</div>');
+  });
+  host.innerHTML = '<div style="background:#f8fafc;border:1.5px solid var(--brd);border-radius:10px;padding:10px 13px">'
+    + '<b style="font-size:12px">Übernommene Werte</b>'
+    + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:2px 14px;margin-top:5px;font-size:12px">'+zeilen.join('')+'</div>'
+    + (zielId? '<div style="margin-top:7px;font-size:11.5px;color:var(--mut)">Beim bestehenden Produkt werden nur <b>leere Felder</b> ergänzt — erfasste Werte bleiben; die Kennlinie ersetzt eine allfällige bestehende.</div>' : '')
+    + '</div>';
+}
+function _liefKennImportieren(){
+  if(!_kennImp) return;
+  if(!_liefCanEditProdukte() || _liefBlockedInaktiv()) return;
+  var zielId = (document.getElementById('kennImpZiel')||{}).value;
+  var katId = (document.getElementById('kennImpKat')||{}).value;
+  try{
+    if(zielId){
+      var prod = GemaProdukte.getProdukt(zielId);
+      if(!prod){ toast('Produkt nicht gefunden.','error'); return; }
+      var d = GemaPumpenkennlinie.zuDaten(_kennImp.parsed, prod.kategorie);
+      var diff = { kennlinie: d.kennlinie };
+      Object.keys(d).forEach(function(id){
+        if(id==='kennlinie') return;
+        var cur = (prod.daten||{})[id];
+        if(cur==null || cur==='') diff[id] = d[id];
+      });
+      GemaProdukte.updateProdukt(prod.id, diff);
+      toast('✓ Kennlinie + fehlende Werte am Produkt ergänzt');
+    } else {
+      var daten = GemaPumpenkennlinie.zuDaten(_kennImp.parsed, katId);
+      if(!daten.serie) daten.serie = 'Pumpe';   // Pflichtfeld der Erfassung
+      GemaProdukte.createProdukt({ lieferantId:_lief.id, kategorie:katId, daten:daten, status:'entwurf' });
+      toast('✓ Produkt mit Kennlinie als Entwurf angelegt');
+      try{ _liefBerechnungenRefresh(); }catch(e){}
+    }
+  }catch(e){ toast('Import fehlgeschlagen: '+((e&&e.message)||e),'error'); return; }
+  _liefXlsClose('kennImportOv');
+  renderAll();
+}
+window._liefKennImportOpen=_liefKennImportOpen;
+window._liefKennPruefen=_liefKennPruefen;
+window._liefKennZielChanged=_liefKennZielChanged;
+window._liefKennMapRender=_liefKennMapRender;
+window._liefKennImportieren=_liefKennImportieren;
+window._kennHooks={pumpenKats:_liefKennPumpenKats,get:function(){return _kennImp;}};
 
 function _toggleLiefKat(katId){
   if(!_lief)return;

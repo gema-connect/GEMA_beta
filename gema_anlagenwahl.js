@@ -110,6 +110,45 @@
     else setTimeout(_cloudPull, 400);
   }
 
+  // ── Pumpendiagramm (Kennlinie aus dem Hersteller-Prüfbericht) ──
+  // Der Zeichner lebt in gema_pumpenkennlinie.js und wird LAZY nachgeladen
+  // (kein Edit an den 19 Modulseiten nötig); ohne Kennlinie am Produkt
+  // passiert gar nichts.
+  var _kennLoad = null;
+  function _ladeKennHelper(cb){
+    if(typeof GemaPumpenkennlinie !== 'undefined'){ cb(); return; }
+    if(typeof document === 'undefined') return;
+    if(!_kennLoad){
+      _kennLoad = new Promise(function(res){
+        var sc = document.createElement('script');
+        sc.src = 'gema_pumpenkennlinie.js';
+        sc.onload = res; sc.onerror = res;
+        document.head.appendChild(sc);
+      });
+    }
+    _kennLoad.then(function(){ if(typeof GemaPumpenkennlinie !== 'undefined') cb(); });
+  }
+  // Diagramm in einen Host zeichnen — mit Betriebspunkt aus den aktuellen
+  // Berechnungswerten des Moduls (Einheiten-Umrechnung je Kategorie im Helper).
+  function _zeichneKennlinie(host, cfg, daten, werte){
+    var kl = daten && daten.kennlinie;
+    if(!host || !kl || !kl.punkte || !kl.punkte.length) return;
+    _ladeKennHelper(function(){
+      var bp = null;
+      try { bp = GemaPumpenkennlinie.betriebspunktAus(cfg.kategorie, werte || {}); } catch(e){}
+      var info = null;
+      try { info = GemaPumpenkennlinie.zeichnen(host, kl, { betriebspunkt: bp }); } catch(e){ return; }
+      if(info && bp && bp.h != null && info.hBei != null){
+        var v = document.createElement('div');
+        v.style.cssText = 'font-size:12px;font-weight:700;margin-top:6px;color:' + (info.ok ? '#047857' : '#b91c1c');
+        v.textContent = info.ok
+          ? '✓ Betriebspunkt liegt unter der Kennlinie — die Pumpe schafft den berechneten Bedarf.'
+          : '⚠ Betriebspunkt liegt über der Kennlinie — die Pumpe erreicht den berechneten Bedarf nicht.';
+        host.appendChild(v);
+      }
+    });
+  }
+
   function _renderChosen(state){
     var cfg = state.cfg;
     if(typeof cfg.renderChosenRows !== 'function') return; // opt-in
@@ -118,6 +157,8 @@
     if(!chosen) return;
     var werte = {}; try { werte = (cfg.getBerechnungswerte && cfg.getBerechnungswerte()) || {}; } catch(e){}
     var rows = ''; try { rows = cfg.renderChosenRows(chosen.daten || {}, werte, chosen) || ''; } catch(e){}
+    var kl = (chosen.daten||{}).kennlinie;
+    var hatKenn = !!(kl && kl.punkte && kl.punkte.length);
     var box = document.createElement('div');
     box.className = 'pk-confirm';
     box.style.cssText = 'padding:16px 20px;background:#fff;border:1.5px solid #e2e7f0;border-radius:12px;margin:12px 0;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.06)';
@@ -127,8 +168,10 @@
       '<table style="width:100%;border-collapse:collapse;font-size:12.5px">'+
       '<tr style="background:#f8fafc"><td style="padding:7px 10px;font-weight:700;color:#64748b;border-bottom:1px solid #e2e7f0">Kenngrösse</td><td style="padding:7px 10px;font-weight:700;color:#64748b;border-bottom:1px solid #e2e7f0">Berechnet</td><td style="padding:7px 10px;font-weight:700;color:#64748b;border-bottom:1px solid #e2e7f0">Anlage</td><td style="padding:7px 10px;border-bottom:1px solid #e2e7f0"></td></tr>'+
       rows +
-      '</table>';
+      '</table>'+
+      (hatKenn ? '<div style="font-weight:800;font-size:12.5px;margin:12px 0 4px">📈 Pumpendiagramm (Prüfbericht'+(kl.datum?' '+E(kl.datum):'')+') mit Betriebspunkt</div><div class="gaw-kenndia"></div>' : '');
     state.container.appendChild(box);
+    if(hatKenn) _zeichneKennlinie(box.querySelector('.gaw-kenndia'), cfg, chosen.daten, werte);
     var clr = box.querySelector('.gaw-chosen-clear');
     if(clr) clr.addEventListener('click', function(){ _clearChosen(cfg); _renderChosen(state); });
   }
@@ -334,6 +377,9 @@
     +     '<div style="background:#f4f6fb;border-radius:10px;padding:12px;font-size:12px;color:#6b7280;line-height:1.6">'
     +       '<strong style="color:#111827">Kennwerte:</strong> '+E(_defaultKennwerte(d))
     +     '</div>'
+    +     (d.kennlinie && d.kennlinie.punkte && d.kennlinie.punkte.length
+            ? '<div><div style="font-weight:800;font-size:12.5px;margin-bottom:4px;color:#111827">📈 Pumpendiagramm (Prüfbericht'+(d.kennlinie.datum?' '+E(d.kennlinie.datum):'')+')</div><div class="gaw-kenndia" style="border:1.5px solid #e2e8f0;border-radius:10px;padding:8px;background:#fff"></div></div>'
+            : '')
     +     (p.status!=='verifiziert' ? '<div style="background:#fef3c7;border:1.5px solid #fde68a;border-radius:10px;padding:10px 12px;font-size:12px;color:#92400e">⚠ Nicht verifiziert — Daten aus öffentlichen Datenblättern. Bitte im Datenblatt verifizieren.</div>' : '')
     +   '</div>'
     +   '<div style="padding:14px 20px;border-top:1.5px solid #e2e8f0;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">'
@@ -343,6 +389,11 @@
     +   '</div>'
     + '</div>';
     document.body.appendChild(overlay);
+    var diaHost = overlay.querySelector('.gaw-kenndia');
+    if(diaHost){
+      var wrt = {}; try { wrt = (cfg.getBerechnungswerte && cfg.getBerechnungswerte()) || {}; } catch(e){}
+      _zeichneKennlinie(diaHost, cfg, d, wrt);
+    }
     overlay.querySelectorAll('.gaw-close').forEach(function(b){ b.addEventListener('click', function(){ _removeOverlay(overlay); }); });
     overlay.querySelector('.gaw-uebernehmen').addEventListener('click', function(){
       _removeOverlay(overlay);
