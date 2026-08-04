@@ -153,6 +153,73 @@ var EL_PA_MIN = {
   fe:  { min: 4 }                                // Funktionserdung
 };
 
+/* ── Kurzschluss-Fachdaten (angehängt 08/2026, el_kurzschluss) ──────────
+   Quellen stehen bei jedem Block — neue Elektro-Fachdaten kommen HIERHIN
+   und nicht ins einzelne Modul (Kanon dieser Datei). */
+
+/* Spannungsfaktor c (IEC 60909-0:2016, Tabelle 1, Niederspannung 100–1000 V).
+   c_max deckt die obere Spannungstoleranz ab (grösster Kurzschlussstrom →
+   Bemessung des Schaltvermögens), c_min die untere (kleinster Strom →
+   Nachweis der Abschaltbedingung). Für 230/400 V nach IEC 60038 (±10 %)
+   gilt c_max = 1.10; 1.05 ist der Wert für Netze mit +6 % Toleranz. */
+var EL_C_FAKTOR = [
+  {id:'c110', label:'1.10 / 0.95 — 230/400 V, Toleranz ±10 % (IEC 60038)', cMax:1.10, cMin:0.95},
+  {id:'c105', label:'1.05 / 0.95 — Netze mit Toleranz +6 %',               cMax:1.05, cMin:0.95}
+];
+
+/* Leitungsschutzschalter, magnetische Auslösung (IEC 60898-1, Tabelle 7).
+   `faktor` ist bewusst die OBERE Bandgrenze — nur dort ist die Auslösung
+   garantiert. Mit der unteren Grenze zu rechnen wäre für den Nachweis der
+   Abschaltbedingung nicht zulässig. Auslösung erfolgt dann < 0.1 s, womit
+   sowohl die 0.4-s- als auch die 5-s-Anforderung erfüllt ist. */
+/* `faktor` = OBERE Bandgrenze (I5) — nur dort löst das Gerät garantiert aus,
+   nur damit ist ein Abschaltnachweis zulässig. `faktorMin` = untere Grenze
+   (I4): darunter spricht die magnetische Auslösung sicher NICHT an; dazwischen
+   liegt der undefinierte Bereich (Auslösung möglich, nicht garantiert). Beide
+   Grenzen zusammen ergeben die Selektivitäts-Staffelung.
+   `inf`/`i2` = konventioneller Nicht-Auslöse- bzw. Auslösestrom des
+   thermischen Zweigs. Sie hängen an der NORM, nicht am Typ:
+   IEC 60898-1 Tab. 6 → 1.13 / 1.45 · In (Hausinstallation),
+   IEC 60947-2 → 1.05 / 1.30 · In (Industrieschalter). */
+var EL_LS_TYPEN = [
+  {id:'B', label:'B — magnetisch 3…5 × In',   faktor:5,  faktorMin:3,
+   norm:'IEC 60898-1', inf:1.13, i2:1.45,
+   einsatz:'Ohmsche Lasten, Beleuchtung, Steckdosen'},
+  {id:'C', label:'C — magnetisch 5…10 × In',  faktor:10, faktorMin:5,
+   norm:'IEC 60898-1', inf:1.13, i2:1.45,
+   einsatz:'Allgemein, kleine Motoren, Transformatoren'},
+  {id:'D', label:'D — magnetisch 10…20 × In', faktor:20, faktorMin:10,
+   norm:'IEC 60898-1', inf:1.13, i2:1.45,
+   einsatz:'Motoren, grosse Transformatoren, Schweissgeräte'},
+  {id:'K', label:'K — magnetisch 8…14 × In',  faktor:14, faktorMin:8,
+   norm:'IEC 60947-2', inf:1.05, i2:1.30,
+   einsatz:'Industrieschalter, induktive Lasten'},
+  {id:'Z', label:'Z — magnetisch 2…3 × In',   faktor:3,  faktorMin:2,
+   norm:'herstellerspezifisch', inf:1.05, i2:1.30,
+   einsatz:'Halbleiter, empfindliche Elektronik'}
+];
+
+/* Zulässige Abschaltzeit im TN-System (SN EN 60364-4-41, Tab. 41.1 für
+   120 V < U0 ≤ 230 V → 0.4 s; Ziffer 411.3.2.3 lässt für Verteilstrom-
+   kreise und Endstromkreise > 32 A 5 s zu). */
+var EL_ABSCHALTZEIT = [
+  {id:'t04', label:'0.4 s — Endstromkreis ≤ 32 A', t:0.4},
+  {id:'t5',  label:'5 s — Verteilstromkreis / Endstromkreis > 32 A', t:5}
+];
+
+function elCFaktor(id){
+  for(var i=0;i<EL_C_FAKTOR.length;i++){ if(EL_C_FAKTOR[i].id===id) return EL_C_FAKTOR[i]; }
+  return EL_C_FAKTOR[0];
+}
+function elLsTyp(id){
+  for(var i=0;i<EL_LS_TYPEN.length;i++){ if(EL_LS_TYPEN[i].id===id) return EL_LS_TYPEN[i]; }
+  return null;
+}
+function elAbschaltzeit(id){
+  for(var i=0;i<EL_ABSCHALTZEIT.length;i++){ if(EL_ABSCHALTZEIT[i].id===id) return EL_ABSCHALTZEIT[i]; }
+  return EL_ABSCHALTZEIT[0];
+}
+
 /* ── Zahlen ─────────────────────────────────────────────────────────────
    elNum: Eingabetext → Zahl. Komma als Dezimaltrennzeichen und Tausender-
    Apostrophe sind in der Schweiz üblich und dürfen die Rechnung nie
@@ -187,6 +254,8 @@ window.GemaElektro = {
   EL_QUERSCHNITTE:EL_QUERSCHNITTE, EL_SYSTEME:EL_SYSTEME,
   EL_SICHERUNGEN:EL_SICHERUNGEN,
   EL_PA_MIN:EL_PA_MIN,
+  EL_C_FAKTOR:EL_C_FAKTOR, EL_LS_TYPEN:EL_LS_TYPEN, EL_ABSCHALTZEIT:EL_ABSCHALTZEIT,
+  elCFaktor:elCFaktor, elLsTyp:elLsTyp, elAbschaltzeit:elAbschaltzeit,
   elMaterial:elMaterial, elSystem:elSystem, elKappa:elKappa,
   elNaechsterQuerschnitt:elNaechsterQuerschnitt,
   elNaechsteSicherung:elNaechsteSicherung,
