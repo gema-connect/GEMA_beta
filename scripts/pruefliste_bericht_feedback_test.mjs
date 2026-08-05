@@ -81,16 +81,26 @@ console.log('■ A · Bericht: Bilder direkt unter ihrem Prüfpunkt');
   ok(html.indexOf('tr.pkrow.mitfoto{break-after:avoid') > 0, 'Prüfpunkt und seine Bilder bleiben im Druck zusammen');
   ok(html.indexOf('tr.pkrow{break-after:avoid') < 0, 'kein pauschales break-after auf allen Punktzeilen');
   // Feedback 30.07.2026: Labels AUSGESCHRIEBEN («Baujahr» statt «Bj.») + .btz (10pt)
-  ok(html.indexOf('🔩 Hersteller Biral · Typ Test · Baujahr 2026 · Material Kunststoff') > 0,
-    'Bauteil-Zeile mit ausgeschriebenen Labels');
+  // Feedback 05.08.2026 (Tim): zwei feste Zeilen — Hersteller+Typ / Baujahr+Material
+  ok(html.indexOf('🔩 Hersteller Biral · Typ Test') > 0,
+    'Bauteil-Zeile 1: Hersteller + Typ');
+  ok(html.indexOf('Baujahr 2026 · Material Kunststoff') > 0,
+    'Bauteil-Zeile 2: Baujahr + Material');
+  ok(html.indexOf('Typ Test · Baujahr') < 0,
+    'Hersteller/Typ und Baujahr/Material stehen NICHT mehr in einer Zeile');
 
   /* ── Prüfbericht-Feedback 30.07.2026 (Berichte BEG-2026-011/-012) ── */
   console.log('■ Prüfbericht-Feedback 30.07.2026 (Titel/Meta/KPI/Fusszeile/Trenner/Umbrüche)');
-  ok(html.indexOf('<title>Dornacherstrasse 210 – Prüfbericht</title>') > 0,
-    'Fenster-/PDF-Titel = Strasse + Hausnr. (statt Begehungs-Nr.)');
-  ok(html.indexOf('<h1>Dornacherstrasse 210</h1>') > 0, 'H1 = Adresse');
-  ok(html.indexOf('Prüfbericht — Begehung · Testbegehung') > 0,
-    'Untertitel «Prüfbericht — Art · Begehungs-Titel»');
+  /* Feedback 05.08.2026 (Tim): der Begehungs-Titel gehört in dieselbe Zeile wie
+     die Adresse («direkt ersichtlich, um welches Projekt und welche Adresse es
+     sich handelt»); der Untertitel nennt nur noch die Art. */
+  ok(html.indexOf('<title>Dornacherstrasse 210 - Testbegehung – Prüfbericht</title>') > 0,
+    'Fenster-/PDF-Titel = Adresse + Begehungs-Titel');
+  ok(html.indexOf('<h1>Dornacherstrasse 210 - Testbegehung</h1>') > 0, 'H1 = Adresse + Begehungs-Titel');
+  ok(html.indexOf('<div class="sub">Prüfbericht — Begehung</div>') > 0,
+    'Untertitel nur noch «Prüfbericht — Art»');
+  ok(html.indexOf('Prüfbericht — Begehung · Testbegehung') < 0,
+    'Begehungs-Titel steht nicht mehr klein im Untertitel');
   ok(html.indexOf('>Projekt</td>') > 0 && html.indexOf('Objekt / Projekt') < 0,
     'Meta-Label heisst nur noch «Projekt»');
   ok(html.indexOf('Begehungs-Nr.') < 0, 'keine Begehungs-Nr.-Zeile mehr im Bericht');

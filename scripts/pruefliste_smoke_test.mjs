@@ -133,7 +133,8 @@ try {
      3 Inline-Chips neben der Eingabe + 3 im 📝-Panel (statt Dropdown);
      seit 30.07.2026 zusätzlich der Chip «nicht beurteilbar» inline. */
   const chips = await page.$$eval('#pkt_' + zi.ai + '_' + zi.pi + ' .ans .ans-btn', els => els.length);
-  ok('Zustand-Chips beim Zahl-Punkt (inline + nb + Panel, kein Dropdown)', chips === 7);
+  // Feedback 05.08.2026: vierter Zustands-Chip «nicht beurteilbar» → 4 inline + nb-Antwort + 4 im Panel
+  ok('Zustand-Chips beim Zahl-Punkt (inline + nb + Panel, kein Dropdown)', chips === 9);
   ok('kein Zustand-Dropdown mehr im Panel', !(await page.$('#more_' + zi.ai + '_' + zi.pi + ' select')));
   /* «nicht beurteilbar» bei Zahl-Punkten (Prüfbericht-Feedback 30.07.2026):
      Toggle → Zustand entfällt, Eingabefeld gesperrt; erneuter Klick löst. */

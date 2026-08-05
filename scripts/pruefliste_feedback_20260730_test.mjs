@@ -99,7 +99,9 @@ try {
   await page.evaluate(g => window.prTogglePkt(g.ai, g.pi), gi);
   ok('kein Zustand-Dropdown im Panel', !(await page.$('#more_' + gi.ai + '_' + gi.pi + ' select')));
   const gchips = await page.$$eval('#more_' + gi.ai + '_' + gi.pi + ' .ans-btn', els => els.map(e => e.textContent.trim()));
-  ok('Geruch-Zustand-Chips heissen tief/mittel/hoch', JSON.stringify(gchips) === '["tief","mittel","hoch"]');
+  // Feedback 05.08.2026 (Tim): vierte Stufe «normal» am Anfang, «nicht beurteilbar» am Ende
+  ok('Geruch-Zustand-Chips heissen normal/tief/mittel/hoch/nicht beurteilbar',
+    JSON.stringify(gchips) === '["normal","tief","mittel","hoch","nicht beurteilbar"]');
   await page.evaluate(g => window.prSetBewertung(g.ai, g.pi, 'schlecht'), gi);
   const gp = await page.evaluate(g => window._prHooks.cached(window._prHooks.POOLS.BEG)[0].anlagen[g.ai].punkte[g.pi], gi);
   ok('intern bleibt der Wert «schlecht»', gp.bewertung === 'schlecht');
@@ -111,7 +113,8 @@ try {
   });
   await page.evaluate(j => window.prTogglePkt(j.ai, j.pi), ji);
   const jchips = await page.$$eval('#more_' + ji.ai + '_' + ji.pi + ' .ans-btn', els => els.map(e => e.textContent.trim()));
-  ok('Standard-Zustand-Chips gut/mässig/schlecht', JSON.stringify(jchips) === '["gut","mässig","schlecht"]');
+  ok('Standard-Zustand-Chips gut/mässig/schlecht/nicht beurteilbar',
+    JSON.stringify(jchips) === '["gut","mässig","schlecht","nicht beurteilbar"]');
   await page.evaluate(j => window.prSetBewertung(j.ai, j.pi, 'maessig'), ji);
   await page.evaluate(j => window.prSetBewertung(j.ai, j.pi, 'nicht_bewertet'), ji);
   const jp = await page.evaluate(j => window._prHooks.cached(window._prHooks.POOLS.BEG)[0].anlagen[j.ai].punkte[j.pi], ji);

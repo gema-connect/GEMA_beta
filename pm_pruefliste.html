@@ -169,7 +169,8 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 .ans{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
 .ans-btn{padding:8px 12px;border-radius:9px;border:1.5px solid var(--brd2);background:var(--sur);font-size:13px;font-weight:700;color:var(--txt2);cursor:pointer;min-height:40px}
 .ans-btn.on{color:#fff}
-.ans-btn.on.on-gut{background:var(--grn);border-color:var(--grn)}
+.ans-btn.on.on-gut,.ans-btn.on.on-normal{background:var(--grn);border-color:var(--grn)}
+.ans-btn.on.on-nicht_beurteilbar{background:var(--slate,#64748b);border-color:var(--slate,#64748b)}
 .ans-btn.on.on-maessig{background:var(--amber);border-color:var(--amber)}
 .ans-btn.on.on-schlecht{background:var(--red);border-color:var(--red)}
 .ans-btn.on.on-nicht_bewertet{background:var(--mut);border-color:var(--mut)}
@@ -197,7 +198,8 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
   .anlage-hd input{padding:8px 9px}
 }
 .bw-chip{font-size:11px;font-weight:800;padding:2px 9px;border-radius:999px;white-space:nowrap}
-.bw-gut{background:var(--grn-bg);color:var(--grn);border:1px solid var(--grn-bd)}
+.bw-gut,.bw-normal{background:var(--grn-bg);color:var(--grn);border:1px solid var(--grn-bd)}
+.bw-nicht_beurteilbar{background:#f1f5f9;color:#475569;border:1px solid var(--brd2)}
 .bw-maessig{background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-bd)}
 .bw-schlecht{background:var(--red-bg);color:var(--red);border:1px solid var(--red-bd)}
 .bw-nicht_bewertet{background:#f1f5f9;color:var(--mut);border:1px solid var(--brd2)}
@@ -479,11 +481,23 @@ function prArtLabel(id, frei){
 }
 
 var PR_BEWERTUNGEN = {
-  gut:            { label:'gut',           farbe:'#16a34a' },
-  maessig:        { label:'mässig',        farbe:'#d97706' },
-  schlecht:       { label:'schlecht',      farbe:'#dc2626' },
-  nicht_bewertet: { label:'nicht bewertet', farbe:'#94a3b8' }
+  /* «normal» (Feedback 05.08.2026, Tim) ist die unauffällige Stufe der
+     Intensitäts-Skala (Geruchsemission) und zählt in der Auswertung wie «gut». */
+  normal:            { label:'normal',       farbe:'#16a34a' },
+  gut:               { label:'gut',           farbe:'#16a34a' },
+  maessig:           { label:'mässig',        farbe:'#d97706' },
+  schlecht:          { label:'schlecht',      farbe:'#dc2626' },
+  /* «nicht beurteilbar» (Feedback 05.08.2026, Tim) ist eine BEWUSSTE Aussage
+     der Fachperson und darf nicht mit «nicht bewertet» (= noch nicht angeschaut)
+     verwechselt werden — deshalb ein eigener Wert: er zählt wie «entfällt» und
+     nicht als offener Punkt. */
+  nicht_beurteilbar: { label:'nicht beurteilbar', farbe:'#64748b' },
+  nicht_bewertet:    { label:'nicht bewertet', farbe:'#94a3b8' }
 };
+/* Zustands-Werte, die als «entfällt» zählen (kein Mangel, kein offener Punkt) */
+var PR_BW_ENTFAELLT = { nicht_beurteilbar:1 };
+/* Zustands-Werte, die als «gut» in die Auswertung eingehen */
+var PR_BW_GUT = { gut:1, normal:1 };
 /* Zustands-Auswahl im Editor: «nicht bewertet» steht ZUERST — der Zustand wird
    nie automatisch gesetzt (Feedback 25.07.2026), das Feld startet also leer. */
 var PR_BEWERTUNG_REIHE = ['nicht_bewertet','gut','maessig','schlecht'];
@@ -492,9 +506,21 @@ var PR_BEWERTUNG_REIHE = ['nicht_bewertet','gut','maessig','schlecht'];
    gut/maessig/schlecht — nur die BESCHRIFTUNG folgt dem Antworttyp
    (skala:'intensitaet' → tief/mittel/hoch, z.B. Geruchsemission). */
 var PR_ZUSTAND_SKALEN = {
-  standard:    { gut:'gut',  maessig:'mässig', schlecht:'schlecht', nicht_bewertet:'nicht bewertet' },
-  intensitaet: { gut:'tief', maessig:'mittel', schlecht:'hoch',     nicht_bewertet:'nicht bewertet' }
+  standard:    { normal:'normal', gut:'gut',  maessig:'mässig', schlecht:'schlecht', nicht_beurteilbar:'nicht beurteilbar', nicht_bewertet:'nicht bewertet' },
+  intensitaet: { normal:'normal', gut:'tief', maessig:'mittel', schlecht:'hoch',     nicht_beurteilbar:'nicht beurteilbar', nicht_bewertet:'nicht bewertet' }
 };
+/* Welche Chips die Zustands-Auswahl je Skala anbietet (Feedback 05.08.2026):
+   «nicht beurteilbar» überall, «normal» nur bei der Intensitäts-Skala — bei
+   einer gut/mässig/schlecht-Beurteilung wäre es keine eigene Stufe. */
+var PR_ZUSTAND_CHIPS = {
+  standard:    ['gut','maessig','schlecht','nicht_beurteilbar'],
+  intensitaet: ['normal','gut','maessig','schlecht','nicht_beurteilbar']
+};
+function prZustandChips(antworttyp){
+  var t=PR_ANTWORTTYPEN[antworttyp];
+  var k=(t && t.skala && PR_ZUSTAND_CHIPS[t.skala]) ? t.skala : 'standard';
+  return PR_ZUSTAND_CHIPS[k];
+}
 function prZustandSkala(antworttyp){
   var t=PR_ANTWORTTYPEN[antworttyp];
   return (t && t.skala && PR_ZUSTAND_SKALEN[t.skala]) || null;
@@ -694,7 +720,12 @@ function prBegehungBewertung(zeilen){
     z.total++;
     if(prZustandEntfaellt(r)){ z.entfaellt++; return; }
     var bw = r.bewertung;
-    if(bw==='gut'||bw==='maessig'||bw==='schlecht'){ z[bw]++; return; }
+    /* «nicht beurteilbar» ist eine bewusste Aussage → zählt wie «entfällt»,
+       nie als offener Punkt (Feedback 05.08.2026). */
+    if(PR_BW_ENTFAELLT[bw]){ z.entfaellt++; return; }
+    /* «normal» (Intensitäts-Skala) geht als «gut» in die Auswertung ein */
+    if(PR_BW_GUT[bw]){ z.gut++; return; }
+    if(bw==='maessig'||bw==='schlecht'){ z[bw]++; return; }
     var beantwortet = r.antwort!==undefined && r.antwort!==null && r.antwort!=='';
     if(!beantwortet){ z.offen++; return; }
     z.nicht_bewertet++;
@@ -832,6 +863,8 @@ var _prEngine = { PR_ANTWORTTYPEN:PR_ANTWORTTYPEN, PR_ANTWORTTYP_DEFAULT:PR_ANTW
   PR_NUTZUNGEN:PR_NUTZUNGEN, prNutzungLabel:prNutzungLabel, prNutzungenText:prNutzungenText,
   PR_ARTEN:PR_ARTEN, prArtLabel:prArtLabel, PR_ZUSTAND_ENTFAELLT:PR_ZUSTAND_ENTFAELLT,
   PR_ZUSTAND_SKALEN:PR_ZUSTAND_SKALEN, prZustandSkala:prZustandSkala, prZustandLabel:prZustandLabel,
+  PR_ZUSTAND_CHIPS:PR_ZUSTAND_CHIPS, prZustandChips:prZustandChips,
+  PR_BW_ENTFAELLT:PR_BW_ENTFAELLT, PR_BW_GUT:PR_BW_GUT,
   PR_BAUTEIL_FELDER:PR_BAUTEIL_FELDER, prBauteilFelder:prBauteilFelder,
   prEmpfItems:prEmpfItems, prSyncPunkte:prSyncPunkte, prPunktNr:prPunktNr };
 if(typeof window!=='undefined') window._prEngine = _prEngine;
@@ -1287,7 +1320,7 @@ function bwKpiHtml(bw){
    seit Feedback 29.07.2026 ÜBERALL statt des Dropdowns; Beschriftung folgt
    der Skala des Antworttyps (Geruch: tief/mittel/hoch). */
 function bwInlineBtns(ai,pi,bw,dis,antworttyp){
-  return ['gut','maessig','schlecht'].map(function(k){
+  return prZustandChips(antworttyp).map(function(k){
     var on=(bw===k);
     return '<button class="ans-btn'+(on?' on on-'+k:'')+'" '+(dis?'disabled':'')+' title="Zustand" onclick="prSetBewertung('+ai+','+pi+',\''+(on?'nicht_bewertet':k)+'\')">'+esc(prZustandLabel(antworttyp,k))+'</button>';
   }).join('');
@@ -2715,7 +2748,14 @@ function printBericht(b){
      umbenannt werden» → der Browser nimmt den Fenstertitel als PDF-Dateinamen). */
   var adrPdf=b.objektAdresse || prFreieAdresse(b.freieAdresse);
   var adrKurz=String(adrPdf||'').split(',')[0].trim();
-  var titelHaupt=adrKurz || objName(b.objektId) || b.objektName || 'Prüfbericht';
+  /* Feedback 05.08.2026 (Tim): der Begehungs-Titel («Test 5») gehört NACH OBEN
+     in dieselbe Zeile wie die Adresse — «es muss direkt ersichtlich sein, um
+     welches Projekt und welche Adresse es sich handelt». Er stand bisher klein
+     hinter «Prüfbericht — Begehung» im Untertitel; der Untertitel nennt seither
+     nur noch die Art. Fenster-/Kopfzeile führen ihn ebenfalls (der Browser nimmt
+     den Fenstertitel als PDF-Dateinamen). */
+  var titelBasis=adrKurz || objName(b.objektId) || b.objektName || 'Prüfbericht';
+  var titelHaupt=titelBasis + (b.titel ? ' - ' + b.titel : '');
   var h='<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><title>'+E(titelHaupt)+' – Prüfbericht</title>';
   h+='<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,700;9..40,900&display=swap" rel="stylesheet">';
   /* Druck-Kopf-/Fusszeilen via @page-Margin-Boxen (Kanon gema_schaden_pdf) —
@@ -2757,10 +2797,13 @@ function printBericht(b){
     +'.pkname{font-weight:800;font-size:10.5pt}'
     /* Bauteil-Zeile: 10 pt statt 9 pt, Labels ausgeschrieben (Feedback 30.07.2026) */
     +'.btz{font-size:10pt;color:#333}'
+    /* Zeile 2 der Bauteil-Angaben rückt unter Zeile 1 ein (Breite des 🔩 + Abstand),
+       damit beide Zeilen bündig stehen statt am Symbol vorbei zu laufen. */
+    +'.btz-ein{display:inline-block;width:4.6mm}'
     /* Keine Trennlinie zwischen Prüfpunkt-Zeile und IHRER Bild-Zeile — die
        Linie UNTER der Bild-Zeile trennt bereits (Feedback 30.07.2026). */
     +'table.pk tr.pkrow.mitfoto td{border-bottom:none}'
-    +'.bw{font-weight:800}.bw-gut{color:#16a34a}.bw-maessig{color:#d97706}.bw-schlecht{color:#dc2626}.bw-nicht_bewertet{color:#94a3b8}'
+    +'.bw{font-weight:800}.bw-gut,.bw-normal{color:#16a34a}.bw-maessig{color:#d97706}.bw-schlecht{color:#dc2626}.bw-nicht_beurteilbar{color:#475569}.bw-nicht_bewertet{color:#94a3b8}'
     +'.ft{font-size:9pt;color:#555;border-top:2px solid '+br.acc+';padding-top:6px}'
     +'.empf{margin-top:6px;font-size:10pt}.empf b{color:'+br.deep+'}.empf ul{margin:3px 0 0 16px;padding:0}.empf li{margin:2px 0}'
     +'.pk .empf{margin-top:4px;font-size:9.5pt}'
@@ -2803,7 +2846,7 @@ function printBericht(b){
   h+='<div class="coverbar"></div>';
   /* H1 = Adresse (Feedback 30.07.2026); «Prüfbericht — <Art>» wird zum
      Untertitel, der interne Begehungs-Titel bleibt dort als Zusatz erhalten. */
-  h+='<h1>'+E(titelHaupt)+'</h1><div class="sub">Prüfbericht — '+E(prArtLabel(b.art,b.artFrei))+(b.titel?' · '+E(b.titel):'')+'</div>';
+  h+='<h1>'+E(titelHaupt)+'</h1><div class="sub">Prüfbericht — '+E(prArtLabel(b.art,b.artFrei))+'</div>';
   /* Titelbild auf dem Deckblatt (Feedback 25.07.2026) */
   var tbSrc=imgSrc(b.titelbild);
   if(tbSrc) h+='<div class="titelbild"><img src="'+E(tbSrc)+'" alt=""></div>';
@@ -2851,13 +2894,21 @@ function printBericht(b){
       /* Bauteil-Angaben unter der Bezeichnung (Feedback 28.07.2026) — Labels
          AUSGESCHRIEBEN + grössere Schrift (.btz, Feedback 30.07.2026:
          «Schrift grösser und alles ausschreiben»). */
-      var btTeile=[];
-      if(p.hersteller) btTeile.push('Hersteller '+E(p.hersteller));
-      if(p.typ)        btTeile.push('Typ '+E(p.typ));
-      if(p.baujahr)    btTeile.push('Baujahr '+E(p.baujahr));
-      if(p.material)   btTeile.push('Material '+E(p.material));
-      if(p.wartung)    btTeile.push('Wartung/Ersatz '+E(p.wartung));
-      var btZeile = btTeile.length ? '<br><span class="btz">🔩 '+btTeile.join(' · ')+'</span>' : '';
+      /* Feedback 05.08.2026 (Tim): «Hersteller und Typ auf Zeile 1, Baujahr und
+         Material auf Zeile 2 — anpassen bei allen». Die Angaben standen bisher
+         in EINER langen Zeile und brachen irgendwo um; jetzt zwei feste Zeilen,
+         damit die Spalte über alle Prüfpunkte gleich aussieht. Wartung/Ersatz
+         hängt an Zeile 2 (dieselbe Gruppe «Alter/Beschaffenheit»). */
+      var btZ1=[], btZ2=[];
+      if(p.hersteller) btZ1.push('Hersteller '+E(p.hersteller));
+      if(p.typ)        btZ1.push('Typ '+E(p.typ));
+      if(p.baujahr)    btZ2.push('Baujahr '+E(p.baujahr));
+      if(p.material)   btZ2.push('Material '+E(p.material));
+      if(p.wartung)    btZ2.push('Wartung/Ersatz '+E(p.wartung));
+      var btZeile='';
+      if(btZ1.length) btZeile+='<br><span class="btz">🔩 '+btZ1.join(' · ')+'</span>';
+      /* Zeile 2 trägt das Symbol nur, wenn Zeile 1 fehlt — sonst stünde es zweimal */
+      if(btZ2.length) btZeile+='<br><span class="btz">'+(btZ1.length?'<span class="btz-ein"></span>':'🔩 ')+btZ2.join(' · ')+'</span>';
       /* Standort-Freifeld des Punkts (Feedback 31.07.2026) */
       if(p.standort) btZeile='<br><span class="btz">📍 '+E(p.standort)+'</span>'+btZeile;
       /* Prüfart (z.B. Geruchsemission: Nasal / Messgerät) */
