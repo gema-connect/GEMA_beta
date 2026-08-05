@@ -91,9 +91,11 @@ try {
     ok(nachher.indexOf('Kaltwasser HF_GT 2026') >= 0,
       'Klasse überlebt den verspäteten Snapshot (PreBoot-Journal)', nachher);
     // …und die Eingaben im offenen Detail greifen weiter:
-    const chk = await page.$('#modChecks input[data-modkey]');
-    ok(!!chk, 'Modul-Checkliste gerendert');
-    if (chk) await chk.click();
+    ok(!!(await page.$('#modChecks input[data-modkey]')), 'Modul-Checkliste gerendert');
+    // NICHT über einen gehaltenen ElementHandle klicken: der Cloud-Pull zeichnet das
+    // offene Detail EINMAL neu (renderDetail nach S.bind) — der Selektor muss zum
+    // Klick-Zeitpunkt neu aufgelöst werden.
+    await page.click('#modChecks input[data-modkey]');
     await page.fill('#klName', 'Kaltwasser HF_GT 2026/27');
     await page.evaluate(() => klStammSave());
     await page.waitForTimeout(350);

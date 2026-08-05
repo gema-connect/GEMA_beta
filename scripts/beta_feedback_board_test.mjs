@@ -175,6 +175,74 @@ await page.evaluate(() => document.querySelector('.fb[data-f="all"]').click());
 ok(await page.evaluate(() => !document.body.classList.contains('beta-mine-only')
   && document.querySelector('tr[data-id=druckdispositiv]').style.display !== 'none'), 'Filter «Alle» → beta-mine-only weg, fremde Module wieder sichtbar');
 
+console.log('■ «Feedback umsetzen» — Export-Freigabe pro Punkt');
+{
+  await page.evaluate(() => {
+    _GemaDB.c['feedback_lu_tabelle'] = JSON.stringify([
+      { type: 'fehler', author: 'Robin', text: 'Umsetzen-Punkt 1', ts: '17.07.26, 11:00' },
+      { type: 'kommentar', author: 'Robin', text: 'Umsetzen-Punkt 2', ts: '17.07.26, 11:05' }
+    ]);
+    mState('lu_tabelle').comments = [];
+    renderAll();
+    toggleFbPanel('lu_tabelle');
+  });
+  ok(await page.evaluate(() => {
+    const b = [...document.querySelectorAll('#cl-lu_tabelle .um-lbl input')];
+    return b.length === 2 && b.every(x => !x.checked);
+  }), 'Jeder Feedback-Punkt hat eine Checkbox — standardmässig NICHT angehakt');
+  ok(await page.evaluate(() => (document.querySelector('#cl-lu_tabelle .um-lbl').textContent || '').trim() === 'Feedback umsetzen'), 'Beschriftung lautet «Feedback umsetzen»');
+  ok(await page.evaluate(() => document.querySelectorAll('#cl-lu_tabelle .fb-card.fb-um').length === 0), 'Ohne Haken keine Umsetzen-Markierung an der Karte');
+
+  // Anhaken → landet im Datensatz, Karte + Kopfzeile ziehen nach
+  await page.evaluate(() => document.querySelector('#cl-lu_tabelle .um-lbl input').click());
+  ok(await page.evaluate(() => JSON.parse(_GemaDB.c['feedback_lu_tabelle'])[0].umsetzen === true), 'Haken wird als umsetzen:true im Feedback-Datensatz gespeichert');
+  ok(await page.evaluate(() => {
+    const c = document.querySelector('#cl-lu_tabelle .fb-card');
+    return c.classList.contains('fb-um') && c.querySelector('.um-lbl').classList.contains('on');
+  }), 'Karte wird sichtbar als «wird umgesetzt» markiert');
+  ok(await page.evaluate(() => (document.getElementById('umc-lu_tabelle').textContent || '').indexOf('1 für Umsetzung markiert') >= 0), 'Panel-Kopf zählt die markierten Punkte');
+
+  // Fokus-Regel: nur die betroffene Karte wird nachgezogen, die Liste NICHT
+  // neu gebaut (sonst reisst das Durchklicken den Scroll-Stand).
+  await page.evaluate(() => { document.querySelectorAll('#cl-lu_tabelle .fb-card')[1].dataset.probe = '1'; });
+  await page.evaluate(() => document.querySelector('#cl-lu_tabelle .um-lbl input').click());
+  ok(await page.evaluate(() => document.querySelectorAll('#cl-lu_tabelle .fb-card')[1].dataset.probe === '1'), 'Klick zeichnet nur die Karte nach (kein Listen-Rebuild)');
+  ok(await page.evaluate(() => {
+    const e = JSON.parse(_GemaDB.c['feedback_lu_tabelle'])[0];
+    return !('umsetzen' in e) && !document.querySelector('#cl-lu_tabelle .fb-card').classList.contains('fb-um');
+  }), 'Abhaken entfernt das Feld wieder');
+
+  // Haken überlebt einen vollen Re-Render
+  await page.evaluate(() => {
+    document.querySelector('#cl-lu_tabelle .um-lbl input').click();
+    renderAll();
+    toggleFbPanel('lu_tabelle');
+  });
+  ok(await page.evaluate(() =>
+    document.querySelector('#cl-lu_tabelle .um-lbl input').checked === true &&
+    document.querySelector('#cl-lu_tabelle .fb-card').classList.contains('fb-um') &&
+    (document.getElementById('umc-lu_tabelle').textContent || '').indexOf('1 für Umsetzung') >= 0
+  ), 'Haken + Zähler überleben renderAll()');
+
+  // Bulk über die Mehrfachauswahl
+  await page.evaluate(() => { fbSelAll('lu_tabelle'); fbBulkUmsetzen(true); });
+  ok(await page.evaluate(() => JSON.parse(_GemaDB.c['feedback_lu_tabelle']).every(e => e.umsetzen === true)), 'Bulk «🎯 Umsetzen» markiert alle ausgewählten Punkte');
+  ok(await page.evaluate(() => fbSelCount() === 0 && !document.getElementById('fbBulkbar').classList.contains('show')), 'Bulk leert die Auswahl und schliesst die Leiste');
+  await page.evaluate(() => { fbSelAll('lu_tabelle'); fbBulkUmsetzen(false); });
+  ok(await page.evaluate(() => JSON.parse(_GemaDB.c['feedback_lu_tabelle']).every(e => !('umsetzen' in e))), 'Bulk «☐ Nicht umsetzen» entfernt die Markierung wieder');
+
+  // Manuelle Board-Kommentare kennen keine Umsetzung (der Export liest sie nicht)
+  await page.evaluate(() => {
+    document.getElementById('cta-lu_tabelle').value = 'Nur eine Notiz';
+    document.getElementById('cauthor-lu_tabelle').value = 'Tester';
+    addComment('lu_tabelle', 'LU / Spitzenvolumenstrom');
+  });
+  ok(await page.evaluate(() =>
+    document.querySelectorAll('#cl-lu_tabelle .fb-card').length === 3 &&
+    document.querySelectorAll('#cl-lu_tabelle .um-lbl').length === 2
+  ), 'Manueller Kommentar bekommt KEINE «Feedback umsetzen»-Checkbox');
+}
+
 // Alle drei Status gleichzeitig: rot · gelb · grün nebeneinander.
 // Steht bewusst zuletzt — der Block setzt die Kommentare des Moduls neu.
 console.log('■ Ampel auf Modulebene: offen · in Arbeit · erledigt');

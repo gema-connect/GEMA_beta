@@ -112,8 +112,11 @@ t('alle fwk_-Eingaben vorhanden', ['fwk_n', 'fwk_sep', 'fwk_primVl', 'fwk_primRl
   'fwk_qheiz', 'fwk_cgeb', 'fwk_dtzul', 'fwk_spitze', 'fwk_reserveMin']
   .every(id => new RegExp('id="' + id + '"').test(SRC)));
 t('🔥-Kennzeichnung (hz-tag) an den Heizungs-Werten', (SRC.match(/hz-tag/g) || []).length >= 8);
-t('Kaskaden-Schema-Karte + Draw-Hook', /id="fwkSchemaCard"/.test(SRC) && /window\._fwKaskadeDraw=function/.test(SRC)
-  && /window\._fwKaskadeDraw\)try\{window\._fwKaskadeDraw\(res,k\)/.test(SRC));
+t('Anlagenschema-Karte + Draw-Hook (mit Kaskaden-Flag)', /id="fwkSchemaCard"/.test(SRC) && /window\._fwKaskadeDraw=function\(res,k,kaskade\)/.test(SRC)
+  && /window\._fwKaskadeDraw\(res,k,true\)/.test(SRC) && /window\._fwKaskadeDraw\(res,k,false\)/.test(SRC));
+t('Schema-Karte ohne display:none (Feedback 05.08.2026 — Standard-Schema)',
+  /id="fwkSchemaCard"/.test(SRC) && !/display:none[^>]*id="fwkSchemaCard"/.test(SRC)
+  && !/_fwSchemaDraw/.test(SRC));
 const blk = SRC.split('Kaskaden-Schema (Abschnitt 7)')[1] || '';
 const drawBlk = blk.split('</script>')[0] || '';
 t('Schema-Block nutzt nur literale Farben (GemaPDF-Regel)', drawBlk.length > 1000 && !/var\(--/.test(drawBlk));

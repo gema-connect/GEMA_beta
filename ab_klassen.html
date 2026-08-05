@@ -174,6 +174,38 @@ textarea.inp{min-height:74px;resize:vertical}
 @keyframes upSlide{0%{margin-left:-35%}100%{margin-left:100%}}
 .up-s{display:flex;justify-content:space-between;align-items:center;margin-top:9px;font-size:12.5px;color:var(--mut)}
 .up-pct{font-weight:800;color:var(--teal);font-variant-numeric:tabular-nums}
+/* ── Lernmittel-Reader (Feedback 05.08.2026) ─────────────────────────
+   Lehrmittel wählen, markieren/beschreiben und komplett oder seitenweise
+   teilen. Aufbau wie der Plan-Viewer in pm_planablage: pdf.js auf Canvas,
+   SVG-Overlay darüber, Markierungen auf die Seitengrösse normiert (0..1). */
+.lm-bg{position:fixed;inset:0;z-index:11800;background:#0f172a;display:none;flex-direction:column}
+.lm-bg.on{display:flex}
+.lm-hd{display:flex;align-items:center;gap:8px;padding:9px 12px;background:#111827;border-bottom:1px solid #1f2937;flex-wrap:wrap;padding-top:calc(9px + env(safe-area-inset-top,0px))}
+.lm-tt{color:#f8fafc;font-weight:800;font-size:13.5px;max-width:34vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lm-btn{height:32px;min-width:32px;padding:0 9px;border-radius:8px;border:1px solid #334155;background:#1f2937;color:#e2e8f0;font-size:13px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:5px}
+.lm-btn:hover{background:#334155}
+.lm-btn.on{background:var(--teal);border-color:var(--teal);color:#fff}
+.lm-btn:disabled{opacity:.4;cursor:default}
+.lm-farb{width:24px;height:24px;border-radius:50%;border:2px solid #475569;cursor:pointer;padding:0}
+.lm-farb.on{border-color:#fff;box-shadow:0 0 0 2px var(--teal)}
+.lm-sp{flex:1}
+.lm-pg{color:#cbd5e1;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.lm-save{color:#94a3b8;font-size:11.5px;min-width:82px;text-align:right}
+.lm-body{flex:1;overflow:auto;display:flex;justify-content:center;padding:16px;-webkit-overflow-scrolling:touch}
+.lm-stage{position:relative;box-shadow:0 10px 40px rgba(0,0,0,.5);background:#fff;align-self:flex-start}
+.lm-stage canvas{display:block}
+.lm-stage svg{position:absolute;inset:0;touch-action:none}
+.lm-shp{cursor:pointer}
+.lm-shp.sel{filter:drop-shadow(0 0 3px #0ea5e9)}
+.lm-fremd{opacity:.85}
+.lm-panel{position:absolute;top:52px;right:12px;z-index:5;background:var(--sur);border:1px solid var(--brd);border-radius:12px;padding:10px 12px;box-shadow:var(--sh);min-width:230px;max-width:min(320px,88vw);max-height:70vh;overflow:auto}
+.lm-panel h4{font-size:11px;font-weight:800;color:var(--mut);text-transform:uppercase;letter-spacing:.4px;margin-bottom:7px}
+.lm-nrow{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--txt);padding:5px 0;cursor:pointer}
+.lm-nrow input{margin:0}
+.lm-ndot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.lm-nsub{font-size:10.5px;color:var(--mut)}
+.lm-leer{color:var(--mut);font-size:12px}
+@media(max-width:640px){.lm-tt{max-width:40vw}.lm-hd{gap:5px;padding:7px 8px}.lm-body{padding:8px}}
 </style>
 <link rel="stylesheet" href="gema_responsive.css"/>
 </head>
@@ -240,6 +272,31 @@ textarea.inp{min-height:74px;resize:vertical}
   </div>
 </div>
 
+<!-- ═══════ Lernmittel-Reader (markieren · beschreiben · teilen) ═══════ -->
+<div class="lm-bg" id="lmOv">
+  <div class="lm-hd">
+    <button class="lm-btn" onclick="lmClose()" title="Schliessen">✕</button>
+    <span class="lm-tt" id="lmTitel">Lernmittel</span>
+    <button class="lm-btn" onclick="lmSeite(-1)" title="Vorherige Seite">◀</button>
+    <span class="lm-pg" id="lmPg">–</span>
+    <button class="lm-btn" onclick="lmSeite(1)" title="Nächste Seite">▶</button>
+    <button class="lm-btn" onclick="lmZoom(-1)" title="Kleiner">−</button>
+    <button class="lm-btn" onclick="lmZoom(1)" title="Grösser">＋</button>
+    <span style="width:1px;height:22px;background:#334155"></span>
+    <span id="lmTools" style="display:inline-flex;gap:5px;flex-wrap:wrap"></span>
+    <span id="lmFarben" style="display:inline-flex;gap:5px"></span>
+    <button class="lm-btn" id="lmDel" onclick="lmDelSel()" title="Markierung löschen" disabled>🗑</button>
+    <span class="lm-sp"></span>
+    <button class="lm-btn" id="lmNotizBtn" onclick="lmNotizPanel()" title="Notizen ein-/ausblenden">👥 Notizen</button>
+    <button class="lm-btn" id="lmTeilenBtn" onclick="lmTeilenOpen()" title="Eigene Notizen teilen">↗ Teilen</button>
+    <span class="lm-save" id="lmSave"></span>
+  </div>
+  <div class="lm-body" id="lmBody">
+    <div class="lm-stage" id="lmStage"><canvas id="lmCanvas"></canvas><svg id="lmSvg" xmlns="http://www.w3.org/2000/svg"></svg></div>
+  </div>
+  <div class="lm-panel" id="lmPanel" style="display:none"></div>
+</div>
+
 <script src="gema_db.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
 <script src="gema_dialog.js"></script>
@@ -255,7 +312,7 @@ var _openId=null;
 
 function me(){return (typeof GemaAuth!=='undefined'&&GemaAuth.getCurrentUser())||null;}
 function canEdit(){return typeof GemaAuth!=='undefined'&&GemaAuth.can('write','klassen');}
-function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 
 // ── Klassen-Chatgruppe (alle Studierenden + Dozenten) ────────────────
 // Stabile Thread-ID pro Klasse (chtgrp_klasse_<id>): Mitglieder-Änderungen
@@ -465,13 +522,30 @@ function matListHtml(mats,edit){
     var isLink=!!m.link;
     var ic=isLink?'🔗':(m.datei&&m.datei.type==='application/pdf'?'📄':'🖼');
     var src=isLink?m.link:(m.datei?S.dateiSrc(m.datei):'');
-    return '<div class="mat-row"><div class="mat-ic">'+ic+'</div>'+
-      '<div style="min-width:0"><div class="mat-tt">'+esc(m.titel)+'</div><div class="mat-meta">'+esc(m.vonName||'')+' · '+S.fmtDatum(m.erstelltAm)+(m.beschreibung?' · '+esc(m.beschreibung):'')+'</div></div>'+
-      '<div class="mat-open">'+
-        (src?'<a class="btn ghost sm" style="text-decoration:none" target="_blank" rel="noopener" href="'+esc(src)+'">Öffnen</a>':'')+
+    // Feedback 05.08.2026: das Lernmittel ist WÄHLBAR — es öffnet in GEMA
+    // (markieren/beschreiben/teilen) statt nur als roher Datei-Link.
+    var lesbar=!isLink&&!!src;
+    var eigene=lesbar?(S.meineNotiz(m.id)||null):null;
+    var nMeine=eigene?lmZaehl(eigene):0;
+    var fremde=lesbar?S.notizenFor(m.id).filter(function(n){return !eigene||n.id!==eigene.id;}):[];
+    var marken='';
+    if(nMeine)marken+=' · <span style="color:var(--teal);font-weight:700">✏ '+nMeine+' eigene Markierung'+(nMeine===1?'':'en')+'</span>';
+    if(fremde.length)marken+=' · <span style="color:var(--vio,#7c3aed);font-weight:700">👥 '+fremde.length+' geteilt</span>';
+    if(eigene&&eigene.geteilt&&eigene.geteilt.aktiv)marken+=' · <span style="color:var(--grn)">↗ von dir geteilt</span>';
+    return '<div class="mat-row"'+(lesbar?' style="cursor:pointer" onclick="lmOpen(\''+esc(m.id)+'\')" title="Öffnen &amp; markieren"':'')+'><div class="mat-ic">'+ic+'</div>'+
+      '<div style="min-width:0"><div class="mat-tt">'+esc(m.titel)+'</div><div class="mat-meta">'+esc(m.vonName||'')+' · '+S.fmtDatum(m.erstelltAm)+(m.beschreibung?' · '+esc(m.beschreibung):'')+marken+'</div></div>'+
+      '<div class="mat-open" onclick="event.stopPropagation()">'+
+        (lesbar?'<button class="btn primary sm" onclick="lmOpen(\''+esc(m.id)+'\')">📖 Öffnen &amp; markieren</button>':'')+
+        (src?'<a class="btn ghost sm" style="text-decoration:none" target="_blank" rel="noopener" href="'+esc(src)+'">'+(lesbar?'↗':'Öffnen')+'</a>':'')+
         (edit?'<button class="btn danger sm" onclick="matWeg(\''+esc(m.id)+'\')">🗑</button>':'')+
       '</div></div>';
   }).join('');
+}
+// Anzahl Markierungen über alle Seiten einer Notiz
+function lmZaehl(n){
+  var t=0,s=(n&&n.seiten)||{};
+  Object.keys(s).forEach(function(k){t+=(s[k]||[]).length;});
+  return t;
 }
 function pruefListHtml(pruefungen,linkBase){
   if(!pruefungen.length)return '<div style="color:var(--mut);font-size:13px">Noch keine Prüfungen für diese Klasse.</div>';
@@ -693,6 +767,452 @@ window.matWeg=function(id){
     renderDetail();
   });
 };
+
+/* ══════════════════════════════════════════════════════════════════════
+   LERNMITTEL-READER (Feedback 05.08.2026)
+   «Lehrmittel soll wählbar sein» · «individuell markierbar und beschreibbar»
+   · «komplett oder teilweise (Seitenzahlen) geteilt werden können».
+
+   Aufbau bewusst wie der Plan-Viewer in pm_planablage (bewährtes Muster):
+   pdf.js rendert die Seite auf ein Canvas, darüber liegt ein SVG-Overlay mit
+   derselben Transformation. ALLE Markierungen sind auf die Seitengrösse
+   NORMIERT (0..1) — sie sitzen damit unabhängig von Zoom und Gerät richtig.
+   Bilder (kein PDF) werden als einseitiges «Dokument» behandelt.
+
+   KRITISCH: Die eigenen Notizen werden IMMER vollständig gespeichert; die
+   Freigabe (komplett / Seiten von–bis) ist eine reine LESE-Regel im API
+   (`notizSeitenBereich`). Ein Filter beim Speichern würde beim nächsten
+   Save die nicht freigegebenen Seiten löschen.
+   ══════════════════════════════════════════════════════════════════════ */
+var LM={mat:null,klasse:null,pdf:null,seite:1,seiten:1,scale:0,tool:'marker',
+        farbe:'#f59e0b',shapes:{},sel:null,dirty:false,temp:'',pts:null,
+        bild:null,fremd:{},fremdVis:{},notiz:null};
+var LM_FARBEN=['#f59e0b','#dc2626','#2563eb','#16a34a','#7c3aed'];
+var LM_TOOLS=[{id:'hand',ic:'🖐',t:'Auswahl'},{id:'marker',ic:'🖍',t:'Markieren'},
+              {id:'frei',ic:'✏️',t:'Freihand'},{id:'text',ic:'T',t:'Text'},
+              {id:'rect',ic:'▭',t:'Rechteck'}];
+var _lmT=null;
+
+function lmId(x){return (x||'shp')+'_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7);}
+function $lm(id){return document.getElementById(id);}
+function lmPdfLib(){
+  return new Promise(function(res,rej){
+    if(window.pdfjsLib)return res(window.pdfjsLib);
+    var s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload=function(){
+      try{window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';}catch(e){}
+      res(window.pdfjsLib);
+    };
+    s.onerror=function(){rej(new Error('pdf.js nicht erreichbar'));};
+    document.head.appendChild(s);
+  });
+}
+
+window.lmOpen=function(matId){
+  var mats=[],k=null;
+  (S.meineKlassen()||[]).forEach(function(kl){
+    S.materialForKlasse(kl.id).forEach(function(m){if(m.id===matId){k=kl;mats.push(m);}});
+  });
+  var m=mats[0];
+  if(!m){GemaDialog.alert({title:'Lernmittel',message:'Dieses Lernmittel ist nicht (mehr) verfügbar.'});return;}
+  var src=m.datei?S.dateiSrc(m.datei):'';
+  if(!src){GemaDialog.alert({title:'Lernmittel',message:'Zu diesem Eintrag gibt es keine Datei zum Markieren — Links öffnen extern.'});return;}
+  LM.mat=m;LM.klasse=k;LM.seite=1;LM.scale=0;LM.sel=null;LM.dirty=false;LM.temp='';LM.pdf=null;LM.bild=null;
+  LM.tool='marker';LM.farbe=LM_FARBEN[0];
+  LM.notiz=S.meineNotiz(m.id)||{matId:m.id,klasseId:m.klasseId,seiten:{},geteilt:null};
+  LM.shapes=JSON.parse(JSON.stringify(LM.notiz.seiten||{}));
+  // Fremde (mit mir geteilte) Notizen — Anzeige-Layer, nie editierbar
+  LM.fremd={};LM.fremdVis={};
+  S.notizenFor(m.id).forEach(function(n){
+    var u=me();
+    if(u&&n.userId===u.id)return;
+    LM.fremd[n.id]=n;LM.fremdVis[n.id]=true;
+  });
+  $lm('lmTitel').textContent=m.titel||'Lernmittel';
+  $lm('lmOv').classList.add('on');
+  $lm('lmPanel').style.display='none';
+  try{if(window.GemaScroll)GemaScroll.lock();}catch(e){}
+  lmTools();lmSaveState('');
+  var istPdf=(m.datei&&m.datei.type==='application/pdf')||/\.pdf(\?|$)/i.test(src);
+  if(istPdf){
+    lmPdfLib().then(function(lib){return lib.getDocument({url:src}).promise;}).then(function(pdf){
+      LM.pdf=pdf;LM.seiten=pdf.numPages;lmRender();
+    }).catch(function(e){
+      lmFehler('PDF konnte nicht geladen werden'+(navigator.onLine?'':' — offline')+'. Über «↗» öffnest du die Datei direkt.');
+    });
+  }else{
+    var img=new Image();img.crossOrigin='anonymous';
+    img.onload=function(){LM.bild=img;LM.seiten=1;lmRender();};
+    img.onerror=function(){lmFehler('Bild konnte nicht geladen werden.');};
+    img.src=src;
+  }
+};
+function lmFehler(txt){
+  var c=$lm('lmCanvas');c.width=760;c.height=200;
+  var g=c.getContext('2d');
+  g.fillStyle='#ffffff';g.fillRect(0,0,c.width,c.height);
+  g.fillStyle='#b91c1c';g.font='600 15px system-ui,sans-serif';g.textAlign='center';
+  g.fillText(txt,c.width/2,c.height/2);
+  lmSizeSvg(c.width,c.height);
+  $lm('lmSvg').innerHTML='';
+  $lm('lmPg').textContent='–';
+}
+window.lmClose=function(){
+  lmFlush();
+  $lm('lmOv').classList.remove('on');
+  try{if(window.GemaScroll)GemaScroll.unlock();}catch(e){}
+  LM.pdf=null;LM.bild=null;LM.mat=null;
+  renderDetail();
+};
+window.lmSeite=function(d){
+  var n=LM.seite+d;
+  if(n<1||n>LM.seiten)return;
+  lmFlush();LM.seite=n;LM.sel=null;lmRender();
+};
+window.lmZoom=function(d){
+  LM.scale=Math.min(4,Math.max(0.35,(LM.scale||1)+d*0.2));
+  lmRender();
+};
+window.lmTool=function(t){LM.tool=t;LM.sel=null;lmTools();lmDraw();lmDelState();};
+window.lmFarbe=function(f){LM.farbe=f;lmTools();};
+function lmTools(){
+  $lm('lmTools').innerHTML=LM_TOOLS.map(function(t){
+    return '<button class="lm-btn'+(LM.tool===t.id?' on':'')+'" title="'+esc(t.t)+'" onclick="lmTool(\''+t.id+'\')">'+t.ic+'</button>';
+  }).join('');
+  $lm('lmFarben').innerHTML=LM_FARBEN.map(function(f){
+    return '<button class="lm-farb'+(LM.farbe===f?' on':'')+'" style="background:'+f+'" onclick="lmFarbe(\''+f+'\')" title="Farbe"></button>';
+  }).join('');
+  var nb=$lm('lmNotizBtn');
+  var anz=Object.keys(LM.fremd).length;
+  if(nb)nb.textContent='👥 Notizen'+(anz?' ('+anz+')':'');
+}
+function lmSizeSvg(w,h){
+  var svg=$lm('lmSvg');
+  svg.setAttribute('width',w);svg.setAttribute('height',h);
+  svg.setAttribute('viewBox','0 0 '+w+' '+h);
+  var st=$lm('lmStage');st.style.width=w+'px';st.style.height=h+'px';
+}
+function lmRender(){
+  var body=$lm('lmBody'),c=$lm('lmCanvas');
+  if(LM.bild){
+    if(!LM.scale)LM.scale=Math.max(0.35,Math.min(2,(body.clientWidth-40)/LM.bild.naturalWidth));
+    c.width=Math.round(LM.bild.naturalWidth*LM.scale);
+    c.height=Math.round(LM.bild.naturalHeight*LM.scale);
+    c.getContext('2d').drawImage(LM.bild,0,0,c.width,c.height);
+    lmSizeSvg(c.width,c.height);
+    $lm('lmPg').textContent='Bild';
+    lmDraw();lmPanelRender();
+    return;
+  }
+  if(!LM.pdf)return;
+  LM.pdf.getPage(LM.seite).then(function(page){
+    var vw1=page.getViewport({scale:1});
+    if(!LM.scale)LM.scale=Math.max(0.35,Math.min(2.5,(body.clientWidth-40)/vw1.width));
+    var vp=page.getViewport({scale:LM.scale});
+    c.width=Math.round(vp.width);c.height=Math.round(vp.height);
+    lmSizeSvg(c.width,c.height);
+    $lm('lmPg').textContent='Seite '+LM.seite+' / '+LM.seiten;
+    return page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;
+  }).then(function(){lmDraw();lmPanelRender();}).catch(function(){});
+}
+function lmW(){return $lm('lmCanvas').width;}
+function lmH(){return $lm('lmCanvas').height;}
+function lmX(n){return n*lmW();}
+function lmY(n){return n*lmH();}
+function lmSeiteShapes(){
+  var k=String(LM.seite);
+  if(!LM.shapes[k])LM.shapes[k]=[];
+  return LM.shapes[k];
+}
+function lmShapeSvg(s,fremd,nameKurz){
+  var col=s.farbe||'#f59e0b';
+  var sw=Math.max(1.6,lmW()*0.0024);
+  var cls='lm-shp'+(LM.sel===s.id?' sel':'')+(fremd?' lm-fremd':'');
+  var attr=' class="'+cls+'"'+(fremd?'':' data-sid="'+s.id+'"')+' fill="none" stroke="'+col+'" stroke-width="'+sw+'"';
+  if(s.typ==='marker'){
+    // Markieren = halbtransparenter Balken (wie ein Leuchtstift)
+    var x=lmX(Math.min(s.x1,s.x2)),y=lmY(Math.min(s.y1,s.y2));
+    var w=Math.abs(lmX(s.x2)-lmX(s.x1)),h=Math.abs(lmY(s.y2)-lmY(s.y1));
+    return '<rect class="'+cls+'"'+(fremd?'':' data-sid="'+s.id+'"')+' x="'+x+'" y="'+y+'" width="'+w+'" height="'+Math.max(6,h)+'" fill="'+col+'" fill-opacity="0.34" stroke="none" rx="2"/>';
+  }
+  if(s.typ==='rect')return '<rect'+attr+' x="'+lmX(Math.min(s.x1,s.x2))+'" y="'+lmY(Math.min(s.y1,s.y2))+'" width="'+Math.abs(lmX(s.x2)-lmX(s.x1))+'" height="'+Math.abs(lmY(s.y2)-lmY(s.y1))+'" rx="3"/>';
+  if(s.typ==='frei'){
+    var pts=(s.pts||[]).map(function(p){return lmX(p[0]).toFixed(1)+','+lmY(p[1]).toFixed(1);}).join(' ');
+    return '<polyline'+attr+' points="'+pts+'" stroke-linecap="round" stroke-linejoin="round"/>';
+  }
+  if(s.typ==='text'){
+    var fs=Math.max(11,lmW()*0.016);
+    return '<text class="'+cls+'"'+(fremd?'':' data-sid="'+s.id+'"')+' x="'+lmX(s.x1)+'" y="'+lmY(s.y1)+'" fill="'+col+'" font-size="'+fs+'" paint-order="stroke" stroke="#ffffff" stroke-width="'+(fs*0.18)+'">'+esc((nameKurz?nameKurz+': ':'')+(s.text||''))+'</text>';
+  }
+  return '';
+}
+// Fremde Notizen dieser Seite (nur freigegebene Seiten — Lese-Regel im API)
+function lmFremdShapes(){
+  var out=[];
+  Object.keys(LM.fremd).forEach(function(id){
+    if(!LM.fremdVis[id])return;
+    var n=LM.fremd[id];
+    var br=S.notizSeitenBereich(n);
+    if(br&&(LM.seite<br.von||LM.seite>br.bis))return;
+    var arr=(n.seiten||{})[String(LM.seite)]||[];
+    var kurz=(n.userName||'').split(' ')[0]||'';
+    arr.forEach(function(s){out.push(lmShapeSvg(s,true,s.typ==='text'?kurz:''));});
+  });
+  return out.join('');
+}
+function lmDraw(){
+  var svg=$lm('lmSvg');
+  if(!svg)return;
+  svg.innerHTML=lmFremdShapes()+lmSeiteShapes().map(function(s){return lmShapeSvg(s,false,'');}).join('')+(LM.temp||'');
+}
+function lmDelState(){var b=$lm('lmDel');if(b)b.disabled=!LM.sel;}
+window.lmDelSel=function(){
+  if(!LM.sel)return;
+  var arr=lmSeiteShapes();
+  var i=arr.findIndex(function(s){return s.id===LM.sel;});
+  if(i>=0){arr.splice(i,1);LM.dirty=true;}
+  LM.sel=null;lmDraw();lmDelState();lmQueue();
+};
+function lmSaveState(t){var e=$lm('lmSave');if(e)e.textContent=t||'';}
+function lmQueue(){
+  lmSaveState('⏳');
+  clearTimeout(_lmT);
+  _lmT=setTimeout(lmFlush,900);
+}
+function lmFlush(){
+  clearTimeout(_lmT);_lmT=null;
+  if(!LM.mat||!LM.dirty)return;
+  LM.dirty=false;
+  LM.notiz.matId=LM.mat.id;
+  LM.notiz.klasseId=LM.mat.klasseId;
+  LM.notiz.seiten=LM.shapes;
+  S.saveNotiz(LM.notiz).catch(function(){});
+  lmSaveState('✓ gespeichert');
+  setTimeout(function(){if($lm('lmSave')&&$lm('lmSave').textContent==='✓ gespeichert')lmSaveState('');},1800);
+}
+
+// ── Zeichnen auf dem Overlay ─────────────────────────────────────────
+function lmPos(ev){
+  var r=$lm('lmSvg').getBoundingClientRect();
+  var t=ev.touches&&ev.touches[0]?ev.touches[0]:ev;
+  return {x:Math.max(0,Math.min(1,(t.clientX-r.left)/lmW())),
+          y:Math.max(0,Math.min(1,(t.clientY-r.top)/lmH()))};
+}
+function lmNeu(base){
+  var u=me();
+  return Object.assign({id:lmId('shp'),farbe:LM.farbe,
+    von:{userId:u?u.id:'',name:u?(u.name||u.username):''},am:new Date().toISOString()},base);
+}
+var _lmDown=null;
+function lmDown(ev){
+  if(!LM.mat)return;
+  if(LM.tool==='hand'){
+    var sh=ev.target.closest?ev.target.closest('.lm-shp[data-sid]'):null;
+    LM.sel=sh?sh.getAttribute('data-sid'):null;
+    lmDraw();lmDelState();
+    return;
+  }
+  ev.preventDefault();
+  var p=lmPos(ev);
+  if(LM.tool==='text'){
+    GemaDialog.prompt({title:'Notiz einfügen',placeholder:'z.B. Formel merken — Prüfung'}).then(function(txt){
+      if(txt===null)return;txt=String(txt).trim();if(!txt)return;
+      lmSeiteShapes().push(lmNeu({typ:'text',x1:p.x,y1:p.y,text:txt}));
+      LM.dirty=true;lmDraw();lmQueue();
+    });
+    return;
+  }
+  _lmDown=p;
+  if(LM.tool==='frei')LM.pts=[[p.x,p.y]];
+}
+function lmMove(ev){
+  if(!_lmDown)return;
+  ev.preventDefault();
+  var p=lmPos(ev),sw=Math.max(1.6,lmW()*0.0024);
+  if(LM.tool==='frei'){
+    var last=LM.pts[LM.pts.length-1];
+    if(Math.abs(p.x-last[0])+Math.abs(p.y-last[1])>0.004)LM.pts.push([p.x,p.y]);
+    LM.temp='<polyline fill="none" stroke="'+LM.farbe+'" stroke-width="'+sw+'" stroke-linecap="round" points="'+LM.pts.map(function(q){return lmX(q[0]).toFixed(1)+','+lmY(q[1]).toFixed(1);}).join(' ')+'"/>';
+  }else if(LM.tool==='marker'){
+    LM.temp='<rect fill="'+LM.farbe+'" fill-opacity="0.34" x="'+lmX(Math.min(_lmDown.x,p.x))+'" y="'+lmY(Math.min(_lmDown.y,p.y))+'" width="'+Math.abs(lmX(p.x)-lmX(_lmDown.x))+'" height="'+Math.max(6,Math.abs(lmY(p.y)-lmY(_lmDown.y)))+'" rx="2"/>';
+  }else if(LM.tool==='rect'){
+    LM.temp='<rect fill="none" stroke="'+LM.farbe+'" stroke-width="'+sw+'" x="'+lmX(Math.min(_lmDown.x,p.x))+'" y="'+lmY(Math.min(_lmDown.y,p.y))+'" width="'+Math.abs(lmX(p.x)-lmX(_lmDown.x))+'" height="'+Math.abs(lmY(p.y)-lmY(_lmDown.y))+'"/>';
+  }
+  lmDraw();
+}
+function lmUp(ev){
+  if(!_lmDown)return;
+  var p=lmPos(ev),d=Math.abs(p.x-_lmDown.x)+Math.abs(p.y-_lmDown.y);
+  LM.temp='';
+  if(LM.tool==='frei'){
+    if(LM.pts&&LM.pts.length>2)  {lmSeiteShapes().push(lmNeu({typ:'frei',pts:LM.pts}));LM.dirty=true;}
+    LM.pts=null;
+  }else if(d>0.008){
+    lmSeiteShapes().push(lmNeu({typ:LM.tool,x1:_lmDown.x,y1:_lmDown.y,x2:p.x,y2:p.y}));
+    LM.dirty=true;
+  }
+  _lmDown=null;
+  lmDraw();if(LM.dirty)lmQueue();
+}
+
+// ── Panel: geteilte Notizen ein-/ausblenden ──────────────────────────
+window.lmNotizPanel=function(){
+  var p=$lm('lmPanel');
+  if(p.style.display!=='none'){p.style.display='none';return;}
+  p.style.display='';lmPanelRender();
+};
+function lmPanelRender(){
+  var p=$lm('lmPanel');
+  if(!p||p.style.display==='none')return;
+  var ids=Object.keys(LM.fremd);
+  var rows=ids.length?ids.map(function(id){
+    var n=LM.fremd[id];
+    var br=S.notizSeitenBereich(n);
+    var anz=lmZaehl(n);
+    return '<label class="lm-nrow"><input type="checkbox"'+(LM.fremdVis[id]?' checked':'')+' onchange="lmFremdToggle(\''+esc(id)+'\',this.checked)"/>'+
+      '<span class="lm-ndot" style="background:'+(n.farbe||'#7c3aed')+'"></span>'+
+      '<span style="flex:1;min-width:0"><span style="font-weight:700">'+esc(n.userName||'Unbekannt')+'</span>'+
+      '<span class="lm-nsub"> · '+anz+' Markierung'+(anz===1?'':'en')+(br?' · Seiten '+br.von+'–'+br.bis:' · komplett')+'</span></span></label>';
+  }).join(''):'<div class="lm-leer">Noch hat niemand seine Notizen mit dir geteilt.</div>';
+  var eigen=LM.notiz&&LM.notiz.geteilt&&LM.notiz.geteilt.aktiv;
+  p.innerHTML='<h4>👥 Geteilte Notizen</h4>'+rows+
+    '<div style="border-top:1px dashed var(--brd);margin-top:8px;padding-top:8px;font-size:11.5px;color:var(--mut)">'+
+    (eigen?('Deine Notizen sind geteilt ('+(LM.notiz.geteilt.modus==='seiten'?'Seiten '+LM.notiz.geteilt.von+'–'+LM.notiz.geteilt.bis:'komplett')+').')
+          :'Deine Notizen sind privat.')+'</div>';
+}
+window.lmFremdToggle=function(id,on){LM.fremdVis[id]=!!on;lmDraw();};
+
+// ── Teilen: komplett oder Seiten von–bis ─────────────────────────────
+window.lmTeilenOpen=function(){
+  if(!LM.mat)return;
+  var g=(LM.notiz&&LM.notiz.geteilt)||{};
+  var max=LM.seiten||1;
+  var k=LM.klasse;
+  var personen=[];
+  if(k){
+    var ids=(k.dozentIds||[]).concat(k.studentIds||[]);
+    var u=me();
+    var users=[];
+    try{users=(typeof GemaAuth!=='undefined'&&GemaAuth.getUsers&&GemaAuth.getUsers())||[];}catch(e){}
+    ids.forEach(function(id){
+      if(u&&id===u.id)return;
+      var us=users.find(function(x){return x.id===id;});
+      personen.push({id:id,name:us?(us.name||us.username):id,dozent:(k.dozentIds||[]).indexOf(id)>=0});
+    });
+  }
+  var sel=(g.anUserIds||[]);
+  var html='<div style="display:flex;flex-direction:column;gap:12px">'+
+    '<div><div style="font-size:11px;font-weight:800;color:var(--mut);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Umfang</div>'+
+    '<label style="display:flex;gap:7px;align-items:center;font-size:13px;margin-bottom:5px"><input type="radio" name="lmMod" value="alle" id="lmModAlle"'+(g.modus!=='seiten'?' checked':'')+' onchange="lmTeilenModus()"/> Komplettes Lernmittel</label>'+
+    '<label style="display:flex;gap:7px;align-items:center;font-size:13px"><input type="radio" name="lmMod" value="seiten" id="lmModSeiten"'+(g.modus==='seiten'?' checked':'')+' onchange="lmTeilenModus()"/> Nur Seiten</label>'+
+    '<div id="lmSeitenBox" style="display:'+(g.modus==='seiten'?'flex':'none')+';gap:8px;align-items:center;margin-top:7px;padding-left:22px">'+
+      '<span style="font-size:12.5px;color:var(--mut)">von</span><input class="inp" id="lmVon" type="text" inputmode="numeric" style="width:70px" value="'+esc(String(g.von||1))+'" oninput="lmTeilenSync()">'+
+      '<span style="font-size:12.5px;color:var(--mut)">bis</span><input class="inp" id="lmBis" type="text" inputmode="numeric" style="width:70px" value="'+esc(String(g.bis||max))+'" oninput="lmTeilenSync()">'+
+      '<span style="font-size:11.5px;color:var(--mut)">von '+max+'</span></div></div>'+
+    '<div><div style="font-size:11px;font-weight:800;color:var(--mut);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Mit wem</div>'+
+    '<label style="display:flex;gap:7px;align-items:center;font-size:13px;margin-bottom:6px"><input type="checkbox" id="lmAnKlasse"'+(g.anKlasse!==false&&!sel.length?' checked':(g.anKlasse?' checked':''))+' onchange="lmTeilenZiel()"/> Ganze Klasse'+(k?' («'+esc(k.name)+'»)':'')+'</label>'+
+    '<div id="lmPersBox" style="max-height:180px;overflow:auto;border:1px solid var(--brd);border-radius:8px;padding:6px 8px">'+
+      (personen.length?personen.map(function(pp){
+        return '<label style="display:flex;gap:7px;align-items:center;font-size:12.5px;padding:3px 0"><input type="checkbox" class="lm-pers" value="'+esc(pp.id)+'"'+(sel.indexOf(pp.id)>=0?' checked':'')+' onchange="lmTeilenSync()"/> '+esc(pp.name)+(pp.dozent?' <span class="badge teal" style="margin-left:auto">Dozent</span>':'')+'</label>';
+      }).join(''):'<div class="lm-leer">Keine weiteren Personen in dieser Klasse.</div>')+'</div>'+
+    '<div style="font-size:11.5px;color:var(--mut);margin-top:6px">Einzelne Personen übersteuern «ganze Klasse».</div></div></div>';
+  // Startwerte in den State (der Dialog ist beim Bestätigen schon aus dem
+  // DOM — GemaDialog entfernt ihn VOR dem resolve; die Werte müssen also
+  // laufend mitgeschrieben werden, ein DOM-Read im .then läuft ins Leere).
+  _lmTeil={seiten:g.modus==='seiten',von:g.von||1,bis:g.bis||max,
+           anKlasse:(g.anKlasse!==false&&!sel.length)||!!g.anKlasse,pers:sel.slice()};
+  GemaDialog.confirm({
+    title:'Notizen teilen',html:true,message:html,
+    confirmLabel:(g.aktiv?'Freigabe aktualisieren':'Teilen'),cancelLabel:'Abbrechen'
+  }).then(function(ok){
+    if(!ok)return;
+    lmTeilenSave();
+  });
+  setTimeout(function(){lmTeilenZiel();lmTeilenSync();},60);
+};
+var _lmTeil={seiten:false,von:1,bis:1,anKlasse:true,pers:[]};
+// Dialog-Zustand in den State spiegeln (siehe Kommentar oben)
+window.lmTeilenSync=function(){
+  var modS=document.getElementById('lmModSeiten');
+  if(!modS)return;   // Dialog bereits geschlossen — State behalten
+  _lmTeil.seiten=!!modS.checked;
+  var v=document.getElementById('lmVon'),b=document.getElementById('lmBis');
+  if(v)_lmTeil.von=parseInt(v.value,10)||1;
+  if(b)_lmTeil.bis=parseInt(b.value,10)||LM.seiten;
+  _lmTeil.pers=Array.prototype.slice.call(document.querySelectorAll('.lm-pers:checked')).map(function(c){return c.value;});
+  var kl=document.getElementById('lmAnKlasse');
+  _lmTeil.anKlasse=!!(kl&&kl.checked)&&!_lmTeil.pers.length;
+};
+window.lmTeilenModus=function(){
+  var b=document.getElementById('lmSeitenBox');
+  var s=document.getElementById('lmModSeiten');
+  if(b)b.style.display=(s&&s.checked)?'flex':'none';
+  lmTeilenSync();
+};
+window.lmTeilenZiel=function(){
+  var kl=document.getElementById('lmAnKlasse'),box=document.getElementById('lmPersBox');
+  if(box)box.style.opacity=(kl&&kl.checked)?'.55':'1';
+  lmTeilenSync();
+};
+function lmTeilenSave(){
+  lmTeilenSync();
+  var seiten=_lmTeil.seiten;
+  var von=_lmTeil.von||1,bis=_lmTeil.bis||LM.seiten;
+  if(von>bis){var t=von;von=bis;bis=t;}
+  von=Math.max(1,Math.min(LM.seiten,von));
+  bis=Math.max(1,Math.min(LM.seiten,bis));
+  var pers=_lmTeil.pers||[];
+  var anKlasse=_lmTeil.anKlasse&&!pers.length;
+  if(!anKlasse&&!pers.length){
+    GemaDialog.alert({title:'Teilen',message:'Wähle die ganze Klasse oder mindestens eine Person.'});
+    return;
+  }
+  var u=me();
+  LM.notiz.geteilt={aktiv:true,modus:seiten?'seiten':'alle',von:von,bis:bis,
+    anKlasse:anKlasse,anUserIds:pers,am:new Date().toISOString(),
+    vonName:u?(u.name||u.username):''};
+  LM.dirty=true;lmFlush();lmPanelRender();
+  // Benachrichtigen: gezielt die gewählten Personen, sonst die Klasse
+  var txt=(u?(u.name||u.username):'Jemand')+' teilt Notizen zu «'+(LM.mat.titel||'Lernmittel')+'»'+
+          (seiten?' (Seiten '+von+'–'+bis+')':'')+'.';
+  var link='ab_klassen.html?k='+(LM.mat.klasseId||'');
+  if(pers.length){
+    pers.forEach(function(id){
+      try{GemaNotify.push({eventKey:'schule_lernmittel_neu',empfaengerUserId:id,modul:'schule',typ:'info',
+        titel:'Notizen geteilt: '+(LM.mat.titel||'Lernmittel'),text:txt,link:link});}catch(e){}
+    });
+  }else if(LM.klasse){
+    S.notifyKlasse(LM.klasse,{eventKey:'schule_lernmittel_neu',typ:'info',
+      titel:'Notizen geteilt: '+(LM.mat.titel||'Lernmittel'),text:txt,link:link});
+  }
+  GemaDialog.alert({title:'Geteilt',message:'Deine Notizen sind jetzt '+(seiten?('für die Seiten '+von+'–'+bis):'komplett')+' freigegeben. Du kannst die Freigabe jederzeit ändern.'});
+}
+
+// Reader-Events (einmalig)
+(function lmWire(){
+  var svg=$lm('lmSvg');if(!svg)return;
+  svg.addEventListener('mousedown',lmDown);
+  svg.addEventListener('mousemove',lmMove);
+  window.addEventListener('mouseup',lmUp);
+  svg.addEventListener('touchstart',lmDown,{passive:false});
+  svg.addEventListener('touchmove',lmMove,{passive:false});
+  window.addEventListener('touchend',lmUp);
+  document.addEventListener('keydown',function(e){
+    if(!$lm('lmOv').classList.contains('on'))return;
+    if(e.key==='Escape'){lmClose();return;}
+    if(e.key==='ArrowRight')lmSeite(1);
+    if(e.key==='ArrowLeft')lmSeite(-1);
+    if((e.key==='Delete'||e.key==='Backspace')&&LM.sel&&!/^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement||{}).tagName||''))
+      {e.preventDefault();lmDelSel();}
+  });
+  // Debounce nie verlieren (iOS-Safari überspringt beforeunload regelmässig)
+  ['beforeunload','pagehide','visibilitychange'].forEach(function(ev){
+    window.addEventListener(ev,function(){if(document.visibilityState!=='visible'||ev!=='visibilitychange')lmFlush();});
+  });
+})();
+window._lmHooks={LM:LM,open:function(id){return lmOpen(id);},zaehl:lmZaehl,
+  flush:lmFlush,teilenSave:lmTeilenSave,panel:lmPanelRender};
 
 // ── Boot ─────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded',function(){

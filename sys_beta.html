@@ -208,6 +208,17 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 body.beta-mine-only .fb-card:not(.fb-mine){display:none}
 body.beta-mine-only .fbp-input{display:none}
 .fb-check{width:19px;height:19px;accent-color:var(--pur);margin-top:2px;flex-shrink:0;cursor:pointer}
+/* «Feedback umsetzen» — bewusste Export-Freigabe pro Punkt. Wird IM Datensatz
+   gespeichert (item.umsetzen) und ist die einzige Quelle des Markdown-Exports:
+   ohne Haken wird ein Punkt nie exportiert. Nicht verwechseln mit .fb-check
+   (das ist die fluechtige Mehrfachauswahl fuer den Bulk-Statuswechsel). */
+.um-lbl{display:inline-flex;align-items:center;gap:5px;padding:3px 8px 3px 6px;border-radius:6px;border:1.5px solid var(--brd2);background:var(--sur2);font-size:10.5px;font-weight:800;color:var(--mut);cursor:pointer;user-select:none;transition:.15s;white-space:nowrap}
+.um-lbl:hover{border-color:var(--grn-bd);color:var(--grn)}
+.um-lbl.on{background:var(--grn-bg);border-color:var(--grn-bd);color:var(--grn)}
+.um-lbl input{width:14px;height:14px;accent-color:var(--grn);cursor:pointer;margin:0;flex-shrink:0}
+.fb-card.fb-um{border-color:var(--grn-bd);box-shadow:inset 3px 0 0 0 var(--grn)}
+.fbp-um{font-size:10.5px;font-weight:800;color:var(--grn);background:var(--grn-bg);border:1.5px solid var(--grn-bd);border-radius:6px;padding:3px 8px;white-space:nowrap}
+.fbp-um:empty{display:none}
 .fb-main{flex:1;min-width:0}
 .fb-text{font-size:13px;color:var(--txt2);line-height:1.55;margin-top:4px;white-space:pre-wrap;word-break:break-word}
 .fb-shot{margin-top:9px}
@@ -225,6 +236,10 @@ body.beta-mine-only .fbp-input{display:none}
 .fb-bulkbar.show{transform:translateX(-50%) translateY(0);opacity:1;pointer-events:auto}
 .fb-bulk-count{font-size:12.5px;font-weight:800;white-space:nowrap}
 .fb-bulk-btn{padding:7px 13px;border-radius:9px;border:none;font-size:12px;font-weight:800;cursor:pointer;transition:.15s;white-space:nowrap;font-family:inherit}
+.fb-bulk-btn.b-um{background:#14532d;color:#bbf7d0;border:1.5px solid #22c55e}
+.fb-bulk-btn.b-um:hover{background:#166534}
+.fb-bulk-btn.b-umoff{background:#1e293b;color:#cbd5e1}
+.fb-bulk-btn.b-umoff:hover{background:#334155}
 .fb-bulk-btn.b-offen{background:#7f1d1d;color:#fecaca}
 .fb-bulk-btn.b-offen:hover{background:#991b1b}
 .fb-bulk-btn.b-arbeit{background:#78350f;color:#fde68a}
@@ -388,6 +403,9 @@ body.beta-mine-only .fbp-input{display:none}
 <!-- BULK-STATUS-LEISTE (bei markierten Feedback-Punkten) -->
 <div class="fb-bulkbar" id="fbBulkbar">
   <span class="fb-bulk-count" id="fbBulkCount">0 Punkte markiert</span>
+  <button class="fb-bulk-btn b-um" onclick="fbBulkUmsetzen(true)" title="Punkte in den Markdown-Export übernehmen">🎯 Umsetzen</button>
+  <button class="fb-bulk-btn b-umoff" onclick="fbBulkUmsetzen(false)" title="Punkte aus dem Markdown-Export nehmen">☐ Nicht umsetzen</button>
+  <span style="width:1px;height:20px;background:#334155"></span>
   <button class="fb-bulk-btn b-offen" onclick="fbBulkStatus('offen')">🔴 Offen</button>
   <button class="fb-bulk-btn b-arbeit" onclick="fbBulkStatus('bearbeitung')">🟡 In Arbeit</button>
   <button class="fb-bulk-btn b-done" onclick="fbBulkStatus('erledigt')">✅ Erledigt</button>
@@ -892,7 +910,8 @@ const buildPanelRow = (m) => {
     <div class="fbp-head">
       <span class="fbp-title">💬 Feedback &amp; Kommentare — ${escHtml(m.name)}</span>
       <button class="fbp-selall" onclick="fbSelAll('${m.id}')">☑ Alle markieren</button>
-      <span class="fbp-hint">Punkte markieren → Status unten gemeinsam wechseln · Bild anklicken = vergrössern</span>
+      <span class="fbp-um" id="umc-${m.id}">${escHtml(umHeadText(m.id))}</span>
+      <span class="fbp-hint">«Feedback umsetzen» = kommt in den Export · Punkte markieren → Status unten gemeinsam wechseln</span>
     </div>
     <div class="fbp-list" id="cl-${m.id}">${renderComments(m.id)}</div>
     <div class="comment-input-row fbp-input">
@@ -943,11 +962,21 @@ const renderComments = (id) => {
     </select>`;
     const delBtn = `<button class="comment-del" onclick="deleteAnyComment('${id}',${ref})" title="Löschen">✕</button>`;
 
+    // «Feedback umsetzen» — nur an Feedback-Punkten: der Markdown-Export liest
+    // ausschliesslich getFeedback(); an einem manuellen Board-Kommentar waere
+    // der Haken eine Zusage, die der Export nicht einloest.
+    const umsetzen = c._isFeedback && c.umsetzen === true;
+    const umBox = c._isFeedback
+      ? `<label class="um-lbl${umsetzen?' on':''}" title="Angehakt = dieser Punkt wird in den Markdown-Export für Claude Code übernommen">
+          <input type="checkbox" ${umsetzen?'checked':''} onchange="setCommentUmsetzen('${id}',${idx},this.checked)"/>Feedback umsetzen
+        </label>`
+      : '';
+
     const screenshot = c.screenshot
       ? `<div class="fb-shot"><img src="${c.screenshot}" loading="lazy" alt="Screenshot" onclick="fbLightbox(this.src)"/><div class="fb-shot-hint">🔍 Klicken zum Vergrössern</div></div>`
       : '';
     return `
-    <div class="fb-card ${ciCls}${_fbSel[key]?' sel':''}${_betaIsMine(c.author)?' fb-mine':''}" data-fbcard="${key}">
+    <div class="fb-card ${ciCls}${_fbSel[key]?' sel':''}${umsetzen?' fb-um':''}${_betaIsMine(c.author)?' fb-mine':''}" data-fbcard="${key}">
       <input type="checkbox" class="fb-check" data-fbkey="${key}" ${_fbSel[key]?'checked':''} onchange="fbSelToggle(this)" title="Punkt markieren — Status gemeinsam wechseln"/>
       <div class="fb-main">
         <div class="comment-meta">
@@ -955,7 +984,7 @@ const renderComments = (id) => {
           <span class="comment-date">${c.ts||''}</span>
           <span class="comment-type ct-${c.type}">${typeLabel}</span>
           ${sourceBadge}
-          <span class="comment-actions">${statusSel}${delBtn}</span>
+          <span class="comment-actions">${umBox}${statusSel}${delBtn}</span>
         </div>
         <div class="fb-text">${escHtml(c.text)}</div>
         ${screenshot}
@@ -1082,6 +1111,41 @@ const fbBulkStatus = (newStatus) => {
   toast(lbl + ' — ' + n + ' Punkt' + (n === 1 ? '' : 'e') + ' gesetzt');
 };
 
+// «Feedback umsetzen» für alle markierten Punkte gemeinsam setzen/entfernen.
+// Manuelle Board-Kommentare werden übersprungen (sie kennen keine Umsetzung)
+// und das wird gesagt, statt sie stillschweigend zu ignorieren.
+const fbBulkUmsetzen = (on) => {
+  const keys = Object.keys(_fbSel);
+  if (!keys.length) return;
+  const byMod = {};
+  let uebersprungen = 0;
+  keys.forEach(k => {
+    const p = k.split('|');
+    if (p[1] !== 'fb') { uebersprungen++; return; }
+    (byMod[p[0]] = byMod[p[0]] || []).push(parseInt(p[2], 10));
+  });
+  const mods = Object.keys(byMod);
+  if (!mods.length) { toast('⚠ Nur Feedback-Punkte lassen sich für die Umsetzung markieren'); return; }
+  let n = 0;
+  mods.forEach(modId => {
+    const fb = getFeedback(modId);
+    byMod[modId].forEach(idx => {
+      if (!fb[idx]) return;
+      if (on) fb[idx].umsetzen = true; else delete fb[idx].umsetzen;
+      n++;
+    });
+    if (typeof _GemaDB !== 'undefined') {
+      try { _GemaDB.save('feedback_' + modId, JSON.stringify(fb)); } catch(e){}
+    }
+    refreshCommentUI(modId);
+  });
+  fbSelClear();
+  try { refreshExportPreview(); } catch(e){}
+  const rest = uebersprungen ? ' · ' + uebersprungen + ' manuelle' + (uebersprungen===1?'r':'') + ' Kommentar' + (uebersprungen===1?'':'e') + ' übersprungen' : '';
+  toast((on ? '🎯 ' + n + ' Punkt' + (n===1?'':'e') + ' für die Umsetzung markiert'
+            : '☐ Markierung bei ' + n + ' Punkt' + (n===1?'':'en') + ' entfernt') + rest);
+};
+
 // ── LIGHTBOX (Screenshot gross ansehen) ──
 const fbLightbox = (src) => {
   const el = document.getElementById('fbLightboxEl');
@@ -1112,6 +1176,41 @@ const addComment = (id, name) => {
   countAll();
   autoSave();
   toast('💬 Kommentar hinzugefügt');
+};
+
+// ── «FEEDBACK UMSETZEN» — Export-Freigabe pro Punkt ───────────
+// Der Markdown-Export nimmt AUSSCHLIESSLICH Punkte mit `umsetzen === true`.
+// Das Feld lebt im Feedback-Datensatz (wie cStatus) und wird beim Anhaken
+// sofort nach `feedback_<modId>` geschrieben.
+const umCount = (id) => getFeedback(id).filter(c => c && c.umsetzen === true).length;
+const umHeadText = (id) => {
+  const n = umCount(id);
+  return n ? '🎯 ' + n + ' für Umsetzung markiert' : '';
+};
+// Kopfzeile des Panels nachziehen (kein Re-Render der Liste)
+const _umRefreshHead = (id) => {
+  const el = document.getElementById('umc-' + id);
+  if (el) el.textContent = umHeadText(id);
+};
+// Nur die betroffene Karte umfärben — die ganze Liste neu zu bauen würde
+// beim Durchklicken den Scroll-Stand reissen (Fokus-Regel).
+const _umPaintCard = (modId, idx, on) => {
+  const card = document.querySelector('#cl-' + modId + ' .fb-card[data-fbcard="' + modId + '|fb|' + idx + '"]');
+  if (!card) return;
+  card.classList.toggle('fb-um', !!on);
+  const lbl = card.querySelector('.um-lbl');
+  if (lbl) lbl.classList.toggle('on', !!on);
+};
+const setCommentUmsetzen = (modId, idx, on) => {
+  const fb = getFeedback(modId);
+  if (!fb[idx]) return;
+  if (on) fb[idx].umsetzen = true; else delete fb[idx].umsetzen;
+  if (typeof _GemaDB !== 'undefined') {
+    try { _GemaDB.save('feedback_' + modId, JSON.stringify(fb)); } catch(e){}
+  }
+  _umPaintCard(modId, idx, on);
+  _umRefreshHead(modId);
+  try { refreshExportPreview(); } catch(e){}
 };
 
 // Set status on any comment (manual or feedback)
@@ -1158,6 +1257,7 @@ const deleteComment = (id, idx) => deleteAnyComment(id, 'm', idx);
 const refreshCommentUI = (id) => {
   const cl = document.getElementById('cl-'+id);
   if (cl) cl.innerHTML = renderComments(id);
+  _umRefreshHead(id);
   const row = document.querySelector(`tr[data-id="${id}"]`);
   if (row) {
     const btn = row.querySelector('.comment-toggle');
@@ -1334,7 +1434,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       <div style="font-size:18px">📋</div>
       <div style="flex:1">
         <div style="font-size:15px;font-weight:800;color:#0f172a">Markdown-Export für Claude Code</div>
-        <div style="font-size:12px;color:#6b7280;margin-top:2px">Feedback aller Module als <code>.md</code> exportieren — sortiert nach Modul, Screenshots als Base64 eingebettet</div>
+        <div style="font-size:12px;color:#6b7280;margin-top:2px">Die für die Umsetzung freigegebenen Punkte als <code>.md</code> exportieren — sortiert nach Modul, Screenshots als Base64 eingebettet</div>
       </div>
       <button onclick="closeExportModal()" style="background:#f4f6fb;border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:#6b7280">✕</button>
     </div>
@@ -1346,7 +1446,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           <input type="checkbox" id="exFilterOpen" checked style="width:15px;height:15px;accent-color:#dc2626"> 🔴 Offen
         </label>
         <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:#0f172a;cursor:pointer">
-          <input type="checkbox" id="exFilterArbeit" checked style="width:15px;height:15px;accent-color:#f59e0b"> 🟡 In Bearbeitung
+          <input type="checkbox" id="exFilterArbeit" style="width:15px;height:15px;accent-color:#f59e0b"> 🟡 In Bearbeitung
         </label>
         <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:#0f172a;cursor:pointer">
           <input type="checkbox" id="exFilterErledigt" style="width:15px;height:15px;accent-color:#16a34a"> ✅ Erledigt
@@ -1359,6 +1459,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
         <button onclick="refreshExportPreview()" style="padding:7px 14px;border-radius:8px;border:1.5px solid #cdd4e4;background:#fff;color:#0f172a;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">🔄 Vorschau aktualisieren</button>
         <span id="exStats" style="font-size:11.5px;color:#6b7280;font-weight:600"></span>
+      </div>
+      <div id="exUmHint" style="margin-top:9px;font-size:11.5px;font-weight:600;line-height:1.5;padding:8px 11px;border-radius:9px;border:1.5px solid #bbf7d0;background:#f0fdf4;color:#15803d">
+        🎯 Exportiert werden nur Punkte, die im Board mit <strong>«Feedback umsetzen»</strong> angehakt sind.
       </div>
     </div>
 
@@ -1425,18 +1528,32 @@ function _exModuleLabel(modId){
   return _modLabelFallback(modId);   // unbekannte ID: gema_auth-Label bzw. lesbare ID
 }
 
-// Sammelt alle Feedback-Eintraege ueber alle FEEDBACK_IDS und liefert
-// ein Array von { modId, modName, item, idx } pro Eintrag.
-function _exCollectAll(){
+// Sammelt Feedback-Eintraege ueber alle FEEDBACK_IDS und liefert ein Array
+// von { modId, modName, item, idx } pro Eintrag.
+// `nurUmsetzen` (Default true) laesst NUR Punkte durch, die im Board mit
+// «Feedback umsetzen» freigegeben wurden — das ist die Export-Wahrheit.
+function _exCollectAll(nurUmsetzen){
+  var nur = (nurUmsetzen !== false);
   var out = [];
   FEEDBACK_IDS.forEach(function(modId){
     var fb = getFeedback(modId);
     if(!Array.isArray(fb) || !fb.length) return;
     fb.forEach(function(item, idx){
+      if(!item) return;
+      if(nur && item.umsetzen !== true) return;
       out.push({ modId: modId, modName: _exModuleLabel(modId), item: item, idx: idx });
     });
   });
   return out;
+}
+
+// Punkte, die der Status-Filter durchlassen wuerde, denen aber der Haken
+// «Feedback umsetzen» fehlt. Werden im Export-Modal ausgewiesen — was
+// wegfaellt, muss sichtbar sein und darf nie stillschweigend verschwinden.
+function _exOhneHaken(){
+  return _exApplyFilter(_exCollectAll(false).filter(function(e){
+    return e.item.umsetzen !== true;
+  }));
 }
 
 // Wendet die Status-Filter aus dem Modal an.
@@ -1497,13 +1614,19 @@ function _exGenerate(filtered, withScreenshots){
   lines.push('');
   lines.push('> **Generiert:** ' + ts);
   lines.push('> **Filter:** ' + (statusFilter.join(' + ') || '(nichts)') + (withScreenshots ? ' · mit Screenshots' : ' · ohne Screenshots'));
+  lines.push('> **Auswahl:** nur Punkte mit «Feedback umsetzen»');
   lines.push('> **Total:** ' + filtered.length + ' Eintr' + (filtered.length===1?'ag':'äge') + ' aus ' + modIds.length + ' Modul' + (modIds.length===1?'':'en'));
   lines.push('');
   lines.push('---');
   lines.push('');
 
   if(!filtered.length){
-    lines.push('_Keine Eintraege passen auf die aktuellen Filter._');
+    var ohne = _exOhneHaken().length;
+    lines.push(ohne
+      ? '_Kein Eintrag ist fuer die Umsetzung freigegeben. ' + ohne + ' Punkt' + (ohne===1?'':'e') +
+        ' pass' + (ohne===1?'t':'en') + ' zwar auf den Status-Filter, ' + (ohne===1?'ist':'sind') +
+        ' im Board aber nicht mit «Feedback umsetzen» angehakt._'
+      : '_Keine Eintraege passen auf die aktuellen Filter._');
     return lines.join('\n');
   }
 
@@ -1562,6 +1685,26 @@ function refreshExportPreview(){
   var modCount = Object.keys(byMod).length;
   var sizeKb = Math.round(md.length / 1024 * 10) / 10;
   document.getElementById('exStats').textContent = filtered.length + ' Eintr' + (filtered.length===1?'ag':'äge') + ' aus ' + modCount + ' Modul' + (modCount===1?'':'en') + ' · ca. ' + sizeKb + ' KB';
+
+  // Was der Status-Filter durchliesse, aber ohne Haken bleibt: benennen.
+  var hint = document.getElementById('exUmHint');
+  if(hint){
+    var offen = _exOhneHaken().length;
+    var basis = '🎯 Exportiert werden nur Punkte, die im Board mit <strong>«Feedback umsetzen»</strong> angehakt sind.';
+    if(offen){
+      hint.style.borderColor = '#fde68a';
+      hint.style.background  = '#fffbeb';
+      hint.style.color       = '#b45309';
+      hint.innerHTML = basis + '<br>⚠ <strong>' + offen + ' weitere' + (offen===1?'r':'') + ' Punkt' + (offen===1?'':'e') +
+        '</strong> pass' + (offen===1?'t':'en') + ' auf den Status-Filter, ' + (offen===1?'ist':'sind') +
+        ' aber nicht angehakt und bleib' + (offen===1?'t':'en') + ' aussen vor.';
+    } else {
+      hint.style.borderColor = '#bbf7d0';
+      hint.style.background  = '#f0fdf4';
+      hint.style.color       = '#15803d';
+      hint.innerHTML = basis;
+    }
+  }
 }
 window.refreshExportPreview = refreshExportPreview;
 

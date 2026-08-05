@@ -356,7 +356,11 @@ console.log('\n■ Frischwasserstation — einklappbar, 2 NK, Visualisierung');
   await page.waitForTimeout(200);
   ok(await page.evaluate(() => document.querySelectorAll('.g-card.fw-zu').length === 1
      && (localStorage.getItem('gema_fw_fold_v1') || '').length > 2), 'Fold-Zustand pro Gerät gespeichert');
-  ok(await page.$$eval('#fwSchema svg', n => n.length) === 1, 'Anlagenschema gezeichnet');
+  // Feedback 05.08.2026: EIN Anlagenschema (das frühere Durchlauf-Schema ist entfernt),
+  // immer sichtbar und direkt unter dem Ergebnis — ohne Kaskade mit EINER Station.
+  ok(await page.$$eval('#fwSchema', n => n.length) === 0, 'altes Durchlauf-Schema entfernt');
+  ok(await page.$$eval('#fwkSchema svg', n => n.length) === 1, 'Anlagenschema gezeichnet');
+  ok(await page.$eval('#fwkSchemaCard', e => getComputedStyle(e).display !== 'none'), 'Anlagenschema ohne Kaskade sichtbar');
   // Daten erfassen → Werte erscheinen im Schema
   await page.evaluate(() => {
     const i = document.querySelector('#fwNutzBody input[data-k="n"]');
@@ -367,17 +371,22 @@ console.log('\n■ Frischwasserstation — einklappbar, 2 NK, Visualisierung');
       if (s[2]) { s[2].value = '1'; s[2].dispatchEvent(new Event('input', { bubbles: true })); } }
   });
   await page.waitForTimeout(400);
-  const txt = await page.evaluate(() => Array.from(document.querySelectorAll('#fwSchema text')).map(t => t.textContent));
-  ok(txt.some(t => /Frischwasserstation/.test(t)) && txt.some(t => /Plattenwärmetauscher/.test(t)), 'Schema zeigt die Station');
-  ok(txt.some(t => /Speicher/.test(t)) && txt.some(t => /Ladepumpe/.test(t)), 'Primärseite mit Speicher + Ladepumpe');
+  const txt = await page.evaluate(() => Array.from(document.querySelectorAll('#fwkSchema text')).map(t => t.textContent));
+  ok(txt.filter(t => /^(FWS|W\d)$/.test(t)).length === 1, 'ohne Kaskade genau EINE Station (' + txt.filter(t => /^(FWS|W\d)$/.test(t)).join(',') + ')');
+  ok(txt.some(t => /^FWS$/.test(t)), 'Station heisst ohne Kaskade FWS');
+  ok(txt.some(t => /Pufferspeicher/.test(t)) && txt.some(t => /erzeuger/.test(t)), 'Primärseite mit Pufferspeicher + Wärmeerzeuger');
   ok(txt.some(t => /^Warmwasser \d/.test(t)) && txt.some(t => /^Kaltwasser \d/.test(t)), 'KW/WW-Temperaturen im Schema');
-  ok(txt.some(t => /Leistung \d+\.\d{2} kW/.test(t)), 'Leistung im Schema mit 2 NK');
-  ok(!/var\(--/.test(await page.evaluate(() => document.getElementById('fwSchema').innerHTML)), 'Schema nutzt nur literale Farben (GemaPDF-Regel)');
-  // Zirkulation erscheint erst mit Wert
-  ok(!txt.some(t => /Zirkulation/.test(t)), 'Zirkulation ohne Wert nicht gezeichnet');
+  ok(txt.some(t => /^Station \d+\.\d{2} kW/.test(t)), 'Leistung im Schema mit 2 NK');
+  ok(!/var\(--/.test(await page.evaluate(() => document.getElementById('fwkSchema').innerHTML)), 'Schema nutzt nur literale Farben (GemaPDF-Regel)');
+  ok(await page.evaluate(() => {
+    const c = document.getElementById('fwkSchemaCard'), s2 = Array.from(document.querySelectorAll('.g-card h2')).find(h => /^2 · /.test(h.textContent));
+    return !!(c && s2 && (c.compareDocumentPosition(s2) & Node.DOCUMENT_POSITION_FOLLOWING));
+  }), 'Schema steht weiter oben — vor Abschnitt 2');
+  // Zirkulations-Chip erscheint erst mit Wert (der Legenden-Eintrag steht immer)
+  ok(!txt.some(t => /^Zirkulation \d/.test(t)), 'Zirkulation ohne Wert nicht gezeichnet');
   await page.evaluate(() => { const z = document.getElementById('fw_zirkV'); z.value = '250'; z.dispatchEvent(new Event('input', { bubbles: true })); });
   await page.waitForTimeout(300);
-  ok(await page.evaluate(() => Array.from(document.querySelectorAll('#fwSchema text')).some(t => /Zirkulation \d/.test(t.textContent))), 'Zirkulation erscheint mit erfasstem Wert');
+  ok(await page.evaluate(() => Array.from(document.querySelectorAll('#fwkSchema text')).some(t => /Zirkulation \d/.test(t.textContent))), 'Zirkulation erscheint mit erfasstem Wert');
   const kpi = await page.evaluate(() => ['fw_kpi_v', 'fw_kpi_p', 'fw_out_zTotal', 'fw_out_pfws', 'fw_out_vWW']
     .map(i => (document.getElementById(i) || {}).textContent || ''));
   ok(kpi.every(v => /\d\.\d{2}/.test(v)), '2 Nachkommastellen in KPI + Ergebnis (' + kpi.join(' | ') + ')');

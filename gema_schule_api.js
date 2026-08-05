@@ -35,7 +35,12 @@
     material:  {prefix:'smat:',    store:'gema_schule_mat_pool_v1'},
     aufgaben:  {prefix:'saufg:',   store:'gema_schule_aufg_pool_v1'},
     pruefungen:{prefix:'spruef:',  store:'gema_schule_pruef_pool_v1'},
-    loesungen: {prefix:'spruefl:', store:'gema_schule_loes_pool_v1'}
+    loesungen: {prefix:'spruefl:', store:'gema_schule_loes_pool_v1'},
+    // Lernmittel-Notizen (Feedback 05.08.2026): EIN Record pro Lernmittel +
+    // Person (deterministische id `man_<matId>__<userId>` — Muster
+    // Abgaben/Token-Ledger). Markierungen sind auf die Seitengrösse normiert
+    // (0..1) und liegen nach Seitennummer gruppiert.
+    notizen:   {prefix:'smatan:',  store:'gema_schule_matan_pool_v1'}
   };
   var ABG_PREFIX='sabg:';
   var ABG_LOCAL='gema_schule_abg_local_v1';   // Spiegel NUR der eigenen Abgaben (Offline-Schutz während Prüfung)
@@ -445,7 +450,7 @@
     if(!s||!s.bindCollection){_cloudLoaded=true;_readyResolve();return Promise.resolve();}
     _bindStarted=true;
     var jobs=[];
-    ['klassen','material','aufgaben','pruefungen'].forEach(function(k){
+    ['klassen','material','aufgaben','pruefungen','notizen'].forEach(function(k){
       if(opts[k]===false)return;
       jobs.push(s.bindCollection(MODULE_KEY,POOLS[k].store,POOLS[k].prefix,'id')
         .then(function(){_pbApply(POOLS[k].store);})
@@ -572,6 +577,57 @@
     return _persist(POOLS.material,m);
   }
   function deleteMaterial(id){return _remove(POOLS.material,id);}
+
+  /* ── Lernmittel-Notizen (Feedback 05.08.2026) ────────────────────────
+     «Lehrmittel soll individuell markierbar und beschreibbar sein. Dies soll
+     komplett oder teilweise (Seitenzahlen) geteilt werden können.»
+     Ein Record je Lernmittel + Person. Die Freigabe ist Teil des Records
+     (`geteilt`), damit sie mit den Notizen wandert:
+       geteilt = {modus:'alle'|'seiten', von, bis, anKlasse:true|false,
+                  anUserIds:[…], am, vonName}
+     Sichtbarkeit ist eine LESE-Regel (nie ein Filter beim Speichern — sonst
+     verlöre eine geteilte Notiz beim nächsten Save fremde Seiten). */
+  function notizId(matId,userId){return 'man_'+matId+'__'+userId;}
+  function _alleNotizen(){return _readPool(POOLS.notizen.store).filter(Boolean);}
+  function meineNotiz(matId){
+    var u=_user();if(!u||!matId)return null;
+    return _alleNotizen().find(function(n){return n.id===notizId(matId,u.id);})||null;
+  }
+  // Sieht der eingeloggte User diese fremde Notiz? (eigene immer)
+  function notizSichtbar(n,klasse){
+    var u=_user();if(!u||!n)return false;
+    if(n.userId===u.id)return true;
+    var g=n.geteilt;if(!g||!g.aktiv)return false;
+    if(Array.isArray(g.anUserIds)&&g.anUserIds.length)return g.anUserIds.indexOf(u.id)>=0;
+    if(!g.anKlasse)return false;
+    var k=klasse||klasseById(n.klasseId);
+    if(!k)return false;
+    return (k.studentIds||[]).indexOf(u.id)>=0||(k.dozentIds||[]).indexOf(u.id)>=0||istAdmin();
+  }
+  // Welche Seiten einer geteilten Notiz darf ich sehen? (null = alle)
+  function notizSeitenBereich(n){
+    var u=_user();
+    if(!n)return null;
+    if(u&&n.userId===u.id)return null;
+    var g=n.geteilt;
+    if(!g||g.modus!=='seiten')return null;
+    return {von:Math.max(1,parseInt(g.von,10)||1),bis:Math.max(1,parseInt(g.bis,10)||1)};
+  }
+  function notizenFor(matId){
+    var m=_readPool(POOLS.material.store).find(function(x){return x&&x.id===matId;});
+    var k=m?klasseById(m.klasseId):null;
+    return _alleNotizen().filter(function(n){return n.matId===matId&&notizSichtbar(n,k);});
+  }
+  function saveNotiz(n){
+    var u=_user();if(!u)return Promise.resolve();
+    if(!n.userId)n.userId=u.id;
+    if(!n.userName)n.userName=u.name||u.username||'';
+    if(!n.orgId)n.orgId=u.orgId||'';
+    if(!n.id)n.id=notizId(n.matId,n.userId);
+    n.aktualisiertAm=_now();
+    return _persist(POOLS.notizen,n);
+  }
+  function deleteNotiz(id){return _remove(POOLS.notizen,id);}
 
   function saveAufgabe(a){
     var u=_user();
@@ -900,6 +956,10 @@
     // Writes
     saveKlasse:saveKlasse,deleteKlasse:deleteKlasse,
     saveMaterial:saveMaterial,deleteMaterial:deleteMaterial,
+    // Lernmittel-Notizen
+    notizId:notizId,meineNotiz:meineNotiz,notizenFor:notizenFor,
+    notizSichtbar:notizSichtbar,notizSeitenBereich:notizSeitenBereich,
+    saveNotiz:saveNotiz,deleteNotiz:deleteNotiz,
     saveAufgabe:saveAufgabe,deleteAufgabe:deleteAufgabe,touchAufgabenVerwendet:touchAufgabenVerwendet,
     savePruefung:savePruefung,deletePruefung:deletePruefung,
     // Abgaben

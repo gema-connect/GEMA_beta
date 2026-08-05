@@ -1,9 +1,13 @@
 // Playwright-Test für die beiden Feedback-Tool-Erweiterungen (Feedback 14.07., Folge):
 //  A) gema_feedback.js — Annotation mit Werkzeugen Stift/Pfeil/Rechteck/Text
 //     (Vektor-Shapes, Drag-Preview, Inline-Text-Input, Undo pro Objekt, Merge).
-//  B) sys_beta.html — Status-Dialog nach Markdown-Export: fragt pro exportiertem
-//     offenen Punkt, ob er auf «In Bearbeitung» gesetzt werden soll (Download UND
-//     Kopieren); erledigt wird nie zurückgestuft, Abwahl einzelner Punkte möglich.
+//  B) sys_beta.html — Markdown-Export: exportiert werden NUR Punkte, die im
+//     Board mit «Feedback umsetzen» angehakt sind; der Status-Filter startet
+//     auf «Offen» (in Arbeit NICHT vorausgewählt); nicht angehakte Punkte
+//     werden im Modal ausgewiesen statt stillschweigend weggelassen. Danach
+//     fragt der Dialog pro exportiertem offenen Punkt, ob er auf «In
+//     Bearbeitung» soll (Download UND Kopieren); erledigt wird nie
+//     zurückgestuft, Abwahl einzelner Punkte möglich.
 // Aufruf: CHROME=<chromium> node scripts/feedback_tools_test.mjs
 import { chromium } from 'playwright-core';
 import { startServer, BASE, seed, newPage } from './rolematrix_harness.mjs';
@@ -142,7 +146,7 @@ console.log('■ Annotation: Werkzeuge Stift / Pfeil / Rechteck / Text');
 // ═════════════════════════════════════════════════════════════════
 // B) SYS_BETA — Status-Dialog nach Markdown-Export
 // ═════════════════════════════════════════════════════════════════
-console.log('■ sys_beta: Export-Dialog «In Bearbeitung»');
+console.log('■ sys_beta: Export nur mit «Feedback umsetzen» + Dialog «In Bearbeitung»');
 {
   const { ctx, page } = await newPage(browser, seed(['role_admin']));
   await page.goto(BASE + '/sys_beta.html', { waitUntil: 'domcontentloaded' });
@@ -150,19 +154,52 @@ console.log('■ sys_beta: Export-Dialog «In Bearbeitung»');
 
   ok(await page.evaluate(() => !document.getElementById('exAutoMarkArbeit')), 'stille Auto-Mark-Checkbox entfernt');
 
-  // Feedback-Cache seeden (wie von gema_feedback.js geschrieben)
+  // Feedback-Cache seeden (wie von gema_feedback.js geschrieben).
+  // A = offen + angehakt · B = erledigt + angehakt · D = offen OHNE Haken
+  // C = offen + angehakt · E = in Arbeit + angehakt
   await page.evaluate(() => {
     _GemaDB.c['feedback_lu_tabelle'] = JSON.stringify([
-      { type: 'fehler', author: 'Robin', text: 'Punkt A — Button tut nichts', ts: '14.07.26, 08:00' },
-      { type: 'kommentar', author: 'Robin', text: 'Punkt B — bereits erledigt', ts: '14.07.26, 08:05', cStatus: 'erledigt' }
+      { type: 'fehler', author: 'Robin', text: 'Punkt A — Button tut nichts', ts: '14.07.26, 08:00', umsetzen: true },
+      { type: 'kommentar', author: 'Robin', text: 'Punkt B — bereits erledigt', ts: '14.07.26, 08:05', cStatus: 'erledigt', umsetzen: true },
+      { type: 'kommentar', author: 'Robin', text: 'Punkt D — noch nicht entschieden', ts: '14.07.26, 08:10' }
     ]);
     _GemaDB.c['feedback_druckdispositiv'] = JSON.stringify([
-      { type: 'aenderung', author: 'Sandro', text: 'Punkt C — Einheit umstellen', ts: '14.07.26, 09:00' }
+      { type: 'aenderung', author: 'Sandro', text: 'Punkt C — Einheit umstellen', ts: '14.07.26, 09:00', umsetzen: true },
+      { type: 'fehler', author: 'Sandro', text: 'Punkt E — läuft bereits', ts: '14.07.26, 09:05', cStatus: 'bearbeitung', umsetzen: true }
     ]);
     openExportModal();
   });
   await page.waitForFunction(() => (document.getElementById('exStats').textContent || '').length > 0, null, { timeout: 5000 });
-  ok(await page.evaluate(() => document.getElementById('exStats').textContent.indexOf('2 Einträge') >= 0), 'Export-Vorschau: 2 Einträge (erledigt ausgefiltert)');
+
+  // Default-Filter: nur «Offen» — «In Bearbeitung» ist NICHT vorausgewählt
+  ok(await page.evaluate(() =>
+    document.getElementById('exFilterOpen').checked === true &&
+    document.getElementById('exFilterArbeit').checked === false &&
+    document.getElementById('exFilterErledigt').checked === false
+  ), 'Default-Filter: nur «Offen» — «In Arbeit» nicht markiert');
+
+  ok(await page.evaluate(() => document.getElementById('exStats').textContent.indexOf('2 Einträge') >= 0), 'Export-Vorschau: 2 Einträge (A + C — erledigt/in Arbeit/ohne Haken raus)');
+  {
+    const md = await page.evaluate(() => document.getElementById('exPreview').value);
+    ok(md.indexOf('Punkt A') >= 0 && md.indexOf('Punkt C') >= 0, 'angehakte offene Punkte A + C stehen im Markdown');
+    ok(md.indexOf('Punkt D') < 0, 'NICHT angehakter Punkt D fehlt im Markdown');
+    ok(md.indexOf('Punkt E') < 0, 'Punkt «In Arbeit» fehlt im Default-Export');
+    ok(md.indexOf('nur Punkte mit «Feedback umsetzen»') >= 0, 'Markdown-Kopf weist die Auswahl aus');
+  }
+  // Nicht angehakte Punkte werden BENANNT statt stillschweigend weggelassen
+  ok(await page.evaluate(() => {
+    const h = document.getElementById('exUmHint');
+    return h && h.textContent.indexOf('1 weiterer Punkt') >= 0 && h.textContent.indexOf('nicht angehakt') >= 0;
+  }), 'Hinweis nennt den 1 nicht angehakten Punkt (D)');
+
+  // «In Arbeit» dazuschalten holt E rein — der Default ist eine Vorauswahl,
+  // keine Sperre.
+  await page.evaluate(() => { document.getElementById('exFilterArbeit').checked = true; refreshExportPreview(); });
+  ok(await page.evaluate(() =>
+    document.getElementById('exStats').textContent.indexOf('3 Einträge') >= 0 &&
+    document.getElementById('exPreview').value.indexOf('Punkt E') >= 0
+  ), 'Filter «In Arbeit» manuell zuschalten holt Punkt E dazu');
+  await page.evaluate(() => { document.getElementById('exFilterArbeit').checked = false; refreshExportPreview(); });
 
   // Download → Dialog erscheint mit den 2 OFFENEN Punkten
   await page.evaluate(() => downloadExport());
@@ -196,6 +233,7 @@ console.log('■ sys_beta: Export-Dialog «In Bearbeitung»');
   }));
   ok(st.lu[0] === 'bearbeitung', 'angewählter Punkt A → «In Bearbeitung»');
   ok(st.lu[1] === 'erledigt', 'erledigter Punkt B bleibt erledigt (nie zurückgestuft)');
+  ok(st.lu[2] === 'offen', 'nie exportierter Punkt D bleibt unangetastet');
   ok(st.dd[0] === 'offen', 'abgewählter Punkt C bleibt offen');
 
   // Kopieren-Pfad öffnet den Dialog ebenfalls (nur noch der offene Punkt C)
@@ -222,6 +260,12 @@ console.log('■ sys_beta: Export-Dialog «In Bearbeitung»');
   });
   await page.waitForTimeout(400);
   ok(await page.evaluate(() => document.getElementById('exMarkModal').style.display !== 'flex'), 'ohne offene Punkte erscheint kein Dialog');
+
+  // Leerer Export erklärt sich: Punkt D wäre offen, ist aber nicht angehakt
+  ok(await page.evaluate(() => {
+    const md = document.getElementById('exPreview').value;
+    return md.indexOf('nicht mit «Feedback umsetzen» angehakt') >= 0;
+  }), 'leerer Export nennt den Grund (nicht angehakt) statt nur «keine Einträge»');
 
   await ctx.close();
 }
