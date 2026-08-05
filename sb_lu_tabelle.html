@@ -918,7 +918,10 @@ function fixLeadingZero(el){
 <script>
 var _sk = (typeof GemaObjekte!=='undefined') ? GemaObjekte.storageKey('lu_spitzenvolumenstrom_dropdown_v3') : 'lu_spitzenvolumenstrom_dropdown_v3';
 (async()=>{
-try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle',[_sk]),new Promise((_,r)=>setTimeout(()=>r('timeout'),3000))]);}catch(e){console.warn('GemaDB:',e);}
+// Init-Key-Regel (CLAUDE.md «Storage-Audit»): _GemaDB.init laedt NUR die
+// angefragten data_keys — Basis-Key UND den Schluessel des aktiven Objekts.
+var _skInit=[...new Set(['lu_spitzenvolumenstrom_dropdown_v3',_sk])];
+try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle',_skInit),new Promise((_,r)=>setTimeout(()=>r('timeout'),3000))]);}catch(e){console.warn('GemaDB:',e);}
 
 
     // --- Geräte (LU-Tabelle) ---
@@ -1207,7 +1210,17 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       ]
     };
 
-    const STORAGE_KEY = _sk;
+    // Speicher-Schluessel IMMER frisch bilden (KEIN eingefrorener Alias —
+    // siehe CLAUDE.md «Storage-Audit»): das aktive Objekt kann sich zur
+    // Laufzeit aendern (Objekt-Dropdown, Workspace-Kachel mit ?objekt=).
+    // Ein einmal beim Script-Parse gebildeter Schluessel liess die Eingaben
+    // in einem anderen Datensatz landen als beim naechsten Besuch gelesen
+    // wurde — «die Eingaben bleiben nicht».
+    const LU_BASE_KEY = 'lu_spitzenvolumenstrom_dropdown_v3';
+    function _luKey(){
+      try{ if(typeof GemaObjekte!=='undefined') return GemaObjekte.storageKey(LU_BASE_KEY); }catch(e){}
+      return LU_BASE_KEY;
+    }
     const $ = (id)=>document.getElementById(id);
 
     function clampNum(v, min=0, max=1e9){
@@ -2155,8 +2168,40 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       applyAutoMaxLU();
       const obj = calc();
       renderKPIs(obj);
+      _luAutoSave();
     }
     window.calcAndRender = calcAndRender;
+
+    // ── Auto-Speichern ────────────────────────────────────────────────
+    // calcAndRender() ist der Chokepoint: JEDE Aenderung an Apparaten,
+    // Spezial-/Dauerzeilen und Max-LU laeuft darueber. Frueher speicherte
+    // die LU-Tabelle NUR beim Apparateliste-Import und bei Stammdaten-
+    // Aenderungen — die «Speichern»/«Laden»-Knoepfe, an denen saveLocal/
+    // loadLocal hingen, gibt es im Markup gar nicht mehr. Alles, was ein
+    // Nutzer erfasste, war nach dem Neuladen weg.
+    let _luLoading = false;     // Restore laeuft → nicht zurueckschreiben
+    let _luBooted  = false;     // vor dem ersten Load nichts speichern
+    let _luSaveT   = null;
+    // Schluessel, zu dem der ANGEZEIGTE Zustand gehoert. Gespeichert wird
+    // IMMER dorthin — beim Objekt-/Phasenwechsel steht `_luKey()` schon auf
+    // dem neuen Datensatz, waehrend auf dem Bildschirm noch der alte liegt.
+    // Ohne diese Trennung landete der Stand von Projekt A in Projekt B.
+    let _luPrevKey = null;
+    function _luAutoSave(){
+      if(_luLoading || !_luBooted) return;
+      clearTimeout(_luSaveT);
+      _luSaveT = setTimeout(function(){ saveLocal(); }, 700);
+    }
+    function _luFlush(){
+      if(!_luBooted || _luLoading) return;
+      clearTimeout(_luSaveT);
+      try{ saveLocal(); }catch(e){}
+    }
+    window.addEventListener('beforeunload', _luFlush);
+    window.addEventListener('pagehide', _luFlush);
+    document.addEventListener('visibilitychange', function(){
+      if(document.visibilityState === 'hidden') _luFlush();
+    });
 
     // --- Aktionen ---
     window._luAddDevice = function(){ addDeviceRow(); };
@@ -2211,6 +2256,33 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       calcAndRender();
       toast("Zurückgesetzt.");
     }
+    // Wie resetAll, aber ohne Toast und ohne Zurueckschreiben — fuer den
+    // Objektwechsel auf ein Projekt ohne gespeicherte LU.
+    function _luResetState(){
+      _luLoading = true;
+      try{
+        state = {
+          projekt: "", notizen: "",
+          maxLU: {kw:3, ww:3, nd:5, bw:3, ow:3, gw:3, grau:3, frei:3},
+          maxLUManual: {kw:false, ww:false, nd:false, bw:false, ow:false, gw:false, grau:false, frei:false},
+          devices: [
+            { deviceName: "Waschtisch", qty: 0, medium: "trinkwasser" },
+            { deviceName: "WC-Spülkasten", qty: 0, medium: "trinkwasser" },
+            { deviceName: "Spülbecken (Küche)", qty: 0, medium: "trinkwasser" },
+            { deviceName: "Dusche", qty: 0, medium: "trinkwasser" },
+            { deviceName: "Badewanne", qty: 0, medium: "trinkwasser" }
+          ],
+          special: [{ label:"", medium:"kw", freiName:"", flow:0, flowUnit:"ls", qty:1 }],
+          dauer:   [{ label:"", medium:"kw", freiName:"", flow:0, flowUnit:"ls", qty:1 }]
+        };
+        if($("projekt"))$("projekt").value="";
+        if($("notizen"))$("notizen").value="";
+        renderDeviceList();
+        renderSpecialList();
+        renderDauerList();
+        calcAndRender();
+      }finally{ _luLoading = false; }
+    }
 
     function _getStammdatenSnapshot(){
       return {
@@ -2221,7 +2293,7 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
 
     function saveLocal(){
       const saveData = Object.assign({}, state, { _stammdaten: _getStammdatenSnapshot() });
-      try{if(typeof _GemaDB!=='undefined')_GemaDB.save(STORAGE_KEY, JSON.stringify(saveData));}catch(e){}
+      try{if(typeof _GemaDB!=='undefined')_GemaDB.save(_luPrevKey || _luKey(), JSON.stringify(saveData));}catch(e){}
       // Cross-Modul-Sync: Custom-Event fuer Live-Updates in offenen
       // Tab-Geschwistern + storage-Event fuer Cross-Tab. Plus optional
       // ein GemaNotify-Eintrag, damit der Planer in anderen geoeffneten
@@ -2290,9 +2362,20 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       overlay.querySelector('#_sdUpdate').addEventListener('click',()=>{ overlay.remove(); onUpdate(); });
     }
 
-    function loadLocal(){
-      if(typeof _GemaDB==='undefined')return;const raw = (_GemaDB.c[STORAGE_KEY]??null);
-      if (!raw){ toast("Keine gespeicherten Daten gefunden."); return; }
+    // opts.still = kein Toast (Boot / Objektwechsel), opts.leerReset =
+    // ohne gespeicherten Stand auf die Vorgabe zuruecksetzen (Objektwechsel:
+    // sonst blieben die Werte des vorherigen Projekts stehen).
+    function loadLocal(opts){
+      opts = opts || {};
+      if(typeof _GemaDB==='undefined')return;
+      var key = _luKey();
+      const raw = (_GemaDB.c[key]??null);
+      _luPrevKey = key;   // ab jetzt gehoert der Bildschirm zu diesem Datensatz
+      if (!raw){
+        if(opts.leerReset) _luResetState();
+        else if(!opts.still) toast("Keine gespeicherten Daten gefunden.");
+        return;
+      }
       try{
         const obj = JSON.parse(raw);
 
@@ -2345,11 +2428,13 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
           if (useOldStammdaten) state._usingOldStammdaten = true;
 
           if($("projekt"))$("projekt").value = state.projekt;
+          _luLoading = true;
           renderDeviceList();
           renderSpecialList();
           renderDauerList();
           calcAndRender();
-          toast("Geladen" + (useOldStammdaten ? " (ursprüngliche Werte)" : "") + ".");
+          _luLoading = false;
+          if(!opts.still) toast("Geladen" + (useOldStammdaten ? " (ursprüngliche Werte)" : "") + ".");
         }
 
         // Check for stammdaten changes
@@ -2453,7 +2538,43 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       renderDauerList();
       calcAndRender();
       bind();
+      // Gespeicherten Stand des aktiven Objekts uebernehmen (still — beim
+      // Seitenstart gibt es keinen Grund fuer einen Toast), danach ist das
+      // Auto-Speichern scharf.
+      try{ loadLocal({still:true}); }catch(e){ console.warn('[LU] Laden:', e); }
+      if(!_luPrevKey) _luPrevKey = _luKey();
+      _luBooted = true;
     }
+
+    // Phasenwechsel (SIA-Phase): derselbe Datensatz-Wechsel wie beim Objekt —
+    // der Schluessel traegt die Phase (GemaObjekte.storageKey).
+    window.addEventListener('gema-objekt-changed', function(ev){
+      if(!ev || !ev.detail || !ev.detail.phaseChange) return;
+      try{ window._objReload(); }catch(e){}
+    });
+
+    // Objektwechsel zur Laufzeit (Dropdown / gema-objekt-changed): Stand des
+    // ALTEN Datensatzes sichern, Schluessel neu bilden, fehlenden Key
+    // nachladen und den neuen Stand uebernehmen. window-exponiert, weil
+    // onObjektSelect in einem ANDEREN Script-Block lebt (Cross-Block-Regel)
+    // — der fruehere direkte loadLocal()-Aufruf dort war ein
+    // «loadLocal is not defined» und riss den ganzen Handler ab.
+    window._objReload = function(){
+      _luFlush();          // sichert unter _luPrevKey = ALTER Datensatz
+      var key = _luKey();
+      var weiter = function(){
+        _luBooted = false;
+        try{ loadLocal({still:true, leerReset:true}); }
+        finally{ _luBooted = true; }
+      };
+      try{
+        if(typeof _GemaDB!=='undefined' && _GemaDB.ensure && _GemaDB.c && _GemaDB.c[key]===undefined){
+          _GemaDB.ensure([key]).then(weiter).catch(weiter);
+          return;
+        }
+      }catch(e){}
+      weiter();
+    };
 
     init();
   
@@ -2495,7 +2616,13 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('lu_t
       var o=GemaObjekte.getAll().find(function(x){return x.id===sel.value;});
       if(o){var parts=[o.name];if(o.strasse)parts.push(o.strasse);if(o.plz||o.ort)parts.push([o.plz,o.ort].filter(Boolean).join(' '));inp.value=parts.join(', ');}
     } else { inp.value=''; }
-    _prevObjektId=sel.value;saveMeta();loadLocal();setTimeout(function(){if(typeof calc==='function')calc();},100);
+    _prevObjektId=sel.value;saveMeta();
+    // Aktives Objekt zuerst umstellen — der Speicher-Schluessel haengt daran
+    // (_luKey). Ohne das speicherte und las die Tabelle nach dem Wechsel
+    // weiter im vorherigen Projekt.
+    try{ if(typeof GemaObjekte!=='undefined'&&GemaObjekte.setActiveId) GemaObjekte.setActiveId(sel.value||''); }catch(e){}
+    // Cross-Block: der Loader lebt in der Haupt-IIFE (siehe window._objReload)
+    try{ if(typeof window._objReload==='function') window._objReload(); }catch(e){}
   }
   function toggleObjektInput(forceManual){
     var isManual=typeof forceManual==='boolean'?forceManual:document.getElementById('objComboManual').style.display==='none';

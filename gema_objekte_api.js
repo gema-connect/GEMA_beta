@@ -23,6 +23,10 @@
   // keine Daten — Symptome aus dem Workspace-Bug.
   function _healActive(cache) {
     if (!cache || !cache.activeObjektId) return;
+    // Solange gar keine Objekte geladen sind (Boot vor dem Cloud-Pull), gibt
+    // es nichts zu pruefen — sonst wuerde die Auswahl faelschlich geleert
+    // und die Module bildeten ihren Speicher-Schluessel ohne Objekt.
+    if (!(cache.objekte || []).length) return;
     var exists = (cache.objekte || []).some(function(o){
       return o && o.id === cache.activeObjektId;
     });
@@ -427,7 +431,18 @@
     // getAll() already applies org filter
     return getAll().find(function(o) { return o.id === data.activeObjektId; }) || null;
   }
-  function getActiveId() { return _load().activeObjektId || null; }
+  // Aktives Objekt: der Blob zuerst, dann der GERAETE-Schluessel
+  // (`gema_active_objekt_v1` — die eigentliche Wahrheit, der Blob wird bei
+  // jedem Cloud-Pull neu gebaut). Ohne diesen Rueckfall lieferte ein frisch
+  // aufgebauter Blob «kein Objekt», und Module bildeten ihren Speicher-
+  // Schluessel ohne Objekt-Suffix (Datenverlust-Bild, siehe ?objekt= unten).
+  function getActiveId() {
+    var c = _load();
+    if (c.activeObjektId) return c.activeObjektId;
+    var lok = _readActiveLocal();
+    if (lok) { c.activeObjektId = lok; return lok; }
+    return null;
+  }
   function getBeteiligte(objektId) {
     var id = objektId || getActiveId();
     if (!id) return [];
@@ -865,15 +880,31 @@
   _pullFromCloud().then(function(){ _readyResolve(); });
 
   // P04: URL-Parameter ?objekt=ID setzt das aktive Objekt beim Seitenaufruf
+  //
+  // KRITISCH — SOFORT, nicht erst nach dem Cloud-Pull: Module bilden ihren
+  // Speicher-Schluessel beim Script-Parse (`GemaObjekte.storageKey(...)`,
+  // GemaAutoSave beim DOMContentLoaded). Wurde das aktive Objekt erst nach
+  // `_readyPromise` gesetzt, rechnete der ERSTE Besuch ueber eine
+  // Modul-Kachel (Workspace-Eimer, `?objekt=<id>`) auf dem BASIS-Schluessel
+  // und der zweite auf dem Objekt-Schluessel — die Eingaben der ersten
+  // Sitzung lagen danach unerreichbar unter dem Basis-Key («die Eingaben
+  // bleiben nicht», Studenten-Uebungseimer 08/2026).
+  //
+  // Das aktive Objekt ist reine Geraete-UI (localStorage, kein Cloud-Write)
+  // — optimistisch setzen ist gefahrlos. Die Pruefung «gibt es das Objekt
+  // ueberhaupt?» laeuft nach dem Pull nach und nimmt es notfalls zurueck.
   try {
     if (typeof location !== 'undefined' && location.search) {
       var params = new URLSearchParams(location.search);
       var urlObj = params.get('objekt');
       if (urlObj) {
+        var _vorher = getActiveId();
+        setActiveId(urlObj);
         _readyPromise.then(function(){
-          if (getAllUnfiltered().find(function(o){ return o.id === urlObj; })) {
-            setActiveId(urlObj);
-          }
+          if (getAllUnfiltered().find(function(o){ return o.id === urlObj; })) return;
+          // Objekt existiert nicht (mehr) → auf den vorherigen Stand zurueck
+          try { console.info('[GemaObjekte] ?objekt=' + urlObj + ' nicht gefunden — Auswahl zurueckgesetzt.'); } catch(e) {}
+          setActiveId(_vorher || '');
         });
       }
     }
