@@ -164,10 +164,14 @@
             // Schadensbericht) lag der Ausschnitt dann um den Scroll-Offset
             // daneben — bis hin zum komplett weissen Bild.
             var fullCanvas = await _captureViewport(sc);
-            var cropX = Math.round(_snipRect.x * sc);
-            var cropY = Math.round(_snipRect.y * sc);
-            var cropW = Math.round(_snipRect.w * sc);
-            var cropH = Math.round(_snipRect.h * sc);
+            /* Versatz und tatsächliche Skalierung stammen aus den Kalibrier-
+               Marken (siehe _captureViewport). Ohne Messung gilt die alte
+               Annahme — dann ist der Zuschnitt so gut wie bisher, nie schlechter. */
+            var cal = fullCanvas._gfbCal || { offX: 0, offY: 0, sc: sc };
+            var cropX = Math.round(_snipRect.x * cal.sc + cal.offX);
+            var cropY = Math.round(_snipRect.y * cal.sc + cal.offY);
+            var cropW = Math.round(_snipRect.w * cal.sc);
+            var cropH = Math.round(_snipRect.h * cal.sc);
             // Clamp to canvas bounds
             cropW = Math.min(cropW, fullCanvas.width);
             cropH = Math.min(cropH, fullCanvas.height);
@@ -616,20 +620,107 @@
     } catch (e) {}
     return null;
   }
+  // KRITISCH #4 (Bugreport 05.08.2026 «bei mehreren Modulen wird der falsche
+  // Ausschnitt generiert»): Der Zuschnitt rechnete bisher ANGENOMMEN — Bildpunkt
+  // = Viewport-Punkt × scale. Diese Annahme gilt nur, solange html2canvas den
+  // erfassten Bereich exakt so legt und exakt so skaliert, wie wir es anfragen.
+  // Das tut es NICHT zuverlaessig: `body` traegt global position:relative +
+  // overflow-x:clip (gema_responsive.css), Module bringen sticky/fixed Leisten
+  // mit, und der Geraete-Pixelratio geht je nach Pfad zusaetzlich ein. Weicht
+  // die Lage nur um ein paar Pixel ab, schneidet der Snip daneben.
+  //
+  // Statt zu raten wird jetzt GEMESSEN: vor dem Erfassen liegen zwei winzige
+  // Marken an bekannten Viewport-Punkten (oben links / oben rechts). Im Bild
+  // gefunden, liefern sie Versatz UND tatsaechliche Skalierung — der Zuschnitt
+  // rechnet damit statt mit der Annahme, und die Marken werden aus dem Bild
+  // wieder herausgemalt. Werden sie nicht gefunden, gilt unveraendert der alte
+  // Weg (Fallback, nie ein Abbruch).
+  var CAL_FARBE = [255, 0, 255], CAL_PX = 4;
+  /** Spannweite zwischen den Marken — BEWUSST clientWidth (ohne Scrollbalken):
+      ein fixes Element bei innerWidth-4 läge sonst teils unter dem Balken. */
+  function _calSpanne() { return document.documentElement.clientWidth || w.innerWidth; }
+
+  function _calAn() {
+    try {
+      var lay = document.createElement('div');
+      lay.id = '_gfbcal';
+      lay.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;z-index:2147483647;pointer-events:none';
+      [0, Math.max(0, _calSpanne() - CAL_PX)].forEach(function (x) {
+        var s = document.createElement('div');
+        s.style.cssText = 'position:fixed;top:0;left:' + x + 'px;width:' + CAL_PX + 'px;height:' +
+          CAL_PX + 'px;background:rgb(255,0,255)';
+        lay.appendChild(s);
+      });
+      document.body.appendChild(lay);
+      return lay;
+    } catch (e) { return null; }
+  }
+  function _calAus(lay) { try { if (lay && lay.parentNode) lay.parentNode.removeChild(lay); } catch (e) { } }
+
+  /** Marken im Bild suchen → {offX, offY, sc} oder null. */
+  function _calMessen(canvas, scaleAnnahme) {
+    try {
+      var band = Math.min(canvas.height, Math.max(24, Math.round(CAL_PX * scaleAnnahme * 6)));
+      var ctx = canvas.getContext('2d');
+      var img = ctx.getImageData(0, 0, canvas.width, band).data;
+      var linksX = -1, rechtsX = -1, y = -1;
+      for (var py = 0; py < band; py++) {
+        for (var px = 0; px < canvas.width; px++) {
+          var i = (py * canvas.width + px) * 4;
+          if (Math.abs(img[i] - CAL_FARBE[0]) < 30 && Math.abs(img[i + 1] - CAL_FARBE[1]) < 30 &&
+            Math.abs(img[i + 2] - CAL_FARBE[2]) < 30 && img[i + 3] > 200) {
+            if (linksX < 0) { linksX = px; y = py; }
+            if (py === y) rechtsX = px;
+          }
+        }
+        if (linksX >= 0) break;
+      }
+      if (linksX < 0 || rechtsX <= linksX) return null;
+      /* Linke Marke beginnt bei Viewport-x 0, rechte endet bei clientWidth →
+         die gemessene Spanne im Bild entspricht genau dieser Breite. */
+      var sc = ((rechtsX + 1) - linksX) / _calSpanne();
+      if (!(sc > 0.2 && sc < 6)) return null;
+      return { offX: linksX, offY: y, sc: sc };
+    } catch (e) { return null; }   /* getImageData wirft bei getaintetem Canvas */
+  }
+
+  /** Die Marken aus dem Bild herausmalen — sie dürfen nie im Feedback landen. */
+  function _calWeg(canvas, cal) {
+    try {
+      var ctx = canvas.getContext('2d');
+      var s = Math.ceil(CAL_PX * cal.sc) + 2;
+      var quelle = Math.min(canvas.height - 1, cal.offY + s + 1);
+      var rechtsBild = Math.round((_calSpanne() - CAL_PX) * cal.sc + cal.offX) - 1;
+      [cal.offX, rechtsBild].forEach(function (x) {
+        x = Math.max(0, Math.min(canvas.width - s, Math.round(x)));
+        /* eine Zeile UNTER der Marke über die Markenfläche ziehen */
+        ctx.drawImage(canvas, x, quelle, s, 1, x, Math.max(0, cal.offY), s, s);
+      });
+    } catch (e) { }
+  }
+
   function _captureViewport(scale) {
     var ov = _fullscreenOverlayEl();
-    if (ov) {
-      return html2canvas(ov, {
+    var lay = _calAn();
+    var p = ov
+      ? html2canvas(ov, {
         width: w.innerWidth, height: w.innerHeight,
         scale: scale, logging: false, useCORS: true, allowTaint: true,
         backgroundColor: '#ffffff'
+      })
+      : html2canvas(document.body, {
+        x: w.scrollX, y: w.scrollY,
+        width: w.innerWidth, height: w.innerHeight,
+        scale: scale, logging: false, useCORS: true, allowTaint: true
       });
-    }
-    return html2canvas(document.body, {
-      x: w.scrollX, y: w.scrollY,
-      width: w.innerWidth, height: w.innerHeight,
-      scale: scale, logging: false, useCORS: true, allowTaint: true
-    });
+    return Promise.resolve(p).then(function (c) {
+      _calAus(lay);
+      try {
+        var cal = _calMessen(c, scale);
+        if (cal) { _calWeg(c, cal); c._gfbCal = cal; }
+      } catch (e) { }
+      return c;
+    }, function (e) { _calAus(lay); throw e; });
   }
 
   // Fullscreen-Screenshot fuer Touch-Devices: erfasst den sichtbaren

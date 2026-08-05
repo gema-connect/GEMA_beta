@@ -184,6 +184,11 @@ Berechnung abgeschlossen (z.B. Enthärtung: 2.5 l/s, 15°fH)
 - **Admin-Zugriff**: GEMA-Admin kann alle Lieferanten-Daten einsehen und Lieferanten deaktivieren (z.B. bei Zahlungsverzug). Deaktivierter Lieferant (`status:'inaktiv'`): alle Schreib-Aktionen im Dashboard sind blockiert (`_liefBlockedInaktiv()`), nicht nur ein Banner — inkl. Mitarbeiter-Einladung, Rollen-Zuweisung und Mitarbeiter-Deaktivierung (Invite-Button wird ausgeblendet).
 - **Offertanfragen**: Lieferant sieht eingehende Anfragen aus Berechnungen der Planer
 - **User↔Lieferant-Verknüpfung**: `user.lieferantId` verknüpft den eingeloggten Auth-User eindeutig mit dem GemaProdukte-Lieferant-Datensatz. `findMyLieferant()` bevorzugt dieses Feld; die Heuristik (E-Mail/Org/Firma/**Org-Name**, normalisiert case-insensitive) bleibt Fallback und **self-healt** (schreibt `lieferantId` beim ersten Treffer via `GemaAuth.linkUserToLieferant`). **Init wartet auf den Cloud-Pull**: findet der erste (Cache-)Lauf nichts, sucht `init()` nach `GemaProdukte.ready` erneut (Ladehinweis statt sofort «Kein Profil»). **Auto-Provisionierung** (`_liefAutoProvision`): hat der User eine Lieferanten-Rolle (Anlagen ODER Produkt) und existiert auch nach dem Pull kein passender Datensatz, wird das Lieferanten-Profil automatisch aus der eigenen Org angelegt (`createLieferant` mit Org-Name/Adresse, Produktlieferant startet mit `lieferantKategorien:['werkzeuge']`) und verknüpft — Voraussetzung: User ist einer echten Org zugeteilt (nicht `org_default`). `GemaAuth.inviteLieferant(opts)` akzeptiert `opts.lieferantId` und setzt das Feld direkt beim Anlegen (Aufrufer: `_liefInviteUser` im Dashboard, `GemaOfferRequest._submit`). Mitarbeiter-Einladung (`_liefInviteUser`) startet mit `role_lieferant_intern` (Least Privilege — Admin weist Unterrolle zu). Firmenprofil-Edit nur für `_liefIsAdmin()`; Mitarbeiter-Verwaltung nur für Org-Admin **derselben** Lieferanten-Org.
+- **Zuordnung von Hand: Feld «Lieferanten-Firma» im Benutzer-Modal (sys_admin.html, 05.08.2026 — Drift-Guard `scripts/admin_lieferant_zuordnung_test.mjs` 31 Checks)**: Bis dahin gab es **keinen** Weg, `user.lieferantId` gezielt zu setzen — die Verknüpfung entstand ausschliesslich automatisch. Trifft die Heuristik nicht (Seed-Records tragen `orgId:'org_default'` und **keine E-Mail**, also entscheidet allein der exakte Firmenname: Org «BWT» vs. Record «BWT AQUA AG»), legt `_liefAutoProvision` ein **leeres** Profil an und schreibt dessen Id fest — die hat danach Vorrang und verdeckt den echten Datensatz samt Produkten **dauerhaft**, auch wenn der Firmenname später stimmt (gemeldet als «ich bin als bwt eingeloggt, sehe aber keine Produkte»). Der Select im Benutzer-Editor (`_liefLaden`/`_renderUserLiefSelect`/`_liefIdSetzen`) macht die Zuordnung sicht- und korrigierbar.
+  - **Nur der GEMA-Admin** (`_isSuper`): der Lieferanten-Pool ist **org-übergreifend** — ein Org-Admin könnte seinen Mitarbeiter sonst mit dem Profil eines Mitbewerbers verknüpfen und hätte Vollzugriff auf dessen Produkte, Preise und Offertanfragen. Aus demselben Grund gibt es bewusst **keine Selbstbedienung** im Lieferanten-Dashboard.
+  - Sichtbar, sobald eine `role_lieferant*`/`role_produktlieferant*`-Rolle angehakt ist **ODER** bereits eine Zuordnung besteht (sonst wäre sie nach dem Entfernen der Rolle nicht mehr lösbar). Ist das Feld nicht gerendert, lässt `_liefIdSetzen` einen vorhandenen Wert **unangetastet** — nur ein bewusst auf «keine Zuordnung» gestelltes Feld löscht ihn.
+  - Geladen werden **nur die `lieferant:`-Rows** (`GemaSync.loadCollection`), nicht der ganze Produktkatalog; die Wahl lebt in `_liefSelWahl` und überlebt damit Rollen-Wechsel und das Cloud-Nachladen. Eine gesetzte, aber nicht auffindbare Id bleibt als **⚠-Option** erhalten (Muster der ⚠-Rollen — kein stiller Verlust).
+  - **Altlast**: ein bereits auto-angelegtes Leer-Profil bleibt nach dem Umbiegen als verwaister Record im Pool; es kann im Produktkatalog gelöscht werden.
 - **Kategorie-IDs (KRITISCH)**: `LIEF_KATEGORIEN` (Firmenprofil-Kategorien) und `KATEGORIEN` (Produkt-Schemas/Matching) nutzen DIESELBEN IDs — `hebeanlage` und `thermische_solaranlage` (nicht mehr `abwasserhebeanlage`/`solaranlage`). Für Altdaten gibt es `GemaProdukte.normKatId(id)` (Alias-Map), genutzt in `getLieferantenByKategorie` und im Kategorien-Filter von `gema_offer_request.js`.
 
 ### Armaturen-/Rohr-Katalog (Druckverlust-Daten, gema_armaturen_api.js)
@@ -935,6 +940,7 @@ Einheitliche Klassen für alle Module:
 Alle 85 Seiten mit `.g-nav` folgen EINEM Kanon; der Test prüft ihn statisch (Markup) + gerendert (Playwright, `CHROME=<chromium> node scripts/nav_uniform_test.mjs`):
 - **Logo**: exakt EINE Markup-Variante (volles GEMA-SVG aus index.html, `height="28"` im `<div class="g-nav-mark">`-Wrapper), href IMMER `index.html` (auch sys_garagist_dashboard — der Rollen-Redirect fängt Garagisten ab). Gerendert wird das Logo global 40px hoch (gema_responsive.css `!important`). Neue Seiten: Logo-Block 1:1 aus index.html kopieren.
 - **Breadcrumb-Labels je Ziel (verbindlich)**: `sb_index.html` ⇒ «Sanitärberechnungen» (nur noch sa_/sb_) · hz_-Module ⇒ `index.html#hei` «Heizung & Wärmeerzeugung» · lt_-Module ⇒ `index.html#lueft` «Lüftung & Klimatisierung» (Feedback 07/2026: Heizungs-/Lüftungs-Kacheln leben auf der Hauptseite, nicht mehr auf sb_index) · `pm_ausschreibung.html` ⇒ «Planung & Management» · `ab_index.html` ⇒ «Ausbildung» · Brandschutz ⇒ `index.html#brand` «Brandschutz & Sprinkler» (es gibt KEIN br_index.html — der frühere Link war tot). Markup: `a.bc-cat` + `span.bc-sep ›` + `span.bc-cur`. Kein redundanter «GEMA»-Crumb (Logo verlinkt bereits index), keine «← …»-Links.
+- **Im Eimer zeigt der Pfad den EIMER (Feedback 05.08.2026, Drift-Guard `scripts/feedback_20260805_1_test.mjs`)**: Wurde das Modul aus einem Workspace-Eimer heraus geöffnet, ersetzt `_eimerPfad()` (gema_auth.js, läuft im DOMContentLoaded nach `_swapLogo`) den Breadcrumb durch **«Eimer-Name › Modul-Name»** — die Übersichtsseite entfällt dabei bewusst; der Eimer-Name ist ein Link zurück (`sys_workspace.html?eimer=<id>`, `_wsDeepLink` öffnet dort genau diesen Eimer) und speichert vor dem Verlassen (`GemaAutoSave.save()`). **KRITISCH — woher der Name kommt**: den Kontext schreibt der WORKSPACE beim Klick auf die Modul-Kachel (`_wsMerkPfad` → `gema_ws_ctx_v1 = {bucketId,name,objektId,userId,ts}`), weil er den Eimer bereits über `bucketSichtbar` geprüft hat. Die Modul-Seite löst NIE selbst eine Eimer-id aus dem (org-übergreifenden) Pool auf — Eimer-Namen sind Projektnamen, das wäre ein Leck. Der Kontext gilt nur, solange er dem eingeloggten Konto gehört UND das Modul auf dem Eimer-Objekt steht (`?objekt=` bzw. aktives Objekt); sonst bleibt der normale Breadcrumb stehen. Bei einem Modul ohne Eimer-Bezug ändert sich nichts.
 - **Buttons**: Feedback IMMER `<button class="gema-feedback-btn no-print" onclick="…GemaFeedback.start()">🔴 Feedback</button>` (auf JEDER Seite, auch Dashboards); Aktions-Buttons `g-nav-btn no-print`. Die METRIKEN (Höhe 34px, Padding, Font 12.5px, Radius 8px; Tablet 30px) erzwingt gema_responsive.css zentral mit `!important` — per-Seite-CSS bestimmt nur noch Farben (`:where()`-Defaults füllen Lücken, `.g-nav-btn.primary` behält Akzente, Feedback-Rot #dc2626 ist zentral fixiert). Keine per-Seite Höhen/Paddings für Nav-Buttons mehr einführen.
 
 ### Hauptmodul-Design (index.html / Übersichtsseiten)
@@ -978,6 +984,119 @@ Framework-freie **iOS/iPadOS-Komponentenschicht** (Variante 1c «Command-first»
 - **Phone ≤640px: Kacheln werden ZEILEN (User-Vorgabe 07/2026, zentral in gema_responsive.css — kein per-Seite-Markup)**: eine schlanke Zeile pro Modul (Icon + Titel + Fav-Stern/Pfeil, ~54px statt ~180px); `.mod-desc`/`.mod-pts`, Badges und Norm-Chips sind per CSS ausgeblendet, bleiben aber im DOM (Suche filtert weiter). Technik: `display:contents` auf den Wrappern (`.mod-card-top`/`.mod-footer` bzw. `.mod-top`), `order` stellt Icon → Titel → Stern → Pfeil sicher; deckt BEIDE Markup-Varianten ab (`.mod-card` auf index/ab_index/pm_ausschreibung, `.mod` + `h3` auf sb_index). Nur der Fav-Stern (`.fav-btn` in `.mod-badges`) und bei `.disabled`-Kacheln der «Bald»-Badge bleiben sichtbar. Drift-Guard: `scripts/mobile_kompakt_test.mjs` (26 Checks inkl. Desktop-Gegenprobe).
 
 ---
+
+### Einheitliche Sektionen & A4-Druckansicht (gema_sektion.js + gema_print.js)
+
+Feedback 05.08.2026 (Sandro), Umbau quer durch alle 47 Berechnungsmodule —
+Drift-Guard `scripts/sektion_druckansicht_test.mjs` (94 Checks).
+
+**Sektionen (`gema_sektion.js`, auf jeder Berechnungsseite eingebunden):**
+- **Einklappbar überall.** Der Helfer findet seine Sektionen selbst über die vier
+  Karten-Muster des Repos (`.g-card`/`.el-card`/`.g-section`/`.card` jeweils mit
+  Kopf + Rumpf) — das Modul muss nichts anmelden. Ein gedrosselter
+  MutationObserver zieht Karten nach, die erst zur Laufzeit entstehen
+  (sb_du_zusammenstellung rendert seine Apparate-Gruppen nach dem Laden).
+- **Der Pfeil ist ein Knopf und steht IMMER ganz rechts** (`order:99` +
+  `margin-left:auto` im Flex-Kopf), also NACH allfälligen Bedienelementen — nur
+  so stehen die Pfeile aller Karten sauber untereinander.
+- **Zugeklappt verschwinden die Kopf-Knöpfe** mit dem Inhalt (sie gehören zum
+  Inhalt, nicht zur Überschrift); der Pfeil selbst bleibt, sonst käme man nie
+  wieder auf.
+- **Sektionsnummern sehen überall gleich aus** (22 px, gleiche Schrift/Form) und
+  tragen die Akzentfarbe des Moduls. Die bestehenden Klassen der Module
+  (`.sp-secnum`, `.el-secnum`, `.de-stepnum`, `.bra-secnum`, `.lu-stepnum`)
+  werden EINGESAMMELT (`.gsek-nr` dazu, Inline-Styles entfernt), nicht ersetzt;
+  führende Kreisziffern ①②③ und «1. » im Titel werden ebenfalls zu Nummern-Chips.
+  Automatische Durchnummerierung nur mit `window.GEMA_SEKTION_NUMMERN = true`.
+- **BEWUSST KOOPERATIV statt ersetzend (KRITISCH).** 19 Module haben bereits eine
+  eigene Fold-Mechanik, an deren Klassennamen Drift-Guards hängen (`dd-foldhd`,
+  `hx-fold-cx`, `de-zu`, `gema_el_fold_v1` …). Der Helfer reisst sie NICHT heraus,
+  sondern (a) hebt den vorhandenen Pfeil ans Kopf-Ende und gibt ihm die
+  einheitliche Optik, (b) markiert jede zugeklappte Sektion zusätzlich mit
+  `gsek-zu` — daran hängen die gemeinsamen Regeln, unabhängig davon, WELCHE
+  Mechanik zugeklappt hat —, (c) installiert eine eigene Mechanik nur dort, wo es
+  noch keine gibt. Damit greift die neue Optik überall und kein bestehender Test
+  bricht.
+- **`istOffen()` darf den EIGENEN Marker nur bei eigenen Sektionen lesen
+  (KRITISCH).** `gsek-zu` wird von `sync()` gesetzt; läse `istOffen()` ihn auch
+  bei fremden Mechaniken, entstünde eine Rückkopplung und die Sektion käme nie
+  wieder auf (genau das liess lt_hx_diagramm zugeklappt hängen). Für fremde
+  Mechaniken wird der Marker vor dem Messen kurz beiseitegelegt.
+- Der Fold-Zustand ist reine **Geräte-UI** (`gema_fold_<seite>_v1`) und gehört NIE
+  in einen AutoSave-Snapshot.
+
+**Druckansicht (`gema_print.js`) — ersetzt `GemaPDF.export` in den Berechnungen:**
+- Der PDF-Knopf öffnet **keinen «Speichern unter»-Dialog** mehr, sondern eine
+  **A4-Vorschau zum Prüfen** (echtes HTML, scharfer und kopierbarer Text statt
+  html2canvas-Screenshot). Darin sitzt der Knopf «🖨 Drucken / Als PDF speichern»
+  — der frühere separate «Drucken»-Knopf ist darin **aufgegangen** und aus allen
+  Modulen entfernt (ein Weg, ein Ergebnis).
+- **Kopf: Modul-Titel, darunter der Eimer-Name** (Workspace-Eimer über das
+  zugeordnete Objekt aufgelöst, sonst der Objektname). Der Fenstertitel trägt
+  beides — der Browser nimmt ihn als **PDF-Dateiname**.
+- **Draussen bleiben** (bewusst): Hero-Kopf samt Norm-Untertitel, Projektleiste
+  (Objekt/Bearbeiter/Datum/SIA-Phase), der «Zugeordnet zu»-Hinweis und sämtliche
+  Knöpfe **inkl. der ✕ zum Löschen** (im Bericht irreführend).
+- **Sektionen mit Werten kommen aufgeklappt, leere erscheinen als Titelzeile mit
+  «— keine Angaben»** — nichts wird stillschweigend weggelassen. Der Fold-Zustand
+  der Bildschirm-Ansicht spielt dafür keine Rolle (`gsek-zu` wird im Klon
+  entfernt); massgebend ist allein `GemaSektion.hatWerte`.
+- **Werte werden VOR dem Klonen auf die Live-Elemente gestempelt** (`data-gp-val`
+  / `-chk` / `-img`) — ein Klon trägt `input.value`, `selectedIndex`, `checked`
+  und Canvas-Inhalte NICHT mit. Danach räumt `entstempeln()` auf.
+- **Das Inline-Script steht am DOKUMENTENDE.** Ein noch ladender Fonts-`<link>`
+  hält den Parser an; ein Script davor würde beim `document.close()` alles
+  Nachfolgende verschlucken (Kanon «Druckfenster beim ERSTEN Öffnen vollständig»).
+  Das A4-Blatt baut `gema_print.js` selbst (`.gp-blatt`) statt über
+  `GemaPrintA4.apply` — die Berechnungsmodule laden jenen Helfer nicht.
+
+**`gema_pdf.js` (die ~30 übrigen Module) mitgezogen:**
+- Der **Norm-Untertitel mit 📖 ist entfallen** — jsPDF-Standardfonts sind latin1,
+  das Emoji kam als **«Ø=ÜÖ»** heraus; die Norm steht ohnehin in der Fusszeile.
+  Statt dessen steht dort jetzt der **Eimer-Name**.
+- Das **Logo behält sein Seitenverhältnis** (`doc.getImageProperties`, Höhe fix,
+  Breite folgt dem Bild, Deckel 34 mm). Die frühere feste 16×9.6-mm-Box verzerrte
+  jedes Logo, das nicht zufällig 5:3 war.
+- Hero, Projektleiste und ✕-Knöpfe stehen neu in `hideSelectors`.
+
+**«ll zu dick» — opsz-Kanon jetzt auch in der App.** DM Sans ist eine Variable
+Font; ohne Vorgabe nimmt der Browser die Display-Optische-Grösse und schmale
+Buchstaben wirken fett. `gema_responsive.css` setzt darum global
+`body{font-optical-sizing:auto;font-variation-settings:"opsz" 14}` — bisher stand
+der Kanon nur in den Druckfenstern (`scripts/pdf_opsz_test.mjs`), griff also nicht
+für den html2canvas-Weg, der die LIVE-Seite abfotografiert.
+
+### Snip-Ausschnitt wird GEMESSEN, nicht angenommen (gema_feedback.js)
+
+Bugreport 05.08.2026: «bei mehreren Modulen wird der falsche Ausschnitt
+generiert». Der Zuschnitt rechnete bisher **Bildpunkt = Viewport-Punkt × scale**.
+Diese Annahme gilt nur, solange html2canvas den erfassten Bereich exakt so legt
+und exakt so skaliert, wie angefragt — und das tut es nicht zuverlässig: `body`
+trägt global `position:relative` + `overflow-x:clip` (gema_responsive.css), Module
+bringen sticky/fixed Leisten mit, und der Geräte-Pixelratio geht je nach Pfad
+zusätzlich ein. Weicht die Lage ab, schneidet der Snip daneben — ohne dass es
+jemand merkt.
+
+**Jetzt wird gemessen**: vor dem Erfassen legt `_calAn()` zwei 4-px-Marken
+(Magenta) an bekannte Viewport-Punkte — links bei x = 0, rechts bei
+`clientWidth − 4` (bewusst `clientWidth`, ein fixes Element bei `innerWidth − 4`
+läge teils unter dem Scrollbalken). `_calMessen()` sucht sie im obersten Band des
+Bildes und liefert daraus **Versatz UND tatsächliche Skalierung**; der Zuschnitt
+rechnet damit statt mit der Annahme, `_calWeg()` malt die Marken wieder heraus,
+und `_calAus()` entfernt sie in JEDEM Fall (auch im Fehlerpfad). Werden sie nicht
+gefunden (getaintetes Canvas, Erfassung fehlgeschlagen), gilt unverändert der
+alte Weg — **nie ein Abbruch, nur nie mehr stillschweigend falsch**.
+
+Drift-Guard `scripts/feedback_snip_kalibrierung_test.mjs` (17 Checks): misst
+geometrisch mit einem **gestubbten html2canvas**, das absichtlich daneben liegt
+(Versatz um genau einen Testklotz bzw. Versatz + andere Skalierung). Gegenprobe
+verifiziert — ohne Kalibrierung liefert der Snip den NACHBARN statt des Ziels.
+Der Test läuft ohne die CDN-Bibliothek. Er prüft ausserdem, dass **jedes Modul mit
+Feedback-Knopf `GemaFeedback.init` ruft** (ohne init injiziert GemaFeedback sein
+Overlay nie und der Knopf tut nichts) — dabei nachgezogen: if_arbeitskleider,
+if_trocknung, pm_bestellungen, pm_planablage, pm_revisionsunterlagen,
+sb_regenwasser_luzern, sys_garagist_dashboard.
+
 
 ## Code-Patterns
 
@@ -3185,6 +3304,8 @@ Eimer liegen **per-Record in der Cloud** (moduleKey `workspace`, prefix `ws:` �
 - **Eimer von Hand bei einer Klasse einordnen (Feedback 05.08.2026 «Übungsumgebung / Lernraum soll sich bei den jeweiligen Klassen anfügen»)**: Der `subOf`-Mechanismus ist nicht mehr den Auto-Eimern vorbehalten — das Kontextmenü jedes EIGENEN Eimers (nicht `autoTyp`) bietet «Bei einer Klasse einordnen …» (`_wsElternKandidaten` = sichtbare Klassen-/Org-Eimer, ohne sich selbst und ohne die eigenen Kinder → `_wsSubOfPick`/`_wsSubOfSet`) und «Einordnung aufheben» (`_wsSubOfClear`). **Ein PERSÖNLICHER Eimer, der unter einem sichtbaren Org-Eimer hängt, wird in der Org-Sektion gerendert** (`renderSidebar` verschiebt ihn vor `_wsOrder`) und erscheint NICHT doppelt in der persönlichen Liste — sonst stünde die Übungsumgebung an zwei Orten. `_wsOrder` ist dafür verallgemeinert: erst die hervorgehobenen Eimer je mit ihren Kindern, dann die übrigen je mit ihren Kindern, verwaiste Kinder zuletzt normal eingereiht (nie verschluckt).
 - **Zeitangabe der Aktivitäten (Feedback 05.08.2026 «heisst immer ‹gerade eben›, das stimmt nicht»)**: Der Aktivitäts-Eintrag speicherte den TEXT «gerade eben» — er blieb damit für immer stehen. Neu trägt jeder Eintrag einen **ISO-Zeitstempel** (`_wsAct(who,text)` → `{who,text,ts}`), und `_wsWann(a)` rechnet die Anzeige beim Rendern: < 1 Min. «gerade eben» · < 60 Min. «vor N Min. · heute HH:MM» · heute «heute, HH:MM» · gestern «gestern, HH:MM» · diese Woche «Mo, TT.MM.JJJJ, HH:MM» · sonst «TT.MM.JJJJ, HH:MM» — der **Tag steht also immer dabei**. **Bestandsschutz**: ein Alt-Eintrag ohne `ts` behält seinen gespeicherten Text unverändert (nie eine Zeit erfinden). Neue Aktivitäts-Einträge IMMER über `_wsAct` anlegen, nie `{when:'…'}` von Hand.
 - **Mitgliederübersicht anklickbar (Feedback 05.08.2026)**: Der Mitglieder-Chip in der Kopfzeile ist ein Knopf (`.ws-meta-chip--btn` → `window._wsMitglieder`) und öffnet die Liste mit Avatar, Name, Rolle und Herkunft (Team der Firma / eingeladen / Beteiligte) statt nur eine Zahl zu zeigen.
+- **Leerer Eimer: drei Einstiege nebeneinander (Feedback 05.08.2026, Drift-Guard `scripts/feedback_20260805_1_test.mjs` 64 Checks)**: Statt der einen grossen «Erstes Modul hinzufügen»-Fläche stehen **«Modul hinzufügen» (links) · «Vorlagen» · «Zuletzt verwendet»** in einer Reihe (`_wsHeroAdd`/`_wsHeroVorlagen`/`_wsHeroZuletzt`, `.ws-mod-hero-row`). Die Vorlagen-Kachel setzt mit einem Klick alle Module einer Vorlage (`_wsApplyTemplate`), «Zuletzt verwendet» listet bis zu **5** Module aus **`GemaRecent.list()`** (dieselbe Quelle wie der 🕒-Knopf der Navigation), gefiltert auf Workspace-Module, Berechtigung (`_wsModAllowed`) und noch nicht im Eimer. Beide Zusatz-Kacheln erklären ihren leeren Zustand, statt leer zu bleiben. — **Modul-Picker mit Mehrfachauswahl**: ein Klick MARKIERT (`_wsPickToggle`, `.ws-modpicker-item.sel` + `.ws-pick-box`), der Knopf unten fügt alles Markierte auf einmal hinzu (`_wsPickCommit`, prüft `_wsModAllowed` erneut — fail-closed). **`_wsPickModule(id)` bleibt als Einzel-API** (native Handy-Ansicht, Zuletzt-verwendet-Kachel, Drift-Guards). — **Einladen bietet Dozenten UND Studierende** der eigenen Klassen an (`_wsKlassenKandidaten` liefert beide Rollen, `_wsDozKandidaten` ist nur noch die Dozenten-Sicht darauf; `_wsKlasseAdd(userId,rolle)` trägt ein, `_wsDozentAdd` ist der Wrapper). Deaktivierte Konten werden nie angeboten. — **Empty-State: alle vier Eimer-Arten nebeneinander** (`repeat(4,minmax(0,1fr))`; `minmax(0,1fr)` statt `1fr`, sonst wächst eine Spalte auf die min-content-Breite ihres längsten Wortes).
+- **Offene Tabs gehören dem BENUTZER (Bugreport 05.08.2026 «nach dem Konto-Wechsel sehe ich den offenen Eimer des vorherigen Nutzers», Drift-Guard `scripts/workspace_tab_konto_test.mjs` 22 Checks)**: Zwei eigenständige Fehler. (1) Der Tab-Zustand lag unter dem festen sessionStorage-Schlüssel `ws_tabs` — **ohne jeden Benutzer-Bezug**; nach einem Konto-Wechsel im selben Browser-Tab (Logout/Login oder Admin-Benutzerwechsel) stellte der neue Nutzer die Tabs des vorherigen wieder her. Jetzt `_tabsKey()` = `ws_tabs_<userId>`, und `_tabsAltWeg()` räumt den alten ungescopten Schlüssel einmalig ab (Tab-Zustand ist flüchtige Geräte-UI — da geht nichts verloren). (2) **`activeTab`/`openTabs` wurden über den GANZEN Pool aufgelöst**: `buckets` hält bewusst den cross-org-Pool, `_canSeeBucket` filtert sonst an jeder Render-Stelle — die 30 `buckets.find(…id===activeTab)`-Stellen taten das NICHT, der fremde Eimer kam damit nicht nur als Beschriftung zurück, sondern **mit Inhalt**. Alle laufen jetzt über **`bucketSichtbar(id)`** (Pool-Lookup + `_canSeeBucket`), ebenso die Tab-Leiste (`var b=bucketSichtbar(id);if(!b)return '';`) und `loadTabs()` (filtert die wiederhergestellte Liste). **Die Provisionierungs-Funktionen suchen bewusst WEITER ungefiltert** (`_wsKlassenProvision`/`_wsAutoRollenEimer`/`_wsFixeEimer` legen Eimer an, bevor der Nutzer darin steht). (3) Dazu sichert **jede Tab-Änderung** den Zustand (`saveTabs()` in `_wsOpen`/`_wsCloseTab`/`_wsActivateTab`) — vorher hing das allein am `save`-Wrapper, ein blosses Öffnen überlebte den Reload nicht. **Regel: ein neuer `activeTab`-Lookup läuft über `bucketSichtbar`, nie über `buckets.find`.**
 - **Eimer-Typ «Lerngruppe»** (`TYPES.lerngruppe`, violett, Icon `users`, `ownerType:'choose'`): eine von Studierenden selbst gegründete Arbeitsgruppe. **Zugriff ist von Anfang an eng** — `_wsNatCreate` setzt bei einer Org-Lerngruppe `accessControl.nurUserIds:[eigene userId]`; wer eingeladen wird (`_wsAddOrgUser`, `_wsDozentAdd`) kommt dort dazu. Ohne diese Einschränkung wäre die Lerngruppe für die ganze Schul-Org sichtbar. **Dozent einladen** (`_wsDozKandidaten` = Dozenten der eigenen Klassen, `_wsDozentEinladen`/`_wsDozentAdd`): trägt ihn als Beteiligten mit Rolle «Dozent» ein, schaltet ihn im Zugriff frei und meldet ihm `schule_lerngruppe_einladung`. **Feedback direkt an der Berechnung** (`_wsModFeedback`/`_wsFbSenden`): jede Modul-Kachel hat einen Feedback-Knopf mit Zähler (`_wsFbChip`/`_wsFbListe`); der Text liegt **im Eimer-Record** (`b.modFeedback[modId] = [{von,vonName,rolle,text,ts}]`) — damit gilt für das Feedback automatisch dieselbe Zugriffsregel wie für den Eimer, ohne zweiten Pool. Benachrichtigt werden alle Beteiligten + der Ersteller (`schule_lerngruppe_feedback`, nie an sich selbst).
 
 ### Features
@@ -3659,10 +3780,11 @@ UI-Anbindung:
 | `gema_recent.js` | Tracking + Anzeige zuletzt genutzter Module. `PAGE_LABELS` = vollständige Map ALLER Seiten (aus `<title>` generiert — bei neuen Seiten ergänzen!); Public API `window.GemaRecent {list, label, currentKey}` fürs Mobile-Menü |
 | `gema_responsive.css` | Globale Responsive-/Layout-Regeln (Mobile + Tablet) |
 | `gema_schule_api.js` | **Schul-Modul-API** (`window.GemaSchule`): 6 per-Record-Pools (Klassen/Lernmittel/**Lernmittel-Notizen**/Aufgaben/Prüfungen/Lösungen, moduleKey `schule`; die Notizen `smatan:` tragen Markierungen pro Lernmittel UND Person — `notizId/meineNotiz/notizenFor/saveNotiz/deleteNotiz` + die reinen LESE-Regeln `notizSichtbar`/`notizSeitenBereich`) + Abgaben-Handling (eigener Offline-Spiegel), Engine im `/*ENGINE-START*/`-Block (Note CH-Formel, seeded Shuffle, Zeitfenster inkl. Verlängerungen, MC-/Zahlenfeld-Autokorrektur, **Lösungs-Split** `schuleSplitPruefung`/`mergePruefung`), Studenten-Gating-Cache (`refreshStudentMods`/`addExamTools` → `gema_student_mods_v1`), Datei-Upload (Bilder/PDF → GemaStorage `schule/<orgId>/…`), Klassen-Notifys, Erinnerungs-Scan. Konsumenten: ab_klassen, ab_pruefungen, ab_pruefung_live. |
+| `gema_sektion.js` | **Einheitliche ein-/ausklappbare Sektionen für ALLE Module** (`GemaSektion`). Findet die Karten selbst (`.g-card`/`.el-card`/`.g-section`/`.card` mit Kopf + Rumpf), gibt jeder einen deutlichen Pfeil-Knopf **ganz rechts im Kopf** (nach allfälligen Bedienelementen — nur so stehen die Pfeile untereinander), blendet zugeklappt die **Kopf-Knöpfe** mit dem Inhalt aus und vereinheitlicht die **Sektionsnummern** (Grösse/Schrift/Form gleich, Farbe = `--accent` des Moduls). API: `init/sektionen/hatWerte/setzeAlle/zustand/wiederherstellen/umschalten/istOffen/sync`. Siehe «Einheitliche Sektionen & A4-Druckansicht». |
+| `gema_print.js` | **A4-Druckansicht statt Screenshot-PDF** (`GemaPrint.open({title})`). Löst `GemaPDF.export` in den 47 Berechnungsmodulen ab: echter Text statt Bild, Vorschau zum Prüfen, darin der Knopf «🖨 Drucken / Als PDF speichern». Kopf = Modul-Titel + **Eimer-Name**; Hero, Norm-Untertitel, Projektleiste und alle Knöpfe (inkl. ✕) bleiben draussen; Sektionen mit Werten kommen offen, leere als Titelzeile mit «— keine Angaben». Siehe «Einheitliche Sektionen & A4-Druckansicht». |
 | `gema_scroll.js` | Scroll-Position-Restore + globaler Body-Scroll-Lock fuer Modals (`GemaScroll.lock/unlock`, Auto-Hook auf `.modal-bg`). **Zwei Sperr-Verfahren (KRITISCH, Drift-Guard `scripts/scroll_stabilitaet_test.mjs`)**: ausserhalb von iOS `overflow-y:hidden` auf **`<html>`** (Klasse `gema-modal-soft`) — die Scroll-Position wird gar nicht angefasst, beim Oeffnen UND Schliessen bewegt sich nichts; die Klasse MUSS auf `<html>` liegen, weil html/body `overflow-x:clip` tragen und body-overflow damit nicht mehr auf den Viewport propagiert. Nur auf **iOS** (dort ignoriert die Engine overflow auf dem Scroll-Container) weiterhin `position:fixed` + negativer `top` — der noetige Ruecksprung laeuft ueber `_instantScrollTo()`, das `scroll-behavior` kurz auf `auto` setzt: mehrere Module haben `html{scroll-behavior:smooth}` (if_werkzeug, if_fahrzeug, ab_*, …), ein blosses `scrollTo()` wurde dadurch ANIMIERT und man sah die Seite nach dem Schliessen sichtbar von oben zurueckfahren. Im sanften Modus wird zusaetzlich die Scrollbalken-Breite als `padding-right` ausgeglichen (sonst rutscht der Inhalt beim Sperren seitlich). **Neue Modals brauchen nichts zu tun** — der Auto-Hook greift. |
 | `gema_storage.js` | **Bild-Upload in Supabase Storage** (Bucket `gema-fotos`). `GemaStorage.uploadDataUrl(dataUrl, pathHint)` laedt ein Base64-Bild als Datei hoch, verifiziert die oeffentliche Erreichbarkeit (Image-Load) und liefert `{url, path}`; im Record steht dann nur die URL statt Base64 → kleine Records, keine Request-Groessen-/localStorage-Quota-Probleme. Reject bei fehlendem/falsch konfiguriertem Bucket → Aufrufer faellt auf Base64 zurueck. **Loeschen: `pathFromUrl`/`collectFiles`/`confirmDelete`/`deleteFiles`/`zipDownload`** — siehe «Storage-Aufraeumen beim Loeschen». **Setup (Dashboard, einmalig):** Bucket `gema-fotos` als Public anlegen + INSERT-Policy fuer Rolle `anon`. **Akzeptiert `data:image/*` UND `data:application/pdf`** (PDF-Verifikation via HEAD/Range-fetch statt Image-Load; genutzt fuer Lieferanten-Offerten-PDFs, Pfad `offerten/<lieferantId>`). Eingesetzt in `sp_dachbericht.html`, `sd_schadensbericht.html`, `sys_lieferant_dashboard.html` (Offerten-PDF) und `pm_abnahme.html` (Mangel-Fotos + Plan-Pin-Fotos via `_abUploadFotosToStorage`; Plan-Dateien/PDFs werden NICHT ausgelagert — Helper akzeptiert nur Bilder + Canvas/pdf.js-Kopplung). Bilder werden beim Save nach Storage ausgelagert; Bild-Quelle via `url || dataUrl`, jsPDF-Export rehydriert `url`→DataURL. **`GemaStorage.uploadFile(file, pathHint, opts)` (08/2026) laedt eine File/Blob DIREKT hoch — ohne den Base64-Umweg** und ist der Weg fuer alles ab ein paar MB: `uploadDataUrl` liest erst eine Data-URL ein (+33 %), dekodiert sie mit `atob` in einen String und kopiert sie Byte fuer Byte in ein Uint8Array — ein 7-MB-PDF belegt so kurzzeitig gegen 30 MB. **`opts.onProgress(pct, geladen, total)` gibt es nur hier**: beide Wege laufen seither ueber `_uploadBlob` mit **XHR statt fetch**, weil fetch keinen Upload-Fortschritt kennt (`opts.maxMb` Default 12, `opts.onXhr` fuer Abbruch; HTTP 413 wird als Bucket-Limit im Klartext gemeldet statt als nackter Code). |
 | `gema_undo.js` | Undo/Redo |
-| `gema_varianten.js` | Varianten-Vergleich (Berechnungen) |
 | `gema_vergleich.js` | Produkt-/Offert-Vergleich |
 | `gema_wasserdaten.js` | Wasserhärte/Trinkwasserdaten |
 | `gema_zefix.js` | **Handelsregister-Anbindung (LINDAS/Zefix)**: `GemaZefix.attach(firmaInput,{onSelect,onClear})` hängt Vorschläge aus dem Schweizer Handelsregister an ein Firma-Feld; `search(name)`/`detail(uid)`/`debug(opts)` als reine API. Abruf über den JWT-gegateten Proxy `netlify/functions/zefix.js` (`/api/zefix`) — Standardquelle ist **LINDAS SPARQL (Open Data, ohne Zugangsdaten)**, Zefix REST als Fallback. Ohne erreichbare Quelle klarer Hinweis statt stiller Fehler — Feld bleibt tippbar. Siehe «Handelsregister-Anbindung (LINDAS/Zefix)» |

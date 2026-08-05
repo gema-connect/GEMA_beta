@@ -454,6 +454,15 @@ input,select,button,textarea{font-family:var(--sans)}
         <label>Unternehmen</label>
         <select id="u_orgId"></select>
       </div>
+      <!-- Lieferanten-Zuordnung: nur GEMA-Admin, nur bei Lieferanten-Rollen.
+           Der Lieferanten-Pool ist ORG-ÜBERGREIFEND — deshalb bewusst kein
+           Feld für den Org-Admin (er könnte sonst einen Mitarbeiter mit dem
+           Profil einer FREMDEN Firma verknüpfen). -->
+      <div class="fg" id="u_lief_wrap" style="display:none">
+        <label>Lieferanten-Firma (Produktkatalog)</label>
+        <select id="u_lieferantId"></select>
+        <div style="font-size:10.5px;color:var(--mut);margin-top:5px;line-height:1.45" id="u_lief_hint"></div>
+      </div>
       <div class="fg">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
           <input type="checkbox" id="u_active" checked style="width:16px;height:16px">
@@ -693,6 +702,77 @@ function renderUsers(){
   }).join('');
 }
 
+// ── Lieferanten-Zuordnung (user.lieferantId) ─────────────────────────
+// Die Verknuepfung Konto ↔ Lieferanten-Datensatz laeuft sonst NUR ueber
+// eine Heuristik im Dashboard (E-Mail → Org-ID → Firma → Org-Name).
+// Trifft keine davon, legt es ein LEERES Profil an und schreibt dessen
+// Id fest in user.lieferantId — die Zuordnung hat danach Vorrang und
+// verdeckt den echten Datensatz samt Produkten dauerhaft. Hier kann der
+// GEMA-Admin sie explizit setzen bzw. korrigieren.
+//
+// BEWUSST nur der GEMA-Admin: der Lieferanten-Pool ist org-uebergreifend
+// (Seed-Records tragen org_default). Ein Org-Admin koennte seinen
+// Mitarbeiter sonst mit dem Profil eines Mitbewerbers verknuepfen und
+// haette Vollzugriff auf dessen Produkte, Preise und Offertanfragen.
+var _liefListe=[], _liefGeladen=false, _liefSelWahl='';
+function _istLiefRolle(rid){
+  return typeof rid==='string' && (rid.indexOf('role_lieferant')===0 || rid.indexOf('role_produktlieferant')===0);
+}
+function _liefLaden(){
+  if(!_isSuper) return Promise.resolve([]);
+  // Sofort aus dem lokalen Cache rendern, danach frisch aus der Cloud
+  // (Muster stale-while-revalidate). Bewusst NUR die Lieferanten-Rows:
+  // gema_produktkatalog_api.js wuerde zusaetzlich Produkte und
+  // Offertanfragen ziehen — das braucht die Benutzer-Verwaltung nicht.
+  try{
+    var c=(window.GemaSync&&GemaSync.getCached)?GemaSync.getCached('gema_pk_lief_pool_v1'):null;
+    if(Array.isArray(c)&&c.length) _liefListe=c;
+  }catch(e){}
+  if(!window.GemaSync||!GemaSync.loadCollection){ _liefGeladen=true; return Promise.resolve(_liefListe); }
+  return GemaSync.loadCollection('produktkatalog','lieferant:').then(function(rows){
+    var arr=(rows||[]).map(function(r){return r&&r.data;}).filter(function(l){return l&&l.id;});
+    if(arr.length) _liefListe=arr;
+    _liefGeladen=true;
+    return _liefListe;
+  }).catch(function(){ _liefGeladen=true; return _liefListe; });
+}
+function _renderUserLiefSelect(){
+  var wrap=document.getElementById('u_lief_wrap'), sel=document.getElementById('u_lieferantId');
+  if(!wrap||!sel) return;
+  var checked=Array.from(document.querySelectorAll('#u_roles_checkboxes input:checked')).map(function(cb){return cb.value;});
+  var istLief=checked.some(_istLiefRolle);
+  var cur=_liefSelWahl||'';
+  // Sichtbar fuer den GEMA-Admin, sobald eine Lieferanten-Rolle angehakt
+  // ist ODER bereits eine Zuordnung besteht (sonst waere eine bestehende
+  // Verknuepfung nach dem Entfernen der Rolle nicht mehr loesbar).
+  if(!_isSuper||(!istLief&&!cur)){ wrap.style.display='none'; return; }
+  wrap.style.display='';
+  var liste=_liefListe.slice().sort(function(a,b){
+    return String(a.firma||a.id).localeCompare(String(b.firma||b.id),'de');
+  });
+  var opts=['<option value="">— keine Zuordnung (automatisch suchen) —</option>'], gefunden=false;
+  liste.forEach(function(l){
+    if(l.id===cur) gefunden=true;
+    var ort=[l.plz,l.ort].filter(Boolean).join(' ');
+    opts.push('<option value="'+esc(l.id)+'"'+(l.id===cur?' selected':'')+'>'+
+      esc(l.firma||l.id)+(ort?' · '+esc(ort):'')+'</option>');
+  });
+  // Eine gesetzte, aber (noch) nicht auffindbare Zuordnung NIE stillschweigend
+  // verlieren — gleiches Muster wie die ⚠-Rollen weiter oben.
+  if(cur&&!gefunden){
+    opts.splice(1,0,'<option value="'+esc(cur)+'" selected>⚠ '+esc(cur)+
+      (_liefGeladen?' (Datensatz nicht gefunden)':' (wird geladen …)')+'</option>');
+  }
+  sel.innerHTML=opts.join('');
+  sel.onchange=function(){ _liefSelWahl=sel.value||''; _renderUserLiefSelect(); };
+  var hint=document.getElementById('u_lief_hint');
+  if(hint){
+    hint.innerHTML=cur
+      ? 'Dieses Konto sieht im Lieferanten-Dashboard genau die Produkte dieser Firma.'
+      : 'Ohne Zuordnung sucht das Dashboard selbst über E-Mail und Firmenname. Findet es nichts, legt es ein <strong>leeres</strong> Profil an — die echten Produkte bleiben dann unsichtbar.';
+  }
+}
+
 function openUserModal(uid){
   // Org-Admin darf nur User der eigenen Org bearbeiten.
   if(uid && !_isSuper){
@@ -726,7 +806,17 @@ function openUserModal(uid){
   // (Lieferanten-Firma → nur Lieferanten-Rollen, Planer-Buero → keine
   // Lieferanten-Rollen). Re-Render bei Org-Wechsel im Modal.
   _renderUserRoleCheckboxes(u);
-  orgSel.onchange=function(){ _renderUserRoleCheckboxes(u); };
+  orgSel.onchange=function(){ _renderUserRoleCheckboxes(u); _renderUserLiefSelect(); };
+  // Lieferanten-Zuordnung: die Wahl lebt in _liefSelWahl, damit sie ein
+  // Neu-Rendern (Rollen-Wechsel, Cloud-Nachladen) ueberlebt.
+  _liefSelWahl=(u&&u.lieferantId)||'';
+  _renderUserLiefSelect();
+  var rolesBox=document.getElementById('u_roles_checkboxes');
+  if(rolesBox) rolesBox.onchange=function(){ _renderUserLiefSelect(); };
+  _liefLaden().then(function(){
+    // nur nachzeichnen, wenn noch derselbe Benutzer offen ist
+    if((document.getElementById('u_id')||{}).value===(uid||'')) _renderUserLiefSelect();
+  });
   openModal('userModal');
 }
 
@@ -808,9 +898,12 @@ function saveUser(){
       users[idx].roleIds=roleIds;
       users[idx].orgId=orgId;
       if(pw) users[idx].password=GemaAuth.hash(pw);
+      _liefIdSetzen(users[idx]);
     }
   } else {
-    users.push({id:'u_'+Date.now(),username:username,name:name||username,password:GemaAuth.hash(pw),roleIds:roleIds,active:active,orgId:orgId,profile:{email:username,telefon:'',sprache:'de',benachrichtigungen:true,einheiten:'metrisch'},createdAt:new Date().toISOString()});
+    var neu={id:'u_'+Date.now(),username:username,name:name||username,password:GemaAuth.hash(pw),roleIds:roleIds,active:active,orgId:orgId,profile:{email:username,telefon:'',sprache:'de',benachrichtigungen:true,einheiten:'metrisch'},createdAt:new Date().toISOString()};
+    _liefIdSetzen(neu);
+    users.push(neu);
   }
 
   // KRITISCH: erst nach der Server-Antwort «gespeichert» melden. Der Save
@@ -832,6 +925,17 @@ function saveUser(){
     renderUsers();
     toast('✓ Benutzer gespeichert');
   });
+}
+// Lieferanten-Zuordnung uebernehmen. Ist das Feld gar nicht gerendert
+// (kein GEMA-Admin, keine Lieferanten-Rolle und keine bestehende
+// Zuordnung), bleibt ein vorhandener Wert UNANGETASTET — nur ein bewusst
+// auf «keine Zuordnung» gestelltes Feld loescht ihn.
+function _liefIdSetzen(user){
+  if(!_isSuper||!user) return;
+  var wrap=document.getElementById('u_lief_wrap');
+  if(!wrap||wrap.style.display==='none') return;
+  var lid=((document.getElementById('u_lieferantId')||{}).value||'').trim();
+  if(lid) user.lieferantId=lid; else delete user.lieferantId;
 }
 /* GEMA Card: Firmenfelder der Kontaktkarte leeren (Konzept §6.8).
    Best-effort und bewusst fire-and-forget — schlaegt es fehl, darf das
@@ -1486,7 +1590,11 @@ function toast(msg){
 }
 
 // ── UTILS ─────────────────────────────────────────────────────────────
-function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+// Voll-Escaper (&<>"') — Werte landen auch in Attributen (option value,
+// title). Ein Escaper, der Anfuehrungszeichen auslaesst, bricht dort aus.
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+});}
 
 // ── CLOUD-RECOVERY ───────────────────────────────────────────────────
 // Zeigt eine Notfall-Karte oben auf der Seite, wenn der lokale

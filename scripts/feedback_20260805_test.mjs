@@ -32,11 +32,16 @@ const lies = f => readFileSync(join(ROOT, f), 'utf8');
 // ══════════════════════════════════════════════════════════════════════
 console.log('■ A: Statische Verdrahtung');
 {
-  // (1) Jedes Modul hat seinen EIGENEN PDF-Titel (Copy-Paste-Fehler)
+  // (1) Jedes Modul hat seinen EIGENEN PDF-Titel (Copy-Paste-Fehler).
+  //     Seit dem Umbau auf die A4-Druckansicht (Feedback 05.08.2026, Teil 2)
+  //     steht der Titel im GemaPrint.open-Aufruf statt in GemaPDF.export —
+  //     die Anforderung ist unverändert: der Titel wird zum Fenstertitel und
+  //     damit zum PDF-Dateinamen, er darf sich zwischen Modulen nie doppeln.
   const titel = {};
   ['lt_hx_diagramm', 'hz_waermegruppen', 'sb_druckerhoehung', 'sb_fluessiggas',
    'hz_heizlast', 'hz_ausdehnungsgefaess', 'sb_druckanstieg'].forEach(f => {
-    const m = /GemaPDF\.export\(\{title:'([^']*)'/.exec(lies(f + '.html'));
+    const src = lies(f + '.html');
+    const m = /Gema(?:Print\.open|PDF\.export)\(\{\s*title:'([^']*)'/.exec(src);
     titel[f] = m ? m[1] : null;
   });
   ok(Object.values(titel).every(Boolean), 'alle 7 Module haben einen PDF-Titel', titel);

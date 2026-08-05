@@ -1453,7 +1453,55 @@
     if(inner) inner.appendChild(badge);
   }
 
-  function _esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+  function _esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+
+  /* ── Eimer-Pfad in der Navigation ──────────────────────────────────
+     Feedback 05.08.2026: «wenn ich im Eimer bin, soll es den Pfad aus dem
+     Eimer anzeigen — ‹Eimer-Name› › ‹Modul-Name›. Übersichtsseiten sind
+     nicht einzublenden. Pfad ist klickbar und das Modul speichert
+     automatisch.»
+
+     KRITISCH — woher der Eimer-Name kommt: den Kontext schreibt der
+     WORKSPACE beim Klick auf die Modul-Kachel (`gema_ws_ctx_v1`), denn
+     dort ist der Eimer bereits auf Sichtbarkeit geprüft. Die Modul-Seite
+     löst NIE selbst eine Eimer-id aus der URL im (org-übergreifenden)
+     Pool auf — Eimer-Namen sind Projektnamen, das wäre ein Leck.
+     Der Kontext gilt nur, solange er dem eingeloggten Konto gehört UND
+     das Modul auf dem Eimer-Objekt steht; sonst bleibt der normale
+     Breadcrumb stehen. */
+  function _aktivesObjekt(){
+    try{
+      var q=new URLSearchParams(location.search).get('objekt');
+      if(q) return q;
+    }catch(e){}
+    try{ var a=localStorage.getItem('gema_active_objekt_v1'); if(a) return a; }catch(e){}
+    try{
+      var d=JSON.parse(localStorage.getItem('gema_objekte_v1')||'{}');
+      if(d&&d.activeObjektId) return d.activeObjektId;
+    }catch(e){}
+    return '';
+  }
+  function _eimerPfad(){
+    try{
+      var bc=document.querySelector('.g-nav-bc'); if(!bc) return;
+      var cur=bc.querySelector('.bc-cur'); if(!cur) return;
+      var ctx=null;
+      try{ ctx=JSON.parse(localStorage.getItem('gema_ws_ctx_v1')||'null'); }catch(e){}
+      if(!ctx||!ctx.bucketId||!ctx.name||!ctx.objektId) return;
+      var s=_getSession();
+      if(ctx.userId&&(!s||ctx.userId!==s.userId)) return;   // fremdes Konto
+      if(_aktivesObjekt()!==ctx.objektId) return;           // anderes Projekt offen
+      var modName=cur.textContent||'';
+      bc.innerHTML='<a class="bc-cat bc-eimer" href="sys_workspace.html?eimer='+encodeURIComponent(ctx.bucketId)+'" title="Zurück in den Eimer">'
+        +_esc(ctx.name)+'</a><span class="bc-sep">›</span><span class="bc-cur">'+_esc(modName)+'</span>';
+      var a=bc.querySelector('.bc-eimer');
+      // Vor dem Verlassen sichern — AutoSave läuft sonst erst nach seiner
+      // Verzögerung (Muster: der pagehide-Flush deckt den Rest ab).
+      if(a) a.addEventListener('click',function(){
+        try{ if(w.GemaAutoSave&&w.GemaAutoSave.save) w.GemaAutoSave.save(); }catch(e){}
+      });
+    }catch(e){}
+  }
   function _unblock(){var s=document.getElementById('_gaBlock');if(s)s.remove();}
   function _redirectLogin(){_unblock();location.href='sys_login.html?r='+encodeURIComponent(location.href);}
 
@@ -1720,6 +1768,7 @@
               }
               _injectBadge(user,roles,userOrg);
               _swapLogo(userOrg);
+              _eimerPfad();
               _autoFillBearbeiter(user);
               _enhanceObjektDropdown();
             });

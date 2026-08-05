@@ -707,7 +707,6 @@ body.rk-printing.rk-has-print .rk-print{display:block}
 <script src="gema_db.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
 <script src="gema_objekte_api.js"></script>
-<script src="gema_varianten.js"></script>
 <script src="gema_pdf.js"></script>
 <script src="gema_autosave.js"></script>
 <script src="gema_adresse.js"></script>
@@ -725,8 +724,7 @@ body.rk-printing.rk-has-print .rk-print{display:block}
       <span class="bc-cur">Niederschlagsanfall</span>
     </div>
     <div class="g-nav-right">
-      <button class="g-nav-btn no-print" onclick="GemaPDF.export({title:'Niederschlagsanfall',color:'#2563eb'})">📄 PDF</button>
-      <button class="g-nav-btn no-print" onclick="window.print()">🖨 Drucken</button>
+      <button class="g-nav-btn no-print" onclick="GemaPrint.open({title:'Niederschlagsanfall',color:'#2563eb'})">📄 PDF</button>
       <button class="gema-feedback-btn no-print" onclick="GemaFeedback.start()">🔴 Feedback</button>
       <button class="g-nav-btn no-print" id="btnAdminData" style="display:none" onclick="openAdminData()">⚙ Stammdaten</button>
     </div>
@@ -3352,20 +3350,26 @@ function rkPrintZoom(bb, maxW, maxH) {
     rkPrintSync();
   });
 
-  // GemaPDF (html2canvas wertet @media print nicht aus): Export wrappen —
-  // während des Exports statisches Bild zeigen, Live-Mini ausblenden.
+  // Druckansicht (GemaPrint klont den LIVE-DOM): während des Klonens das
+  // statische Karten-Bild zeigen und die Live-Mini-Karte ausblenden — die
+  // Leaflet-Kacheln liegen in eigenen <div>, ein Klon davon bliebe leer.
+  // gema_print.js lädt erst am Dateiende; darum verzögert wrappen.
   (function(){
-    if(!(window.GemaPDF&&GemaPDF.export)) return;
-    var orig=GemaPDF.export;
-    GemaPDF.export=function(opts){
-      document.body.classList.add('rk-printing');
-      var done=function(){ document.body.classList.remove('rk-printing'); };
-      var r;
-      try{ r=orig.call(GemaPDF,opts); }catch(e){ done(); throw e; }
-      Promise.resolve(r).then(done,done);
-      setTimeout(done,20000); // Sicherheitsnetz
-      return r;
-    };
+    function wrap(){
+      if(!(window.GemaPrint&&GemaPrint.open)||GemaPrint.__rkWrapped) return !!window.GemaPrint;
+      var orig=GemaPrint.open;
+      GemaPrint.__rkWrapped=true;
+      GemaPrint.open=function(opts){
+        document.body.classList.add('rk-printing');
+        var done=function(){ document.body.classList.remove('rk-printing'); };
+        var r;
+        try{ r=orig.call(GemaPrint,opts); }catch(e){ done(); throw e; }
+        setTimeout(done,0);      // der Klon ist synchron fertig
+        return r;
+      };
+      return true;
+    }
+    if(!wrap()) window.addEventListener('load',wrap);
   })();
 
   // Leaflet lädt defer nach diesem Inline-Block — falls beim ersten Update
@@ -3441,5 +3445,7 @@ document.addEventListener('DOMContentLoaded', function(){try{GemaFeedback.init('
 })();</script>
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>
+<script src="gema_sektion.js"></script>
+<script src="gema_print.js"></script>
 </body>
 </html>
