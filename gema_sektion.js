@@ -50,7 +50,7 @@
     '.dd-fold-cx,.osm-fold-cx,.enth-fold-cx,.du-fold-cx,.dv-fold-cx,.bra-fold-cx,' +
     '.fold-cx,.el-cx,.lb-cx';
   /* Bestehende Sektionsnummer-Klassen der Module (werden eingesammelt) */
-  var NR_KLASSEN = '.sp-secnum,.el-secnum,.de-stepnum,.bra-secnum,.lu-stepnum,.sec-num,.secnum,.g-secnum';
+  var NR_KLASSEN = '.sp-secnum,.el-secnum,.de-stepnum,.bra-secnum,.lu-stepnum,.sec-num,.secnum,.g-secnum,.g-section-num';
   /* Kreisziffern ①..⑳ am Titelanfang */
   var KREIS = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳';
 
@@ -71,23 +71,37 @@
       '.gsek-hd{display:flex!important;align-items:center;gap:8px;cursor:pointer;user-select:none}',
       '.gsek-hd > h2,.gsek-hd > h3,.gsek-hd > .el-card-tt,.gsek-hd > .g-section-title,',
       '.gsek-hd > .card-hd-title{flex:1 1 auto;min-width:0}',
-      /* Pfeil — deutlich, immer ganz rechts, überall dieselbe Stelle.
-         Gilt für den eigenen Knopf UND den übernommenen Pfeil des Moduls. */
+      /* Pfeil — deutlich, immer ganz rechts, ÜBERALL IDENTISCH (Feedback
+         05.08.2026 Teil 2: «Pfeil grösser» + «Pfeil und Button überall
+         gleich»). Der Pfeil wird als CSS-Mask gezeichnet und die Text-/SVG-
+         Inhalte des Knopfs ausgeblendet — so sieht auch ein modul-eigener
+         Pfeil (dessen Code sein «▾/▸» bei jedem Klick neu setzt) exakt gleich
+         aus wie unser eigener Knopf. */
       '.gsek-cx{flex:0 0 auto!important;order:99;margin:0 0 0 auto!important;',
       '  display:inline-flex!important;align-items:center;justify-content:center;',
-      '  width:30px;height:30px;padding:0;border-radius:9px;',
+      '  width:36px;height:36px;min-width:36px;padding:0;border-radius:10px;',
       '  border:1.5px solid var(--border,var(--brd,#e2e8f0));',
       '  background:var(--surface,var(--sur,#fff));color:var(--accent,var(--el,#2563eb))!important;',
       '  cursor:pointer;transition:background .15s,border-color .15s,color .15s;',
-      '  font:700 15px/1 inherit;text-align:center}',
+      '  font-size:0!important;line-height:0!important;text-align:center}',
+      '.gsek-cx > *{display:none!important}',
+      '.gsek-cx::before{content:"";display:block;width:18px;height:18px;background:currentColor;',
+      '  -webkit-mask:' + MASK + ' center/contain no-repeat;',
+      '  mask:' + MASK + ' center/contain no-repeat;',
+      '  transition:transform .18s ease}',
+      '.gsek-cx.zu::before{transform:rotate(-90deg)}',
       '.gsek-hd:hover .gsek-cx{background:var(--accent,var(--el,#2563eb));',
       '  border-color:var(--accent,var(--el,#2563eb));color:#fff!important}',
-      '.gsek-cx svg{width:15px;height:15px;transition:transform .18s ease}',
-      '.gsek-cx.zu svg{transform:rotate(-90deg)}',
       /* Zugeklappt: die Bedienelemente des Kopfes gehen mit dem Inhalt weg */
       '.gsek-zu > .gsek-hd button:not(.gsek-cx),.gsek-zu > .gsek-hd a,',
       '.gsek-zu > .gsek-hd input,.gsek-zu > .gsek-hd select,.gsek-zu > .gsek-hd textarea,',
       '.gsek-zu > .gsek-hd label,.gsek-zu > .gsek-hd .g-btn,.gsek-zu > .gsek-hd .btn{display:none!important}',
+      /* … und zwar KOMPLETT: auch Label-Texte/Wrapper wie «Härte-Einheit»
+         (Feedback 05.08.2026 Teil 2). sync() markiert jedes Kopf-Kind, das
+         weder Titel noch Nummer noch Pfeil ist — CSS allein könnte den
+         anonymen Wrapper um den Titel nicht vom Einheiten-Wrapper
+         unterscheiden. */
+      '.gsek-zu > .gsek-hd > .gsek-hd-weg{display:none!important}',
       '.gsek-zu > .gsek-bd{display:none!important}',
       /* Sektionsnummer — überall identisch, Farbe vom Modul */
       '.gsek-nr{display:inline-flex!important;align-items:center;justify-content:center;',
@@ -104,8 +118,11 @@
     d.head.appendChild(s);
   }
 
-  var CHEVRON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" ' +
-    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
+  /* Der EINE Pfeil (Chevron nach unten) als URL-codierte SVG-Maske — gefärbt
+     über currentColor des Knopfs, gedreht über die .zu-Klasse. */
+  var MASK = 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' ' +
+    'viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'black\' stroke-width=\'3.4\' ' +
+    'stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")';
 
   /* ── Sektionsnummer vereinheitlichen ───────────────────────────────────── */
   function nummerNormieren(hd, titel) {
@@ -172,12 +189,33 @@
     return offen;
   }
 
+  /* Kopf-Kinder klassifizieren: alles, was weder Titel(-Wrapper) noch Nummer
+     noch Pfeil ist, gehört zum INHALT des Kopfes (Einheiten-Umschalter,
+     Label-Texte …) und verschwindet zugeklappt mit (Feedback 05.08.2026:
+     «wenn zugeklappt auch solche Texte entfernen, überall»). Per CSS allein
+     ginge das nicht — der Titel sitzt oft in einem anonymen Wrapper-<div>,
+     das sich von einem Kontroll-Wrapper nicht per Selektor unterscheiden
+     lässt. */
+  function kopfKinderMarkieren(sec) {
+    var kids = sec.hd.children, i, k, bleibt;
+    for (i = 0; i < kids.length; i++) {
+      k = kids[i];
+      bleibt = (k === sec.cx) ||
+        (sec.titel && (k === sec.titel || k.contains(sec.titel))) ||
+        k.classList.contains('gsek-nr') ||
+        (k.matches && k.matches(NR_KLASSEN)) ||
+        !!k.querySelector('.gsek-nr');
+      k.classList.toggle('gsek-hd-weg', !bleibt);
+    }
+  }
+
   /* `gsek-zu` nachziehen — egal WELCHE Mechanik die Sektion zugeklappt hat.
      Daran hängen die gemeinsamen Regeln (Kopf-Knöpfe weg, Druck). */
   function sync() {
     _secs.forEach(function (sec) {
       var offen = istOffen(sec);
       sec.karte.classList.toggle('gsek-zu', !offen);
+      kopfKinderMarkieren(sec);
       if (sec.cx) {
         sec.cx.classList.toggle('zu', !offen);
         sec.cx.setAttribute('aria-expanded', offen ? 'true' : 'false');
@@ -244,7 +282,7 @@
           var cx = d.createElement('button');
           cx.type = 'button';
           cx.className = 'gsek-cx no-print';
-          cx.innerHTML = CHEVRON;
+          cx.setAttribute('aria-label', 'Sektion ein-/aufklappen');
           hd.appendChild(cx);
           sec = { karte: karte, hd: hd, bd: bd, titel: t, key: k, cx: cx, eigen: true };
           var offen = (k in st) ? !!st[k] : true;   /* Default: offen */

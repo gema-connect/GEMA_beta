@@ -163,13 +163,17 @@ try {
   // darum brauchte es diesen eigenen Fall. Fix: _instantScroll (inline
   // scroll-behavior:auto auf der Live-Seite, der Klon kopiert das
   // style-Attribut) + onclone-Re-Scroll mit behavior:'instant'.
-  console.log('\n■ Body-Pfad, Seite gescrollt, Modul mit scroll-behavior:smooth (sa_enthaertung)');
+  // hz_waermepumpe: Bugreport 05.08.2026 (Endrit) «Ausschnitt laesst sich
+  // nicht erstellen» — gleiche Ursache (html{scroll-behavior:smooth}), darum
+  // laeuft der Fall ueber BEIDE gemeldeten Module.
+  for (const modul of ['sa_enthaertung.html', 'hz_waermepumpe.html']) {
+  console.log('\n■ Body-Pfad, Seite gescrollt, Modul mit scroll-behavior:smooth (' + modul + ')');
   {
     const { ctx, page } = await newPage(browser, seed(['role_planer']));
     await ctx.route('**/html2canvas*', r => r.fulfill({ contentType: 'text/javascript', body: H2C }));
     const errs = []; page.on('pageerror', e => errs.push(e.message));
     await page.setViewportSize({ width: 1280, height: 760 });
-    await page.goto(BASE + '/sa_enthaertung.html', { waitUntil: 'domcontentloaded' });
+    await page.goto(BASE + '/' + modul, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(1800);
     await page.waitForFunction(() => typeof window.GemaFeedback !== 'undefined' && typeof window.html2canvas === 'function', null, { timeout: 20000 });
 
@@ -222,6 +226,7 @@ try {
        await page.evaluate(() => getComputedStyle(document.documentElement).scrollBehavior) === 'smooth');
     ok('keine pageerrors', errs.length === 0 || (console.log('   ', errs), false));
     await ctx.close();
+  }
   }
 } finally {
   await browser.close(); server.close();

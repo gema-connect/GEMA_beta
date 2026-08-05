@@ -82,10 +82,14 @@ input::placeholder{color:#cbd5e1}
 .ws-bucket-row__name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Fixe Eimer der Organisation (Klasse, Admin-Eimer, Lieferanten-Bereich):
    hervorgehoben zuoberst in der Org-Sektion; ein untergeordneter Eimer
-   (z.B. das Übungsobjekt einer Klasse) hängt eingerückt direkt darunter. */
-.ws-bucket-row--pinned{background:linear-gradient(90deg,#eef4ff,#f7faff);border:1px solid #d8e4f8;font-weight:600}
-.ws-bucket-row--pinned:hover{background:linear-gradient(90deg,#e4eeff,#f0f6ff)}
-.ws-bucket-row--pinned.active{background:linear-gradient(90deg,#dfeaff,#eef4ff);color:var(--navy)}
+   (z.B. das Übungsobjekt einer Klasse) hängt eingerückt direkt darunter.
+   Der Schimmer folgt der FIRMENFARBE (org.settings.pdfFarben.primary —
+   dieselbe Quelle wie die Berichts-PDFs): _wsPinFarben() setzt die
+   --ws-pin*-Variablen aus sehr hellen Tints der Primärfarbe; ohne
+   Firmenfarbe gelten die bisherigen Blautöne als Fallback. */
+.ws-bucket-row--pinned{background:linear-gradient(90deg,var(--ws-pin1,#eef4ff),var(--ws-pin2,#f7faff));border:1px solid var(--ws-pin-bd,#d8e4f8);font-weight:600;color:var(--ws-pin-ink,inherit)}
+.ws-bucket-row--pinned:hover{background:linear-gradient(90deg,var(--ws-pin1h,#e4eeff),var(--ws-pin2h,#f0f6ff))}
+.ws-bucket-row--pinned.active{background:linear-gradient(90deg,var(--ws-pin1a,#dfeaff),var(--ws-pin2a,#eef4ff));color:var(--ws-pin-ink,var(--navy))}
 .ws-bucket-row--sub{margin-left:16px;width:calc(100% - 16px)}
 /* Rechtsklick-Kontextmenü (Eimer) */
 .ws-ctx{position:fixed;z-index:9500;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 40px rgba(15,23,42,.18);padding:6px;min-width:210px}
@@ -149,6 +153,13 @@ input::placeholder{color:#cbd5e1}
 .ws-section-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:var(--ink-3)}
 .ws-section-head-content{display:flex;align-items:center;gap:10px;margin:8px 0 -8px;padding:10px 4px 0}
 .ws-section-count{font-size:11px;color:var(--ink-3);background:var(--line-2);padding:1px 7px;border-radius:999px}
+
+/* ── Direkt integriertes Modul (z.B. Lieferanten-Dashboard) ──
+   Der Eimer zeigt die Seite eingebettet (?embed=1) statt einer Kachel —
+   man landet direkt in der Übersicht (Feedback 05.08.2026). */
+.ws-direkt-wrap{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r-card);overflow:hidden;background:var(--card);box-shadow:var(--shadow-1);min-height:min(74vh,820px)}
+.ws-direkt-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 8px 8px 14px;border-bottom:1px solid var(--line);font-size:12.5px;font-weight:600;color:var(--ink-2);flex-shrink:0}
+.ws-direkt-frame{flex:1;width:100%;border:0;min-height:min(68vh,760px);background:#f8fafc}
 
 /* ── Module Grid ── */
 .ws-mod-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
@@ -802,15 +813,22 @@ input::placeholder{color:#cbd5e1}
      der wurde einmal geschrieben und nie wieder angefasst, ein Eintrag von
      letzter Woche behauptete also immer noch «gerade eben». Neue Einträge
      tragen darum einen ISO-Zeitstempel (`ts`) und werden beim Rendern
-     ausgerechnet; Alt-Einträge ohne ts zeigen weiterhin ihren Text (kein
-     erfundenes Datum). */
+     ausgerechnet. Alt-Einträge ohne ts: ein ABSOLUTER Text bleibt stehen,
+     ein RELATIVER («gerade eben», «vor …») ist eine Lüge und wird
+     unterdrückt (Feedback 05.08.2026 Teil 2: «es steht teilweise immernoch
+     ‹gerade eben› für immer»; eine Zeit erfinden dürfen wir trotzdem nie). */
   function _wsTs(){ return new Date().toISOString(); }
   var _WS_WOCHENTAG=['So','Mo','Di','Mi','Do','Fr','Sa'];
   function _wsZeit(d){ return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
+  function _wsWannAlt(t){
+    t=String(t||'');
+    if(/gerade eben|^vor |soeben/i.test(t))return '';
+    return t;
+  }
   function _wsWann(a){
     if(!a)return '';
     var iso=a.ts;
-    if(!iso)return a.when||'';           // Bestandsschutz: Alt-Eintrag ohne ts
+    if(!iso)return _wsWannAlt(a.when);   // Alt-Eintrag ohne ts
     var d=new Date(iso);
     if(isNaN(d.getTime()))return a.when||'';
     var jetzt=new Date();
@@ -1162,11 +1180,42 @@ input::placeholder{color:#cbd5e1}
   //   accessControl.nurRollen  → nur diese Rollen (Präfix-Match wie überall
   //     in GEMA, «role_lieferant» deckt also role_lieferant_admin mit)
   // Der Ersteller sieht seinen Eimer IMMER (sonst legt ein Org-Admin einen
-  // Eimer für andere an und findet ihn selbst nicht mehr).
+  // Eimer für andere an und findet ihn selbst nicht mehr) — das gilt NUR
+  // für von Hand angelegte Eimer: bei automatischen (autoTyp) ist der
+  // «Ersteller» bloss, wer den Workspace zufällig zuerst öffnete — keine
+  // Berechtigung (Feedback 05.08.2026: nach einem Konto-Wechsel blieben
+  // Klassen-Eimer sichtbar, obwohl das Konto nicht in der Klasse ist).
+  //
+  // Klassen-Eimer: die KLASSE ist die Wahrheit. `nurUserIds` ist nur eine
+  // Kopie und veraltet, wenn jemand aus der Klasse fällt und kein Mitglied
+  // den Workspace mehr öffnet (nur Mitglieder ziehen die Liste nach).
+  // Liegt die Klasse im Cache, entscheidet die LIVE-Mitgliedschaft; fehlt
+  // sie (noch nicht geladen), entscheidet wie bisher nurUserIds — nie auf
+  // Verdacht ausblenden (Empty-Read-Regel).
+  function _wsKlasseMitglied(b){
+    if(!b.autoKlasseId)return null;
+    try{
+      var arr=(typeof GemaSync!=='undefined'&&GemaSync.getCached&&GemaSync.getCached('gema_schule_klassen_pool_v1'))||null;
+      if(!Array.isArray(arr)||!arr.length){
+        var r=localStorage.getItem('gema_schule_klassen_pool_v1');
+        arr=r?JSON.parse(r):null;
+      }
+      if(!Array.isArray(arr)||!arr.length)return null;
+      var k=arr.find(function(x){return x&&x.id===b.autoKlasseId;});
+      if(!k)return null;
+      var uid=_curUserId();
+      return (Array.isArray(k.studentIds)&&k.studentIds.indexOf(uid)>=0)||
+             (Array.isArray(k.dozentIds)&&k.dozentIds.indexOf(uid)>=0);
+    }catch(e){ return null; }
+  }
   function _bucketScopeOk(b){
     var ac=b.accessControl||{};
     var uid=_curUserId();
-    if(b.createdBy&&b.createdBy===uid)return true;
+    if(b.autoTyp==='klasse'){
+      var mit=_wsKlasseMitglied(b);
+      if(mit!==null)return mit;
+    }
+    if(b.createdBy&&b.createdBy===uid&&!b.autoTyp)return true;
     if(Array.isArray(ac.nurUserIds)&&ac.nurUserIds.length)
       return ac.nurUserIds.indexOf(uid)>=0;
     if(Array.isArray(ac.nurRollen)&&ac.nurRollen.length){
@@ -2101,7 +2150,49 @@ input::placeholder{color:#cbd5e1}
   }
 
   // ── Render ──
+  // ── Firmenfarbe für hervorgehobene Eimer (Feedback 05.08.2026) ──────
+  // Die --ws-pin*-Variablen (Schimmer der pinned-Zeilen) kommen aus der
+  // Org-Primärfarbe. Flächen = sehr helle Weiss-Mischungen; die Textfarbe
+  // läuft durch denselben Kontrastschutz wie die Berichts-PDFs (Richtung
+  // Schwarz skalieren, bis ≥ 4.5:1 gegen Weiss — Knallgelb wird lesbares
+  // Gold statt unlesbarem Hellgelb). Ohne Farbe: Variablen entfernen →
+  // CSS-Fallback-Blau. Memoisiert über _wsPinAkt (render() läuft oft).
+  function _wsHex6(c){var m=/^#?([0-9a-f]{6})$/i.exec(String(c||'').trim());return m?('#'+m[1].toLowerCase()):null;}
+  function _wsRgb(h){return [parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];}
+  function _wsMixWhite(h,p){var r=_wsRgb(h);var f=function(x){return Math.round(x+(255-x)*p);};return 'rgb('+f(r[0])+','+f(r[1])+','+f(r[2])+')';}
+  function _wsKontrastInk(h){
+    var r=_wsRgb(h);
+    var lum=function(a){var f=function(x){x/=255;return x<=0.03928?x/12.92:Math.pow((x+0.055)/1.055,2.4);};return 0.2126*f(a[0])+0.7152*f(a[1])+0.0722*f(a[2]);};
+    for(var i=0;i<24&&(1.05/(lum(r)+0.05))<4.5;i++){r=r.map(function(x){return Math.max(0,Math.round(x*0.88));});}
+    return '#'+r.map(function(x){return ('0'+x.toString(16)).slice(-2);}).join('');
+  }
+  var _wsPinAkt='__init__';
+  function _wsPinFarben(){
+    var prim=null;
+    try{
+      var o=(typeof GemaAuth!=='undefined'&&GemaAuth.getCurrentOrg&&GemaAuth.getCurrentOrg())||null;
+      prim=_wsHex6(o&&o.settings&&o.settings.pdfFarben&&o.settings.pdfFarben.primary);
+    }catch(e){}
+    if(prim===_wsPinAkt)return;
+    _wsPinAkt=prim;
+    var st=document.documentElement.style;
+    if(!prim){
+      ['--ws-pin1','--ws-pin2','--ws-pin1h','--ws-pin2h','--ws-pin1a','--ws-pin2a','--ws-pin-bd','--ws-pin-ink']
+        .forEach(function(k){st.removeProperty(k);});
+      return;
+    }
+    st.setProperty('--ws-pin1',_wsMixWhite(prim,0.90));
+    st.setProperty('--ws-pin2',_wsMixWhite(prim,0.96));
+    st.setProperty('--ws-pin1h',_wsMixWhite(prim,0.85));
+    st.setProperty('--ws-pin2h',_wsMixWhite(prim,0.93));
+    st.setProperty('--ws-pin1a',_wsMixWhite(prim,0.80));
+    st.setProperty('--ws-pin2a',_wsMixWhite(prim,0.90));
+    st.setProperty('--ws-pin-bd',_wsMixWhite(prim,0.62));
+    st.setProperty('--ws-pin-ink',_wsKontrastInk(prim));
+  }
+
   function render(){
+    _wsPinFarben();
     renderUser();renderOrgs();renderSidebar();renderTabBar();renderMain();
   }
 
@@ -2362,9 +2453,18 @@ input::placeholder{color:#cbd5e1}
     var b=bucketSichtbar(activeTab);if(!b)return;
     var t=TYPES[b.type]||TYPES.project;
     var noMods=b.modules.length===0;
+    // Direkt integriertes Modul (Feedback 05.08.2026): der Eimer IST die
+    // Übersicht — die Seite wird eingebettet (?embed=1 blendet dort die
+    // Navigation aus) statt hinter einer Kachel zu liegen.
+    var direktMod=b.direktModul?MODULES.find(function(x){return x.id===b.direktModul;}):null;
 
     var modsHtml='';
-    if(noMods){
+    if(direktMod){
+      modsHtml='<div class="ws-direkt-wrap">'
+        +'<div class="ws-direkt-bar"><span>'+esc(direktMod.name)+'</span>'
+        +'<a class="ws-btn ws-btn-ghost" href="'+direktMod.href+'" onclick="_wsMerkPfad(\''+b.id+'\')" style="padding:5px 10px;font-size:12px">'+icon('arrow-right',13)+' Im Vollbild öffnen</a></div>'
+        +'<iframe class="ws-direkt-frame" src="'+direktMod.href+(direktMod.href.indexOf('?')>=0?'&':'?')+'embed=1" title="'+esc(direktMod.name)+'"></iframe></div>';
+    }else if(noMods){
       modsHtml='<div class="ws-mod-hero-row">'+_wsHeroAdd()+_wsHeroVorlagen(b)+_wsHeroZuletzt(b)+'</div>';
     }else{
       var objId=_wsEnsureObjekt(b);
@@ -2409,7 +2509,8 @@ input::placeholder{color:#cbd5e1}
         var voll=a.ts?new Date(a.ts).toLocaleString('de-CH'):'';
         return '<li class="ws-activity-item">'+avatar(a.who.slice(0,2),28,AVATAR_COLORS[i%AVATAR_COLORS.length])
           +'<div class="ws-activity-body"><span class="ws-activity-who">'+esc(a.who)+'</span> '+esc(a.text)
-          +'<span class="ws-activity-time"'+(voll?' title="'+esc(voll)+'"':'')+'> · '+esc(wann)+'</span></div></li>';
+          +(wann?'<span class="ws-activity-time"'+(voll?' title="'+esc(voll)+'"':'')+'> · '+esc(wann)+'</span>':'')
+          +'</div></li>';
       }).join('')+'</ul></div>';
 
     var betHtml='';
@@ -2447,7 +2548,9 @@ input::placeholder{color:#cbd5e1}
       +(_wsDozKandidaten().length?'<button class="ws-btn ws-btn-ghost" onclick="_wsDozentEinladen()" title="Dozent in diesen Eimer einladen">'+icon('grad',14)+' Dozent einladen</button>':'')
       +'<button class="ws-btn ws-btn-ghost" id="wsInviteBtn" onclick="_wsInvite()">'+icon('plus',14)+' Einladen</button></div></div>'
       +'<div class="ws-content-scroll">'
-      +'<div class="ws-section-head-content"><span class="ws-section-title">Module</span><span class="ws-section-count">'+b.modules.length+'</span></div>'
+      +(direktMod
+        ?'<div class="ws-section-head-content"><span class="ws-section-title">'+esc(direktMod.name)+'</span></div>'
+        :'<div class="ws-section-head-content"><span class="ws-section-title">Module</span><span class="ws-section-count">'+b.modules.length+'</span></div>')
       +modsHtml+actHtml+betHtml+'</div>';
 
     var nc=document.getElementById('wsNotesCol');
@@ -3670,9 +3773,14 @@ input::placeholder{color:#cbd5e1}
   // Ein Eimer je Org, sichtbar für alle Lieferanten-/Produktlieferanten-
   // Rollen (Rollen-Präfix-Match wie überall in GEMA). Angelegt wird er
   // erst, wenn eine solche Person den Workspace öffnet.
+  // `direkt`: das Modul ist FIX IM EIMER INTEGRIERT (Feedback 05.08.2026
+  // — «nicht als Modul im Workspace, sondern fix im Bucket, sodass man
+  // direkt die Übersicht hat»): der Eimer-Inhalt zeigt die Seite direkt
+  // eingebettet (?embed=1) statt einer Modul-Kachel; eine früher als
+  // Kachel angelegte Instanz wird beim Provisionieren entfernt.
   var AUTO_ROLLEN_EIMER=[
     {key:'lieferant',name:'Lieferanten-Dashboard',rollen:['role_lieferant','role_produktlieferant'],
-     modules:['sys_lieferant_dashboard']}
+     direkt:'sys_lieferant_dashboard',modules:[]}
   ];
   function _wsAutoRollenEimer(){
     var u=_curUser();if(!u||!u.id)return false;
@@ -3692,6 +3800,12 @@ input::placeholder{color:#cbd5e1}
         buckets.push(b);changed=true;
       }
       if(b.pinned!==true){b.pinned=true;changed=true;}
+      if(def.direkt){
+        if(b.direktModul!==def.direkt){b.direktModul=def.direkt;changed=true;}
+        var vorher=(b.modules||[]).length;
+        b.modules=(b.modules||[]).filter(function(m){return m.mod!==def.direkt;});
+        if(b.modules.length!==vorher)changed=true;
+      }
       def.modules.forEach(function(mid){
         if(!MODULES.some(function(m){return m.id===mid;}))return;
         if((b.modules||[]).some(function(m){return m.mod===mid;}))return;
@@ -3912,6 +4026,15 @@ document.addEventListener('DOMContentLoaded',function(){
 
   function renderDetail(root,b){
     var mods=(b.modules||[]);
+    // Direkt integriertes Modul (Lieferanten-Dashboard): auf dem Handy als
+    // erste Zeile — ein iframe taugt dort nicht, die Seite öffnet normal.
+    var direktRow='';
+    if(b.direktModul){
+      var dm=modMeta(b.direktModul);
+      direktRow='<div class="gn-row gn-row--lg" data-nat-href="'+NE((dm.href||dm.id+'.html'))+'"><span class="gn-row-ic" style="--gn-row-bg:var(--gn-c-projekt)">🏭</span>'
+        +'<span class="gn-row-body"><span class="gn-row-title">'+NE(dm.name||'Dashboard')+'</span><span class="gn-row-sub">direkt integriert</span></span>'
+        +chevron()+'</div>';
+    }
     var rows=mods.map(function(m){
       var meta=modMeta(m.mod), st=modStatus(b,m);
       var href=(meta.href||meta.id+'.html')+(b.objektId?'?objekt='+encodeURIComponent(b.objektId):'');
@@ -3920,6 +4043,7 @@ document.addEventListener('DOMContentLoaded',function(){
         +'<span class="gn-row-sub"><span style="display:inline-block;width:8px;height:8px;border-radius:99px;background:'+(ST_COL[st]||ST_COL.offen)+';margin-right:5px;vertical-align:1px"></span>'+NE(ST_LBL[st]||st)+'</span></span>'
         +chevron()+'</div>';
     }).join('');
+    rows=direktRow+rows;
     if(!rows) rows='<div class="gn-row"><span class="gn-row-body"><span class="gn-row-title" style="color:var(--gn-ink-3);font-weight:500">Noch keine Module in diesem Eimer</span></span></div>';
     root.innerHTML=
       '<div class="gn-compact" data-gn-compact><b>'+NE(b.name||'Eimer')+'</b></div>'

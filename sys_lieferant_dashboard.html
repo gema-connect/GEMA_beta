@@ -67,7 +67,9 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
 .card-bd{padding:20px}
 
 /* KPI */
-.kpi-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:20px}
+/* auto-FIT statt auto-FILL (Feedback 05.08.2026 «Kacheln sauber aufteilen»):
+   leere Spuren kollabieren, die Kacheln teilen sich die volle Breite. */
+.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px}
 .kpi{background:var(--sur);border:1.5px solid var(--brd);border-radius:var(--r);padding:16px;text-align:center}
 .kpi-val{font-size:28px;font-weight:800;color:var(--acc);line-height:1}
 .kpi-lbl{font-size:11px;font-weight:700;color:var(--mut);margin-top:6px;text-transform:uppercase;letter-spacing:.05em}
@@ -125,7 +127,25 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
 
 /* Responsive */
 @media(max-width:768px){.g2,.g3{grid-template-columns:1fr}.kpi-row{grid-template-columns:1fr 1fr}.tabs{gap:0}.tab{padding:8px 12px;font-size:12px}}
+
+/* Eingebettet im Workspace-Eimer (?embed=1): das Dashboard IST der
+   Eimer-Inhalt (Feedback 05.08.2026) — die eigene Navigation entfällt,
+   den Rahmen liefert der Workspace. */
+html.gema-embed .g-nav{display:none!important}
+html.gema-embed .g-page{padding-top:14px}
 </style>
+<script>
+/* Embed-Modus VOR dem ersten Paint setzen (kein Nav-Aufblitzen). Echte
+   Seiten-Navigationen (Berechnungs-Kacheln, Deep-Links) verlassen via
+   <base target="_top"> den Rahmen — die Tab-Buttons sind JS und bleiben
+   eingebettet. */
+try{
+  if(new URLSearchParams(location.search).get('embed')==='1'){
+    document.documentElement.classList.add('gema-embed');
+    var _gb=document.createElement('base');_gb.target='_top';document.head.appendChild(_gb);
+  }
+}catch(e){}
+</script>
 <link rel="stylesheet" href="gema_responsive.css"/>
 </head>
 <body>
@@ -141,7 +161,11 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
       <span class="bc-cur" id="navFirma">Lieferanten-Dashboard</span>
     </div>
     <div class="g-nav-right">
-      <button class="g-nav-btn" onclick="switchToTab('mitarbeiter')" id="navMitarbeiter" style="display:none">👥 Mitarbeiter</button>
+      <!-- gnav-weg statt style="display:none": die Nav-Metrik-Regel in
+           gema_responsive.css erzwingt display per !important und schlaegt
+           das Inline-Style — die Klasse gewinnt (05.08.2026). -->
+      <button class="g-nav-btn gnav-weg" onclick="switchToTab('mitarbeiter')" id="navMitarbeiter">👥 Mitarbeiter</button>
+      <button class="g-nav-btn gnav-weg" onclick="switchToTab('profil')" id="navProfil">🏢 Firmenprofil</button>
       <button class="gema-feedback-btn no-print" onclick="if(typeof GemaFeedback!=='undefined')GemaFeedback.start()">🔴 Feedback</button>
       <!-- Feedback 01.08.2026 (Hans Brunner): «abmelden button fehlt» — das
            Dashboard hat keine Modul-Navigation, ohne Knopf gibt es keinen Weg
@@ -773,14 +797,23 @@ function setupTabs(){
   if(!isAnlagen&&!isProdukt&&!isPruefer&&isAdmin){isAnlagen=true;isProdukt=true;isPruefer=true;} // Admin sieht alles
   var isLief=isAnlagen||isProdukt;
 
+  /* Reihenfolge (Feedback 05.08.2026): Übersicht · Produktkatalog (ehem.
+     «Meine Produkte») · Offertanfragen · Bestellungen — danach der Rest.
+     Mitarbeiter + Firmenprofil sind KEINE Tabs mehr: sie hängen als
+     Nav-Knöpfe oben rechts und erscheinen NUR für Org-Admins der Firma
+     bzw. die Admin-Rolle (_liefIsAdmin). */
   var tabs=[{id:'uebersicht',label:'Übersicht',show:true}];
   if(isLief){
-    tabs.push({id:'produkte',label:'Meine Produkte',show:true});
-    tabs.push({id:'revision',label:'📑 Revisionsanfragen',show:true,badge:'revBadge'});
+    tabs.push({id:'produkte',label:'Produktkatalog',show:true});
   }
   if(isAnlagen){
     tabs.push({id:'anfragen',label:'Offertanfragen',show:true,badge:'oaBadge'});
     tabs.push({id:'bestellungen',label:'🛒 Bestellungen',show:true,badge:'bestBadge'});
+  }
+  if(isLief){
+    tabs.push({id:'revision',label:'📑 Revisionsanfragen',show:true,badge:'revBadge'});
+  }
+  if(isAnlagen){
     // Feedback 01.08.2026 (Hans Brunner): «Diese Kategorien müssen vom Org-Admin
     // angewählt werden, erst dann sollen die passenden Tabs eingeblendet werden
     // (z.B. liefert BWT keine Armaturen).» Der Tab folgt darum der im
@@ -792,11 +825,6 @@ function setupTabs(){
   if((isPruefer||isLief) && _liefHatKat(['werkzeuge','elektropruefung','leiterpruefung','servicepruefung'])){
     tabs.push({id:'werkzeuge',label:'🔧 Werkzeuge',show:true});
   }
-  // Mitarbeiter-Tab für alle Lieferanten sichtbar (bearbeiten nur Org-Admin)
-  if(isLief||isPruefer||isAdmin){
-    tabs.push({id:'mitarbeiter',label:'👥 Mitarbeiter',show:true});
-  }
-  tabs.push({id:'profil',label:'Firmenprofil',show:true});
 
   var tabBar=document.getElementById('mainTabs');
   tabBar.innerHTML=tabs.filter(function(t){return t.show;}).map(function(t,i){
@@ -818,16 +846,24 @@ function setupTabs(){
       if(tb)tb.classList.add('active');
     });
   });
-  // Nav-Mitarbeiter-Button sichtbar machen
+  // Mitarbeiter + Firmenprofil hängen in der Nav-Zeile — NUR für Org-Admins
+  // der Firma bzw. die Admin-Rolle (Feedback 05.08.2026; die Feedback-Geberin
+  // «Produkte Pflege» hat role_produktlieferant_produkte und sieht sie nicht).
+  var adminNav=false;
+  try{ adminNav=_liefIsAdmin(); }catch(e){ adminNav=isAdmin; }
   var navMit=document.getElementById('navMitarbeiter');
-  if(navMit&&(isLief||isPruefer||isAdmin))navMit.style.display='';
+  if(navMit)navMit.classList.toggle('gnav-weg',!adminNav);
+  var navProf=document.getElementById('navProfil');
+  if(navProf)navProf.classList.toggle('gnav-weg',!adminNav);
 
-  // Deep-Link ?tab=<id> (z.B. aus Werkzeug-Notifikationen: ?tab=werkzeuge)
+  // Deep-Link ?tab=<id> (z.B. aus Werkzeug-Notifikationen: ?tab=werkzeuge).
+  // mitarbeiter/profil sind keine Tabs mehr → dort direkt die Sektion öffnen.
   try{
     var wantTab=new URLSearchParams(location.search).get('tab');
     if(wantTab){
       var tabBtn=document.querySelector('.tab[data-tab="'+wantTab+'"]');
       if(tabBtn)tabBtn.click();
+      else if(document.getElementById('tb-'+wantTab))switchToTab(wantTab);
     }
   }catch(e){}
 }
@@ -3661,7 +3697,10 @@ function _toggleLiefKat(katId){
   if(idx>=0)kats.splice(idx,1);else kats.push(katId);
   _lief.lieferantKategorien=kats;
   GemaProdukte.updateLieferant(_lief.id,{lieferantKategorien:kats});
-  try{ var akt=document.querySelector('.tab.active'); var id=akt&&akt.dataset.tab; setupTabs(); if(id)switchToTab(id); }catch(e){}
+  /* Aktive SEKTION über den Body merken — mitarbeiter/profil sind keine
+     Tabs mehr, `.tab.active` wäre dort null und der Kategorie-Klick würfe
+     einen aus dem Firmenprofil zurück auf die Übersicht. */
+  try{ var aktB=document.querySelector('.tab-body.active'); var id=aktB&&aktB.id.replace(/^tb-/,''); setupTabs(); if(id)switchToTab(id); }catch(e){}
   fillProfil();
   // Sortiment geaendert → Berechnungs-Freischaltung neu auswerten
   try{ _liefBerechnungenRefresh(); }catch(e){}
