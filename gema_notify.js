@@ -457,6 +457,16 @@
       modul:'schule',
       defaultOn:true
     },
+    schule_lerngruppe_einladung: {
+      label:'Einladung in eine Lerngruppe',
+      modul:'schule',
+      defaultOn:true
+    },
+    schule_lerngruppe_feedback: {
+      label:'Feedback zu einer Berechnung (Lerngruppe)',
+      modul:'schule',
+      defaultOn:true
+    },
     pruefliste_vorschlag: {
       label:'Prüflisten-Vorschlag zur Freigabe',
       modul:'pruefliste',

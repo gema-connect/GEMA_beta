@@ -28,7 +28,11 @@ await page.waitForTimeout(1400);
 
 console.log('■ Toggle & Sichtbarkeit');
 ok(await page.$('#fwKaskadeCard') !== null, 'Kaskaden-Karte vorhanden');
-ok(await page.$eval('#fwkSchemaCard', e => getComputedStyle(e).display === 'none'), 'Schema-Karte versteckt solange Kaskade aus');
+// Feedback 05.08.2026: das Schema ist das STANDARD-Anlagenschema und immer sichtbar —
+// ohne aktive Kaskade mit EINER Station gezeichnet. Nur der Eingabe-Body ist versteckt.
+ok(await page.$eval('#fwkSchemaCard', e => getComputedStyle(e).display !== 'none'), 'Schema-Karte auch ohne Kaskade sichtbar');
+ok(await page.$$eval('#fwkSchema svg', n => n.length) === 1, 'Schema ohne Kaskade gezeichnet');
+ok(await page.evaluate(() => Array.from(document.querySelectorAll('#fwkSchema text')).filter(t => /^(FWS|W\d)$/.test(t.textContent)).length === 1), 'ohne Kaskade genau EINE Station');
 ok(await page.$eval('#fwkBody', e => getComputedStyle(e).display === 'none'), 'Kaskaden-Body versteckt solange aus');
 
 // Daten in Anlehnung ans Lösungsblatt: Altersheim/Pflegeheim 50 Betten,
@@ -118,10 +122,14 @@ ok(/"fwk_on":true/.test(snap) && /"fwk_hl":"55"/.test(snap) && /"fwk_n":"6"/.tes
 const pay = await page.evaluate(() => ({ aktiv: typeof fwkActive === 'function' && fwkActive(), k: window._fwkLast ? { n: _fwkLast.n, p: _fwkLast.pStation } : null }));
 ok(pay.aktiv && pay.k && pay.k.n === 6 && pay.k.p > 0, 'Kaskaden-State für den Anlagenwahl-Payload verfügbar');
 
-// Aus-Toggle blendet Schema-Karte wieder aus
+// Aus-Toggle: Schema bleibt sichtbar und fällt auf EINE Station zurück,
+// der Kaskaden-State für die Offertanfrage wird geräumt.
 await page.evaluate(() => { const c = document.getElementById('fwk_on'); c.checked = false; c.dispatchEvent(new Event('change', { bubbles: true })); });
 await page.waitForTimeout(250);
-ok(await page.$eval('#fwkSchemaCard', e => getComputedStyle(e).display === 'none'), 'Aus-Toggle versteckt die Schema-Karte');
+ok(await page.$eval('#fwkSchemaCard', e => getComputedStyle(e).display !== 'none'), 'Aus-Toggle lässt das Anlagenschema stehen');
+ok(await page.$eval('#fwkBody', e => getComputedStyle(e).display === 'none'), 'Aus-Toggle versteckt den Kaskaden-Body');
+ok(await page.evaluate(() => Array.from(document.querySelectorAll('#fwkSchema text')).filter(t => /^(FWS|W\d)$/.test(t.textContent)).length === 1), 'Schema fällt auf EINE Station zurück');
+ok(await page.evaluate(() => window._fwkLast === null), 'Kaskaden-State für die Offertanfrage geräumt');
 
 ok(errors.length === 0, 'keine JS-Fehler (' + errors.slice(0, 3).join(' | ') + ')');
 

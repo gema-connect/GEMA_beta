@@ -118,6 +118,22 @@ input::placeholder{color:#cbd5e1}
 .ws-bucket-meta{font-size:12.5px;color:var(--ink-2);display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .ws-meta-sep{color:var(--ink-3)}
 .ws-meta-chip{display:inline-flex;align-items:center;gap:4px}
+/* Mitglieder-Chip ist anwählbar (Feedback 05.08.2026) */
+.ws-meta-chip--btn{font:inherit;color:inherit;border:1px solid transparent;background:none;padding:2px 7px;border-radius:999px;cursor:pointer;transition:background var(--t),border-color var(--t)}
+.ws-meta-chip--btn:hover{background:#F4F5F7;border-color:var(--line);color:var(--ink)}
+.ws-mitglied-row{display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid var(--line)}
+.ws-mitglied-row:last-child{border-bottom:none}
+.ws-mitglied-name{font-size:13px;font-weight:600;color:var(--ink)}
+.ws-mitglied-sub{font-size:11.5px;color:var(--ink-3)}
+/* Lerngruppe: Feedback direkt an der Berechnung (Feedback 05.08.2026) */
+.ws-mod-fb{display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:700;color:#7c3aed;background:rgba(124,58,237,.09);border:1px solid rgba(124,58,237,.24);border-radius:999px;padding:1px 7px}
+.ws-fb-btn.hat{color:#7c3aed;background:rgba(124,58,237,.1)}
+.ws-fb-row{display:flex;gap:10px;padding:9px 2px;border-bottom:1px solid var(--line)}
+.ws-fb-row:last-child{border-bottom:none}
+.ws-fb-kopf{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:12.5px}
+.ws-fb-rolle{font-size:10.5px;font-weight:700;color:#7c3aed;background:rgba(124,58,237,.09);border-radius:999px;padding:1px 7px}
+.ws-fb-zeit{font-size:11px;color:var(--ink-3);margin-left:auto}
+.ws-fb-txt{font-size:13px;color:var(--ink);line-height:1.45;margin-top:3px;white-space:pre-wrap;word-break:break-word}
 .ws-bucket-actions{display:flex;gap:8px;flex-shrink:0}
 
 /* ── Buttons ── */
@@ -584,6 +600,9 @@ input::placeholder{color:#cbd5e1}
   var TYPES={
     project:{label:'Bauprojekt',icon:'building',color:'#1e3a5f',ownerType:'org'},
     training:{label:'Übung',icon:'grad',color:'#3B82F6',ownerType:'choose'},
+    // Feedback 05.08.2026: gemeinsam lernen, Dozent einladen, Feedback
+    // direkt an der Berechnung (siehe _wsDozentEinladen / _wsModFeedback)
+    lerngruppe:{label:'Lerngruppe',icon:'users',color:'#7c3aed',ownerType:'choose'},
     'private':{label:'Privat',icon:'lock',color:'#64748b',ownerType:'personal'}
   };
   function typeIcon(type,size){var t=TYPES[type]||TYPES.project;return '<span style="color:'+t.color+';display:inline-flex">'+icon(t.icon,size||16)+'</span>';}
@@ -754,6 +773,38 @@ input::placeholder{color:#cbd5e1}
     if(members.length>3)html+='<div style="margin-left:-8px"><div class="ws-avatar" style="width:'+size+'px;height:'+size+'px;background:#E5E7EB;color:#475569;font-size:'+(size*.38)+'px;box-shadow:0 0 0 2px #fff">+'+String(members.length-3)+'</div></div>';
     return html+'</span>';
   }
+
+  /* ── Zeitstempel der Aktivität (Feedback 05.08.2026) ──────────────────
+     Früher stand in jedem Aktivitäts-Eintrag der FESTE Text «gerade eben» —
+     der wurde einmal geschrieben und nie wieder angefasst, ein Eintrag von
+     letzter Woche behauptete also immer noch «gerade eben». Neue Einträge
+     tragen darum einen ISO-Zeitstempel (`ts`) und werden beim Rendern
+     ausgerechnet; Alt-Einträge ohne ts zeigen weiterhin ihren Text (kein
+     erfundenes Datum). */
+  function _wsTs(){ return new Date().toISOString(); }
+  var _WS_WOCHENTAG=['So','Mo','Di','Mi','Do','Fr','Sa'];
+  function _wsZeit(d){ return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
+  function _wsWann(a){
+    if(!a)return '';
+    var iso=a.ts;
+    if(!iso)return a.when||'';           // Bestandsschutz: Alt-Eintrag ohne ts
+    var d=new Date(iso);
+    if(isNaN(d.getTime()))return a.when||'';
+    var jetzt=new Date();
+    var tag0=function(x){return new Date(x.getFullYear(),x.getMonth(),x.getDate()).getTime();};
+    var tageDiff=Math.round((tag0(jetzt)-tag0(d))/86400000);
+    var uhr=_wsZeit(d);
+    if(tageDiff===0){
+      var min=Math.floor((jetzt.getTime()-d.getTime())/60000);
+      if(min<1)return 'gerade eben';
+      if(min<60)return 'vor '+min+' Min. · heute '+uhr;
+      return 'heute, '+uhr;
+    }
+    if(tageDiff===1)return 'gestern, '+uhr;
+    if(tageDiff>1&&tageDiff<7)return _WS_WOCHENTAG[d.getDay()]+', '+d.toLocaleDateString('de-CH')+', '+uhr;
+    return d.toLocaleDateString('de-CH')+', '+uhr;
+  }
+  function _wsAct(who,text){ return {who:who||'Du',text:text,ts:_wsTs()}; }
 
   // ── Module KPIs ──
   // KPI-Erzeugung. Frueher: roher localStorage-Read pro Modul mit
@@ -1131,7 +1182,7 @@ input::placeholder{color:#cbd5e1}
   window._wsOpenNewModal=function(){
     _newType='project';_newOwner='org';
     var orgs=_getOrgs();_newOrg=orgs[0].id;
-    var types=[{id:'project',icon:'building',label:'Bauprojekt'},{id:'training',icon:'grad',label:'Übung'},{id:'private',icon:'lock',label:'Privat'}];
+    var types=[{id:'project',icon:'building',label:'Bauprojekt'},{id:'training',icon:'grad',label:'Übung'},{id:'lerngruppe',icon:'users',label:'Lerngruppe'},{id:'private',icon:'lock',label:'Privat'}];
     var orgHtml='<div class="ws-form-field" id="wsOrgField"><label>Organisation</label><div class="ws-org-pills" id="wsOrgPillsModal">'
       +orgs.map(function(o){return '<button class="ws-org-pill'+(o.id===_newOrg?' active':'')+'" onclick="_wsPickOrg(\''+o.id+'\')">'+esc(o.name)+'</button>';}).join('')
       +'</div></div>';
@@ -1211,7 +1262,7 @@ input::placeholder{color:#cbd5e1}
       createdBy:uid,
       accessControl:{orgVisible:true,invitedUsers:[],revokedUsers:[]},
       org:orgId||_curOrgId(),members:[_initials(uName)],modules:tplMods,
-      activity:[{who:uName,text:'hat „'+name+'” erstellt'+(tplMods.length?' mit '+tplMods.length+' Modulen aus Vorlage':''),when:'gerade eben'}],
+      activity:[{who:uName,text:'hat „'+name+'” erstellt'+(tplMods.length?' mit '+tplMods.length+' Modulen aus Vorlage':''),ts:_wsTs()}],
       beteiligte:[],notes:[{id:'n1',title:'n.Seite 1',body:''}],objektId:null,createdAt:new Date().toISOString()};
     buckets.push(b);
     _wsEnsureObjekt(b);
@@ -1232,11 +1283,16 @@ input::placeholder{color:#cbd5e1}
     var orgId=isPersonal?null:_resolveOrg();
     var uid=_curUserId();
     var uName='Du';try{var cu=_curUser();if(cu)uName=cu.name||'Du';}catch(e){}
+    /* Eine Lerngruppe gehört den EINGELADENEN, nicht der ganzen Schule —
+       ohne diese Einschränkung sähe jede Studentin jede fremde Lerngruppe
+       (Feedback 05.08.2026). Einladen erweitert `nurUserIds` mit. */
+    var ac={orgVisible:true,invitedUsers:[],revokedUsers:[]};
+    if(typeId==='lerngruppe'&&!isPersonal&&uid)ac.nurUserIds=[uid];
     var b={id:'ws_'+Date.now(),name:name,type:typeId,
       ownerType:isPersonal?'personal':'org',ownerOrgId:orgId,createdBy:uid,
-      accessControl:{orgVisible:true,invitedUsers:[],revokedUsers:[]},
+      accessControl:ac,
       org:orgId||_curOrgId(),members:[_initials(uName)],modules:[],
-      activity:[{who:uName,text:'hat „'+name+'” erstellt',when:'gerade eben'}],
+      activity:[{who:uName,text:'hat „'+name+'” erstellt',ts:_wsTs()}],
       beteiligte:[],notes:[{id:'n1',title:'n.Seite 1',body:''}],objektId:null,createdAt:new Date().toISOString()};
     buckets.push(b);
     _wsEnsureObjekt(b);
@@ -1247,7 +1303,7 @@ input::placeholder{color:#cbd5e1}
     return b.id;
   };
   window._wsQuickCreate=function(typeId){
-    var presets={project:'Mein erstes Bauprojekt',training:'Übungsumgebung','private':'Privater Eimer'};
+    var presets={project:'Mein erstes Bauprojekt',training:'Übungsumgebung',lerngruppe:'Meine Lerngruppe','private':'Privater Eimer'};
     window._wsNatCreate(presets[typeId]||'Neuer Eimer',typeId);
   };
 
@@ -1305,7 +1361,7 @@ input::placeholder{color:#cbd5e1}
       added++;
     });
     if(added){
-      b.activity.unshift({who:(_curUser()||{}).name||'Du',text:'Vorlage „'+tpl.name+'" angewendet ('+added+' Module)',when:'gerade eben'});
+      b.activity.unshift({who:(_curUser()||{}).name||'Du',text:'Vorlage „'+tpl.name+'" angewendet ('+added+' Module)',ts:_wsTs()});
       _wsCloseModal();save();render();
       toast(added+' Module aus Vorlage hinzugefügt','check');
     }else{
@@ -1317,7 +1373,7 @@ input::placeholder{color:#cbd5e1}
     if(b.modules.find(function(m){return m.mod===modId;}))return;
     var mod=MODULES.find(function(x){return x.id===modId;});
     b.modules.push({mod:modId,status:'offen'});
-    b.activity.unshift({who:(_curUser()||{}).name||'Du',text:'hat '+mod.name+' hinzugefügt',when:'gerade eben'});
+    b.activity.unshift({who:(_curUser()||{}).name||'Du',text:'hat '+mod.name+' hinzugefügt',ts:_wsTs()});
     _wsCloseModal();save();render();
     toast('Modul hinzugefügt','plus');
   };
@@ -1385,7 +1441,7 @@ input::placeholder{color:#cbd5e1}
     var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
     var mod=MODULES.find(function(x){return x.id===modId;});
     b.modules=b.modules.filter(function(m){return m.mod!==modId;});
-    b.activity.unshift({who:(_curUser()||{}).name||'Du',text:'hat '+(mod?mod.name:'Modul')+' entfernt',when:'gerade eben'});
+    b.activity.unshift({who:(_curUser()||{}).name||'Du',text:'hat '+(mod?mod.name:'Modul')+' entfernt',ts:_wsTs()});
     _wsCloseModal();save();render();
     toast('Modul entfernt','x');
   };
@@ -1443,10 +1499,54 @@ input::placeholder{color:#cbd5e1}
     if(!b.autoTyp){
       items.push({ic:'pencil',label:'Umbenennen',fn:function(){window._wsCtxRename(id);}});
       items.push({ic:'note',label:'Duplizieren',fn:function(){window._wsDuplicateBucket(id);}});
+      // Feedback 05.08.2026: Übungs-/Lernraum-Eimer an die Klasse anfügen
+      if(b.subOf)items.push({ic:'chevron',label:'Einordnung aufheben',fn:function(){window._wsSubOfClear(id);}});
+      else if(_wsElternKandidaten(b).length)items.push({ic:'grad',label:'Bei einer Klasse einordnen …',fn:function(){window._wsSubOfPick(id);}});
       items.push({sep:true});
       items.push({ic:'x',label:'Löschen',danger:true,fn:function(){window._wsConfirmDelete(id);}});
     }
     return _wsCtxShow(ev,items);
+  };
+
+  /* ── Eimer bei einer Klasse einordnen (Feedback 05.08.2026) ────────────
+     Mögliche Übergeordnete sind die sichtbaren, hervorgehobenen Org-Eimer
+     der eigenen Org (Klassen-Eimer, fixe Firmen-Eimer) — NICHT der Eimer
+     selbst und kein Eimer, der schon untergeordnet ist (keine Ketten). */
+  function _wsElternKandidaten(b){
+    var oid=_curOrgId();
+    return buckets.filter(function(x){
+      return x.id!==b.id && x.ownerType==='org' && x.ownerOrgId===oid
+        && x.pinned && !x.subOf && _canSeeBucket(x);
+    });
+  }
+  window._wsSubOfPick=function(id){
+    var b=buckets.find(function(x){return x.id===id;});if(!b)return;
+    var kand=_wsElternKandidaten(b);
+    if(!kand.length){toast('Keine Klasse vorhanden, der du diesen Eimer anfügen kannst','x');return;}
+    var body='<div class="ws-modpicker" style="max-height:300px">'+kand.map(function(k){
+      return '<button class="ws-modpicker-item" onclick="_wsSubOfSet(\''+id+'\',\''+k.id+'\')">'
+        +'<span class="ws-bucket-row__icon">'+typeIcon(k.type)+'</span>'
+        +'<div style="flex:1;min-width:0"><div class="ws-modpicker-name">'+esc(k.name)+'</div>'
+        +'<div class="ws-modpicker-desc">'+(k.autoTyp==='klasse'?'Klasse':'Fixer Eimer der Firma')+'</div></div></button>';
+    }).join('')+'</div>'
+      +'<div class="ws-empty-hint" style="margin-top:12px">Der Eimer erscheint danach eingerückt direkt unter der gewählten Klasse. Wer ihn sehen darf, ändert sich dadurch nicht.</div>';
+    openModal('«'+b.name+'» einordnen',body,520);
+  };
+  window._wsSubOfSet=function(id,parentId){
+    var b=buckets.find(function(x){return x.id===id;});
+    var p=buckets.find(function(x){return x.id===parentId;});
+    if(!b||!p)return;
+    b.subOf=parentId;
+    b.activity.unshift(_wsAct((_curUser()||{}).name||'Du','bei „'+p.name+'” eingeordnet'));
+    _wsCloseModal();save();render();
+    toast('Bei «'+p.name+'» eingeordnet','check');
+  };
+  window._wsSubOfClear=function(id){
+    var b=buckets.find(function(x){return x.id===id;});if(!b||!b.subOf)return;
+    delete b.subOf;
+    b.activity.unshift(_wsAct((_curUser()||{}).name||'Du','Einordnung aufgehoben'));
+    save();render();
+    toast('Einordnung aufgehoben','check');
   };
 
   // Umbenennen via Kontextmenü (auch für nicht-aktive Eimer)
@@ -1487,7 +1587,7 @@ input::placeholder{color:#cbd5e1}
     copy.createdAt=new Date().toISOString();
     var cu=_curUser();
     if(cu&&cu.id)copy.createdBy=cu.id;
-    copy.activity=[{who:(cu&&cu.name)||'Du',text:'hat den Eimer aus „'+b.name+'” dupliziert',when:'gerade eben'}];
+    copy.activity=[{who:(cu&&cu.name)||'Du',text:'hat den Eimer aus „'+b.name+'” dupliziert',ts:_wsTs()}];
     buckets.push(copy);
     save();render();
     toast('Eimer dupliziert','check');
@@ -1678,7 +1778,7 @@ input::placeholder{color:#cbd5e1}
         var neu=_wsBucketNameFuerObjekt(o);
         if(neu)b.name=neu;
       }catch(e){}
-      b.activity.unshift({who:(_curUser()||{}).name||'Du',text:'Objekt verknüpft: '+label,when:'gerade eben'});
+      b.activity.unshift({who:(_curUser()||{}).name||'Du',text:'Objekt verknüpft: '+label,ts:_wsTs()});
       _wsCloseModal();save();render();
       toast('Objekt verknüpft','building');
     }else if(newName&&newName.trim()){
@@ -1709,7 +1809,7 @@ input::placeholder{color:#cbd5e1}
       // Eimer-Name automatisch auf die Adresse setzen (Fallback Objektname)
       var neu=_wsBucketNameFuerObjekt(newObj);
       if(neu)b.name=neu;
-      b.activity.unshift({who:(_curUser()||{}).name||'Du',text:'Objekt erstellt & verknüpft: '+newName.trim(),when:'gerade eben'});
+      b.activity.unshift({who:(_curUser()||{}).name||'Du',text:'Objekt erstellt & verknüpft: '+newName.trim(),ts:_wsTs()});
       _wsCloseModal();save();render();
       toast('Objekt „'+newName.trim()+'" erstellt & verknüpft','check');
     }else{
@@ -1725,7 +1825,7 @@ input::placeholder{color:#cbd5e1}
   window._wsDoUnlinkObjekt=function(){
     var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
     b.objektId=null;
-    b.activity.unshift({who:(_curUser()||{}).name||'Du',text:'Objekt-Verknüpfung gelöst',when:'gerade eben'});
+    b.activity.unshift({who:(_curUser()||{}).name||'Du',text:'Objekt-Verknüpfung gelöst',ts:_wsTs()});
     _wsCloseModal();save();render();
     toast('Verknüpfung gelöst','x');
   };
@@ -1960,12 +2060,19 @@ input::placeholder{color:#cbd5e1}
     var subs=list.filter(function(b){return b.subOf;});
     var rest=list.filter(function(b){return !b.pinned&&!b.subOf;});
     var out=[];
-    pinned.forEach(function(p){
-      out.push(p);
+    function push(p){
+      if(out.indexOf(p)<0)out.push(p);
       subs.forEach(function(s){ if(s.subOf===p.id&&out.indexOf(s)<0) out.push(s); });
+    }
+    pinned.forEach(push);
+    var restOut=[];
+    rest.forEach(function(p){
+      restOut.push(p);
+      subs.forEach(function(s){ if(s.subOf===p.id&&out.indexOf(s)<0&&restOut.indexOf(s)<0) restOut.push(s); });
     });
-    subs.forEach(function(s){ if(out.indexOf(s)<0) rest.push(s); });
-    return out.concat(rest);
+    // Waise (Übergeordneter nicht sichtbar) wird NIE verschluckt
+    subs.forEach(function(s){ if(out.indexOf(s)<0&&restOut.indexOf(s)<0) restOut.push(s); });
+    return out.concat(restOut);
   }
 
   function renderSidebar(){
@@ -1973,9 +2080,20 @@ input::placeholder{color:#cbd5e1}
     var oid=_curOrgId();
     var orgName='Organisation';
     try{var co=_getOrgs()[0];if(co)orgName=co.name;}catch(e){}
-    var orgBuckets=_wsOrder(visible.filter(function(b){return b.ownerType==='org'&&b.ownerOrgId===oid;}));
+    var orgOwn=visible.filter(function(b){return b.ownerType==='org'&&b.ownerOrgId===oid;});
     var personal=visible.filter(function(b){return b.ownerType==='personal';});
     var guest=visible.filter(function(b){return _isGuestBucket(b);});
+    /* Feedback 05.08.2026: «Übungsumgebung / Lernraum soll sich bei den
+       jeweiligen Klassen anfügen» — ein PERSÖNLICHER Eimer, der einer Klasse
+       zugeordnet ist (subOf), wird bei der Klasse gezeigt statt unten in der
+       eigenen Liste. Ohne sichtbaren Übergeordneten bleibt er, wo er war. */
+    var orgIds={};orgOwn.forEach(function(b){orgIds[b.id]=1;});
+    var angehaengt=personal.filter(function(b){return b.subOf&&orgIds[b.subOf];});
+    if(angehaengt.length){
+      personal=personal.filter(function(b){return angehaengt.indexOf(b)<0;});
+      orgOwn=orgOwn.concat(angehaengt);
+    }
+    var orgBuckets=_wsOrder(orgOwn);
 
     var filterOrg=function(list){
       if(activeOrg==='all')return list;
@@ -2065,6 +2183,7 @@ input::placeholder{color:#cbd5e1}
     var cards=[
       {id:'project',icon:'building',title:'Bauprojekt',desc:'Reales Objekt mit Adresse und Bauherr',color:'#1e3a5f'},
       {id:'training',icon:'grad',title:'Übungsumgebung',desc:'Sandbox zum Lernen und Testen',color:'#3B82F6'},
+      {id:'lerngruppe',icon:'users',title:'Lerngruppe',desc:'Gemeinsam rechnen — Dozent einladen und Feedback holen',color:'#7c3aed'},
       {id:'private',icon:'lock',title:'Privater Eimer',desc:'Persönlicher Arbeitsraum, nur für dich',color:'#64748b'}
     ];
     document.getElementById('wsEmptyState').innerHTML=
@@ -2121,7 +2240,8 @@ input::placeholder{color:#cbd5e1}
           +kpiHtml
           +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
           +'<span class="ws-mod-tile-status'+stCls+'"><span class="ws-mod-dot"></span>'+esc(stLabel)+'</span>'
-          +tsHtml+'</div></div>'
+          +tsHtml+_wsFbChip(b,m.mod)+'</div></div>'
+          +'<button class="ws-icon-btn ws-fb-btn'+(_wsFbAnzahl(b,m.mod)?' hat':'')+'" onclick="event.preventDefault();event.stopPropagation();_wsModFeedback(\''+m.mod+'\')" title="Feedback zur Berechnung" style="width:22px;height:22px">'+icon('note',12,2)+'</button>'
           +'<button class="ws-icon-btn" onclick="event.preventDefault();event.stopPropagation();_wsRemoveMod(\''+m.mod+'\')" title="Entfernen" style="width:22px;height:22px">'+icon('x',12,2)+'</button></a>';
       }).join('')
       +'<button class="ws-mod-tile ws-mod-tile--add" onclick="_wsOpenModulePicker()">'
@@ -2131,9 +2251,11 @@ input::placeholder{color:#cbd5e1}
 
     var actHtml='<div class="ws-activity"><div class="ws-section-head-content" style="margin:0 0 8px;padding:0"><span class="ws-section-title">Aktivität</span></div>'
       +'<ul class="ws-activity-list">'+b.activity.slice(0,8).map(function(a,i){
+        var wann=_wsWann(a);
+        var voll=a.ts?new Date(a.ts).toLocaleString('de-CH'):'';
         return '<li class="ws-activity-item">'+avatar(a.who.slice(0,2),28,AVATAR_COLORS[i%AVATAR_COLORS.length])
           +'<div class="ws-activity-body"><span class="ws-activity-who">'+esc(a.who)+'</span> '+esc(a.text)
-          +'<span class="ws-activity-time"> · '+esc(a.when)+'</span></div></li>';
+          +'<span class="ws-activity-time"'+(voll?' title="'+esc(voll)+'"':'')+'> · '+esc(wann)+'</span></div></li>';
       }).join('')+'</ul></div>';
 
     var betHtml='';
@@ -2163,11 +2285,12 @@ input::placeholder{color:#cbd5e1}
       +objektChip(b)
       +'<div class="ws-bucket-meta"><span class="ws-meta-chip">'+esc(t.label)+'</span>'
       +'<span class="ws-meta-sep">·</span>'
-      +'<span class="ws-meta-chip">'+icon('users',12)+' '+b.members.length+' Mitglied'+(b.members.length===1?'':'er')+'</span>'
+      +'<button class="ws-meta-chip ws-meta-chip--btn" onclick="_wsMitglieder()" title="Mitglieder anzeigen">'+icon('users',12)+' '+b.members.length+' Mitglied'+(b.members.length===1?'':'er')+'</button>'
       +'<span class="ws-meta-sep">·</span>'
       +'<span class="ws-meta-chip">erstellt '+new Date(b.createdAt).toLocaleDateString('de-CH')+'</span></div></div></div>'
       +'<div class="ws-bucket-actions">'
       +'<button class="ws-btn ws-btn-ghost" onclick="_wsLinkObjekt()">'+icon('building',14)+' '+(b.objektId?'Objekt ändern':'Objekt verknüpfen')+'</button>'
+      +(_wsDozKandidaten().length?'<button class="ws-btn ws-btn-ghost" onclick="_wsDozentEinladen()" title="Dozent in diesen Eimer einladen">'+icon('grad',14)+' Dozent einladen</button>':'')
       +'<button class="ws-btn ws-btn-ghost" id="wsInviteBtn" onclick="_wsInvite()">'+icon('plus',14)+' Einladen</button></div></div>'
       +'<div class="ws-content-scroll">'
       +'<div class="ws-section-head-content"><span class="ws-section-title">Module</span><span class="ws-section-count">'+b.modules.length+'</span></div>'
@@ -2714,6 +2837,179 @@ input::placeholder{color:#cbd5e1}
   }
   function _initials(name){return(name||'').split(' ').map(function(s){return s[0]||'';}).join('').slice(0,2).toUpperCase()||'??';}
 
+  /* ══════════════════════════════════════════════════════════════════
+     LERNGRUPPE — Dozent einladen & Feedback direkt an der Berechnung
+     (Feedback 05.08.2026: «‹Lerngruppe›, Dozent soll eingeladen werden
+     können und direkt auf die Berechnungen Feedback geben können.»)
+
+     Das Feedback liegt IM Eimer-Record (`b.modFeedback[<modulId>] = []`) —
+     additiv, kein zweiter Pool. Damit gilt für den Zugriff exakt dieselbe
+     Regel wie für den Eimer selbst: wer den Eimer sieht, sieht das
+     Feedback; ein eingeladener Dozent sieht es, ein Fremder nicht.
+     ══════════════════════════════════════════════════════════════════ */
+  // Dozenten der Klassen, in denen der eingeloggte User Mitglied ist
+  function _wsMeineKlassen(){
+    var u=_curUser();if(!u)return [];
+    var arr=[];
+    try{
+      arr=(typeof GemaSync!=='undefined'&&GemaSync.getCached&&GemaSync.getCached('gema_schule_klassen_pool_v1'))||[];
+      if(!arr.length){var r=localStorage.getItem('gema_schule_klassen_pool_v1');arr=r?JSON.parse(r):[];}
+    }catch(e){ arr=[]; }
+    if(!Array.isArray(arr))arr=[];
+    return arr.filter(function(k){
+      if(!k||!k.id||k.archiviert)return false;
+      return (k.studentIds||[]).indexOf(u.id)>=0||(k.dozentIds||[]).indexOf(u.id)>=0;
+    });
+  }
+  function _wsDozKandidaten(){
+    var u=_curUser();if(!u)return [];
+    var b=buckets.find(function(x){return x.id===activeTab;});
+    var drin={};
+    if(b)(b.beteiligte||[]).forEach(function(p){if(p.userId)drin[p.userId]=1;});
+    var alle=[];
+    try{alle=(typeof GemaAuth!=='undefined'&&GemaAuth.getUsers&&GemaAuth.getUsers())||[];}catch(e){}
+    var out=[],gesehen={};
+    _wsMeineKlassen().forEach(function(k){
+      (k.dozentIds||[]).forEach(function(id){
+        if(id===u.id||gesehen[id]||drin[id])return;
+        gesehen[id]=1;
+        var us=alle.find(function(x){return x.id===id;});
+        out.push({id:id,name:us?(us.name||us.username):id,klasse:k.name||''});
+      });
+    });
+    return out;
+  }
+  window._wsDozentEinladen=function(){
+    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var kand=_wsDozKandidaten();
+    if(!kand.length){
+      openModal('Dozent einladen','<div class="ws-empty-hint">Aus deinen Klassen ist kein weiterer Dozent verfügbar — entweder gibt es keine Klasse oder alle Dozenten sind bereits im Eimer.</div>'
+        +'<div class="ws-form-actions"><button class="ws-btn ws-btn-ghost" onclick="_wsCloseModal()">Schliessen</button></div>',460);
+      return;
+    }
+    var body='<div class="ws-modpicker" style="max-height:280px">'+kand.map(function(d,i){
+      return '<button class="ws-modpicker-item" onclick="_wsDozentAdd(\''+d.id+'\')">'
+        +avatar(_initials(d.name),36,AVATAR_COLORS[i%AVATAR_COLORS.length])
+        +'<div style="flex:1;min-width:0"><div class="ws-modpicker-name">'+esc(d.name)+'</div>'
+        +'<div class="ws-modpicker-desc">Dozent'+(d.klasse?' · '+esc(d.klasse):'')+'</div></div></button>';
+    }).join('')+'</div>'
+      +'<div class="ws-empty-hint" style="margin-top:12px">Der Dozent sieht danach diesen Eimer mit allen Berechnungen und kann pro Modul Feedback geben.</div>';
+    openModal('Dozent einladen',body,520);
+  };
+  window._wsDozentAdd=function(userId){
+    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var alle=[];try{alle=(typeof GemaAuth!=='undefined'&&GemaAuth.getUsers&&GemaAuth.getUsers())||[];}catch(e){}
+    var u=alle.find(function(x){return x.id===userId;});
+    var name=u?(u.name||u.username):userId;
+    b.members.push(_initials(name));
+    b.beteiligte.push({userId:userId,role:'Dozent',name:name,org:'',intern:true});
+    if(!b.accessControl)b.accessControl={orgVisible:true,invitedUsers:[],revokedUsers:[]};
+    if((b.accessControl.invitedUsers||[]).indexOf(userId)<0)b.accessControl.invitedUsers.push(userId);
+    // Ein eingeschränkter Eimer (Klassen-/Fix-Eimer) muss den Dozenten
+    // ausdrücklich durchlassen — sonst lädt man jemanden ein, der nichts sieht.
+    if(Array.isArray(b.accessControl.nurUserIds)&&b.accessControl.nurUserIds.indexOf(userId)<0)
+      b.accessControl.nurUserIds.push(userId);
+    var cu=_curUser();
+    b.activity.unshift(_wsAct((cu&&cu.name)||'Du','hat '+name+' als Dozent eingeladen'));
+    save();render();
+    try{
+      if(typeof GemaNotify!=='undefined')GemaNotify.push({
+        eventKey:'schule_lerngruppe_einladung',empfaengerUserId:userId,modul:'schule',typ:'aktion',
+        titel:'Einladung: '+b.name,
+        text:((cu&&cu.name)||'Ein Studierender')+' lädt dich in «'+b.name+'» ein — du kannst dort direkt Feedback zu den Berechnungen geben.',
+        link:'sys_workspace.html'});
+    }catch(e){}
+    _wsCloseModal();
+    toast(name+' eingeladen','check');
+  };
+
+  // ── Feedback pro Berechnungs-Modul ────────────────────────────────
+  function _wsFbListe(b,modId){
+    if(!b.modFeedback)return [];
+    return b.modFeedback[modId]||[];
+  }
+  function _wsFbAnzahl(b,modId){return _wsFbListe(b,modId).length;}
+  function _wsFbChip(b,modId){
+    var n=_wsFbAnzahl(b,modId);
+    if(!n)return '';
+    return '<span class="ws-mod-fb">'+icon('note',11,2)+' '+n+'</span>';
+  }
+  window._wsModFeedback=function(modId){
+    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var mod=MODULES.find(function(x){return x.id===modId;});
+    var liste=_wsFbListe(b,modId);
+    var rows=liste.length?liste.map(function(f,i){
+      return '<div class="ws-fb-row"><div class="ws-fb-av">'+avatar(_initials(f.who),30,AVATAR_COLORS[i%AVATAR_COLORS.length])+'</div>'
+        +'<div style="flex:1;min-width:0"><div class="ws-fb-kopf"><b>'+esc(f.who)+'</b>'
+        +(f.rolle?'<span class="ws-fb-rolle">'+esc(f.rolle)+'</span>':'')
+        +'<span class="ws-fb-zeit" title="'+esc(f.ts?new Date(f.ts).toLocaleString('de-CH'):'')+'">'+esc(_wsWann(f))+'</span></div>'
+        +'<div class="ws-fb-txt">'+esc(f.text).replace(/\n/g,'<br>')+'</div></div></div>';
+    }).join(''):'<div class="ws-empty-hint">Noch kein Feedback zu dieser Berechnung.</div>';
+    var body='<div style="display:flex;flex-direction:column;gap:12px">'
+      +'<div style="max-height:320px;overflow:auto">'+rows+'</div>'
+      +'<div class="ws-form"><div class="ws-form-field"><label>Feedback schreiben</label>'
+      +'<textarea class="ws-input" id="wsFbText" rows="3" placeholder="z.B. Der Spitzenvolumenstrom passt — prüfe aber die Gleichzeitigkeit."></textarea></div>'
+      +'<div class="ws-form-actions"><button class="ws-btn ws-btn-ghost" onclick="_wsCloseModal()">Schliessen</button>'
+      +'<button class="ws-btn ws-btn-primary" onclick="_wsFbSenden(\''+esc(modId)+'\')">Senden</button></div></div></div>';
+    openModal('Feedback · '+((mod&&mod.name)||modId),body,560);
+    setTimeout(function(){var t=document.getElementById('wsFbText');if(t)t.focus();},60);
+  };
+  window._wsFbSenden=function(modId){
+    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var t=document.getElementById('wsFbText');
+    var txt=((t&&t.value)||'').trim();
+    if(!txt){if(t)t.focus();return;}
+    var u=_curUser();
+    if(!b.modFeedback)b.modFeedback={};
+    if(!b.modFeedback[modId])b.modFeedback[modId]=[];
+    b.modFeedback[modId].push({id:'fb_'+Date.now(),who:(u&&u.name)||'Du',whoId:(u&&u.id)||'',
+      rolle:_wsRoleName(u)||'',text:txt,ts:_wsTs()});
+    var mod=MODULES.find(function(x){return x.id===modId;});
+    b.activity.unshift(_wsAct((u&&u.name)||'Du','Feedback zu '+((mod&&mod.name)||modId)));
+    save();render();
+    // Alle anderen Beteiligten benachrichtigen (nie sich selbst)
+    try{
+      (b.beteiligte||[]).forEach(function(p){
+        if(!p.userId||(u&&p.userId===u.id))return;
+        GemaNotify.push({eventKey:'schule_lerngruppe_feedback',empfaengerUserId:p.userId,modul:'schule',typ:'info',
+          titel:'Feedback: '+((mod&&mod.name)||modId),
+          text:((u&&u.name)||'Jemand')+' hat in «'+b.name+'» Feedback zu '+((mod&&mod.name)||modId)+' geschrieben.',
+          link:'sys_workspace.html'});
+      });
+      if(b.createdBy&&(!u||b.createdBy!==u.id)&&!(b.beteiligte||[]).some(function(p){return p.userId===b.createdBy;})){
+        GemaNotify.push({eventKey:'schule_lerngruppe_feedback',empfaengerUserId:b.createdBy,modul:'schule',typ:'info',
+          titel:'Feedback: '+((mod&&mod.name)||modId),
+          text:((u&&u.name)||'Jemand')+' hat in «'+b.name+'» Feedback zu '+((mod&&mod.name)||modId)+' geschrieben.',
+          link:'sys_workspace.html'});
+      }
+    }catch(e){}
+    _wsCloseModal();
+    toast('Feedback gesendet','check');
+  };
+
+  /* Mitgliederübersicht (Feedback 05.08.2026 «soll anwählbar sein») — der
+     Chip im Kopf öffnet die Liste: wer ist im Eimer, mit welcher Rolle, und
+     von hier aus direkt einladen bzw. entfernen. Quelle ist `beteiligte`
+     (die Namen); `members` hält nur die Initialen für die Avatare. */
+  window._wsMitglieder=function(){
+    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var liste=(b.beteiligte||[]);
+    var rows=liste.length?liste.map(function(p,idx){
+      var badge=p.intern?'<span class="ws-modpicker-tag">intern</span>':'<span class="ws-modpicker-tag">extern</span>';
+      return '<div class="ws-mitglied-row">'
+        +avatar(_initials(p.name),34,AVATAR_COLORS[idx%AVATAR_COLORS.length])
+        +'<div style="flex:1;min-width:0"><div class="ws-mitglied-name">'+esc(p.name)+' '+badge+'</div>'
+        +'<div class="ws-mitglied-sub">'+esc(p.role||'Mitglied')+(p.org?' · '+esc(p.org):'')+'</div></div>'
+        +(b.autoTyp?'':'<button class="ws-icon-btn" title="Entfernen" onclick="_wsCloseModal();_wsRemoveBet('+idx+')">'+icon('x',13,2)+'</button>')
+        +'</div>';
+    }).join(''):'<div class="ws-empty-hint">Noch niemand hinzugefügt — die Avatare zeigen bis dahin nur dich.</div>';
+    var hinweis=b.autoTyp
+      ? '<div class="ws-empty-hint" style="margin-top:12px">Dieser Eimer wird automatisch verwaltet — die Mitglieder folgen der Klasse.</div>'
+      : '<div class="ws-form-actions" style="margin-top:14px"><button class="ws-btn ws-btn-ghost" onclick="_wsCloseModal()">Schliessen</button>'
+        +'<button class="ws-btn ws-btn-primary" onclick="_wsCloseModal();_wsInvite()">'+icon('plus',14)+' Einladen</button></div>';
+    openModal('Mitglieder · '+b.name,'<div>'+rows+'</div>'+hinweis,520);
+  };
+
   window._wsInvite=function(){
     var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
     var curUser=null;
@@ -2769,8 +3065,12 @@ input::placeholder{color:#cbd5e1}
     b.beteiligte.push({userId:u.id,role:role,name:u.name,org:orgName,intern:true});
     if(!b.accessControl)b.accessControl={orgVisible:true,invitedUsers:[],revokedUsers:[]};
     if(b.accessControl.invitedUsers.indexOf(u.id)<0)b.accessControl.invitedUsers.push(u.id);
+    // Eingeschränkter Eimer (Lerngruppe/Klasse): Eingeladene ausdrücklich
+    // durchlassen — sonst lädt man jemanden ein, der nichts sieht.
+    if(Array.isArray(b.accessControl.nurUserIds)&&b.accessControl.nurUserIds.indexOf(u.id)<0)
+      b.accessControl.nurUserIds.push(u.id);
     var uName='Du';try{var cu=_curUser();if(cu)uName=cu.name||'Du';}catch(e){}
-    b.activity.unshift({who:uName,text:'hat '+u.name+' hinzugefügt',when:'gerade eben'});
+    b.activity.unshift({who:uName,text:'hat '+u.name+' hinzugefügt',ts:_wsTs()});
     _wsCloseModal();save();render();
     toast(u.name+' hinzugefügt','check');
   };
@@ -2784,7 +3084,7 @@ input::placeholder{color:#cbd5e1}
     var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
     b.members.push(_initials(name));
     b.beteiligte.push({role:role||'Sonstige',name:name,org:(org||'').trim(),intern:false});
-    b.activity.unshift({who:(_curUser()||{}).name||'Du',text:'hat '+name+' ('+role+') hinzugefügt',when:'gerade eben'});
+    b.activity.unshift({who:(_curUser()||{}).name||'Du',text:'hat '+name+' ('+role+') hinzugefügt',ts:_wsTs()});
     _wsCloseModal();save();render();
     toast(name+' hinzugefügt','check');
   };
@@ -2804,7 +3104,7 @@ input::placeholder{color:#cbd5e1}
     var ini=_initials(p.name);
     var mi=b.members.indexOf(ini);
     if(mi>=0)b.members.splice(mi,1);
-    b.activity.unshift({who:(_curUser()||{}).name||'Du',text:'hat '+p.name+' entfernt',when:'gerade eben'});
+    b.activity.unshift({who:(_curUser()||{}).name||'Du',text:'hat '+p.name+' entfernt',ts:_wsTs()});
     save();renderContent();
     toast(p.name+' entfernt','x');
   };
@@ -2903,7 +3203,7 @@ input::placeholder{color:#cbd5e1}
         createdBy:u.id,autoTyp:'klasse',autoKlasseId:k.id,pinned:true,
         accessControl:{orgVisible:false,invitedUsers:[],revokedUsers:[],nurUserIds:teilnehmer},
         org:'',members:namen,modules:[{mod:'ab_klassen',status:'offen'}],
-        activity:[{who:'GEMA',text:'Klassen-Eimer automatisch angelegt',when:'gerade eben'}],
+        activity:[{who:'GEMA',text:'Klassen-Eimer automatisch angelegt',ts:_wsTs()}],
         beteiligte:[],notes:[],objektId:null,createdAt:now};
       buckets.push(b);changed=true;
     }else{
@@ -2934,7 +3234,7 @@ input::placeholder{color:#cbd5e1}
         createdBy:u.id,autoTyp:'uebung',autoKlasseId:k.id,subOf:parentId,
         accessControl:{orgVisible:false,invitedUsers:[],revokedUsers:[],nurUserIds:[u.id]},
         org:'',members:[],modules:[],
-        activity:[{who:'GEMA',text:'Übungs-Eimer automatisch angelegt',when:'gerade eben'}],
+        activity:[{who:'GEMA',text:'Übungs-Eimer automatisch angelegt',ts:_wsTs()}],
         beteiligte:[],notes:[],objektId:null,createdAt:now};
       buckets.push(b);changed=true;
     }else{
@@ -3145,7 +3445,7 @@ input::placeholder{color:#cbd5e1}
         ownerOrgId:_curOrgId(),createdBy:u.id,pinned:true,
         accessControl:{orgVisible:true,invitedUsers:[],revokedUsers:[]},
         org:'',members:[],modules:[],
-        activity:[{who:u.name||'GEMA',text:'Fixer Eimer erstellt',when:'gerade eben'}],
+        activity:[{who:u.name||'GEMA',text:'Fixer Eimer erstellt',ts:_wsTs()}],
         beteiligte:[],notes:[],objektId:null,createdAt:new Date().toISOString()};
       buckets.push(b);
     }else{ b.name=name; }
@@ -3182,7 +3482,7 @@ input::placeholder{color:#cbd5e1}
           autoTyp:'rolle',pinned:true,
           accessControl:{orgVisible:false,invitedUsers:[],revokedUsers:[],nurRollen:def.rollen},
           org:'',members:[],modules:[],
-          activity:[{who:'GEMA',text:'Automatisch angelegt',when:'gerade eben'}],
+          activity:[{who:'GEMA',text:'Automatisch angelegt',ts:_wsTs()}],
           beteiligte:[],notes:[],objektId:null,createdAt:new Date().toISOString()};
         buckets.push(b);changed=true;
       }
@@ -3224,6 +3524,7 @@ input::placeholder{color:#cbd5e1}
   window._wsHooks={ pool:_poolRead, canSee:_canSeeBucket, buckets:function(){return buckets;},
     save:save, flush:_saveFlush, migrate:_migrateLegacy, load:function(){load();render();},
     provision:function(){_wsAutoProvision();}, scopeOk:_bucketScopeOk, order:_wsOrder,
+    wann:_wsWann, dozKandidaten:_wsDozKandidaten, fbListe:_wsFbListe,
     templates:{load:function(){return loadTemplates();}, save:function(t){saveTemplates(t);}} };
   initResize('wsResizeSidebar','wsSidebar','left');
   initResize('wsResizeNotes','wsNotesCol','right');
