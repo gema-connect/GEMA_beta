@@ -1164,6 +1164,18 @@ input::placeholder{color:#cbd5e1}
     if(b.createdBy===uid)return true;
     return false;
   }
+  /** Einen Eimer per id auflösen — aber NUR, wenn der eingeloggte Nutzer ihn
+      sehen darf. `buckets` hält den GANZEN (cross-org) Pool; wer hier roh
+      sucht, kann einen fremden Eimer anzeigen. Genau das passierte beim
+      Konto-Wechsel: der offene Tab des vorherigen Nutzers wurde samt Inhalt
+      wiederhergestellt. Die Provisionierungs-Funktionen (Klassen-/Auto-/Fix-
+      Eimer) suchen bewusst WEITER ungefiltert — sie legen Eimer an bzw. ziehen
+      sie nach, bevor der Nutzer darin steht. */
+  function bucketSichtbar(id){
+    if(!id)return null;
+    var b=buckets.find(function(x){return x.id===id;});
+    return (b&&_canSeeBucket(b))?b:null;
+  }
   function _isGuestBucket(b){
     var oid=_curOrgId();
     return b.ownerType==='org'&&b.ownerOrgId&&b.ownerOrgId!==oid;
@@ -1309,7 +1321,7 @@ input::placeholder{color:#cbd5e1}
 
   // ── Module Picker Modal ──
   window._wsOpenModulePicker=function(){
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var b=bucketSichtbar(activeTab);if(!b)return;
     var existing=b.modules.map(function(m){return m.mod;});
     var templates=loadTemplates();
 
@@ -1351,7 +1363,7 @@ input::placeholder{color:#cbd5e1}
     openModal('Modul hinzufügen',body,560);
   };
   window._wsApplyTemplate=function(idx){
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var b=bucketSichtbar(activeTab);if(!b)return;
     var tpl=loadTemplates()[idx];if(!tpl)return;
     var existing=b.modules.map(function(m){return m.mod;});
     var added=0;
@@ -1369,7 +1381,7 @@ input::placeholder{color:#cbd5e1}
     }
   };
   window._wsPickModule=function(modId){
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var b=bucketSichtbar(activeTab);if(!b)return;
     if(b.modules.find(function(m){return m.mod===modId;}))return;
     var mod=MODULES.find(function(x){return x.id===modId;});
     b.modules.push({mod:modId,status:'offen'});
@@ -1398,11 +1410,15 @@ input::placeholder{color:#cbd5e1}
   };
 
   // ── Tab / Open Bucket ──
+  // Der Tab-Zustand wird bei JEDER Änderung gesichert (nicht erst, wenn der
+  // Eimer selbst gespeichert wird) — sonst überlebt ein blosses Öffnen den
+  // Reload nicht. `saveTabs` ist eine Funktions-Deklaration und damit hier
+  // schon verfügbar (Hoisting).
   window._wsOpen=function(id){
     _showSettings=false;
     activeTab=id;
     if(openTabs.indexOf(id)<0)openTabs.push(id);
-    render();
+    saveTabs();render();
   };
   window._wsCloseTab=function(id){
     var idx=openTabs.indexOf(id);
@@ -1410,9 +1426,9 @@ input::placeholder{color:#cbd5e1}
     if(activeTab===id){
       activeTab=openTabs[idx]||openTabs[idx-1]||openTabs[0]||null;
     }
-    render();
+    saveTabs();render();
   };
-  window._wsActivateTab=function(id){activeTab=id;render();};
+  window._wsActivateTab=function(id){activeTab=id;saveTabs();render();};
   window._wsOpenBucketPicker=function(){
     var closed=buckets.filter(_canSeeBucket).filter(function(b){return openTabs.indexOf(b.id)<0;});
     if(!closed.length){
@@ -1430,7 +1446,7 @@ input::placeholder{color:#cbd5e1}
 
   // ── Remove Module ──
   window._wsRemoveMod=function(modId){
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var b=bucketSichtbar(activeTab);if(!b)return;
     var mod=MODULES.find(function(x){return x.id===modId;});
     var body='<p class="ws-confirm-text">Modul «'+(mod?esc(mod.name):'')+'» aus diesem Eimer entfernen?</p>'
       +'<div class="ws-form-actions"><button class="ws-btn ws-btn-ghost" onclick="_wsCloseModal()">Abbrechen</button>'
@@ -1438,7 +1454,7 @@ input::placeholder{color:#cbd5e1}
     openModal('Modul entfernen',body,420);
   };
   window._wsDoRemoveMod=function(modId){
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var b=bucketSichtbar(activeTab);if(!b)return;
     var mod=MODULES.find(function(x){return x.id===modId;});
     b.modules=b.modules.filter(function(m){return m.mod!==modId;});
     b.activity.unshift({who:(_curUser()||{}).name||'Du',text:'hat '+(mod?mod.name:'Modul')+' entfernt',ts:_wsTs()});
@@ -1449,7 +1465,7 @@ input::placeholder{color:#cbd5e1}
   // ── Rename Bucket ──
   window._wsRename=function(el){
     var txt=(el.innerText||'').trim();
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var b=bucketSichtbar(activeTab);if(!b)return;
     el.classList.remove('editing');
     if(b.autoTyp){el.innerText=b.name;toast('Der Name folgt deiner Klasse','lock');return;}
     if(txt&&txt!==b.name){b.name=txt;save();renderSidebar();toast('Name aktualisiert','pencil');}
@@ -1713,7 +1729,7 @@ input::placeholder{color:#cbd5e1}
 
   // ── Objekt-Verknüpfung ──
   window._wsLinkObjekt=function(){
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var b=bucketSichtbar(activeTab);if(!b)return;
     var objekte=[];
     try{if(typeof GemaObjekte!=='undefined')objekte=GemaObjekte.getAll()||[];}catch(e){}
 
@@ -1761,7 +1777,7 @@ input::placeholder{color:#cbd5e1}
     return adr||o.name||'';
   }
   window._wsDoLinkOrCreate=function(){
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var b=bucketSichtbar(activeTab);if(!b)return;
     var sel=document.getElementById('wsObjektSel');
     var newName=(document.getElementById('wsNewObjName')||{}).value;
     // Bei bereits verknüpftem Eimer steht das aktuelle Objekt im Dropdown
@@ -1823,7 +1839,7 @@ input::placeholder{color:#cbd5e1}
     openModal('Verknüpfung lösen',body,420);
   };
   window._wsDoUnlinkObjekt=function(){
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var b=bucketSichtbar(activeTab);if(!b)return;
     b.objektId=null;
     b.activity.unshift({who:(_curUser()||{}).name||'Du',text:'Objekt-Verknüpfung gelöst',ts:_wsTs()});
     _wsCloseModal();save();render();
@@ -1836,7 +1852,7 @@ input::placeholder{color:#cbd5e1}
     renderNotes();
   };
   window._wsAddNotePage=function(){
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var b=bucketSichtbar(activeTab);if(!b)return;
     var id='n'+Math.random().toString(36).slice(2,6);
     var idx=b.notes.length+1;
     b.notes.push({id:id,title:'n.Seite '+idx,body:''});
@@ -1844,7 +1860,7 @@ input::placeholder{color:#cbd5e1}
     save();renderNotes();
   };
   window._wsRenameNotePage=function(pageId){
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var b=bucketSichtbar(activeTab);if(!b)return;
     var p=b.notes.find(function(n){return n.id===pageId;});if(!p)return;
     var body='<div class="ws-form"><div class="ws-form-field"><label>Seitenname</label>'
       +'<input class="ws-input" id="wsNoteRenameInput" value="'+esc(p.title)+'"></div>'
@@ -1855,14 +1871,14 @@ input::placeholder{color:#cbd5e1}
   window._wsDoRenameNotePage=function(pageId){
     var inp=document.getElementById('wsNoteRenameInput');if(!inp)return;
     var nv=inp.value.trim();if(!nv)return;
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var b=bucketSichtbar(activeTab);if(!b)return;
     var p=b.notes.find(function(n){return n.id===pageId;});if(!p)return;
     p.title=nv;_wsCloseModal();save();renderNotes();
     toast('Seite umbenannt','pencil');
   };
   window._wsNoteInput=function(){
     var ed=document.getElementById('wsNoteEditor');if(!ed)return;
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var b=bucketSichtbar(activeTab);if(!b)return;
     var p=b.notes.find(function(n){return n.id===_activeNotePageId;});
     if(p)p.body=ed.innerHTML;
     save();
@@ -1883,7 +1899,7 @@ input::placeholder{color:#cbd5e1}
   window._wsNotesMenu=function(){
     var menu=document.getElementById('wsNotesMenu');if(!menu)return;
     if(menu.style.display!=='none'){menu.style.display='none';return;}
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var b=bucketSichtbar(activeTab);if(!b)return;
     var hasMultiple=b.notes.length>1;
     menu.className='ws-notes-menu';
     menu.style.display='';
@@ -1935,7 +1951,7 @@ input::placeholder{color:#cbd5e1}
   };
 
   window._wsNoteDeletePage=function(){
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b||b.notes.length<=1)return;
+    var b=bucketSichtbar(activeTab);if(!b||b.notes.length<=1)return;
     var p=b.notes.find(function(n){return n.id===_activeNotePageId;});
     if(!p)return;
     var title=p.title;
@@ -1947,7 +1963,7 @@ input::placeholder{color:#cbd5e1}
   };
 
   window._wsNotePageDuplicate=function(){
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var b=bucketSichtbar(activeTab);if(!b)return;
     var p=b.notes.find(function(n){return n.id===_activeNotePageId;});if(!p)return;
     var id='n'+Math.random().toString(36).slice(2,6);
     b.notes.push({id:id,title:p.title+' (Kopie)',body:p.body});
@@ -2142,7 +2158,7 @@ input::placeholder{color:#cbd5e1}
     bar.style.display='';
     bar.innerHTML='<div class="ws-tabbar"><div class="ws-tabs">'
       +openTabs.map(function(id){
-        var b=buckets.find(function(x){return x.id===id;});if(!b)return '';
+        var b=bucketSichtbar(id);if(!b)return '';
         var isActive=id===activeTab;
         return '<div class="ws-tab'+(isActive?' active':'')+'" onclick="_wsActivateTab(\''+id+'\')" oncontextmenu="return _wsCtxBucket(event,\''+id+'\')" title="'+esc(b.name)+'">'
           +'<span class="ws-tab-icon">'+typeIcon(b.type,14)+'</span>'
@@ -2203,7 +2219,7 @@ input::placeholder{color:#cbd5e1}
   }
 
   function renderContent(){
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var b=bucketSichtbar(activeTab);if(!b)return;
     var t=TYPES[b.type]||TYPES.project;
     var noMods=b.modules.length===0;
 
@@ -2313,7 +2329,7 @@ input::placeholder{color:#cbd5e1}
 
   function renderNotes(){
     var panel=document.getElementById('wsNotesPanel');if(!panel)return;
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var b=bucketSichtbar(activeTab);if(!b)return;
     var activePage=b.notes.find(function(n){return n.id===_activeNotePageId;})||b.notes[0];
 
     panel.innerHTML=
@@ -2743,7 +2759,7 @@ input::placeholder{color:#cbd5e1}
     e.preventDefault();
     var t=e.target.closest('.ws-mod-tile');if(t)t.classList.remove('drag-over');
     if(_dragIdx===null||_dragIdx===toIdx)return;
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var b=bucketSichtbar(activeTab);if(!b)return;
     var item=b.modules.splice(_dragIdx,1)[0];
     b.modules.splice(toIdx,0,item);
     _dragIdx=null;
@@ -2817,14 +2833,31 @@ input::placeholder{color:#cbd5e1}
   });
 
   // ── Tab Persistence ──
-  function saveTabs(){try{sessionStorage.setItem('ws_tabs',JSON.stringify({open:openTabs,active:activeTab}));}catch(e){}}
+  // KRITISCH — die offenen Tabs gehören dem BENUTZER, nicht dem Browser-Tab.
+  // Der Schlüssel trägt darum die User-ID: nach einem Konto-Wechsel (auch ohne
+  // Logout — der Admin-Benutzerwechsel tauscht die Session im laufenden Tab)
+  // beginnt der neue Nutzer mit SEINEN Tabs statt mit denen des vorherigen.
+  // Zusätzlich wird beim Wiederherstellen gegen _canSeeBucket gefiltert: ein
+  // Eimer, den man nicht sehen darf, kommt nie als Tab zurück.
+  function _tabsKey(){var u=_curUserId();return 'ws_tabs'+(u?'_'+u:'');}
+  /** Der frühere, ungescopte Schlüssel — genau er trug die Tabs des vorherigen
+      Nutzers über den Konto-Wechsel. Einmalig abräumen; ein Tab-Zustand ist
+      flüchtige Geräte-UI, da geht nichts Wertvolles verloren. */
+  function _tabsAltWeg(){
+    try{ if(_curUserId()) sessionStorage.removeItem('ws_tabs'); }catch(e){}
+  }
+  function saveTabs(){
+    try{sessionStorage.setItem(_tabsKey(),JSON.stringify({open:openTabs,active:activeTab}));}catch(e){}
+  }
   function loadTabs(){
+    _tabsAltWeg();
     try{
-      var r=sessionStorage.getItem('ws_tabs');
+      var r=sessionStorage.getItem(_tabsKey());
       if(r){var d=JSON.parse(r);openTabs=d.open||[];activeTab=d.active||null;}
-      openTabs=openTabs.filter(function(id){return buckets.find(function(b){return b.id===id;});});
-      if(activeTab&&!buckets.find(function(b){return b.id===activeTab;}))activeTab=openTabs[0]||null;
-    }catch(e){}
+      else {openTabs=[];activeTab=null;}
+      openTabs=openTabs.filter(function(id){return !!bucketSichtbar(id);});
+      if(activeTab&&!bucketSichtbar(activeTab))activeTab=openTabs[0]||null;
+    }catch(e){openTabs=[];activeTab=null;}
   }
   var _origSave=save;
   save=function(){_origSave();saveTabs();};
@@ -2863,7 +2896,7 @@ input::placeholder{color:#cbd5e1}
   }
   function _wsDozKandidaten(){
     var u=_curUser();if(!u)return [];
-    var b=buckets.find(function(x){return x.id===activeTab;});
+    var b=bucketSichtbar(activeTab);
     var drin={};
     if(b)(b.beteiligte||[]).forEach(function(p){if(p.userId)drin[p.userId]=1;});
     var alle=[];
@@ -2880,7 +2913,7 @@ input::placeholder{color:#cbd5e1}
     return out;
   }
   window._wsDozentEinladen=function(){
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var b=bucketSichtbar(activeTab);if(!b)return;
     var kand=_wsDozKandidaten();
     if(!kand.length){
       openModal('Dozent einladen','<div class="ws-empty-hint">Aus deinen Klassen ist kein weiterer Dozent verfügbar — entweder gibt es keine Klasse oder alle Dozenten sind bereits im Eimer.</div>'
@@ -2897,7 +2930,7 @@ input::placeholder{color:#cbd5e1}
     openModal('Dozent einladen',body,520);
   };
   window._wsDozentAdd=function(userId){
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var b=bucketSichtbar(activeTab);if(!b)return;
     var alle=[];try{alle=(typeof GemaAuth!=='undefined'&&GemaAuth.getUsers&&GemaAuth.getUsers())||[];}catch(e){}
     var u=alle.find(function(x){return x.id===userId;});
     var name=u?(u.name||u.username):userId;
@@ -2935,7 +2968,7 @@ input::placeholder{color:#cbd5e1}
     return '<span class="ws-mod-fb">'+icon('note',11,2)+' '+n+'</span>';
   }
   window._wsModFeedback=function(modId){
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var b=bucketSichtbar(activeTab);if(!b)return;
     var mod=MODULES.find(function(x){return x.id===modId;});
     var liste=_wsFbListe(b,modId);
     var rows=liste.length?liste.map(function(f,i){
@@ -2955,7 +2988,7 @@ input::placeholder{color:#cbd5e1}
     setTimeout(function(){var t=document.getElementById('wsFbText');if(t)t.focus();},60);
   };
   window._wsFbSenden=function(modId){
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var b=bucketSichtbar(activeTab);if(!b)return;
     var t=document.getElementById('wsFbText');
     var txt=((t&&t.value)||'').trim();
     if(!txt){if(t)t.focus();return;}
@@ -2992,7 +3025,7 @@ input::placeholder{color:#cbd5e1}
      von hier aus direkt einladen bzw. entfernen. Quelle ist `beteiligte`
      (die Namen); `members` hält nur die Initialen für die Avatare. */
   window._wsMitglieder=function(){
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var b=bucketSichtbar(activeTab);if(!b)return;
     var liste=(b.beteiligte||[]);
     var rows=liste.length?liste.map(function(p,idx){
       var badge=p.intern?'<span class="ws-modpicker-tag">intern</span>':'<span class="ws-modpicker-tag">extern</span>';
@@ -3011,7 +3044,7 @@ input::placeholder{color:#cbd5e1}
   };
 
   window._wsInvite=function(){
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var b=bucketSichtbar(activeTab);if(!b)return;
     var curUser=null;
     try{if(typeof GemaAuth!=='undefined')curUser=GemaAuth.getCurrentUser();}catch(e){}
     var myOrg=curUser?curUser.orgId:'org_default';
@@ -3055,7 +3088,7 @@ input::placeholder{color:#cbd5e1}
   };
 
   window._wsAddOrgUser=function(userId){
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var b=bucketSichtbar(activeTab);if(!b)return;
     var allUsers=_getOrgUsers();
     var u=allUsers.find(function(x){return x.id===userId;});if(!u)return;
     var role=_wsRoleName(u)||'Mitglied';
@@ -3081,7 +3114,7 @@ input::placeholder{color:#cbd5e1}
     var org=(document.getElementById('wsExtOrg')||{}).value;
     if(!name||!name.trim())return;
     name=name.trim();
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var b=bucketSichtbar(activeTab);if(!b)return;
     b.members.push(_initials(name));
     b.beteiligte.push({role:role||'Sonstige',name:name,org:(org||'').trim(),intern:false});
     b.activity.unshift({who:(_curUser()||{}).name||'Du',text:'hat '+name+' ('+role+') hinzugefügt',ts:_wsTs()});
@@ -3090,7 +3123,7 @@ input::placeholder{color:#cbd5e1}
   };
 
   window._wsRemoveBet=function(idx){
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var b=bucketSichtbar(activeTab);if(!b)return;
     var p=b.beteiligte[idx];if(!p)return;
     var body='<p class="ws-confirm-text">«'+esc(p.name)+'» ('+(p.intern?'intern':'extern')+') aus den Beteiligten entfernen?</p>'
       +'<div class="ws-form-actions"><button class="ws-btn ws-btn-ghost" onclick="_wsCloseModal()">Abbrechen</button>'
@@ -3098,7 +3131,7 @@ input::placeholder{color:#cbd5e1}
     openModal('Beteiligten entfernen',body,420);
   };
   window._wsDoRemoveBet=function(idx){
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var b=bucketSichtbar(activeTab);if(!b)return;
     var p=b.beteiligte[idx];if(!p)return;
     b.beteiligte.splice(idx,1);
     var ini=_initials(p.name);
