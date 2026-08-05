@@ -557,6 +557,34 @@ body::before{
   window.doLogout=doLogout;
 })();
 
+// Sitzung nach einer Registrierung uebernehmen.
+// KRITISCH: Es genuegt NICHT, `gema_session_v1` zu schreiben — der Boot-Check
+// in gema_auth.js prueft SYNCHRON gegen den lokalen Benutzer-Cache und wirft
+// eine Sitzung raus, deren Benutzer dort fehlt (der Cloud-Pull kommt erst
+// danach). Genau das schickte frisch Registrierte nach dem «Willkommen …»
+// zurueck auf den Login-Screen. GemaAuth.adoptSession schreibt beides;
+// der Fallback greift nur, wenn eine alte gema_auth.js aus dem
+// Service-Worker-Cache geladen wurde (dann bleibt es beim alten Verhalten).
+function _adoptSession(user,exp,token,org){
+  try{
+    if(typeof GemaAuth!=='undefined'&&GemaAuth.adoptSession){
+      GemaAuth.adoptSession(user,{token:token,tokenExp:exp,expires:exp,remember:true,org:org||null});
+      // Restliche Stammdaten mit dem frischen Token nachziehen, waehrend die
+      // «Willkommen …»-Meldung steht — die Zielseite startet dann komplett.
+      try{ if(GemaAuth.warmCaches) GemaAuth.warmCaches(); }catch(e){}
+      return;
+    }
+  }catch(e){}
+  try{localStorage.setItem('gema_session_v1',JSON.stringify({userId:user&&user.id,expires:exp,token:token||'',tokenExp:exp,remember:true}));}catch(e){}
+}
+// Startseite der Rolle (Studierende → Workspace, Planer → Workspace, …).
+// Kein Hand-Mapping — GemaAuth.getLandingPage ist die eine Wahrheit.
+function _landingFor(user){
+  var dest='index.html';
+  try{ if(typeof GemaAuth!=='undefined'&&GemaAuth.getLandingPage) dest=GemaAuth.getLandingPage(user)||dest; }catch(e){}
+  return dest;
+}
+
 // ── Registrierungs-Wizard ──
 var _regStep=1;
 function _showRegister(){
@@ -650,7 +678,7 @@ function _regSubmit(){
       .then(function(r){if(r.status===404)throw {fnMissing:true};return r.json().catch(function(){return {};}).then(function(j){return {status:r.status,j:j};});})
       .then(function(res){
         if(res.j&&res.j.ok&&res.j.token){
-          localStorage.setItem('gema_session_v1',JSON.stringify({userId:res.j.user.id,expires:res.j.exp,token:res.j.token,tokenExp:res.j.exp,remember:true}));
+          _adoptSession(res.j.user,res.j.exp,res.j.token,_regOrg);
           _regDone();return;
         }
         if(res.status===500&&res.j&&/nicht konfiguriert/i.test(res.j.error||''))throw {fnMissing:true};
@@ -673,9 +701,7 @@ function _regSubmit(){
       // Lieferant startet seit 08/2026 im Workspace wie alle anderen und
       // holt sich sein Dashboard von dort als Modul. Kein Hand-Mapping
       // mehr, das beim naechsten Rollen-Umbau auseinanderlaeuft.
-      var dest='index.html';
-      try{ if(typeof GemaAuth!=='undefined'&&GemaAuth.getLandingPage) dest=GemaAuth.getLandingPage()||dest; }catch(e){}
-      location.href=dest;
+      location.href=_landingFor();
     },1500);
     }
   }catch(e){_regErr('Fehler: '+e.message);}
@@ -747,13 +773,18 @@ function _studSubmit(){
   if(pw!==pw2){_studErr('Passwörter stimmen nicht überein.');return;}
   var btn=document.getElementById('studSubmit');
   btn.disabled=true;btn.textContent='Registrieren …';
-  function done(userId,exp,token,klasseName){
-    localStorage.setItem('gema_session_v1',JSON.stringify({userId:userId,expires:exp,token:token||'',tokenExp:exp,remember:true}));
+  function done(user,exp,token,klasseName){
+    // Sitzung + Benutzer in den lokalen Cache (siehe _adoptSession) — sonst
+    // landet man nach dem «Willkommen …» wieder im Login.
+    _adoptSession(user,exp,token,null);
     document.getElementById('studentView').style.display='none';
     document.getElementById('loginCard').querySelector('.login-hd').style.display='';
     document.getElementById('loginSuccess').style.display='';
     document.getElementById('successTxt').textContent='Willkommen'+(klasseName?' in der Klasse «'+klasseName+'»':'')+', '+name+'!';
-    setTimeout(function(){location.href='ab_klassen.html';},1200);
+    // Startseite der Rolle: Studierende landen im Workspace (dort liegen der
+    // Klassen- und der Übungs-Eimer), nicht mehr fix in ab_klassen.html.
+    var dest=_landingFor(user);
+    setTimeout(function(){location.href=dest;},1200);
   }
   function fail(msg){
     btn.disabled=false;btn.textContent='✓ Registrieren & Klasse beitreten';
@@ -764,7 +795,7 @@ function _studSubmit(){
     .then(function(r){if(r.status===404)throw {fnMissing:true};return r.json().catch(function(){return {};}).then(function(j){return {status:r.status,j:j};});})
     .then(function(res){
       if(res.j&&res.j.ok&&res.j.token){
-        done(res.j.user.id,res.j.exp,res.j.token,res.j.klasse?res.j.klasse.name:'');
+        done(res.j.user,res.j.exp,res.j.token,res.j.klasse?res.j.klasse.name:'');
         return;
       }
       if(res.status===500&&res.j&&/nicht konfiguriert/i.test(res.j.error||''))throw {fnMissing:true};

@@ -959,6 +959,10 @@
           _loadCollectionFromCloud(STORAGE_ROLES)
         ]);
       }).then(function(res){
+        // Frisch angelegter Benutzer, den der Cloud-Read (noch) nicht
+        // kennt: zurueckmergen, sonst wirft der naechste Seitenaufruf die
+        // eben eroeffnete Sitzung raus.
+        _reassertAdopted();
         var changed = false;
         if(res[0] && _maybeReloadAfterSync(_initialOrgsHash,  res[0])) changed=true;
         if(!changed && res[1] && _maybeReloadAfterSync(_initialUsersHash, res[1])) changed=true;
@@ -967,6 +971,92 @@
         console.warn('[GemaAuth] Cloud-Bootstrap fehlgeschlagen:', e && e.message);
       });
     }
+  }
+
+  // ── Sitzung eroeffnen (EINE Wahrheit fuer Login, Aktivierung, Registrierung)
+  //
+  // KRITISCH: Der Boot-Check (unten, `users.find(...)`) laeuft SYNCHRON und
+  // wirft eine Sitzung raus, deren Benutzer NICHT im lokalen Cache steht —
+  // der Cloud-Pull kommt erst danach. Wer also eine Sitzung schreibt, MUSS
+  // den Benutzer im selben Zug in den Cache mergen, sonst landet die
+  // Zielseite sofort wieder im Login («Willkommen …» und dann Login-Screen,
+  // Bugreport 05.08.2026 zur Klassencode-Registrierung).
+  function _mergeIntoCache(storageKey, rec){
+    if(!rec || !rec.id) return;
+    try{
+      var arr = JSON.parse(_readCache(storageKey)||'[]');
+      if(!Array.isArray(arr)) arr=[];
+      var i=-1;
+      for(var k=0;k<arr.length;k++){ if(arr[k]&&arr[k].id===rec.id){i=k;break;} }
+      if(i>=0)arr[i]=rec;else arr.push(rec);
+      _writeLocalCache(storageKey, arr);
+    }catch(e){}
+  }
+  // Zuletzt uebernommener Benutzer (Login/Aktivierung/Registrierung). Dient
+  // als Rettungsanker: ein Cloud-Refresh, der ihn (noch) nicht kennt, darf
+  // die frische Sitzung nicht entwerten — siehe warmCaches().
+  //
+  // Der Anker ueberlebt bewusst auch den Seitenwechsel (sessionStorage, 3
+  // Minuten): ein soeben angelegter Benutzer erscheint im Cloud-Read
+  // manchmal erst mit Verzoegerung, und der Bootstrap der ZIELSEITE wuerde
+  // ihn sonst aus dem Cache werfen — der naechste Klick landete im Login.
+  // Kurz befristet, damit ein wirklich geloeschtes Konto normal ausgeloggt
+  // wird (das ist die Aufgabe des Cloud-Reads, nicht des Ankers).
+  var FRESH_KEY = 'gema_auth_fresh_user';
+  var FRESH_MS  = 3 * 60 * 1000;
+  var _adoptedUser = null;
+  function _freshUser(){
+    if(_adoptedUser && _adoptedUser.id) return _adoptedUser;
+    try{
+      var r=JSON.parse(sessionStorage.getItem(FRESH_KEY)||'null');
+      if(r && r.u && r.u.id && r.ts && (Date.now()-r.ts) < FRESH_MS) return r.u;
+      if(r) sessionStorage.removeItem(FRESH_KEY);
+    }catch(e){}
+    return null;
+  }
+  // user  = vollstaendiger Benutzer-Record der Function
+  // opts  = {token, tokenExp, expires, remember, org}
+  function _adoptSession(user, opts){
+    opts = opts || {};
+    if(!user || !user.id) return null;
+    var remember = opts.remember !== false;
+    var tokenExp = opts.tokenExp || '';
+    var expIso = opts.expires;
+    if(!expIso){
+      // «Angemeldet bleiben»: Sitzungsende folgt dem Token (der Auto-Refresh
+      // erneuert es laufend) — sonst 1 Tag.
+      if(remember && tokenExp) expIso = tokenExp;
+      else { var d=new Date(); d.setDate(d.getDate()+(remember?SESSION_DAYS:1)); expIso=d.toISOString(); }
+    }
+    try{
+      localStorage.setItem(STORAGE_SESSION, JSON.stringify({
+        userId:user.id, expires:expIso, token:opts.token||'',
+        tokenExp:tokenExp, remember:remember
+      }));
+    }catch(e){}
+    // Der Auto-Reload des Cloud-Bootstraps (_maybeReloadAfterSync) darf eine
+    // eben eroeffnete Sitzung nicht stoeren: er wuerde die «Willkommen …»-
+    // Karte samt anstehender Weiterleitung wegreissen und die Login-Seite
+    // neu laden. Die Caches sind hier ohnehin frisch — Reload-Budget des
+    // Tabs also bewusst verbraucht.
+    try{ sessionStorage.setItem('gema_auth_auto_reloaded','1'); }catch(e){}
+    _adoptedUser = user;
+    try{ sessionStorage.setItem(FRESH_KEY, JSON.stringify({u:user, ts:Date.now()})); }catch(e){}
+    _mergeIntoCache(STORAGE_USERS, user);
+    if(opts.org) _mergeIntoCache(STORAGE_ORGS, opts.org);
+    return user;
+  }
+  // Nach einem Cloud-Refresh: kennt die frisch geladene Benutzerliste den
+  // eben angelegten Benutzer noch nicht (Replikations-Verzoegerung), waere
+  // die Sitzung beim naechsten Seitenaufruf tot. Also zurueckmergen.
+  function _reassertAdopted(){
+    var u=_freshUser();
+    if(!u) return;
+    var users=null;
+    try{ users = JSON.parse(_readCache(STORAGE_USERS)||'null'); }catch(e){}
+    if(!Array.isArray(users)) return;
+    for(var i=0;i<users.length;i++){ if(users[i]&&users[i].id===u.id) return; }
+    _mergeIntoCache(STORAGE_USERS, u);
   }
 
   function _hashArr(arr){
@@ -1832,21 +1922,10 @@
         }
         w.GemaAuth.lastLoginError='';
         var u=res.j.user;
-        // «Angemeldet bleiben»: Sitzungsende folgt dem Token (das der
-        // Auto-Refresh laufend erneuert) — sonst 1 Tag.
-        var expIso;
-        if(remember&&res.j.exp){expIso=res.j.exp;}
-        else{var exp=new Date();exp.setDate(exp.getDate()+(remember?SESSION_DAYS:1));expIso=exp.toISOString();}
-        var s={userId:u.id,expires:expIso,token:res.j.token,tokenExp:res.j.exp,remember:!!remember};
-        try{localStorage.setItem(STORAGE_SESSION,JSON.stringify(s));}catch(e){}
-        // User sofort in den lokalen Cache mergen (getCurrentUser klappt
-        // direkt); danach Collections MIT Token frisch ziehen.
-        try{
-          var users=_getUsers()||[];
-          var i=users.findIndex(function(x){return x&&x.id===u.id;});
-          if(i>=0)users[i]=u;else users.push(u);
-          _writeLocalCache(STORAGE_USERS,users);
-        }catch(e){}
+        // Sitzung + User in den lokalen Cache (eine Wahrheit, _adoptSession):
+        // getCurrentUser klappt direkt und der Boot-Check der Zielseite
+        // findet den Benutzer. Danach Collections MIT Token frisch ziehen.
+        _adoptSession(u,{token:res.j.token,tokenExp:res.j.exp,remember:!!remember});
         // Collections MIT Token frisch ziehen — aber den Login NICHT daran
         // aufhaengen: haengende/langsame Cloud-Reads (Netz, Proxy, AV)
         // machten den Login sonst beliebig langsam. Max. 2.5s warten
@@ -1879,6 +1958,25 @@
     // unterscheidet «falsches Passwort» von «Function fehlkonfiguriert»)
     lastLoginError:'',
 
+    // Sitzung aus einer Server-Antwort uebernehmen (Registrierung ueber die
+    // gema-auth Function). Schreibt Sitzung UND mergt den Benutzer in den
+    // lokalen Cache — ohne den Merge wirft der synchrone Boot-Check der
+    // Zielseite die frische Sitzung sofort wieder raus (Login-Screen).
+    // user = Benutzer-Record der Function, opts = {token,tokenExp,expires,remember,org}
+    adoptSession:function(user,opts){ return _adoptSession(user,opts); },
+
+    // Users/Orgs/Rollen MIT dem frischen Token nachziehen (nur lesen, keine
+    // Migration, keine Writes). Nach einer Registrierung kennt der lokale
+    // Cache nur den eigenen Benutzer — ohne diesen Zug rendert die Zielseite
+    // einmal ohne Firma und laedt sich danach selbst neu.
+    warmCaches:function(){
+      return Promise.all([
+        _loadCollectionFromCloud(STORAGE_USERS),
+        _loadCollectionFromCloud(STORAGE_ORGS),
+        _loadCollectionFromCloud(STORAGE_ROLES)
+      ]).catch(function(){ return null; }).then(function(r){ _reassertAdopted(); return r; });
+    },
+
     // GEMA Secure v1: JWT der aktuellen Sitzung (jede Anmeldung liefert eines)
     getToken:function(){
       try{var s=JSON.parse(localStorage.getItem(STORAGE_SESSION)||'null');return (s&&s.token)||'';}catch(e){return '';}
@@ -1907,13 +2005,7 @@
           return null;
         }
         var u=res.j.user;
-        try{localStorage.setItem(STORAGE_SESSION,JSON.stringify({userId:u.id,expires:res.j.exp,token:res.j.token,tokenExp:res.j.exp,remember:true}));}catch(e){}
-        try{
-          var users=_getUsers()||[];
-          var i=users.findIndex(function(x){return x&&x.id===u.id;});
-          if(i>=0)users[i]=u;else users.push(u);
-          _writeLocalCache(STORAGE_USERS,users);
-        }catch(e){}
+        _adoptSession(u,{token:res.j.token,tokenExp:res.j.exp,expires:res.j.exp,remember:true});
         return u;
       }).catch(function(e){
         w.GemaAuth.lastLoginError=(e&&e.fnMissing)
@@ -1927,6 +2019,8 @@
       localStorage.removeItem(STORAGE_SESSION);
       try{localStorage.removeItem('_gemaAdminOrigin');}catch(e){}
       try{localStorage.removeItem(NAV_LOGO_CACHE);}catch(e){}
+      _adoptedUser=null;
+      try{sessionStorage.removeItem(FRESH_KEY);}catch(e){}
       location.href='sys_login.html';
     },
 
