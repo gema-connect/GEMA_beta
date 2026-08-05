@@ -93,8 +93,10 @@ console.log('■ Markdown-Export enthält das Modul');
   const md = await page.evaluate(() => {
     // Feedback direkt in den _GemaDB-Cache legen (der Mock liefert die Rows,
     // das Format des Payloads unterscheidet sich je nach Ladeweg).
+    // umsetzen:true = im Board für die Umsetzung freigegeben; ohne den Haken
+    // nimmt der Export einen Punkt bewusst nicht mit.
     _GemaDB.c['feedback_pruefliste'] = JSON.stringify([{ ts: '27.07.2026 09:00', author: 'Sandro',
-      type: 'bug', text: 'Prüfpunkt liess sich nicht speichern', cStatus: 'offen' }]);
+      type: 'bug', text: 'Prüfpunkt liess sich nicht speichern', cStatus: 'offen', umsetzen: true }]);
     return _exGenerate(_exCollectAll(), false);
   });
   ok(/## pruefliste/.test(md), 'Export enthält die Modul-Sektion «pruefliste»');
