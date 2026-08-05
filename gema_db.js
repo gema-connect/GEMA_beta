@@ -220,6 +220,50 @@
     }
   }
 
+  /* ── Verlassen der Seite: ausstehende Werte sichern ───────────────
+     KRITISCH: schedule() schiebt den Cloud-Push 700 ms hinaus und flush()
+     ist async — wer die Seite vorher verlaesst (Reload, Objektwechsel,
+     Modul-Kachel, App-Wechsel auf dem iPad), verlor die letzte Eingabe
+     ersatzlos: _GemaDB haelt seinen Stand NUR im Speicher, nicht in
+     localStorage. Darum beim Verlassen (a) alles Ausstehende in die
+     dauerhafte Outbox legen — der naechste Seitenaufruf legt sie ueber
+     den Cloud-Stand (_obOverlay) und sendet nach — und (b) den Upload
+     mit `keepalive` sofort anstossen, damit er im Normalfall noch landet.
+     `beforeunload` allein genuegt nicht: iOS-Safari und die installierte
+     PWA feuern es beim App-Wechsel oft gar nicht. */
+  function _leaveFlush() {
+    if (!_module) return;
+    const batch = Object.assign({}, _pending);
+    if (!Object.keys(batch).length) return;
+    _pending = {};
+    clearTimeout(_timer);
+    for (const [k, v] of Object.entries(batch)) {
+      _obSetOne(_module, k, v);          // zuerst dauerhaft sichern
+      try {
+        if (v === null) {
+          fetch(`${_sbBase()}/rest/v1/${TABLE}` +
+                `?module_key=eq.${encodeURIComponent(_module)}` +
+                `&data_key=eq.${encodeURIComponent(k)}`,
+                { method: 'DELETE', headers: hdrs(), keepalive: true });
+        } else {
+          fetch(`${_sbBase()}/rest/v1/${TABLE}?on_conflict=module_key%2Cdata_key`, {
+            method: 'POST',
+            headers: hdrs({ 'Prefer': 'resolution=merge-duplicates,return=minimal' }),
+            body: JSON.stringify({ module_key: _module, data_key: k, payload: { v: v } }),
+            keepalive: true
+          });
+        }
+      } catch (e) {}
+    }
+  }
+  try {
+    window.addEventListener('beforeunload', _leaveFlush);
+    window.addEventListener('pagehide', _leaveFlush);
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'hidden') _leaveFlush();
+    });
+  } catch (e) {}
+
   /* ── PUBLIC API ────────────────────────────────────────────────── */
   const GDB = {
 

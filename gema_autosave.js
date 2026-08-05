@@ -119,9 +119,25 @@
     setTimeout(function() { _loading = false; }, 200);
   }
 
+  // Sicherheitsnetz: Wurde das Objekt-Dropdown erst NACH init() befuellt
+  // (Cloud-Pull, programmatische Auswahl ohne onObjektSelect), stuende
+  // _objId auf '' und die Eingaben landeten unter dem BASIS-Schluessel,
+  // waehrend die Seite ein Objekt anzeigt — beim naechsten Besuch waeren
+  // sie «weg». Nur der leere Fall wird nachgezogen: ein bereits gesetztes
+  // _objId gehoert zu wiederhergestellten Daten und darf nie umgehaengt
+  // werden (das mischte zwei Projekte).
+  function _syncObjFromDropdown() {
+    if (_objId) return;
+    try {
+      var sel = document.getElementById('metaObjektDropdown');
+      if (sel && sel.value) _objId = sel.value;
+    } catch(e) {}
+  }
+
   // ── Save to Supabase + localStorage ──
   function _save(silent) {
     if (_loading || !_initialized) return;
+    _syncObjFromDropdown();
     var key = _key();
     var json = JSON.stringify(_collect());
 
@@ -363,8 +379,22 @@
       if (e.target.id && !SKIP[e.target.id] && !e.target.closest('.modal-bg,.modal')) _onChange(e);
     }, true);
 
-    // Save on page leave
-    w.addEventListener('beforeunload', function() { _save(true); });
+    // Save on page leave.
+    // KRITISCH: `beforeunload` allein genuegt NICHT — iOS-Safari und die
+    // installierte PWA feuern es beim App-Wechsel/Schliessen oft gar nicht.
+    // Zusammen mit der 5-Sekunden-Entprellung war damit alles verloren, was
+    // in den letzten Sekunden getippt wurde («die Eingaben bleiben nicht»).
+    // `pagehide` und `visibilitychange` sind die verlaesslichen Signale.
+    function _flush() {
+      if (!_initialized || _loading) return;
+      clearTimeout(_timer);
+      _save(true);
+    }
+    w.addEventListener('beforeunload', _flush);
+    w.addEventListener('pagehide', _flush);
+    document.addEventListener('visibilitychange', function() {
+      if (document.visibilityState === 'hidden') _flush();
+    });
 
     // Phase-Change: aktuelle Daten unter ALTEM Key speichern, dann unter NEUEM Key laden
     var _prevKey = _key();

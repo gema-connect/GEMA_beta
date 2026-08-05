@@ -1099,6 +1099,8 @@ resetAll() → loadMeta() → populateObjektDropdown() → loadLocal(true)
 
 Auto-Save/Load bei Objektwechsel.
 
+**Der Schlüssel darf zwischen zwei Besuchen NICHT wechseln** — sonst wird in einen anderen Datensatz geschrieben als gelesen, und die Eingaben scheinen zu verschwinden. Die Regeln dazu (synchrones `?objekt=`, `getActiveId`-Fallback, Seiten-Verlassen-Flush von `_GemaDB`/`GemaAutoSave`, «kein eingefrorener Alias») stehen im Abschnitt «Speichern pro Projekt/Eimer».
+
 ### Combo-Widget (Projektfeld)
 
 - Dropdown aus Stammdaten
@@ -3463,6 +3465,27 @@ Repo-weiter Audit nach dem Workspace-Eimer-Bug. **KRITISCH — `_GemaDB.put` exi
 **gema_db-Outbox (Offline-Schutz der Blob-Module, KRITISCH)**: `_GemaDB.save`/`remove` verwarfen einen fehlgeschlagenen Cloud-Push endgültig (`_pending` wurde vor dem Loop geleert, Fehler nur console.warn) — ein OFFLINE gespeicherter Blob-Stand (sb_druckverlust, pm_crbx, Ausschreibungs-Vorlagen …) blieb zwar im localStorage, aber der nächste ONLINE-Boot hätte ihn per stale-while-revalidate-Adopt mit dem älteren Cloud-Stand überschrieben (Datenverlust). Jetzt: persistente **Outbox `gema_db_outbox_v1`** (Eintrag `<module>|<dataKey>` → `{v:wert}`, v:null = ausstehendes Delete; In-Memory-Fallback bei Quota) — flush() nimmt Outbox-Einträge des Moduls als Retry mit (frische `_pending`-Werte gewinnen), Erfolg räumt den Eintrag ab, Fehler queued + Retry-Timer 30 s, Badge sagt «Cloud nicht erreichbar — lokal gesichert» (gelb) statt rotem Fehler. `init()`/`ensure()` rufen **`_obOverlay()`**: offene Outbox-Werte werden ÜBER den frisch gepullten Cloud-Stand in `_cache` gelegt (lokal gewinnt, bis der Push durch ist) + Nachsenden geplant (1.5 s). **Guard-Falle (gefunden per Test)**: ein Boot-Echo-Save (AutoSave-Restore feuert change-Events → Modul-Save mit IDENTISCHEM Stand) legt den Key vor dem Overlay in `_pending` — der Overlay überspringt deshalb nur bei ABWEICHENDEM `_pending`-Wert (echte neuere Eingabe), nicht beim blossen Echo. Drift-Guard: Szenario 11 in `scripts/cloud_audit_sync_test.mjs` (Offline-Edit → Outbox → Reload online → Edit überlebt + wird nachgesendet + Outbox leer).
 
 **Bewusst lokal bleiben** (geprüft, banal bzw. by design): UI-Präferenzen (Ansichten/Spalten/Filter/Seitenleisten: `gema_obj_view/cols/colw/lfilter`, `gema_erp_docview/cols/colw`, `gema_ep_side/poolfilter`, `gema_erp_side_v1`, `gema_sd_devview` …), Notifikations-Locks/Dedup (`*_lock_v1`), reine Cloud-Caches (`*_pool_v1`), `gema_meta_*` (redundant — die Meta-Felder sind im AutoSave-Snapshot), Vormerkungen (`gema_offert_vormerkungen_v1` — by design lokal + cloud-abgeleitet), Quiz-Scores (Gamification), NFC-Log, PWA-/Recovery-Flags, GemaRecent, `activeObjektId`/`openTabs` (Geräte-UI), Fahrzeug-Typen-/Options-Freitextlisten (self-healing über die Fahrzeug-Records), Workspace-`gema_ws_settings_v1` (UI).
+
+### Speichern pro Projekt/Eimer — «die Eingaben bleiben nicht» (05.08.2026, Drift-Guard `scripts/berechnung_persistenz_test.mjs` 35 Checks)
+
+Gemeldet aus dem Studierenden-Pilot: eine Berechnung im Übungs-Eimer war nach dem Verlassen der Seite leer. Drei unabhängige Ursachen, alle drei zentral behoben — die ersten zwei betreffen **jedes** Berechnungsmodul, die dritte nur die LU-Tabelle.
+
+**(1) Der Speicher-Schlüssel wechselte zwischen erstem und zweitem Besuch (KRITISCH).** Der Weg in ein Modul führt über die Workspace-Kachel mit `?objekt=<id>`. Der Handler in `gema_objekte_api.js` setzte das aktive Objekt aber erst, **nachdem** `_readyPromise` (der Cloud-Pull) durch war — die Modul-Skripte laufen längst vorher. Beim ERSTEN Besuch (Objektliste noch leer im Cache) rechnete das Modul deshalb mit dem Basis-Key `gema_<modul>`, beim ZWEITEN (Liste im Cache) mit `gema_<modul>__<objektId>`: gespeichert wurde also in einen anderen Datensatz, als beim nächsten Öffnen gelesen wurde. Drei Bausteine:
+- `?objekt=` wird **synchron** angewendet (`setActiveId(urlObj)` sofort); die Prüfung, ob es das Objekt gibt, läuft asynchron nach und nimmt die Wahl bei einem Fehlgriff auf den vorherigen Stand zurück (`_vorher`). Ein per URL gesetztes Objekt ist damit ab der ersten Zeile Modul-Code sichtbar.
+- **`_healActive` fasst eine LEERE Objektliste nicht an**: die Heilung («aktives Objekt existiert nicht mehr → leeren») lief vorher auch, solange der Cache noch gar keine Objekte kannte, und löschte die eben gesetzte Wahl wieder.
+- **`getActiveId()` fällt auf den Geräte-Key zurück** (`gema_active_objekt_v1`), wenn der Blob-Cache noch keine `activeObjektId` trägt — der Blob wird bei jedem Cloud-Pull neu gebaut, der Geräte-Key überlebt.
+
+**(2) Ein schneller Seitenwechsel verwarf den letzten Stand.** `_GemaDB.save` schreibt in den Speicher-Cache + pusht **700 ms debounced** in die Cloud (kein localStorage!), `GemaAutoSave` speichert **5 s debounced**. Wer nach der letzten Eingabe schneller navigierte, verlor sie ersatzlos. `beforeunload` allein genügt nicht — iOS-Safari und die installierte PWA überspringen es regelmässig. Jetzt hängen **beide** Helfer an `beforeunload` + **`pagehide` + `visibilitychange`**: `gema_db.js` legt `_pending` in die dauerhafte Outbox (`_obSetOne`) und feuert `keepalive:true`-Upserts (überleben die Navigation), `gema_autosave.js` räumt seinen Timer ab und speichert sofort. **Regel für neue Helfer mit Debounce: nie nur `beforeunload`.**
+
+**(3) `sb_lu_tabelle` speicherte GAR NICHT automatisch.** Das Modul kannte nur `saveLocal()` am Speichern-Knopf; ohne Klick war jede Eingabe weg — die LU-Tabelle ist aber die zentrale Datenquelle der ganzen Kette. Dazu die dokumentierte «kein eingefrorener Alias»-Falle (`const STORAGE_KEY = _sk;` — beim Objektwechsel zeigte der Alias weiter auf das Boot-Objekt). Umbau:
+- `LU_BASE_KEY` + **`_luKey()`** (rechnet den Schlüssel bei jedem Aufruf neu) statt der eingefrorenen Konstante.
+- **`_luAutoSave()`** (700 ms) am Ende von `calcAndRender()` + `_luFlush()` auf beforeunload/pagehide/visibilitychange.
+- **`_luPrevKey` = der Datensatz, zu dem der Bildschirm gehört** (KRITISCH): `saveLocal` schreibt nach `_luPrevKey || _luKey()`. Ohne das schriebe ein nachlaufender Flush den ALTEN Bildschirmzustand unter den NEUEN Schlüssel, sobald jemand das Projekt wechselt — der frisch gewählte Datensatz wäre überschrieben, bevor er geladen ist.
+- `onObjektSelect` ruft `GemaObjekte.setActiveId(sel.value||'')` und dann `window._objReload()` (flush → `_GemaDB.ensure([key])` → laden mit `leerReset`, damit ein leeres Projekt die Zeilen des vorherigen nicht erbt); `gema-objekt-changed` deckt den Phasenwechsel ab. `_GemaDB.init` lädt Basis- UND Objekt-Key (Init-Key-Regel).
+
+**Nebenbefund `sa_enthaertung`**: `setDocumentTitle()` las `getElementById('name').value` ohne Guard und warf bei JEDEM AutoSave-Restore (das Feld existiert dort nicht) — der Restore brach mitten drin ab. Jetzt über einen `_v(id)`-Helfer. **Regel: in Restore-/Save-Pfaden nie ungeguardet auf ein DOM-Element zugreifen.**
+
+Der Drift-Guard prüft statisch alle drei Ursachen, dann im Browser: Schlüssel trägt beim ERSTEN Besuch das Objekt, LU-Auto-Save überlebt den Reload, zwei Projekte bleiben getrennt (7 vs. 3), der Dropdown-Wechsel zur Laufzeit lädt den richtigen Stand, `GemaLU.getVerbraucher` sieht die gespeicherten Verbraucher, und AutoSave übersteht ein sofortiges Verlassen ohne `trim`-Fehler.
 
 ### Login (kein Offline-Fallback)
 
