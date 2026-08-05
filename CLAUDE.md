@@ -979,6 +979,119 @@ Framework-freie **iOS/iPadOS-Komponentenschicht** (Variante 1c «Command-first»
 
 ---
 
+### Einheitliche Sektionen & A4-Druckansicht (gema_sektion.js + gema_print.js)
+
+Feedback 05.08.2026 (Sandro), Umbau quer durch alle 47 Berechnungsmodule —
+Drift-Guard `scripts/sektion_druckansicht_test.mjs` (94 Checks).
+
+**Sektionen (`gema_sektion.js`, auf jeder Berechnungsseite eingebunden):**
+- **Einklappbar überall.** Der Helfer findet seine Sektionen selbst über die vier
+  Karten-Muster des Repos (`.g-card`/`.el-card`/`.g-section`/`.card` jeweils mit
+  Kopf + Rumpf) — das Modul muss nichts anmelden. Ein gedrosselter
+  MutationObserver zieht Karten nach, die erst zur Laufzeit entstehen
+  (sb_du_zusammenstellung rendert seine Apparate-Gruppen nach dem Laden).
+- **Der Pfeil ist ein Knopf und steht IMMER ganz rechts** (`order:99` +
+  `margin-left:auto` im Flex-Kopf), also NACH allfälligen Bedienelementen — nur
+  so stehen die Pfeile aller Karten sauber untereinander.
+- **Zugeklappt verschwinden die Kopf-Knöpfe** mit dem Inhalt (sie gehören zum
+  Inhalt, nicht zur Überschrift); der Pfeil selbst bleibt, sonst käme man nie
+  wieder auf.
+- **Sektionsnummern sehen überall gleich aus** (22 px, gleiche Schrift/Form) und
+  tragen die Akzentfarbe des Moduls. Die bestehenden Klassen der Module
+  (`.sp-secnum`, `.el-secnum`, `.de-stepnum`, `.bra-secnum`, `.lu-stepnum`)
+  werden EINGESAMMELT (`.gsek-nr` dazu, Inline-Styles entfernt), nicht ersetzt;
+  führende Kreisziffern ①②③ und «1. » im Titel werden ebenfalls zu Nummern-Chips.
+  Automatische Durchnummerierung nur mit `window.GEMA_SEKTION_NUMMERN = true`.
+- **BEWUSST KOOPERATIV statt ersetzend (KRITISCH).** 19 Module haben bereits eine
+  eigene Fold-Mechanik, an deren Klassennamen Drift-Guards hängen (`dd-foldhd`,
+  `hx-fold-cx`, `de-zu`, `gema_el_fold_v1` …). Der Helfer reisst sie NICHT heraus,
+  sondern (a) hebt den vorhandenen Pfeil ans Kopf-Ende und gibt ihm die
+  einheitliche Optik, (b) markiert jede zugeklappte Sektion zusätzlich mit
+  `gsek-zu` — daran hängen die gemeinsamen Regeln, unabhängig davon, WELCHE
+  Mechanik zugeklappt hat —, (c) installiert eine eigene Mechanik nur dort, wo es
+  noch keine gibt. Damit greift die neue Optik überall und kein bestehender Test
+  bricht.
+- **`istOffen()` darf den EIGENEN Marker nur bei eigenen Sektionen lesen
+  (KRITISCH).** `gsek-zu` wird von `sync()` gesetzt; läse `istOffen()` ihn auch
+  bei fremden Mechaniken, entstünde eine Rückkopplung und die Sektion käme nie
+  wieder auf (genau das liess lt_hx_diagramm zugeklappt hängen). Für fremde
+  Mechaniken wird der Marker vor dem Messen kurz beiseitegelegt.
+- Der Fold-Zustand ist reine **Geräte-UI** (`gema_fold_<seite>_v1`) und gehört NIE
+  in einen AutoSave-Snapshot.
+
+**Druckansicht (`gema_print.js`) — ersetzt `GemaPDF.export` in den Berechnungen:**
+- Der PDF-Knopf öffnet **keinen «Speichern unter»-Dialog** mehr, sondern eine
+  **A4-Vorschau zum Prüfen** (echtes HTML, scharfer und kopierbarer Text statt
+  html2canvas-Screenshot). Darin sitzt der Knopf «🖨 Drucken / Als PDF speichern»
+  — der frühere separate «Drucken»-Knopf ist darin **aufgegangen** und aus allen
+  Modulen entfernt (ein Weg, ein Ergebnis).
+- **Kopf: Modul-Titel, darunter der Eimer-Name** (Workspace-Eimer über das
+  zugeordnete Objekt aufgelöst, sonst der Objektname). Der Fenstertitel trägt
+  beides — der Browser nimmt ihn als **PDF-Dateiname**.
+- **Draussen bleiben** (bewusst): Hero-Kopf samt Norm-Untertitel, Projektleiste
+  (Objekt/Bearbeiter/Datum/SIA-Phase), der «Zugeordnet zu»-Hinweis und sämtliche
+  Knöpfe **inkl. der ✕ zum Löschen** (im Bericht irreführend).
+- **Sektionen mit Werten kommen aufgeklappt, leere erscheinen als Titelzeile mit
+  «— keine Angaben»** — nichts wird stillschweigend weggelassen. Der Fold-Zustand
+  der Bildschirm-Ansicht spielt dafür keine Rolle (`gsek-zu` wird im Klon
+  entfernt); massgebend ist allein `GemaSektion.hatWerte`.
+- **Werte werden VOR dem Klonen auf die Live-Elemente gestempelt** (`data-gp-val`
+  / `-chk` / `-img`) — ein Klon trägt `input.value`, `selectedIndex`, `checked`
+  und Canvas-Inhalte NICHT mit. Danach räumt `entstempeln()` auf.
+- **Das Inline-Script steht am DOKUMENTENDE.** Ein noch ladender Fonts-`<link>`
+  hält den Parser an; ein Script davor würde beim `document.close()` alles
+  Nachfolgende verschlucken (Kanon «Druckfenster beim ERSTEN Öffnen vollständig»).
+  Das A4-Blatt baut `gema_print.js` selbst (`.gp-blatt`) statt über
+  `GemaPrintA4.apply` — die Berechnungsmodule laden jenen Helfer nicht.
+
+**`gema_pdf.js` (die ~30 übrigen Module) mitgezogen:**
+- Der **Norm-Untertitel mit 📖 ist entfallen** — jsPDF-Standardfonts sind latin1,
+  das Emoji kam als **«Ø=ÜÖ»** heraus; die Norm steht ohnehin in der Fusszeile.
+  Statt dessen steht dort jetzt der **Eimer-Name**.
+- Das **Logo behält sein Seitenverhältnis** (`doc.getImageProperties`, Höhe fix,
+  Breite folgt dem Bild, Deckel 34 mm). Die frühere feste 16×9.6-mm-Box verzerrte
+  jedes Logo, das nicht zufällig 5:3 war.
+- Hero, Projektleiste und ✕-Knöpfe stehen neu in `hideSelectors`.
+
+**«ll zu dick» — opsz-Kanon jetzt auch in der App.** DM Sans ist eine Variable
+Font; ohne Vorgabe nimmt der Browser die Display-Optische-Grösse und schmale
+Buchstaben wirken fett. `gema_responsive.css` setzt darum global
+`body{font-optical-sizing:auto;font-variation-settings:"opsz" 14}` — bisher stand
+der Kanon nur in den Druckfenstern (`scripts/pdf_opsz_test.mjs`), griff also nicht
+für den html2canvas-Weg, der die LIVE-Seite abfotografiert.
+
+### Snip-Ausschnitt wird GEMESSEN, nicht angenommen (gema_feedback.js)
+
+Bugreport 05.08.2026: «bei mehreren Modulen wird der falsche Ausschnitt
+generiert». Der Zuschnitt rechnete bisher **Bildpunkt = Viewport-Punkt × scale**.
+Diese Annahme gilt nur, solange html2canvas den erfassten Bereich exakt so legt
+und exakt so skaliert, wie angefragt — und das tut es nicht zuverlässig: `body`
+trägt global `position:relative` + `overflow-x:clip` (gema_responsive.css), Module
+bringen sticky/fixed Leisten mit, und der Geräte-Pixelratio geht je nach Pfad
+zusätzlich ein. Weicht die Lage ab, schneidet der Snip daneben — ohne dass es
+jemand merkt.
+
+**Jetzt wird gemessen**: vor dem Erfassen legt `_calAn()` zwei 4-px-Marken
+(Magenta) an bekannte Viewport-Punkte — links bei x = 0, rechts bei
+`clientWidth − 4` (bewusst `clientWidth`, ein fixes Element bei `innerWidth − 4`
+läge teils unter dem Scrollbalken). `_calMessen()` sucht sie im obersten Band des
+Bildes und liefert daraus **Versatz UND tatsächliche Skalierung**; der Zuschnitt
+rechnet damit statt mit der Annahme, `_calWeg()` malt die Marken wieder heraus,
+und `_calAus()` entfernt sie in JEDEM Fall (auch im Fehlerpfad). Werden sie nicht
+gefunden (getaintetes Canvas, Erfassung fehlgeschlagen), gilt unverändert der
+alte Weg — **nie ein Abbruch, nur nie mehr stillschweigend falsch**.
+
+Drift-Guard `scripts/feedback_snip_kalibrierung_test.mjs` (17 Checks): misst
+geometrisch mit einem **gestubbten html2canvas**, das absichtlich daneben liegt
+(Versatz um genau einen Testklotz bzw. Versatz + andere Skalierung). Gegenprobe
+verifiziert — ohne Kalibrierung liefert der Snip den NACHBARN statt des Ziels.
+Der Test läuft ohne die CDN-Bibliothek. Er prüft ausserdem, dass **jedes Modul mit
+Feedback-Knopf `GemaFeedback.init` ruft** (ohne init injiziert GemaFeedback sein
+Overlay nie und der Knopf tut nichts) — dabei nachgezogen: if_arbeitskleider,
+if_trocknung, pm_bestellungen, pm_planablage, pm_revisionsunterlagen,
+sb_regenwasser_luzern, sys_garagist_dashboard.
+
+
 ## Code-Patterns
 
 ### Numerische Inputs (KRITISCH)
@@ -3659,6 +3772,8 @@ UI-Anbindung:
 | `gema_recent.js` | Tracking + Anzeige zuletzt genutzter Module. `PAGE_LABELS` = vollständige Map ALLER Seiten (aus `<title>` generiert — bei neuen Seiten ergänzen!); Public API `window.GemaRecent {list, label, currentKey}` fürs Mobile-Menü |
 | `gema_responsive.css` | Globale Responsive-/Layout-Regeln (Mobile + Tablet) |
 | `gema_schule_api.js` | **Schul-Modul-API** (`window.GemaSchule`): 6 per-Record-Pools (Klassen/Lernmittel/**Lernmittel-Notizen**/Aufgaben/Prüfungen/Lösungen, moduleKey `schule`; die Notizen `smatan:` tragen Markierungen pro Lernmittel UND Person — `notizId/meineNotiz/notizenFor/saveNotiz/deleteNotiz` + die reinen LESE-Regeln `notizSichtbar`/`notizSeitenBereich`) + Abgaben-Handling (eigener Offline-Spiegel), Engine im `/*ENGINE-START*/`-Block (Note CH-Formel, seeded Shuffle, Zeitfenster inkl. Verlängerungen, MC-/Zahlenfeld-Autokorrektur, **Lösungs-Split** `schuleSplitPruefung`/`mergePruefung`), Studenten-Gating-Cache (`refreshStudentMods`/`addExamTools` → `gema_student_mods_v1`), Datei-Upload (Bilder/PDF → GemaStorage `schule/<orgId>/…`), Klassen-Notifys, Erinnerungs-Scan. Konsumenten: ab_klassen, ab_pruefungen, ab_pruefung_live. |
+| `gema_sektion.js` | **Einheitliche ein-/ausklappbare Sektionen für ALLE Module** (`GemaSektion`). Findet die Karten selbst (`.g-card`/`.el-card`/`.g-section`/`.card` mit Kopf + Rumpf), gibt jeder einen deutlichen Pfeil-Knopf **ganz rechts im Kopf** (nach allfälligen Bedienelementen — nur so stehen die Pfeile untereinander), blendet zugeklappt die **Kopf-Knöpfe** mit dem Inhalt aus und vereinheitlicht die **Sektionsnummern** (Grösse/Schrift/Form gleich, Farbe = `--accent` des Moduls). API: `init/sektionen/hatWerte/setzeAlle/zustand/wiederherstellen/umschalten/istOffen/sync`. Siehe «Einheitliche Sektionen & A4-Druckansicht». |
+| `gema_print.js` | **A4-Druckansicht statt Screenshot-PDF** (`GemaPrint.open({title})`). Löst `GemaPDF.export` in den 47 Berechnungsmodulen ab: echter Text statt Bild, Vorschau zum Prüfen, darin der Knopf «🖨 Drucken / Als PDF speichern». Kopf = Modul-Titel + **Eimer-Name**; Hero, Norm-Untertitel, Projektleiste und alle Knöpfe (inkl. ✕) bleiben draussen; Sektionen mit Werten kommen offen, leere als Titelzeile mit «— keine Angaben». Siehe «Einheitliche Sektionen & A4-Druckansicht». |
 | `gema_scroll.js` | Scroll-Position-Restore + globaler Body-Scroll-Lock fuer Modals (`GemaScroll.lock/unlock`, Auto-Hook auf `.modal-bg`). **Zwei Sperr-Verfahren (KRITISCH, Drift-Guard `scripts/scroll_stabilitaet_test.mjs`)**: ausserhalb von iOS `overflow-y:hidden` auf **`<html>`** (Klasse `gema-modal-soft`) — die Scroll-Position wird gar nicht angefasst, beim Oeffnen UND Schliessen bewegt sich nichts; die Klasse MUSS auf `<html>` liegen, weil html/body `overflow-x:clip` tragen und body-overflow damit nicht mehr auf den Viewport propagiert. Nur auf **iOS** (dort ignoriert die Engine overflow auf dem Scroll-Container) weiterhin `position:fixed` + negativer `top` — der noetige Ruecksprung laeuft ueber `_instantScrollTo()`, das `scroll-behavior` kurz auf `auto` setzt: mehrere Module haben `html{scroll-behavior:smooth}` (if_werkzeug, if_fahrzeug, ab_*, …), ein blosses `scrollTo()` wurde dadurch ANIMIERT und man sah die Seite nach dem Schliessen sichtbar von oben zurueckfahren. Im sanften Modus wird zusaetzlich die Scrollbalken-Breite als `padding-right` ausgeglichen (sonst rutscht der Inhalt beim Sperren seitlich). **Neue Modals brauchen nichts zu tun** — der Auto-Hook greift. |
 | `gema_storage.js` | **Bild-Upload in Supabase Storage** (Bucket `gema-fotos`). `GemaStorage.uploadDataUrl(dataUrl, pathHint)` laedt ein Base64-Bild als Datei hoch, verifiziert die oeffentliche Erreichbarkeit (Image-Load) und liefert `{url, path}`; im Record steht dann nur die URL statt Base64 → kleine Records, keine Request-Groessen-/localStorage-Quota-Probleme. Reject bei fehlendem/falsch konfiguriertem Bucket → Aufrufer faellt auf Base64 zurueck. **Loeschen: `pathFromUrl`/`collectFiles`/`confirmDelete`/`deleteFiles`/`zipDownload`** — siehe «Storage-Aufraeumen beim Loeschen». **Setup (Dashboard, einmalig):** Bucket `gema-fotos` als Public anlegen + INSERT-Policy fuer Rolle `anon`. **Akzeptiert `data:image/*` UND `data:application/pdf`** (PDF-Verifikation via HEAD/Range-fetch statt Image-Load; genutzt fuer Lieferanten-Offerten-PDFs, Pfad `offerten/<lieferantId>`). Eingesetzt in `sp_dachbericht.html`, `sd_schadensbericht.html`, `sys_lieferant_dashboard.html` (Offerten-PDF) und `pm_abnahme.html` (Mangel-Fotos + Plan-Pin-Fotos via `_abUploadFotosToStorage`; Plan-Dateien/PDFs werden NICHT ausgelagert — Helper akzeptiert nur Bilder + Canvas/pdf.js-Kopplung). Bilder werden beim Save nach Storage ausgelagert; Bild-Quelle via `url || dataUrl`, jsPDF-Export rehydriert `url`→DataURL. **`GemaStorage.uploadFile(file, pathHint, opts)` (08/2026) laedt eine File/Blob DIREKT hoch — ohne den Base64-Umweg** und ist der Weg fuer alles ab ein paar MB: `uploadDataUrl` liest erst eine Data-URL ein (+33 %), dekodiert sie mit `atob` in einen String und kopiert sie Byte fuer Byte in ein Uint8Array — ein 7-MB-PDF belegt so kurzzeitig gegen 30 MB. **`opts.onProgress(pct, geladen, total)` gibt es nur hier**: beide Wege laufen seither ueber `_uploadBlob` mit **XHR statt fetch**, weil fetch keinen Upload-Fortschritt kennt (`opts.maxMb` Default 12, `opts.onXhr` fuer Abbruch; HTTP 413 wird als Bucket-Limit im Klartext gemeldet statt als nackter Code). |
 | `gema_undo.js` | Undo/Redo |

@@ -50,7 +50,13 @@
       '.stat-card','.stats-row','.kpi-row','.toolbar','.filter-bar',
       '#feedbackBtn','.wz-role-badge',
       '.tc-foot','.tc-actions','.v-card-footer',
-      '.gema-hero-norm','.gema-hero-sub','.hero','.g-ph'
+      '.gema-hero-norm','.gema-hero-sub','.hero','.g-ph',
+      /* Feedback 05.08.2026: Hero-Kopf, Projektleiste (Objekt/Bearbeiter/
+         Datum/SIA-Phase) und der «Zugeordnet zu»-Hinweis gehören nicht in den
+         Bericht — die Angaben stehen im Kopf des PDF. Ebenso die ✕ zum
+         Löschen: im Bericht sind sie irreführend. */
+      '.gema-hero','.g-hero','.project-bar','.pb-row','.gema-obj-pill','#gemaObjPill',
+      '.row-del','.del-btn','button.del','button.x','.gsek-cx'
     ];
     hideSelectors.forEach(function(sel){
       try{
@@ -196,11 +202,20 @@
 
   // ==== Meta-Sammlung aus DOM + GemaObjekte ====
   function _collectMeta(opts){
-    var m={projekt:'',projektnummer:'',revision:'',bearbeiter:'',datum:'',norm:''};
+    var m={projekt:'',projektnummer:'',revision:'',bearbeiter:'',datum:'',norm:'',eimer:''};
     function val(id){ var el=document.getElementById(id); return el?(el.value||'').trim():''; }
     // Aktives Objekt aus GemaObjekte API
-    var obj=null;
-    try{ if(typeof GemaObjekte!=='undefined') obj=GemaObjekte.getActive(); }catch(e){}
+    var obj=null, oid='';
+    try{ if(typeof GemaObjekte!=='undefined'){ obj=GemaObjekte.getActive(); oid=GemaObjekte.getActiveId()||''; } }catch(e){}
+    // Eimer-Name (Feedback 05.08.2026): der Workspace-Eimer, aus dem das Modul
+    // geöffnet wurde — steht im PDF-Kopf unter dem Modul-Titel. Ohne Eimer
+    // bleibt es beim Objekt-/Projektnamen.
+    if(oid){
+      try{
+        var pool=JSON.parse(localStorage.getItem('gema_ws_pool_v1')||'[]');
+        for(var i=0;i<pool.length;i++){ if(pool[i]&&pool[i].objektId===oid&&pool[i].name){ m.eimer=pool[i].name; break; } }
+      }catch(e){}
+    }
     // Projekt-Name: Manueller Input gewinnt, sonst Objekt-Name
     m.projekt = val('metaProjekt') || (obj?obj.name:'') || '';
     // Projektnummer: explicit input \u00fcberschreibt, sonst aus Objekt
@@ -239,26 +254,35 @@
     // Trennlinie unten am Header
     doc.setDrawColor(220); doc.setLineWidth(0.2);
     doc.line(M, Mtop-2, pw-M, Mtop-2);
-    // Logo links
+    // Logo links \u2014 SEITENVERH\u00c4LTNIS ERHALTEN (Feedback 05.08.2026).
+    // Die feste 16\u00d79.6-mm-Box verzerrte jedes Logo, das nicht zuf\u00e4llig 5:3 war;
+    // die echten Masse liefert jsPDF selbst (Fallback: die alte Box).
     var logoW=0;
     if(orgLogo){
-      try{ doc.addImage(orgLogo,'JPEG',M,3,16,16*0.6); logoW=18; }catch(e){}
+      try{
+        var LH=10, lw=16;                         // H\u00f6he fix, Breite folgt dem Bild
+        try{
+          var pr=doc.getImageProperties(orgLogo);
+          if(pr && pr.width && pr.height){ lw=LH*(pr.width/pr.height); }
+        }catch(e2){ lw=LH*(16/9.6); }
+        if(!(lw>0) || !isFinite(lw)) lw=LH*(16/9.6);
+        if(lw>34) { lw=34; }                      // Deckel, damit der Titel Platz beh\u00e4lt
+        doc.addImage(orgLogo,'JPEG',M,3,lw,LH); logoW=lw+2;
+      }catch(e){}
     }
-    // Modul-Titel + Projekt center-left
+    // Modul-Titel + darunter der Eimer-/Projektname (Feedback 05.08.2026).
+    // Der fr\u00fchere Norm-Untertitel (\u00ab\ud83d\udcd6 SVGW Diagramm 1\u00bb) ist entfallen \u2014 die
+    // jsPDF-Standardfonts sind latin1, das Emoji kam als \u00ab\u00d8=\u00dc\u00d6\u00bb heraus, und
+    // die Norm steht ohnehin in der Fusszeile.
     doc.setFontSize(11); doc.setTextColor(15,23,42); doc.setFont(undefined,'bold');
     doc.text(title||'GEMA', M+logoW, 7);
     doc.setFontSize(8.5); doc.setTextColor(80); doc.setFont(undefined,'normal');
-    var projLine=meta.projekt||'\u2014';
+    var projLine=meta.eimer||meta.projekt||'\u2014';
     if(meta.projektnummer) projLine='Nr. '+meta.projektnummer+'  \u00b7  '+projLine;
     // Auf max. (pw - M - 65) Breite k\u00fcrzen f\u00fcr Meta-Spalte rechts
     var maxLeftW = pw - M - 65 - (M+logoW);
     projLine=_truncate(doc, projLine, maxLeftW);
     doc.text(projLine, M+logoW, 12);
-    // Norm-Pill darunter (klein)
-    if(meta.norm){
-      doc.setFontSize(7.5); doc.setTextColor(120);
-      doc.text('\ud83d\udcd6 '+meta.norm, M+logoW, 16.5);
-    }
     // Rechte Spalte: Bearbeiter / Datum / Revision
     doc.setFontSize(8); doc.setTextColor(80);
     var rx = pw - M;
