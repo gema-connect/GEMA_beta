@@ -20,6 +20,10 @@
  * Titelzeile (nichts wird stillschweigend weggelassen — man sieht, dass es sie
  * gibt und dass sie leer sind).
  *
+ * Die Vorschau-Leiste hat BEWUSST keinen Feedback-Knopf (User-Entscheid
+ * 05.08.2026): die Druckansicht ist ein erzeugtes Dokument — Feedback gehört
+ * aufs Modul selbst, wo GemaFeedback samt Snip zur Verfügung steht.
+ *
  * API:  GemaPrint.open({title, color}) · GemaPrint.meta()
  */
 (function (w, d) {
@@ -426,7 +430,7 @@
       '  box-shadow:none;border-radius:0;padding:0}}';
   }
 
-  /** Script im Druckfenster: Einpassen + Feedback.
+  /** Script im Druckfenster: Einpassen.
       Auf Papier lässt sich nicht scrollen — eine breite Tabelle wäre sonst
       rechts abgeschnitten (gemeldet 05.08.2026). Erst nimmt die Druck-CSS den
       Inhalten ihre Mindestbreiten, was den meisten Tabellen schon genügt; was
@@ -435,9 +439,6 @@
       Läuft bei load, kurz danach (Bilder/Schriften) und vor jedem Druck. */
   function fitScript() {
     return [
-      'function gemaDruckFeedback(){try{var o=window.opener;',
-      'if(o&&!o.closed&&o.GemaFeedback&&o.GemaFeedback.startWithImage){o.GemaFeedback.startWithImage("");o.focus();}',
-      '}catch(e){}}',
       'function gemaFit(){',
       ' var body=document.querySelector(".gp-body"); if(!body) return;',
       ' var max=body.clientWidth; if(!(max>0)) return;',
@@ -516,10 +517,11 @@
       + '</div>'
       + '</div>';
 
+    /* BEWUSST KEIN Feedback-Knopf (User-Entscheid 05.08.2026): die Druckansicht
+       ist ein erzeugtes Dokument — Feedback gehört aufs Modul selbst. */
     var bar = ''
       + '<div class="gp-bar no-print">'
       + '<span>Druckansicht — bitte prüfen</span><span class="sp"></span>'
-      + '<button class="fb" onclick="gemaDruckFeedback()">🔴 Feedback</button>'
       + '<button class="sec" onclick="window.close()">✕ Schliessen</button>'
       + '<button class="prim" onclick="window.print()">🖨 Drucken / Als PDF speichern</button>'
       + '</div>';
@@ -543,8 +545,7 @@
 
     /* KRITISCH — das Script wird NACHGELEGT, nicht mitgeschrieben.
        Ein <script> im geschriebenen HTML wartet auf die noch ladenden
-       Stylesheets (Fonts-Link!); bleibt einer hängen, läuft es NIE — der
-       Feedback-Knopf der Vorschau war aus genau diesem Grund tot. Ein
+       Stylesheets (Fonts-Link!); bleibt einer hängen, läuft es NIE. Ein
        programmatisch angehängtes Script führt sofort aus, unabhängig davon,
        wie weit der Parser ist. Nebeneffekt: im geschriebenen HTML steht kein
        Script mehr, das etwas Nachfolgendes verschlucken könnte (CLAUDE.md). */

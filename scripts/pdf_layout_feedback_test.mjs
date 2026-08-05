@@ -255,11 +255,16 @@ console.log('\n■ B: Zusagen A–C — nichts geht beim Aufräumen verloren');
   await pop.close(); await page.close();
 }
 {
-  /* Das nachgelegte Script läuft — sonst wäre auch der Feedback-Knopf tot */
+  /* Das nachgelegte Script läuft; KEIN Feedback-Knopf in der Druckansicht
+     (User-Entscheid 05.08.2026 — Feedback gehört aufs Modul selbst) */
   const { page, pop } = await druck('sa_enthaertung.html');
-  const r = await pop.evaluate(() => ({ fit: typeof window.gemaFit, fb: typeof window.gemaDruckFeedback }));
+  const r = await pop.evaluate(() => ({
+    fit: typeof window.gemaFit,
+    fbKnopf: document.querySelectorAll('.gp-bar .fb, .gp-bar [onclick*="Feedback"]').length,
+    fbText: /Feedback/i.test(document.querySelector('.gp-bar').textContent)
+  }));
   ok('Einpass-Script ist aktiv', r.fit === 'function', r);
-  ok('Feedback-Knopf der Vorschau ist verdrahtet', r.fb === 'function', r);
+  ok('KEIN Feedback-Knopf in der Druckansicht', r.fbKnopf === 0 && !r.fbText, r);
   await pop.close(); await page.close();
 }
 
