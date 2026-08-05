@@ -372,6 +372,11 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 .sd-area-sub{font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut);margin:12px 0 6px}
 .sd-area-none{border:1.5px dashed #fca5a5;background:#fef2f2}
 .sd-area-none .sd-area-name{color:#b91c1c}
+.sd-area-act{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;border:1px solid var(--brd2);border-radius:8px;background:var(--bg2);color:var(--txt2);font-size:14px;line-height:1;cursor:pointer;font-family:inherit;flex:none}
+.sd-area-act:hover{border-color:var(--plan);color:var(--plan)}
+.sd-area-act-del:hover{border-color:#ef4444;color:#b91c1c;background:#fef2f2}
+.tag-ed{cursor:pointer;font-size:12px;margin-left:2px;opacity:.6}
+.tag-ed:hover{opacity:1}
 .sd-drag{cursor:grab}
 .sd-drag:active{cursor:grabbing}
 .sd-move-sel{font-size:11.5px;font-weight:700;border:1.5px solid var(--brd2);border-radius:7px;padding:4px 6px;background:var(--bg2);color:var(--txt);font-family:var(--sans);max-width:100%}
@@ -2136,7 +2141,12 @@ function sdRenderErfassung(s, canEdit) {
     h += '<div style="margin-top:12px"><label style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut)">Betroffene Räume</label>';
     h += '<div class="tag-wrap" style="margin-top:6px">';
     if (s.raeume && s.raeume.length) {
-      h += s.raeume.map(function(r, i) { return '<span class="tag">' + esc(r) + (canEdit ? '<span class="tag-x" onclick="sdErfRemRaum(\'' + s.id + '\',' + i + ')">✕</span>' : '') + '</span>'; }).join('');
+      h += s.raeume.map(function(r, i) {
+        return '<span class="tag">' + esc(r) + (canEdit
+          ? '<span class="tag-ed" title="Umbenennen" onclick="sdErfRenRaum(\'' + s.id + '\',' + i + ')">✎</span>'
+            + '<span class="tag-x" title="Entfernen" onclick="sdErfRemRaum(\'' + s.id + '\',' + i + ')">✕</span>'
+          : '') + '</span>';
+      }).join('');
     } else if (!canEdit) {
       h += '<span style="font-size:12.5px;color:var(--mut)">—</span>';
     }
@@ -2794,6 +2804,8 @@ function _sdAreaCard(s, phase, area, areaIdx, editable, canEdit){
   var h = '<div class="sd-area"' + dz + '>';
   h += '<div class="sd-area-hd"><div class="sd-area-name">🏠 ' + esc(area) + '</div>'
     + (beEntry ? '<span class="sd-be-badge">✓ Trocknung beendet am ' + sdFmtDate(beEntry.am) + '</span>' : '')
+    + (canEdit ? '<button type="button" class="sd-area-act" title="Bereich umbenennen" onclick="sdBereichUmbenennen(\'' + s.id + '\',' + areaIdx + ')">✏️</button>'
+               + '<button type="button" class="sd-area-act sd-area-act-del" title="Bereich entfernen" onclick="sdBereichEntfernen(\'' + s.id + '\',' + areaIdx + ')">🗑</button>' : '')
     + '</div>';
   if(phase === 'analyse'){
     h += '<div class="sd-area-sub">📷 Fotos</div>' + _sdPhotoStrip(s.id, 'analyse', (s.zustandsanalyse || {}).fotos, editable, area, areaIdx);
@@ -3686,16 +3698,130 @@ function sdErfAddRaum(schadenId){
   });
 }
 window.sdErfAddRaum = sdErfAddRaum;
-function sdErfRemRaum(schadenId, idx){
-  var s = sdGetById(schadenId); if(!s || !Array.isArray(s.raeume)) return;
-  var name = s.raeume[idx];
-  GemaDialog.confirm({ title:'Raum entfernen', message:'«'+(name||'')+'» aus den betroffenen Räumen entfernen?', confirmLabel:'Entfernen', danger:true }).then(function(ok){
-    if(!ok) return;
-    s.raeume.splice(idx, 1);
+
+// ══════════════════════════════════════════════════════════════════
+// Bereiche bearbeiten — umbenennen / entfernen
+// ══════════════════════════════════════════════════════════════════
+// KRITISCH: Fotos, Messpunkte und Geräte referenzieren ihren Bereich über
+// den NAMEN (it.raum), und s.trocknung.bereichEnde ist ebenfalls nach dem
+// Namen gekeyt. Ein Umbenennen MUSS deshalb beides migrieren — sonst
+// zerfällt ein Bereich in zwei (Bereichs-Karte, «Zusammenfassung pro Raum»
+// im Vorlage-PDF) und der Trocknungs-Abschluss wäre verloren.
+// Die drei Helfer sind reine Datenoperationen (DOM-frei, testbar).
+function _sdItemArraysAll(s){
+  var tr = s.trocknung || {}, za = s.zustandsanalyse || {}, ab = s.abschluss || {};
+  return [tr.geraete, tr.messpunkte, za.fotos, tr.fotos, ab.fotos];
+}
+// Wie viele Einträge hängen an diesem Bereich?
+function _sdBereichCount(s, area){
+  var n = 0;
+  _sdItemArraysAll(s).forEach(function(arr){
+    (arr || []).forEach(function(it){ if(_sdRaumOf(it) === area) n++; });
+  });
+  return n;
+}
+// Umbenennen: Einträge + Abschluss-Vermerk wandern mit. Steht der alte Name
+// in s.raeume, wird er AN ORT UND STELLE ersetzt (Reihenfolge bleibt);
+// abgeleitete Bereiche (nur über Items referenziert) bleiben abgeleitet.
+function _sdBereichRename(s, alt, neu){
+  var n = 0;
+  _sdItemArraysAll(s).forEach(function(arr){
+    (arr || []).forEach(function(it){ if(_sdRaumOf(it) === alt){ it.raum = neu; n++; } });
+  });
+  if(Array.isArray(s.raeume)){
+    var i = s.raeume.indexOf(alt);
+    if(i >= 0) s.raeume[i] = neu;
+  }
+  var be = s.trocknung && s.trocknung.bereichEnde;
+  if(be && be[alt] != null){ be[neu] = be[alt]; delete be[alt]; }
+  return n;
+}
+// Entfernen: die Einträge werden NIE gelöscht (Fotos und Messwerte sind
+// Beweismittel) — sie verlieren nur ihren Bereich und landen im
+// «Ohne Bereich»-Bucket, wo sie neu zugeordnet werden können.
+function _sdBereichRemove(s, area){
+  var n = 0;
+  _sdItemArraysAll(s).forEach(function(arr){
+    (arr || []).forEach(function(it){ if(_sdRaumOf(it) === area){ it.raum = ''; n++; } });
+  });
+  if(Array.isArray(s.raeume)){
+    var i = s.raeume.indexOf(area);
+    if(i >= 0) s.raeume.splice(i, 1);
+  }
+  var be = s.trocknung && s.trocknung.bereichEnde;
+  if(be && be[area] != null) delete be[area];
+  return n;
+}
+window._sdBereichCount = _sdBereichCount;
+window._sdBereichRename = _sdBereichRename;
+window._sdBereichRemove = _sdBereichRemove;
+
+function _sdBereichUmbenennenName(s, alt){
+  if(!s || !_sdCanEdit() || alt == null) return;
+  var areas = _sdAreaNames(s);
+  GemaDialog.prompt({
+    title: 'Bereich umbenennen',
+    message: 'Neuer Name für «' + alt + '»:',
+    defaultValue: alt,
+    placeholder: 'z.B. Bad EG, Flur, Keller'
+  }).then(function(val){
+    if(val === null) return;
+    var neu = String(val || '').trim();
+    if(!neu || neu === alt) return;
+    // Gleicher Name wie ein ANDERER Bereich: nicht stillschweigend
+    // zusammenführen — dafür gibt es das Verschieben der Einträge (⇄).
+    var doppelt = areas.some(function(a){ return a !== alt && a.toLowerCase() === neu.toLowerCase(); });
+    if(doppelt){
+      GemaDialog.alert({
+        title: 'Name bereits vergeben',
+        message: 'Es gibt in diesem Bericht bereits einen Bereich «' + neu + '». Wähle einen anderen Namen — einzelne Fotos, Messpunkte und Geräte lassen sich mit ⇄ in einen anderen Bereich verschieben.'
+      });
+      return;
+    }
+    _sdBereichRename(s, alt, neu);
     sdSave();
     try { sdRenderDetail(s); } catch(e){}
   });
 }
+function _sdBereichEntfernenName(s, area){
+  if(!s || !_sdCanEdit() || area == null) return;
+  var n = _sdBereichCount(s, area);
+  var be = s.trocknung && s.trocknung.bereichEnde && s.trocknung.bereichEnde[area];
+  var msg = 'Bereich «' + area + '» entfernen?';
+  if(n) msg += '\n\nDie ' + n + ' erfasste' + (n !== 1 ? 'n Einträge' : 'r Eintrag')
+    + ' (Fotos, Messpunkte, Geräte) bleiben erhalten und wandern nach «Ohne Bereich» — dort lassen sie sich neu zuordnen.';
+  if(be) msg += '\n\nDer Trocknungs-Abschluss vom ' + sdFmtDate(be.am) + ' wird dabei entfernt.';
+  GemaDialog.confirm({ title:'Bereich entfernen', message: msg, confirmLabel:'Entfernen', danger:true }).then(function(ok){
+    if(!ok) return;
+    _sdBereichRemove(s, area);
+    sdSave();
+    try { sdRenderDetail(s); } catch(e){}
+  });
+}
+// Einstieg von der Bereichs-Karte (Index in _sdAreaNames — deckt auch
+// abgeleitete Bereiche aus Altbeständen ab).
+function sdBereichUmbenennen(schadenId, areaIdx){
+  var s = sdGetById(schadenId); if(!s) return;
+  _sdBereichUmbenennenName(s, _sdAreaNames(s)[parseInt(areaIdx, 10)]);
+}
+function sdBereichEntfernen(schadenId, areaIdx){
+  var s = sdGetById(schadenId); if(!s) return;
+  _sdBereichEntfernenName(s, _sdAreaNames(s)[parseInt(areaIdx, 10)]);
+}
+window.sdBereichUmbenennen = sdBereichUmbenennen;
+window.sdBereichEntfernen = sdBereichEntfernen;
+
+// Einstieg von den Raum-Tags der Erfassung (Index in s.raeume) — laufen
+// bewusst durch DIESELBE Logik, damit beide Wege identisch wirken.
+function sdErfRenRaum(schadenId, idx){
+  var s = sdGetById(schadenId); if(!s || !Array.isArray(s.raeume)) return;
+  _sdBereichUmbenennenName(s, s.raeume[parseInt(idx, 10)]);
+}
+function sdErfRemRaum(schadenId, idx){
+  var s = sdGetById(schadenId); if(!s || !Array.isArray(s.raeume)) return;
+  _sdBereichEntfernenName(s, s.raeume[parseInt(idx, 10)]);
+}
+window.sdErfRenRaum = sdErfRenRaum;
 window.sdErfRemRaum = sdErfRemRaum;
 
 // Objekt-Zuordnung eines bestehenden Schadens wechseln (Feedback 30.07.2026).
