@@ -1042,13 +1042,55 @@ Drift-Guard `scripts/sektion_druckansicht_test.mjs` (94 Checks).
   der Bildschirm-Ansicht spielt dafür keine Rolle (`gsek-zu` wird im Klon
   entfernt); massgebend ist allein `GemaSektion.hatWerte`.
 - **Werte werden VOR dem Klonen auf die Live-Elemente gestempelt** (`data-gp-val`
-  / `-chk` / `-img`) — ein Klon trägt `input.value`, `selectedIndex`, `checked`
-  und Canvas-Inhalte NICHT mit. Danach räumt `entstempeln()` auf.
-- **Das Inline-Script steht am DOKUMENTENDE.** Ein noch ladender Fonts-`<link>`
-  hält den Parser an; ein Script davor würde beim `document.close()` alles
-  Nachfolgende verschlucken (Kanon «Druckfenster beim ERSTEN Öffnen vollständig»).
-  Das A4-Blatt baut `gema_print.js` selbst (`.gp-blatt`) statt über
+  / `-chk` / `-img` / `-hide` / `-ta`) — ein Klon trägt `input.value`,
+  `selectedIndex`, `checked` und Canvas-Inhalte NICHT mit. Danach räumt
+  `entstempeln()` auf.
+- **Das Fenster-Script wird NACHGELEGT, nicht mitgeschrieben (KRITISCH).** Ein
+  `<script>` im per `document.write` geschriebenen HTML wartet auf die noch
+  ladenden Stylesheets (Fonts-Link!) — bleibt einer hängen, läuft es NIE (der
+  Feedback-Knopf der Vorschau war deshalb tot). `open()` hängt das Script nach
+  `document.close()` programmatisch an (`createElement('script')`), das führt
+  sofort aus. Das A4-Blatt baut `gema_print.js` selbst (`.gp-blatt`) statt über
   `GemaPrintA4.apply` — die Berechnungsmodule laden jenen Helfer nicht.
+
+**PDF-Layout-Feedback 05.08.2026 (annotierter Enthärtungs-Bericht, 4 Punkte —
+Drift-Guard `scripts/pdf_layout_feedback_test.mjs` 51 Checks):**
+- **Logo IMMER links oben, IMMER gleich** — das Logo steht als ERSTES Element im
+  `.gp-kopf` (vor Titel/Meta) in einer **festen Box 34×13 mm** mit
+  `object-fit:contain` + `object-position:left center`: ein breites und ein hohes
+  Logo nehmen denselben Platz ein, jeder Bericht beginnt gleich, nichts verzerrt.
+- **Bedienelemente konsequent raus**: (a) **Segmentierte Umschalter** (SEGMENT-
+  Liste: `.lumax-toggle`/`.g-seg-group`/`.g-chip-group`/`.eh-seg`/`.bl-seg`/
+  `.unit-toggle`/`.nb-src-seg`/`.sp-seg`/`.wpe-seg`) werden VOR dem
+  Knopf-Kahlschlag durch den TEXT ihres aktiven Knopfs ersetzt (AKTIV-Marker:
+  `.active`/`.an`/`.act`/`.on`/`.sel`/`.is-active`/aria) — sonst löscht KNOEPFE
+  die Angabe (3/5 grösster LU, «Verschlossen/Gelocht») ersatzlos. **NIE
+  Chart-Klassen in SEGMENT** (`.bseg` ist ein Balken-Segment der
+  Reduktions-Charts, das nackte `.seg` kollidiert). (b) **Einheiten-Umschalter**
+  (`.g-switch-wrap` mit Beschriftung auf BEIDEN Seiten — l/s ⇄ m³/h, bar ⇄ kPa)
+  fliegen ganz raus (die Einheit steht bei jedem Wert); ein Schalter mit Text nur
+  auf EINER Seite ist eine echte Ja/Nein-Angabe und bleibt als ☑/☐.
+  (c) **Leere Hülsen** (z.B. die Einheiten-Toolbar) werden NUR von den Eltern
+  entfernter Bedienelemente aus aufgeräumt (`leereHuelsenWeg(beruehrt)`) — nie
+  generisch über den Klon, sonst verschwinden leere Chart-Divs
+  (`.bseg`-Balken, Farbpunkte) mit.
+- **Wert-Span erbt die KLASSEN des Feldes** (`.g-inp` bringt `width:100%`,
+  Rahmen, Ausrichtung mit) — ein nackter Span fiel auf Mindestbreite zusammen,
+  der Wert klebte links neben der Einheiten-Box und das Feld wirkte
+  abgeschnitten/verschoben. Keine erzwungene Ausrichtung mehr (WYSIWYG; die
+  gestempelte `data-gp-ta` stellt abweichende text-aligns nach). **Versteckte
+  Zustands-Felder** (`type=hidden`, `display:none` — JSON-Blobs wie
+  `#zk_rows`/`#enth_straenge`) werden via `data-gp-hide` ersatzlos entfernt
+  statt als roher JSON-Text im Bericht zu landen.
+- **KEIN horizontales Scrollen im PDF** (auf Papier geht das nicht): Scroll-
+  Rahmen (`.g-table-wrap`/`.lu-scroll`/…) werden `overflow:visible`, Tabellen-
+  Zellen und Schemata verlieren ihre `min-width`, und das nachgelegte
+  **Einpass-Script `gemaFit()`** verkleinert, was danach immer noch breiter als
+  das Blatt ist, als Ganzes proportional (`transform:scale`, von INNEN nach
+  AUSSEN — erst die breite Tabelle, nie gleich die ganze Sektion; Unter-28-%-
+  Deckel; läuft bei load/resize/beforeprint + Timeouts, idempotent). Dabei kein
+  `word-break:break-word` in Tabellen — das drückte die Spalten-Mindestbreite
+  auf EIN Zeichen und «120» stand als 1/2/0 untereinander.
 
 **`gema_pdf.js` (die ~30 übrigen Module) mitgezogen:**
 - Der **Norm-Untertitel mit 📖 ist entfallen** — jsPDF-Standardfonts sind latin1,
