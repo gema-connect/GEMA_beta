@@ -691,11 +691,16 @@ table.zks{border-collapse:collapse;width:100%;font-size:12.5px}
 
       <div style="height:1px;background:var(--border);margin:10px 0;"></div>
       <div class="fg">
+        <div class="fg-lbl">Regulierventil je Strang<br><span class="lbl-hint">thermostatisch: KV folgt T am Ventil — Kennlinie unten</span></div>
+        <select class="g-sel" id="zk_regventil" onchange="zkRecalc()"></select>
+      </div>
+      <div class="fg" id="zkKvsRow">
         <div class="fg-lbl">Kvs-Wert Regulierventil<br><span class="lbl-hint">therm. Regulierorgan je Strang (z.B. 1.3 / 1.6 / 3.2)</span></div>
         <input class="fg-inp" onblur="fixLeadingZero(this)" id="zk_kvs" type="text" inputmode="decimal" value="1.3" oninput="zkRecalc()"/>
         <span class="fg-unit">m³/h</span>
         <button type="button" class="no-print" onclick="_zkArmKvs()" title="Regulierventil aus dem Armaturen-Katalog wählen (kvs dimensionsabhängig)" style="margin-left:6px;padding:6px 10px;border-radius:8px;border:1.5px solid #c8cfdf;background:#fff;color:#475569;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap">🔧 Katalog</button>
       </div>
+      <div class="g-hint" id="zkRegHint" style="display:none;margin-top:6px"></div>
       <div class="fg">
         <div class="fg-lbl">Einzelwiderstände<br><span class="lbl-hint">Zuschlag auf ΣR·l</span></div>
         <input class="fg-inp" onblur="fixLeadingZero(this)" id="zk_z" type="text" inputmode="decimal" value="20" oninput="zkRecalc()"/>
@@ -783,7 +788,7 @@ table.zks{border-collapse:collapse;width:100%;font-size:12.5px}
     <div class="zk-wrap">
       <table class="zks">
         <thead><tr>
-          <th>Strang</th><th>Pfad (TS)</th><th>m [kg/h]</th><th>ΣR·l [mbar]</th><th>+ Z [mbar]</th><th>Regulierventil [mbar]</th><th>Δp Strang [mbar]</th><th>Drosselventil Δp [mbar]</th><th>Drossel KV [l/h]</th><th>T am Ventil [°C]</th>
+          <th>Strang</th><th>Pfad (TS)</th><th>m [kg/h]</th><th>ΣR·l [mbar]</th><th>+ Z [mbar]</th><th title="Δp des Regulierventils — bei thermostatischem Ventil mit dem wirksamen KV(T) bei T am Ventil">Regulierventil [mbar]</th><th>Δp Strang [mbar]</th><th>Drosselventil Δp [mbar]</th><th>Drossel KV [l/h]</th><th>T am Ventil [°C]</th>
         </tr></thead>
         <tbody id="zkStrangBody"><tr><td colspan="10" style="color:var(--muted);text-align:center;padding:16px">Noch keine Teilstrecken erfasst.</td></tr></tbody>
       </table>
@@ -791,11 +796,21 @@ table.zks{border-collapse:collapse;width:100%;font-size:12.5px}
     <div class="frml-block">
       <div class="frml-row"><span class="frml-sym">ΣR·l</span><span class="frml-eq">=</span><span class="frml-expr">Summe R·l aller TS des Pfads (End-TS bis Pumpe) [mbar]</span></div>
       <div class="frml-row"><span class="frml-sym">Z</span><span class="frml-eq">=</span><span class="frml-expr">ΣR·l · z / (100 − z) [mbar] · z = Zuschlag Einzelwiderstände [%]</span></div>
-      <div class="frml-row"><span class="frml-sym">Δp<sub>Reg</sub></span><span class="frml-eq">=</span><span class="frml-expr">(m / Kvs)² / 1000 [mbar] · m [kg/h] der End-TS, Kvs [m³/h] des Regulierventils</span></div>
+      <div class="frml-row"><span class="frml-sym">Δp<sub>Reg</sub></span><span class="frml-eq">=</span><span class="frml-expr">(m / KV)² / 1000 [mbar] · m [kg/h] der End-TS · KV [m³/h] = fester Kvs ODER beim thermostatischen Ventil KV(T) aus der Kennlinie bei T am Ventil</span></div>
       <div class="frml-row"><span class="frml-sym">Δp Strang</span><span class="frml-eq">=</span><span class="frml-expr">ΣR·l + Z + Δp<sub>RV</sub> + Δp<sub>Reg</sub> [mbar] · höchster Strang = erforderliche Förderhöhe</span></div>
       <div class="frml-row"><span class="frml-sym">Δp<sub>Drossel</sub></span><span class="frml-eq">=</span><span class="frml-expr">Förderhöhe Pumpe eff. − Δp Strang [mbar]</span></div>
       <div class="frml-row"><span class="frml-sym">KV</span><span class="frml-eq">=</span><span class="frml-expr">m · √(1000 / Δp<sub>Drossel</sub>) [l/h] · Drosselventil je Strang</span></div>
     </div>
+  </div>
+</div>
+
+<!-- ── REGULIERVENTIL: KV(T)-Kennlinie + Druckverlust-Betriebslinien
+     (Feedback 06.08.2026 — Nussbaum 36010 DN 15/20; Kemper folgt) ── -->
+<div class="g-card" style="margin-top:14px" id="zkVentilCard">
+  <div class="g-card-hd zk-foldhd" onclick="zkFold('zkVentilC')" title="Ein-/ausklappen"><h2><span class="fold-cx" id="cx_zkVentilC">▾</span> 📈 Regulierventil — Kennlinie &amp; Druckverlust</h2><span style="font-size:11px;color:var(--muted)">KV(T) + Betriebspunkte je Strang · passt sich jeder Änderung automatisch an</span></div>
+  <div class="g-card-bd" id="bd_zkVentilC">
+    <div id="zkVentilDiag" style="width:100%"></div>
+    <div id="zkVentilNote" class="g-hint" style="margin-top:8px"></div>
   </div>
 </div>
 
@@ -1597,6 +1612,51 @@ var ZK_RV=[[15,4.76],[18,5.52],[22,10.62],[28,15.92],[35,27.46],[42,40.67],[54,6
 var ZK_ORTE={keller:'Keller nicht beheizt',raeume:'Räume beheizt',schacht:'Schacht',esh:'ESH kalt'};
 var ZK_OVL=[12,15,16,18,20,22,28,35,42,54,64,76.1,88.9,108];
 
+/* ── Thermostatische Zirkulations-Regulierventile (Feedback 06.08.2026) ──
+   Bei thermostatischen Ventilen hängt der KV von der Wassertemperatur AM
+   VENTIL ab (= T_RL der End-TS, s.tVentil): kalt = offen (KV gross), im
+   Regelband gedrosselt (KV klein), über der t.D.-Schwelle wieder leicht
+   offen (thermische Desinfektion). Ein fester Kvs unterschätzt den
+   Druckverlust am warmen Strang massiv — darum rechnet jeder Strang mit
+   seinem eigenen wirksamen KV(T). Kennlinien-Punkte [T °C, KV m³/h] 1:1 aus
+   den Hersteller-Diagrammen (Nussbaum 36010: Vorlage Robin 06.08.2026,
+   Einstellband 52–65 °C); dazwischen linear, ausserhalb flach.
+   Kemper MULTI-THERM: Kennlinie + Druckverlust-Diagramme DN 15/20 folgen
+   als PNG — Einträge sind bis dahin `pending` (NIE Werte erfinden). */
+/*ZK-VENTIL-ENGINE-START*/
+var ZK_REGVENTILE=[
+  { id:'nb15', hersteller:'R. Nussbaum', modell:'36010', dn:15,
+    label:'Nussbaum 36010 · DN 15 (thermostatisch)',
+    einstell:'52–65 °C', tdAb:65,
+    pts:[[50,1.3],[53,1.3],[58,0.1],[63,0.1],[65,0.2]] },
+  { id:'nb20', hersteller:'R. Nussbaum', modell:'36010', dn:20,
+    label:'Nussbaum 36010 · DN 20 (thermostatisch)',
+    einstell:'52–65 °C', tdAb:65,
+    pts:[[50,1.6],[53,1.6],[58,0.2],[63,0.2],[65,0.3]] },
+  { id:'ke15', hersteller:'Kemper', modell:'MULTI-THERM', dn:15,
+    label:'Kemper MULTI-THERM · DN 15', pending:true, pts:null },
+  { id:'ke20', hersteller:'Kemper', modell:'MULTI-THERM', dn:20,
+    label:'Kemper MULTI-THERM · DN 20', pending:true, pts:null }
+];
+function zkRegVentilById(id){ for(var i=0;i<ZK_REGVENTILE.length;i++) if(ZK_REGVENTILE[i].id===String(id||'')) return ZK_REGVENTILE[i]; return null; }
+/* KV(T): linear zwischen den Stützpunkten, flach davor/danach. Ohne
+   Temperatur (Strang noch ohne Daten) gilt das offene Ventil (1. Punkt). */
+function zkRegKv(v,t){
+  if(!v||!v.pts||!v.pts.length) return null;
+  var p=v.pts, n=p.length;
+  if(t==null||!isFinite(t)||t<=p[0][0]) return p[0][1];
+  if(t>=p[n-1][0]) return p[n-1][1];
+  for(var i=1;i<n;i++){
+    if(t<=p[i][0]){
+      var t0=p[i-1][0],k0=p[i-1][1],t1=p[i][0],k1=p[i][1];
+      return t1===t0?k1:k0+(k1-k0)*(t-t0)/(t1-t0);
+    }
+  }
+  return p[n-1][1];
+}
+function zkRegDpMbar(kv,mKgH){ return (kv>0&&mKgH>0)?Math.pow(mKgH/kv,2)/1000:0; }
+/*ZK-VENTIL-ENGINE-END*/
+
 /* ── Fabrikat / Rohrsystem (Feedback 28.07.2026, Muster DV-Berechnung) ──
    Einmal oben gewählt: der WERKSTOFF folgt automatisch und bei ø VL / DN RL
    stehen nur noch die Dimensionen dieses Systems. «frei» = bisheriges
@@ -1637,6 +1697,37 @@ function zkFabChanged(id){
 function zkFillFabSelect(){
   var el=document.getElementById('zk_fabrikat'); if(!el||el.options.length) return;
   el.innerHTML=ZK_FABRIKATE.map(function(f){ return '<option value="'+f.id+'">'+f.label+'</option>'; }).join('');
+}
+/* Regulierventil-Auswahl: pending-Einträge (Kemper — Kennlinien-PNG folgt)
+   sind sichtbar, aber bewusst NICHT wählbar (keine erfundenen Werte). */
+function zkFillRegVentilSelect(){
+  var el=document.getElementById('zk_regventil'); if(!el||el.options.length) return;
+  var o='<option value="">— fester Kvs-Wert (manuell / Katalog) —</option>';
+  ZK_REGVENTILE.forEach(function(v){
+    o+='<option value="'+v.id+'"'+(v.pending?' disabled':'')+'>'+zkEsc(v.label)+(v.pending?' — Kennlinie folgt':'')+'</option>';
+  });
+  el.innerHTML=o;
+}
+function zkRegVentil(){
+  var el=document.getElementById('zk_regventil');
+  var v=zkRegVentilById(el?el.value:'');
+  return (v&&v.pts&&v.pts.length)?v:null;
+}
+/* Sichtbarkeit Kvs-Zeile + Info-Hinweis nachführen (läuft in zkRecalc —
+   deckt damit auch den AutoSave-Restore und den Objektwechsel-Clear ab). */
+function zkRegVentilSync(){
+  var v=zkRegVentil();
+  var row=document.getElementById('zkKvsRow'); if(row) row.style.display=v?'none':'';
+  var h=document.getElementById('zkRegHint');
+  if(h){
+    if(v){
+      var kvs=v.pts.map(function(p){return p[1];});
+      h.style.display='';
+      h.innerHTML='🌡 <b>'+zkEsc(v.label)+'</b> — Einstellbereich '+zkEsc(v.einstell||'–')
+        +' · KV '+Math.min.apply(null,kvs)+'–'+Math.max.apply(null,kvs)+' m³/h. '
+        +'Jeder Strang rechnet mit seinem wirksamen KV bei T am Ventil — Kennlinie und Betriebspunkte in der Karte «📈 Regulierventil».';
+    } else h.style.display='none';
+  }
 }
 /* Temperatur-/ΔT-Auswahl (Feedback 28.07.2026: 52–65 °C bzw. 1–5 K wählbar) */
 function zkFillRangeSelect(id, von, bis, schritt, vorgabe){
@@ -1704,6 +1795,7 @@ function zkCalc(){
   var prod=ZK_DAEMM_PROD[parseInt(document.getElementById('zk_daemm').value,10)||0];
   var lambda=prod.lambda;
   var kvs=zkNum('zk_kvs'), zPct=zkNum('zk_z'), dpRV=zkNum('zk_dprv'), hEff=zkNum('zk_heff');
+  var ventil=zkRegVentil(); // thermostatisches Regulierventil (null = fester Kvs)
   var d7=tww-orte.raeume; // Excel D7 «Startwert»
 
   var rows=zkRows.filter(function(r){return parseFloat(r.len)>0;});
@@ -1811,14 +1903,18 @@ function zkCalc(){
     path.forEach(function(n){var o=res.rows[n];if(o&&o.Q!=null)sumRl+=o.Q;else ok=false;});
     var sz=(zPct<100)?sumRl*(zPct/100)/(1-zPct/100):0;
     var mLeaf=res.rows[leaf.nr]?res.rows[leaf.nr].J:0;
-    var dpRO=(kvs>0)?Math.pow(mLeaf/kvs,2)/1000:0;
+    var tV=res.rows[leaf.nr]?res.rows[leaf.nr].H:null;
+    // Wirksamer KV: thermostatisches Ventil → KV(T) bei T am Ventil, sonst fester Kvs
+    var kvEff=ventil?zkRegKv(ventil,tV):(kvs>0?kvs:null);
+    var dpRO=zkRegDpMbar(kvEff,mLeaf);
     var dp=sumRl>0?(sumRl+sz+dpRV+dpRO):0;
     var dpDr=hEff-dp;
     var kv=(dpDr>0&&mLeaf>0)?mLeaf*Math.sqrt(1000/dpDr):null;
     straenge.push({name:buchst[li%26],leaf:leaf.nr,path:path,sumRl:sumRl,sz:sz,dpRO:dpRO,dp:dp,dpDr:dpDr,kv:kv,ok:ok,
-      tVentil:res.rows[leaf.nr]?res.rows[leaf.nr].H:null,m:mLeaf});
+      tVentil:tV,m:mLeaf,kvEff:kvEff});
   });
   res.straenge=straenge;
+  res.ventil=ventil?ventil.id:'';
   res.reqHead=straenge.reduce(function(m,s){return Math.max(m,s.dp);},0);
   res.root=root?root.nr:null;
   res.pump=root?{m:J[root.nr]||0,tRL:H[root.nr]}:null;
@@ -1932,7 +2028,7 @@ function zkRenderCalc(res){
         +'<td>'+zkFmt(s.m,1)+'</td>'
         +'<td>'+zkFmt(s.sumRl,1)+'</td>'
         +'<td>'+zkFmt(s.sz,1)+'</td>'
-        +'<td>'+zkFmt(s.dpRO,1)+'</td>'
+        +'<td>'+zkFmt(s.dpRO,1)+(res.ventil&&s.kvEff!=null?' <span style="color:var(--muted2)">KV '+zkFmt(s.kvEff,2)+'</span>':'')+'</td>'
         +'<td><b>'+zkFmt(s.dp,1)+'</b></td>'
         +'<td'+(s.dpDr<0?' style="color:var(--red);font-weight:700"':'')+'>'+zkFmt(s.dpDr,1)+'</td>'
         +'<td>'+(s.kv!=null?zkFmt(s.kv,0)+' <span style="color:var(--muted2)">('+zkFmt(s.kv/60,2)+' l/min)</span>':'–')+'</td>'
@@ -1965,6 +2061,7 @@ function zkRenderCalc(res){
   else msg.style.display='none';
   _zkLast=res;
   if(window._zkSchemaDraw)try{window._zkSchemaDraw({res:res,rows:zkRows,tww:zkNum('zk_tww'),dtzul:zkNum('zk_dtzul'),hEff:zkNum('zk_heff')});}catch(e){}
+  if(window._zkVentilDraw)try{window._zkVentilDraw({res:res,ventil:zkRegVentil(),kvs:zkNum('zk_kvs'),tww:zkNum('zk_tww')});}catch(e){}
 }
 
 // ── Events / Persistenz ──
@@ -1989,7 +2086,7 @@ function _zkArmKvs(){
     }
   });
 }
-function zkRecalc(){ zkRenderCalc(zkCalc()); }
+function zkRecalc(){ zkRegVentilSync(); zkRenderCalc(zkCalc()); }
 function zkAddRow(){
   var nr=zkRows.reduce(function(m,r){return Math.max(m,r.nr);},0)+1;
   var last=zkRows[zkRows.length-1];
@@ -2031,6 +2128,7 @@ document.addEventListener('DOMContentLoaded',function(){
   // Auswahllisten VOR dem AutoSave-Restore aufbauen (Feedback 28.07.2026) —
   // sonst findet der Restore die gespeicherte Option noch nicht.
   zkFillFabSelect();
+  zkFillRegVentilSelect();
   zkFillRangeSelect('zk_tww', 52, 65, 1, 58);
   zkFillRangeSelect('zk_dtzul', 1, 5, 0.5, 3);
   zkFoldApply();
@@ -2039,7 +2137,7 @@ document.addEventListener('DOMContentLoaded',function(){
 });
 /* ── Karten ein-/ausklappen (Feedback 28.07.2026) — Zustand pro Gerät ── */
 var ZK_FOLD_KEY='gema_zk_fold_v1';
-var ZK_FOLD_DEFAULT={ zkGrund:true, zkSchemaC:true, zkHilfe:false };   // true = offen
+var ZK_FOLD_DEFAULT={ zkGrund:true, zkSchemaC:true, zkVentilC:true, zkHilfe:false };   // true = offen
 function zkFoldState(){
   var st={}; Object.keys(ZK_FOLD_DEFAULT).forEach(function(k){ st[k]=ZK_FOLD_DEFAULT[k]; });
   try{ var r=JSON.parse(localStorage.getItem(ZK_FOLD_KEY)||'{}');
@@ -2058,8 +2156,8 @@ function zkFold(k){
   var st=zkFoldState(); st[k]=!st[k];
   try{ localStorage.setItem(ZK_FOLD_KEY, JSON.stringify(st)); }catch(e){}
   zkFoldApply();
-  // Das Schema zeichnet nur sichtbar sauber → beim Aufklappen neu rendern
-  if(k==='zkSchemaC' && st[k]) zkRecalc();
+  // Schema/Diagramm zeichnen nur sichtbar sauber → beim Aufklappen neu rendern
+  if((k==='zkSchemaC'||k==='zkVentilC') && st[k]) zkRecalc();
 }
 </script>
 
@@ -2343,6 +2441,163 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('zirk
       var txt='Jede End-Teilstrecke ist ein Strang mit Drosselventil; der massgebende Strang bestimmt die Förderhöhe. Labels und Chips sind klickbar (Teilstrecke → Tabellenzeile, Strang → Auswertung).';
       if(unreach.length)txt='⚠ TS '+unreach.join(', ')+' ist nicht mit dem Netz verbunden (Anschluss prüfen). '+txt;
       note.textContent=txt;
+    }
+  };
+})();
+</script>
+<script>
+// ── 📈 Regulierventil: KV(T)-Kennlinie + Δp-Betriebslinien (Feedback 06.08.2026) ──
+// Eigener Script-Block; Aufruf geguardet am Ende von zkRenderCalc via
+// window._zkVentilDraw (Cross-Block-Scope-Regel). NUR literale Hex-Farben
+// (GemaPDF/html2canvas-Regel). Links die Hersteller-Kennlinie KV über T mit
+// dem Betriebspunkt jedes Strangs (T am Ventil → wirksamer KV), rechts das
+// Druckverlust-Diagramm Δp über m (log-log) mit der Betriebslinie jedes
+// Strangs — beide zeichnen bei JEDER Änderung neu (zkRecalc).
+(function(){
+  var COLS=['#2563eb','#dc2626','#16a34a','#d97706','#7c3aed','#0891b2','#db2777','#65a30d','#475569','#b45309'];
+  function fmt(x,d){if(x==null||!isFinite(x))return '–';return x.toLocaleString('de-CH',{minimumFractionDigits:d,maximumFractionDigits:d});}
+  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  function lg(x){return Math.log(x)/Math.LN10;}
+  function niceStep(range,ziel){
+    var roh=range/Math.max(1,ziel), pow=Math.pow(10,Math.floor(lg(roh)));
+    var kand=[1,2,2.5,5,10];
+    for(var i=0;i<kand.length;i++){ if(kand[i]*pow>=roh) return kand[i]*pow; }
+    return 10*pow;
+  }
+
+  window._zkVentilDraw=function(o){
+    var host=document.getElementById('zkVentilDiag'), note=document.getElementById('zkVentilNote');
+    if(!host) return;
+    var bd=document.getElementById('bd_zkVentilC');
+    if(bd&&bd.style.display==='none') return; // zugeklappt: zkFold recalct beim Aufklappen
+    var res=(o&&o.res)||{}, v=(o&&o.ventil)||null, kvsFix=(o&&o.kvs)||0;
+    var straenge=(res.straenge||[]).filter(function(s){return s.m>0;});
+    var W=470,Hh=300,L=52,R=14,T=30,B=40, iw=W-L-R, ih=Hh-T-B;
+
+    /* ── Panel 1: KV über T am Ventil (Hersteller-Kennlinie) ── */
+    var pts=v?v.pts:null;
+    var tLo=48,tHi=70;
+    straenge.forEach(function(s){ if(s.tVentil!=null&&isFinite(s.tVentil)){ tLo=Math.min(tLo,Math.floor(s.tVentil-2)); tHi=Math.max(tHi,Math.ceil(s.tVentil+2)); } });
+    var kvMax=0;
+    if(pts) pts.forEach(function(p){ kvMax=Math.max(kvMax,p[1]); });
+    if(!pts&&kvsFix>0) kvMax=kvsFix;
+    straenge.forEach(function(s){ if(s.kvEff!=null) kvMax=Math.max(kvMax,s.kvEff); });
+    if(!(kvMax>0)) kvMax=1;
+    var yMax=Math.ceil(kvMax*1.15*20)/20;
+    function X1(t){ return L+(t-tLo)/(tHi-tLo)*iw; }
+    function Y1(k){ return T+ih-(k/yMax)*ih; }
+    var s1='<rect x="'+L+'" y="'+T+'" width="'+iw+'" height="'+ih+'" fill="#fcfdff" stroke="#e2e8f0"/>';
+    // t.D.-Zone (thermische Desinfektion) hinter der Kurve
+    if(v&&v.tdAb!=null&&v.tdAb<tHi){
+      var xtd=X1(Math.max(tLo,v.tdAb));
+      s1+='<rect x="'+xtd+'" y="'+T+'" width="'+(L+iw-xtd)+'" height="'+ih+'" fill="#fee2e2" fill-opacity="0.45"/>'
+        +'<text x="'+(xtd+(L+iw-xtd)/2)+'" y="'+(T+14)+'" text-anchor="middle" font-size="9" font-weight="700" fill="#b91c1c">t.D.</text>';
+    }
+    // Raster + Achsen
+    var stepY=niceStep(yMax,5);
+    for(var ky=0;ky<=yMax+1e-9;ky+=stepY){
+      var yy=Y1(ky);
+      s1+='<line x1="'+L+'" y1="'+yy+'" x2="'+(L+iw)+'" y2="'+yy+'" stroke="#eef2f7"/>'
+        +'<text x="'+(L-6)+'" y="'+(yy+3)+'" text-anchor="end" font-size="9" fill="#64748b">'+fmt(ky,stepY<0.1?2:(stepY<1?1:0))+'</text>';
+    }
+    for(var tx=Math.ceil(tLo/2)*2;tx<=tHi;tx+=2){
+      var xx=X1(tx);
+      s1+='<line x1="'+xx+'" y1="'+T+'" x2="'+xx+'" y2="'+(T+ih)+'" stroke="'+(tx%10===0?'#e2e8f0':'#f1f5f9')+'"/>';
+      if(tx%4===0) s1+='<text x="'+xx+'" y="'+(T+ih+14)+'" text-anchor="middle" font-size="9" fill="#64748b">'+tx+'</text>';
+    }
+    // Kennlinie (flach vor dem ersten / nach dem letzten Punkt) bzw. fester Kvs
+    if(pts){
+      var kette=[[tLo,pts[0][1]]].concat(pts).concat([[tHi,pts[pts.length-1][1]]]);
+      s1+='<polyline class="zkv-curve" points="'+kette.map(function(p){return X1(p[0])+','+Y1(p[1]);}).join(' ')+'" fill="none" stroke="#2563eb" stroke-width="2.5" stroke-linejoin="round"/>';
+      pts.forEach(function(p){ s1+='<circle cx="'+X1(p[0])+'" cy="'+Y1(p[1])+'" r="2.4" fill="#2563eb"/>'; });
+    } else if(kvsFix>0){
+      s1+='<line class="zkv-curve" x1="'+L+'" y1="'+Y1(kvsFix)+'" x2="'+(L+iw)+'" y2="'+Y1(kvsFix)+'" stroke="#64748b" stroke-width="2" stroke-dasharray="6 4"/>'
+        +'<text x="'+(L+iw-4)+'" y="'+(Y1(kvsFix)-5)+'" text-anchor="end" font-size="9" fill="#64748b">Kvs fest '+fmt(kvsFix,2)+'</text>';
+    }
+    // Betriebspunkte der Stränge
+    straenge.forEach(function(s,i){
+      if(s.tVentil==null||s.kvEff==null) return;
+      var c=COLS[i%COLS.length], px=X1(s.tVentil), py=Y1(s.kvEff);
+      s1+='<g class="zkv-pt"><title>Strang '+esc(s.name)+' — T '+fmt(s.tVentil,1)+' °C · KV '+fmt(s.kvEff,2)+' m³/h</title>'
+        +'<line x1="'+px+'" y1="'+py+'" x2="'+px+'" y2="'+(T+ih)+'" stroke="'+c+'" stroke-width="1" stroke-dasharray="3 3" stroke-opacity="0.55"/>'
+        +'<circle cx="'+px+'" cy="'+py+'" r="4.5" fill="'+c+'" stroke="#ffffff" stroke-width="1.5"/>'
+        +'<text x="'+px+'" y="'+(py-8)+'" text-anchor="middle" font-size="10" font-weight="800" fill="'+c+'">'+esc(s.name)+'</text></g>';
+    });
+    s1+='<text x="'+L+'" y="16" font-size="10.5" font-weight="800" fill="#0f172a">'+esc(v?('KV-Kennlinie — '+v.label):'KV — fester Kvs-Wert')+'</text>'
+      +'<text x="'+(L+iw/2)+'" y="'+(Hh-8)+'" text-anchor="middle" font-size="9.5" fill="#475569">T am Ventil [°C]</text>'
+      +'<text x="13" y="'+(T+ih/2)+'" text-anchor="middle" font-size="9.5" fill="#475569" transform="rotate(-90 13 '+(T+ih/2)+')">KV [m³/h]</text>';
+    var panel1='<svg viewBox="0 0 '+W+' '+Hh+'" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="KV-Kennlinie Regulierventil" style="flex:1 1 400px;min-width:320px;max-width:640px;height:auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:10px">'+s1+'</svg>';
+
+    /* ── Panel 2: Δp über m (log-log) — Betriebslinie je Strang ── */
+    var punkte=straenge.filter(function(s){ return s.kvEff>0&&s.m>0&&s.dpRO>0; });
+    var panel2;
+    if(punkte.length){
+      var mMin=Infinity,mMax=0,dpMin=Infinity,dpMax=0;
+      punkte.forEach(function(s){ mMin=Math.min(mMin,s.m); mMax=Math.max(mMax,s.m); dpMin=Math.min(dpMin,s.dpRO); dpMax=Math.max(dpMax,s.dpRO); });
+      var xLo=Math.pow(10,Math.floor(lg(Math.max(0.5,mMin/3)))), xHi=Math.pow(10,Math.ceil(lg(mMax*3)));
+      if(xHi<=xLo) xHi=xLo*10;
+      var yLo=Math.pow(10,Math.floor(lg(Math.max(0.005,dpMin/3)))), yHi=Math.pow(10,Math.ceil(lg(Math.max(dpMax*3,yLo*10))));
+      function X2(m){ return L+(lg(m)-lg(xLo))/(lg(xHi)-lg(xLo))*iw; }
+      function Y2(dp){ return T+ih-(lg(dp)-lg(yLo))/(lg(yHi)-lg(yLo))*ih; }
+      var s2='<rect x="'+L+'" y="'+T+'" width="'+iw+'" height="'+ih+'" fill="#fcfdff" stroke="#e2e8f0"/>';
+      var decX=Math.round(lg(xHi)-lg(xLo)), decY=Math.round(lg(yHi)-lg(yLo));
+      for(var ex=Math.ceil(lg(xLo));ex<=Math.floor(lg(xHi));ex++){
+        var bx=Math.pow(10,ex);
+        s2+='<line x1="'+X2(bx)+'" y1="'+T+'" x2="'+X2(bx)+'" y2="'+(T+ih)+'" stroke="#e2e8f0"/>'
+          +'<text x="'+X2(bx)+'" y="'+(T+ih+14)+'" text-anchor="middle" font-size="9" fill="#64748b">'+(bx>=1?fmt(bx,0):bx)+'</text>';
+        if(decX<=3) for(var f=2;f<10;f++){ var mx=bx*f; if(mx>xLo&&mx<xHi) s2+='<line x1="'+X2(mx)+'" y1="'+T+'" x2="'+X2(mx)+'" y2="'+(T+ih)+'" stroke="#f1f5f9"/>'; }
+      }
+      for(var ey=Math.ceil(lg(yLo));ey<=Math.floor(lg(yHi));ey++){
+        var by=Math.pow(10,ey);
+        s2+='<line x1="'+L+'" y1="'+Y2(by)+'" x2="'+(L+iw)+'" y2="'+Y2(by)+'" stroke="#e2e8f0"/>'
+          +'<text x="'+(L-6)+'" y="'+(Y2(by)+3)+'" text-anchor="end" font-size="9" fill="#64748b">'+(by>=1?fmt(by,0):by)+'</text>';
+        if(decY<=3) for(var g=2;g<10;g++){ var my=by*g; if(my>yLo&&my<yHi) s2+='<line x1="'+L+'" y1="'+Y2(my)+'" x2="'+(L+iw)+'" y2="'+Y2(my)+'" stroke="#f1f5f9"/>'; }
+      }
+      // Betriebslinien: Δp = (m/KV)²/1000 → im log-log eine Gerade (Steigung 2).
+      // Gleiche KV-Werte (fester Kvs) nur EINMAL zeichnen.
+      var gezeichnet={};
+      punkte.forEach(function(s,i){
+        var key=String(Math.round(s.kvEff*10000));
+        if(gezeichnet[key]) return; gezeichnet[key]=1;
+        var c=(v?COLS[straenge.indexOf(s)%COLS.length]:'#64748b');
+        var mAt=function(dp){ return s.kvEff*Math.sqrt(1000*dp); };
+        var m1=Math.max(xLo,mAt(yLo)), m2=Math.min(xHi,mAt(yHi));
+        if(m1<m2){
+          var d1=Math.pow(m1/s.kvEff,2)/1000, d2=Math.pow(m2/s.kvEff,2)/1000;
+          s2+='<line class="zkv-line" x1="'+X2(m1)+'" y1="'+Y2(d1)+'" x2="'+X2(m2)+'" y2="'+Y2(d2)+'" stroke="'+c+'" stroke-width="1.8" stroke-opacity="0.8"><title>KV '+fmt(s.kvEff,2)+' m³/h — Δp = (m / KV)² / 1000</title></line>';
+        }
+      });
+      punkte.forEach(function(s,i){
+        var c=COLS[straenge.indexOf(s)%COLS.length];
+        var px=X2(s.m), py=Y2(s.dpRO);
+        s2+='<g class="zkv-pt"><title>Strang '+esc(s.name)+' — m '+fmt(s.m,1)+' kg/h · Δp '+fmt(s.dpRO,1)+' mbar · KV '+fmt(s.kvEff,2)+' m³/h</title>'
+          +'<circle cx="'+px+'" cy="'+py+'" r="4.5" fill="'+c+'" stroke="#ffffff" stroke-width="1.5"/>'
+          +'<text x="'+(px+7)+'" y="'+(py-6)+'" font-size="10" font-weight="800" fill="'+c+'">'+esc(s.name)+'</text></g>';
+      });
+      s2+='<text x="'+L+'" y="16" font-size="10.5" font-weight="800" fill="#0f172a">Druckverlust Regulierventil — Betriebslinien je Strang</text>'
+        +'<text x="'+(L+iw/2)+'" y="'+(Hh-8)+'" text-anchor="middle" font-size="9.5" fill="#475569">m [kg/h] · log</text>'
+        +'<text x="13" y="'+(T+ih/2)+'" text-anchor="middle" font-size="9.5" fill="#475569" transform="rotate(-90 13 '+(T+ih/2)+')">Δp [mbar] · log</text>';
+      panel2='<svg viewBox="0 0 '+W+' '+Hh+'" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Druckverlust-Betriebslinien Regulierventil" style="flex:1 1 400px;min-width:320px;max-width:640px;height:auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:10px">'+s2+'</svg>';
+    } else {
+      panel2='<div style="flex:1 1 400px;min-width:320px;max-width:640px;display:flex;align-items:center;justify-content:center;border:1px dashed #cbd5e1;border-radius:10px;color:#64748b;font-size:12px;padding:24px;text-align:center">Teilstrecken mit Länge erfassen —<br>die Δp-Betriebslinien je Strang erscheinen automatisch.</div>';
+    }
+    host.innerHTML='<div style="display:flex;flex-wrap:wrap;gap:14px;align-items:stretch">'+panel1+panel2+'</div>';
+
+    // Hinweiszeile: Betriebspunkte + Quelle + Kemper-Status
+    if(note){
+      var teile=[];
+      straenge.forEach(function(s,i){
+        if(s.kvEff==null) return;
+        var c=COLS[i%COLS.length];
+        teile.push('<span style="display:inline-flex;align-items:center;gap:5px;border:1px solid #e2e8f0;border-radius:999px;padding:2px 9px;margin:2px 4px 2px 0;background:#fff;white-space:nowrap"><span style="width:8px;height:8px;border-radius:50%;background:'+c+'"></span><b>Strang '+esc(s.name)+'</b> · T '+fmt(s.tVentil,1)+' °C · KV '+fmt(s.kvEff,2)+' · Δp '+fmt(s.dpRO,1)+' mbar</span>');
+      });
+      var quelle=v
+        ?('Kennlinie: '+esc(v.hersteller+' '+v.modell)+' DN '+v.dn+' (Hersteller-Diagramm, Einstellbereich '+esc(v.einstell||'–')+') — zwischen den Stützpunkten linear interpoliert; über '+(v.tdAb!=null?v.tdAb+' °C':'dem Einstellband')+' gilt die t.D.-Stellung.')
+        :'Fester Kvs-Wert für alle Stränge — oben ein thermostatisches Ventil wählen, dann folgt der KV je Strang der Temperatur am Ventil.';
+      var pend=(typeof ZK_REGVENTILE!=='undefined'&&ZK_REGVENTILE.some(function(x){return x.pending;}))
+        ?'<br>⏳ Kemper MULTI-THERM (DN 15/20): Kennlinie + Druckverlust-Diagramme werden nach Erhalt der Hersteller-Unterlagen ergänzt und sind bis dahin nicht wählbar.'
+        :'';
+      note.innerHTML=(teile.length?teile.join('')+'<br>':'')+quelle+pend;
     }
   };
 })();
