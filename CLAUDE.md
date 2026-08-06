@@ -516,6 +516,15 @@ Komplett NEU nach Excel-Vorlage «WarmwasserGesamt385_251125_v3.xlsm» (SIA 385/
 
 - Registriert in gema_auth (MODULES `saugpumpe`, FILE_MAP `sb_saugpumpe`), sb_index (Kaltwasser «9 Module», Hero 26), sw.js (v383), gema_recent. Rollen-Golden (`scripts/rolematrix_golden.json`) regeneriert — 74 Module.
 
+### Mischkreuz (sb_mischkreuz.html)
+
+1:1-Umsetzung der Excel «Mischkreuz.xlsx» (Blatt Berechnung; Node-Test `scripts/mischkreuz_engine_test.mjs` 57 Checks gegen die Excel-Zellkette M23/M27/M29/V23/V27/V29 + Registrierungs-Drift-Guard, Playwright-Smoke `scripts/mischkreuz_smoke_test.mjs` 40 Checks). Kaltwasser-Gruppe auf sb_index — Mischwasser-Aufteilung nach dem klassischen **Mischungskreuz**:
+- **Engine im `/*ENGINE-START*/…/*ENGINE-END*/`-Block** (DOM-frei): `mkCalc({q,qUnit,tw,tk,tm})` — WW-Anteil = MW − KW (M23), KW-Anteil = WW − MW (M27), Spanne = WW − KW (C29 = M29); `Q_WW = Q·(MW−KW)/(WW−KW)` (V23), `Q_KW = Q·(WW−MW)/(WW−KW)` (V27), je in l/min + l/s, Kontrolle V29 = Q; dazu Anteile in %. **`MK_FLOW_UNITS`** (l/min · l/s · l/h — gespeichert wird der EINGEGEBENE Wert, gerechnet in l/min; LU-Tabellen-Muster, Einheiten-Select als angeschlossene `.fg-unit`-Box).
+- **Kein stiller Deckel**: WW ≤ KW (keine Spanne) und MW ausserhalb [KW, WW] (negativer Anteil) werden als Fehler GEMELDET (Fehlerbox + Warnhinweis statt Schema), nie geklemmt oder als negative Volumenströme weitergerechnet. Ohne Q stehen die Anteile trotzdem (status `leer`, Hinweis «Volumenstrom erfassen»); alle drei Temperaturen leer = leerer Zustand, kein Fehler.
+- **Mischungskreuz-SVG** (eigener Script-Block → `window._mkSchemaDraw(r)` geguardet aus `mkRecalc`; NUR literale Hex-Farben): WW rot / KW blau links, MW amber mittig, diagonale Pfeile zu den Anteil-Boxen (K + %), daneben die Volumenstrom-Boxen (l/min + l/s), grüne Kontrollzeile Q_WW + Q_KW = Q; der Spanne-Text trägt einen weissen `paint-order:stroke`-Halo (liegt auf der Diagonale). Boxen klickbar (`data-mkziel` → Eingabefeld mit `.mk-puls`).
+- Persistenz: reine Input-Felder via GemaAutoSave (`mischkreuz`) + **Snapshot-Fallback `mkSnapshotLoad`** (700/1800/3500 ms, `_mkTouched` via `e.isTrusted` — ohne Projektbezug käme der Basis-Key-Stand sonst nie zurück). Sektionen/Fold + PDF laufen zentral über gema_sektion.js/gema_print.js (kein eigener Fold-Code).
+- KEINE Anlagenwahl/Offertanfrage (kein Produktsortiment — wie Warmwasser/Grundleitungen). Registriert: gema_auth (MODULES `mischkreuz`, FILE_MAP `sb_mischkreuz`), sb_index (Kaltwasser «10 Module», Hero 29, ALL_MODULES), sw.js (v467), gema_recent, sys_workspace (MODULES + `_WS_STATUS_CFG`), workspace_module_test-Pflichtliste, Rollen-Golden regeneriert (94 Module — via `scripts/auth_node_harness.mjs`, einziger Diff die neue Spalte).
+
 ### Höhen-Übernahme ab Karte (gema_hoehe.js — Druckdispositiv, Saugpumpe, Gas)
 
 Wiederverwendbares Widget: ermittelt die **Terrainhöhe [m ü.M.] am Projektstandort** über den offiziellen swisstopo-Höhendienst und schreibt sie per «→ Übernehmen» ins Modul-Feld. Kein API-Key, CORS offen — derselbe api3.geo.admin.ch-Host wie das bestehende Adress-Autocomplete.

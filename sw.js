@@ -1,5 +1,5 @@
 /* GEMA Service Worker — Offline Cache + Push Vorbereitung */
-var CACHE_NAME = 'gema-v466';
+var CACHE_NAME = 'gema-v467';
 var CACHE_FILES = [
   '/', '/index.html', '/sb_index.html',
   '/sa_enthaertung.html', '/sa_osmose.html', '/sa_fettabscheider.html',
@@ -9,7 +9,7 @@ var CACHE_FILES = [
   '/sb_warmwasser.html', '/sb_niederschlag.html', '/sb_regenwasserrechner.html', '/sb_regenwasser_luzern.html', '/sb_vonroll.html',
   '/sb_grobauslegung.html', '/sb_ausstosszeiten.html', '/sb_laengenausdehnung.html',
   '/sb_druckdispositiv.html', '/sb_apparateliste.html', '/sb_du_zusammenstellung.html', '/sb_grundleitungen.html',
-  '/sb_kreisprofil.html',
+  '/sb_kreisprofil.html', '/sb_mischkreuz.html',
   '/pm_objekte.html', '/pm_ausschreibungsunterlagen.html', '/pm_ausschreibung.html',
   '/pm_terminplan.html', '/pm_besprechung.html', '/pm_baustelle.html',
   '/pm_abnahme.html', '/pm_kostenkontrolle.html', '/pm_honorar.html',
