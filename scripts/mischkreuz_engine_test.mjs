@@ -40,10 +40,13 @@ t("mkNum: Apostroph-Tausender", E.mkNum("1'200") === 1200);
 t('mkNum: typografischer Apostroph', E.mkNum('1’200,5') === 1200.5);
 t('mkNum: leer/ungültig → 0', E.mkNum('') === 0 && E.mkNum('abc') === 0 && E.mkNum(null) === 0);
 t('mkLeer erkennt leere Eingaben', E.mkLeer('') && E.mkLeer('  ') && E.mkLeer(null) && !E.mkLeer('0'));
-t('mkFlowUnit: unbekannte id → l/min (Fallback)', E.mkFlowUnit('xyz').id === 'lmin');
+// Feedback 06.08.2026: l/s ist die Standard-Einheit (erste Position = Fallback), m³/h ergänzt.
+t('mkFlowUnit: unbekannte id → l/s (Fallback = Standard)', E.mkFlowUnit('xyz').id === 'ls');
+t('mkFlowUnit: Altwert l/min bleibt auflösbar (Bestandsschutz)', E.mkFlowUnit('lmin').id === 'lmin');
 t('mkFlowToLmin: 30 l/min = 30', near(E.mkFlowToLmin('30', 'lmin'), 30));
 t('mkFlowToLmin: 0.5 l/s = 30 l/min', near(E.mkFlowToLmin('0.5', 'ls'), 30));
 t('mkFlowToLmin: 1800 l/h = 30 l/min', near(E.mkFlowToLmin('1800', 'lh'), 30));
+t('mkFlowToLmin: 1.8 m³/h = 30 l/min', near(E.mkFlowToLmin('1.8', 'm3h'), 30));
 
 console.log('— Mischungskreuz (Excel-Parität: WW 60 / KW 10 / MW 45) —');
 const r0 = E.mkCalc({ q: '', qUnit: 'lmin', tw: '60', tk: '10', tm: '45' });

@@ -408,7 +408,11 @@ console.log('\n■ DU-Zusammenstellung — Reduktionsübersicht, freie Namen, ei
   await page.click('#grp_g200 .tbl-card-hd');
   await page.waitForTimeout(200);
   // (2) Bezeichnungen der variablen Apparate frei beschreibbar
-  ok(await page.$$eval('.ap-name-input', n => n.length) >= 3, 'variable Apparate haben ein Bezeichnungs-Feld');
+  // Feedback 06.08.2026: die Gruppe startet mit EINER Zeile (weitere per ＋) —
+  // die freie Beschreibbarkeit bleibt, nur die Zeilenzahl ist nicht mehr fix.
+  ok(await page.$$eval('.ap-name-input', n => n.length) >= 1, 'variable Apparate haben ein Bezeichnungs-Feld');
+  await page.evaluate(() => { if (!document.getElementById('nam_WMGEW')) varRowAdd(); });
+  await page.waitForTimeout(200);
   await page.fill('#nam_WMGEW', 'Grossküchen-Spüler');
   await page.waitForTimeout(300);
   const nam = await page.evaluate(() => ({

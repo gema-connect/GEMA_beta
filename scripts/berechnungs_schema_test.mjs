@@ -157,8 +157,10 @@ console.log('■ Zirkulation: Netzbaum mit Temperaturverlauf');
   }), 'Temperaturfarben: mindestens 2 verschiedene Leitungsfarben');
   ok(await page.evaluate(() => {
     const html = document.getElementById('zkSchema').innerHTML;
-    return html.indexOf('WW-') >= 0 && html.indexOf('Zirk.-Pumpe') >= 0 && html.indexOf('zkGradLeg') >= 0;
-  }), 'Erwärmer, Pumpe + Farb-Legende');
+    // Feedback 06.08.2026: der Speicher heisst «Warmwassererzeugung» (3:1 stehend)
+    return html.indexOf('Warmwasser-') >= 0 && html.indexOf('erzeugung') >= 0
+        && html.indexOf('Zirk.-Pumpe') >= 0 && html.indexOf('zkGradLeg') >= 0;
+  }), 'Warmwassererzeugung, Pumpe + Farb-Legende');
   ok(await page.evaluate(() => {
     const kv = _zkLast.straenge[0].kv;
     return kv != null && document.getElementById('zkSchema').innerHTML.indexOf('KV ' + kv.toLocaleString('de-CH', { maximumFractionDigits: 0 })) >= 0;
