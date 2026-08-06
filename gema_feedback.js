@@ -806,6 +806,49 @@
     }
   }
 
+  /* Rollen-Kontext des Feedback-Gebers (Feedback 06.08.2026: «beim Feedback
+     sollen auch die Rollen des aktuellen Nutzers mitgegeben werden, sodass
+     Claude Code dies im Kontext beurteilen kann»).
+
+     Drei Regeln:
+     1. ERFASST WIRD BEIM ABSENDEN, nie beim Export — Rollen einer Person
+        ändern sich; das Feedback gehört zu den Rollen, die sie DAMALS hatte.
+     2. Quelle ist IMMER die Sitzung, nie das frei überschreibbare
+        Autor-Textfeld (dort kann jeder Name stehen).
+     3. Rein ADDITIV: Alt-Einträge ohne `rollen` bleiben unverändert und
+        werden im Board/Export als «nicht erfasst» ausgewiesen — nie geraten.
+
+     `orgAdmin` gehört bewusst dazu: Org-Admin ist keine roleId, wirkt in
+     GEMA aber wie eine Rolle (Rechte, sichtbare Knöpfe) — ohne die Angabe
+     ist eine Meldung wie «der Knopf fehlt bei mir» nicht beurteilbar. */
+  function _rollenKontext() {
+    try {
+      if (typeof GemaAuth === 'undefined') return null;
+      var user = GemaAuth.getCurrentUser && GemaAuth.getCurrentUser();
+      if (!user) return null;                       // nicht eingeloggt → nichts behaupten
+
+      var alle = [];
+      try { alle = GemaAuth.getRoles && GemaAuth.getRoles(); } catch(e) {}
+      if (!Array.isArray(alle)) alle = [];
+
+      var ids = Array.isArray(user.roleIds) ? user.roleIds : [];
+      var k = { rollen: ids.map(function(id) {
+        var r = null;
+        for (var i = 0; i < alle.length; i++) { if (alle[i] && alle[i].id === id) { r = alle[i]; break; } }
+        // Name leer = Rolle (noch) nicht auflösbar — die ID bleibt trotzdem
+        // erhalten, sie ist für die Beurteilung im Code die wichtigere Angabe.
+        return { id: id, name: (r && r.name) || '' };
+      }) };
+
+      try { if (GemaAuth.isOrgAdmin) k.orgAdmin = !!GemaAuth.isOrgAdmin(user.id); } catch(e) {}
+      try {
+        var org = GemaAuth.getCurrentOrg && GemaAuth.getCurrentOrg();
+        if (org) { k.orgId = org.id || ''; k.orgName = org.name || ''; }
+      } catch(e) {}
+      return k;
+    } catch(e) { return null; }
+  }
+
   function close() {
     var m = document.getElementById('gfb-modal');
     if (m) m.style.display = 'none';
@@ -831,6 +874,13 @@
       screenshot: (_screenshotDataUrl && _screenshotDataUrl.length < 400000) ? _screenshotDataUrl : null,
       ts: ts, source: _moduleName, moduleId: _moduleId
     };
+    var kontext = _rollenKontext();
+    if (kontext) {
+      entry.rollen = kontext.rollen;
+      if (kontext.orgAdmin) entry.orgAdmin = true;
+      if (kontext.orgId)    entry.orgId    = kontext.orgId;
+      if (kontext.orgName)  entry.orgName  = kontext.orgName;
+    }
 
     var ok = false;
     var dataKey = 'feedback_' + _moduleId;
@@ -910,7 +960,8 @@
     clear: _clearAnnotation,
     finish: _finishAnnotation,
     commitText: _commitTextInput,
-    screenshot: function() { return _screenshotDataUrl; }
+    screenshot: function() { return _screenshotDataUrl; },
+    rollenKontext: _rollenKontext
   };
 
 })(window);
