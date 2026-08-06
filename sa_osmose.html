@@ -897,11 +897,13 @@ function fixLeadingZero(el){
             <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px;">
               Tankauslegung — Nutzvolumen VN
             </div>
+            <!-- Feedback 06.08.2026: Label AUSGESCHRIEBEN, Wert mit 2
+                 Nachkommastellen, die Kachel hat genau ZWEI Zeilen
+                 (Label + Wert inkl. Einheit — keine dritte Einheiten-Zeile). -->
             <div class="g-kpi-grid">
               <div class="g-kpi blue">
-                <div class="g-kpi-label">Erf. Nutzvolumen VN</div>
-                <div class="g-kpi-val" id="vnRequired">0</div>
-                <div class="g-kpi-unit">l</div>
+                <div class="g-kpi-label" style="white-space:normal">Erforderliches Nutzvolumen V<sub>N</sub></div>
+                <div class="g-kpi-val"><span id="vnRequired">0</span> l</div>
               </div>
             </div>
             <p class="g-hint" style="margin-top:8px;" id="vnStatusText">
@@ -1332,7 +1334,7 @@ function fixLeadingZero(el){
         var phiLblEl = document.querySelector('#phiDisplay')?.closest('.g-result-row')?.querySelector('.g-result-lbl');
         if (phiLblEl) phiLblEl.textContent = (stufen === 2) ? 'Permeatausbeute φ gesamt (Faktor)' : 'Permeatausbeute φ (Faktor)';
 
-        document.getElementById("vnRequired").textContent = formatNumber(vnRequired, 1);
+        document.getElementById("vnRequired").textContent = formatNumber(vnRequired, 2);
         document.getElementById("vnStatusText").textContent = vnStatus;
 
         // Excel-Checks AC49/AC51: Reinwassertank zwingend + Online-Anlage
@@ -1801,7 +1803,7 @@ function fixLeadingZero(el){
          gezeichnet; das Permeat der 1. Stufe ist Zulauf der 2. (Feedback
          03.08.2026 «Doppelanlage in Serie gemäss Anhang»). mx = linke Kante
          des Membranmoduls, die Pumpe sitzt 38 px davor. */
-      function stufe(mx, titel){
+      function stufe(mx, titel, ohneKonz){
         var px = mx - 38;                              // Pumpen-Mittelpunkt
         return '<g>' +
           '<circle cx="' + px + '" cy="104" r="13" fill="#ffffff" stroke="#0d9488" stroke-width="2.2"/>' +
@@ -1814,9 +1816,14 @@ function fixLeadingZero(el){
           '<line x1="' + (mx + 60) + '" y1="82" x2="' + (mx + 60) + '" y2="126" stroke="#99f6e4" stroke-width="2"/>' +
           '<line x1="' + (mx + 78) + '" y1="82" x2="' + (mx + 78) + '" y2="126" stroke="#99f6e4" stroke-width="2"/>' +
           '<text x="' + (mx + 46) + '" y="72" font-size="9.5" font-weight="800" fill="#0f766e" text-anchor="middle" font-family="DM Sans, sans-serif">' + titel + '</text>' +
-          // Konzentrat-Abgang nach unten
-          '<line x1="' + (mx + 78) + '" y1="126" x2="' + (mx + 78) + '" y2="150" stroke="#94a3b8" stroke-width="2.4" stroke-linecap="round"/>' +
-          '<text x="' + (mx + 83) + '" y="152" font-size="8.5" font-weight="700" fill="#64748b" font-family="DM Sans, sans-serif">Konzentrat</text>' +
+          // Konzentrat-Abgang nach unten (entfällt, wenn die Stufe ihr
+          // Konzentrat zurückführt — Serie, Feedback 06.08.2026). Der kleine
+          // Abwärts-Pfeil sagt «Ablauf» — sonst wirkte das kurze Linienende
+          // über der Serie-Rückführungs-Leitung wie ein Anschluss daran.
+          (ohneKonz ? '' :
+          '<line x1="' + (mx + 78) + '" y1="126" x2="' + (mx + 78) + '" y2="148" stroke="#94a3b8" stroke-width="2.4" stroke-linecap="round"/>' +
+          '<path d="M ' + (mx + 74) + ' 145 L ' + (mx + 78) + ' 153 L ' + (mx + 82) + ' 145 Z" fill="#94a3b8"/>' +
+          '<text x="' + (mx + 86) + '" y="152" font-size="8.5" font-weight="700" fill="#64748b" font-family="DM Sans, sans-serif">Konzentrat</text>') +
         '</g>';
       }
       if(zwei){
@@ -1824,7 +1831,20 @@ function fixLeadingZero(el){
         // Permeat der 1. Stufe → Zulauf der 2. Stufe
         s += '<line x1="-42" y1="104" x2="-35" y2="104" stroke="#0d9488" stroke-width="3" stroke-linecap="round"/>';
         s += '<text x="-38" y="132" font-size="8" font-weight="700" fill="#0f766e" text-anchor="middle" font-family="DM Sans, sans-serif">Permeat</text>';
-        s += stufe(16, 'Stufe 2');
+        s += stufe(16, 'Stufe 2', true);
+        /* Konzentrat der 2. Stufe als RÜCKFÜHRUNG vor die 1. Stufe (Feedback
+           06.08.2026, Skizze Sandro): es ist nahezu Permeat-Qualität und geht
+           zurück in den Zulauf der Stufe 1 statt in den Ablauf. Die Leitung
+           läuft unter den Modulen durch und mündet mit Pfeil nach oben in den
+           Weichwasser-Zulauf VOR der Hochdruckpumpe der Stufe 1 (Saugseite —
+           in die Druckleitung zwischen Pumpe und Modul könnte das drucklose
+           Konzentrat nicht einspeisen). x = −200 liegt frei zwischen dem Text
+           «von der Enthärtung» (endet ≈ −207) und dem Zulauf-Pfeil (−188). */
+        s += '<g>' +
+          '<path d="M 94 126 V 162 H -200 V 112" fill="none" stroke="#94a3b8" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>' +
+          '<path d="M -205 118 L -200 106 L -195 118 Z" fill="#94a3b8"/>' +
+          '<text x="-53" y="174" font-size="8.5" font-weight="700" fill="#64748b" text-anchor="middle" font-family="DM Sans, sans-serif">Konzentrat Stufe 2 — Rückführung vor Stufe 1</text>' +
+        '</g>';
         s += '<text x="-59" y="46" font-size="9.5" font-weight="800" fill="#0f766e" text-anchor="middle" font-family="DM Sans, sans-serif">Osmose-Anlage · Doppelanlage in Serie</text>';
       } else {
         s += stufe(16, 'Osmose-Anlage');
@@ -1852,7 +1872,10 @@ function fixLeadingZero(el){
         '<text x="' + (X + W + 34) + '" y="330" font-size="8.5" font-weight="700" fill="#1d4ed8" text-anchor="middle" font-family="DM Sans, sans-serif">Druckerhöhung</text>' +
         '<rect x="580" y="284" width="88" height="32" rx="8" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>' +
         '<text x="624" y="304" font-size="9.5" font-weight="800" fill="#1d4ed8" text-anchor="middle" font-family="DM Sans, sans-serif">Verbraucher</text>' +
-        '<text data-sim="bedTxt" x="' + (X + W + (576 - X - W) / 2) + '" y="292" font-size="11" font-weight="800" fill="#2563eb" text-anchor="middle" font-family="DM Sans, sans-serif"></text>' +
+        /* Der Literwert der Stunde steht ZWISCHEN Pumpe und Verbraucher-Box —
+           mittig über der ganzen Leitung sass er genau AUF der Druckerhöhungs-
+           Pumpe (Feedback 06.08.2026 «250 l/h überschneidet die Pumpe»). */
+        '<text data-sim="bedTxt" x="' + ((X + W + 48 + 580) / 2) + '" y="292" font-size="11" font-weight="800" fill="#2563eb" text-anchor="middle" font-family="DM Sans, sans-serif"></text>' +
       '</g>';
       // Wasser + Behälter
       s += '<rect data-sim="water" x="' + (X + 2) + '" y="' + B + '" width="' + (W - 4) + '" height="0" fill="#93c5fd"/>';
@@ -1875,9 +1898,19 @@ function fixLeadingZero(el){
       mk(d.tank, '#d97706', 'Tankgrösse ' + formatNumber(d.tank, 0) + ' l');
       mk(50, '#dc2626', 'Reserve 50 l', '3 3');
       marks.sort(function(a, b){ return a.y - b.y; });
+      /* Links vom Tank steht die Osmose-Anlage: Modul, «+… l/h», «Permeat» und
+         «Konzentrat» belegen dort das Band y ≈ 64..186 (bei der Serie zusätzlich
+         die Rückführungs-Leitung). Ein Marker-Label, dessen Linie in diesem Band
+         liegt, überschrieb diese Texte (Feedback 06.08.2026 «Texte dürfen sich
+         nicht mit Darstellungen und anderen Texten überschneiden») — es weicht
+         jetzt an den näheren Bandrand aus, der bestehende Verbinder führt es an
+         seine Linie. */
+      var BL_TOP = 64, BL_BOT = 186;
       var lastLy = -999;
       marks.forEach(function(m){
-        m.ly = Math.max(m.y, lastLy + 12);
+        var ly = m.y;
+        if(ly > BL_TOP && ly < BL_BOT) ly = (ly - BL_TOP < BL_BOT - ly) ? BL_TOP : BL_BOT;
+        m.ly = Math.max(ly, lastLy + 12);
         lastLy = m.ly;
       });
       marks.forEach(function(m){
@@ -1948,7 +1981,12 @@ function fixLeadingZero(el){
       if(surf){ surf.setAttribute('y1', y); surf.setAttribute('y2', y); surf.setAttribute('stroke', edge); }
       var lg = q('lvlGrp');
       if(lg){
-        lg.setAttribute('transform', 'translate(0,' + Math.max(OTS.TOP + 10, Math.min(OTS.BOT - 10, y)) + ')');
+        /* Untere Klemme BOT−56 statt BOT−10 (Feedback 06.08.2026 «Texte dürfen
+           sich nicht überschneiden»): bei fast leerem Tank sass der Chip sonst
+           GENAU auf der Druckerhöhungs-Pumpe (y 287..313) und deckte deren
+           Beschriftung + den «−… l/h»-Wert der Ablauf-Leitung ab. Der Chip
+           schwebt bei sehr tiefem Stand bewusst etwas über der Oberfläche. */
+        lg.setAttribute('transform', 'translate(0,' + Math.max(OTS.TOP + 10, Math.min(OTS.BOT - 56, y)) + ')');
         var lt = q('lvlTxt');
         if(lt){
           lt.textContent = formatNumber(L, 0) + ' l · ' + formatNumber(d.tank > 0 ? L / d.tank * 100 : 0, 0) + ' %';
@@ -2101,12 +2139,10 @@ function fixLeadingZero(el){
       setTimeout(otSnapshotLoad, 3800);
     });
 
-    // Initial ein paar Zeilen anlegen
+    // Initial EINE Zeile anlegen (Feedback 06.08.2026: «Als Standard nur ein
+    // Verbraucher zeigen» — weitere über «+ Verbraucher» bzw. die LU-Übernahme)
     (function init() {
         addConsumerRow("Verbraucher 1", "", "");
-        addConsumerRow("Verbraucher 2", "", "");
-        addConsumerRow("Verbraucher 3", "", "");
-        addConsumerRow("Verbraucher 4", "", "");
         recalc();
     })();
 

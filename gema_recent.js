@@ -58,6 +58,7 @@
     'pm_plaene':'Pläne einlesen',
     'pm_planablage':'Plandialog',
     'pm_pruefliste':'Prüfliste',
+    'pm_wirtschaftlichkeit':'Wirtschaftlichkeitsrechnung',
     'pm_crbx':'CRBX Offertvergleich',
     'pm_einsatzplan':'Termine',
     'pm_erp':'Offerten · Aufträge · Rechnungen',
