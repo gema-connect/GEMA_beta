@@ -221,6 +221,8 @@ body.beta-mine-only .fbp-input{display:none}
 .fbp-um:empty{display:none}
 .fb-main{flex:1;min-width:0}
 .fb-text{font-size:13px;color:var(--txt2);line-height:1.55;margin-top:4px;white-space:pre-wrap;word-break:break-word}
+/* Rollen des Absenders (seit 08/2026 auf jedem Feedback-Punkt) */
+.fb-rollen{font-size:11px;color:var(--txt2);line-height:1.4;margin-top:5px;padding:3px 8px;border-radius:6px;background:var(--bg2);border:1px solid var(--brd2);display:inline-block;max-width:100%;word-break:break-word}
 .fb-shot{margin-top:9px}
 .fb-shot img{max-width:100%;max-height:380px;border-radius:9px;border:1px solid var(--brd);background:var(--bg2);cursor:zoom-in;display:block}
 .fb-shot-hint{font-size:10px;color:var(--mut2);margin-top:3px}
@@ -753,6 +755,29 @@ const moduleHasMine = (id) => {
       || (mState(id).comments || []).some(c => _betaIsMine(c.author));
 };
 
+/* ── Rollen-Kontext eines Feedback-Punkts ──────────────────────
+   gema_feedback.js stempelt seit 08/2026 die Rollen des Absenders auf
+   jeden Eintrag (`rollen`, dazu `orgAdmin`/`orgName`). Board UND Export
+   lesen ihn NUR über diese beiden Helfer — eine Wahrheit, sonst driften
+   Anzeige und Markdown auseinander.
+   `null` = nicht erfasst (Altbestand ODER nicht eingeloggt abgesendet).
+   Das wird ausgewiesen, nie geraten: eine fehlende Angabe darf nicht wie
+   «keine Rollen» aussehen. */
+const fbRollenListe = (c) => {
+  if (!c || !Array.isArray(c.rollen)) return null;
+  const arr = c.rollen.filter(r => r && (r.id || r.name));
+  return arr.length ? arr : [];          // [] = eingeloggt, aber ohne Rolle
+};
+const fbRollenText = (c) => {
+  const arr = fbRollenListe(c);
+  if (arr === null) return null;
+  const teile = arr.length
+    ? arr.map(r => (r.name ? r.name + ' (' + r.id + ')' : r.id))
+    : ['keine Rolle zugewiesen'];
+  if (c.orgAdmin) teile.push('Org-Admin');
+  return teile.join(' · ');
+};
+
 // ── ACTIVITY LOG ──────────────────────────────────────────────
 const logActivity = (type, text) => {
   state.activity.unshift({ type, text, ts: nowStr() });
@@ -986,6 +1011,14 @@ const renderComments = (id) => {
           ${sourceBadge}
           <span class="comment-actions">${umBox}${statusSel}${delBtn}</span>
         </div>
+        ${(() => {
+          // Rollen des Absenders — beim Beurteilen oft der entscheidende
+          // Kontext («sieht diese Rolle den Knopf überhaupt?»).
+          const rt = fbRollenText(c);
+          if (rt === null) return '';
+          const firma = c.orgName ? ` <span style="color:var(--mut)">· 🏢 ${escHtml(c.orgName)}</span>` : '';
+          return `<div class="fb-rollen">🎭 ${escHtml(rt)}${firma}</div>`;
+        })()}
         <div class="fb-text">${escHtml(c.text)}</div>
         ${screenshot}
       </div>
@@ -1640,6 +1673,15 @@ function _exGenerate(filtered, withScreenshots){
       lines.push('- **Datum:** ' + (it.ts || '–'));
       lines.push('- **Status:** ' + _exStatusLabel(it.cStatus));
       lines.push('- **Modul-ID:** `' + modId + '`');
+      // Rollen des Absenders — ohne sie ist eine Meldung wie «ich sehe den
+      // Knopf nicht» nicht beurteilbar. Fehlt die Angabe, wird das GESAGT
+      // (Altbestand bzw. ohne Login abgesendet) statt «keine Rollen» zu
+      // suggerieren.
+      var rt = fbRollenText(it);
+      lines.push('- **Rollen des Absenders:** ' + (rt !== null
+        ? rt
+        : '_nicht erfasst (vor der Rollen-Erfassung 08/2026 oder ohne Login abgesendet)_'));
+      if(it.orgName) lines.push('- **Firma:** ' + it.orgName);
       lines.push('');
       lines.push('**Beschreibung:**');
       lines.push('');
