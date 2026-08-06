@@ -695,10 +695,30 @@ var _sk = (typeof GemaObjekte!=='undefined') ? GemaObjekte.storageKey('gema_vonr
 (async()=>{
 try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('vonroll_tabellen',[_sk]),new Promise((_,r)=>setTimeout(()=>r('timeout'),3000))]);}catch(e){console.warn('GemaDB:',e);}
 
-const F_ANGLES = [15,30,45,60,75];
+/*ENGINE-START*/
+/* Von-Roll-Tabellen — Quelle: suissetec Bildungszentrum Lostorf, Modul 11.22
+   «Arbeitsvorbereitung 2», Papier «11.22 VonRoll-Tabellen» (DE/FR/IT).
+   VERIFIZIERTE GEOMETRIE (gegen alle Tabellenwerte nachgerechnet):
+   · T1/T2 (Verschränkung, A = 1): A = seitlicher ACHSABSTAND IM GRUNDRISS zwischen der
+     Achse der Senkrechten (Fallleitung) und der Achse der Liegenden (1,5° Gefälle).
+     B = Distanz im Grundriss ENTLANG der Liegenden, H = Höhendifferenz F1–F2,
+     M = wahre Länge des Verschränkungsstücks, γ = Grundrisswinkel. Exakt gilt:
+     M² = A² + B² + H² · tan γ = A/B · cos(F an der Senkrechten) = H/M (T1: F2, T2: F1)
+     und am Formstück der Liegenden cos F = (B·cos 1,5° + H·sin 1,5°)/M.
+     T2 ist T1 mit vertauschten Formstückwinkeln (F1 = erstes Formstück in Verlegerichtung).
+   · T3 (Überkröpfung, h = 1): zwei sich im Grundriss RECHTWINKLIG kreuzende liegende
+     Achsen (beide 1,5° Gefälle) liegen im Kreuzungspunkt um h übereinander; F1 sitzt B vor,
+     F2 A nach dem Kreuzungspunkt. Exakt: H = h + (A + B)·tan 1,5° · M² = A² + B² + H².
+   · T4 (Gefällsbrechung, c = 1, eben — ohne seitliche Versetzung): b = cos(α+δ),
+     h = sin(α+δ), a = h − b·tan δ (≡ sin α / cos δ), β = 90° − α − δ (Formeln so im Papier).
+   · «N = 1,5°» in den Skizzen ist die NEIGUNG der Liegenden (kein Nennweiten-Faktor).
+   DRUCK-EIGENHEITEN des Originals, bewusst 1:1 beibehalten (Drift-Guard scripts/vonroll_test.mjs):
+   T2 60/45 γ = 36.771° — Zahlendreher: exakt 36.7113°, T1 45/60 druckt korrekt 36.711°;
+   T1 30/75 B = 1.9509 (exakt 1.95051 — T2 75/30 druckt korrekt 1.9505), T1 75/60 B im Papier «02960» = 0.2960. */
+var VR_ANGLES = [15,30,45,60,75];
 
-// T1: Liegende→Senkrechte  [F1, F2, M, B, H, g°]
-const T1 = [
+// Tabelle 1: Verschränkung A=1 — Liegende (1,5°) zur Senkrechten  [F1, F2, M, B, H, γ°]
+var VR_T1 = [
   [15,75,8.976,8.6123,2.3232,6.623],[30,60,6.742,5.7525,3.371,9.862],[30,75,2.2692,1.9509,0.5873,27.144],
   [45,45,6.2611,4.3129,4.4273,13.054],[45,60,1.9316,1.3411,0.9658,36.711],[45,75,1.5038,1.0535,0.3892,43.507],
   [60,30,6.742,3.2193,5.8388,17.256],[60,45,1.9316,0.9304,1.3659,47.065],[60,60,1.3965,0.6802,0.6983,55.776],
@@ -706,8 +726,8 @@ const T1 = [
   [75,45,1.5038,0.3615,1.0633,70.125],[75,60,1.2042,0.2960,0.6021,73.510],[75,75,1.0725,0.2704,0.2776,74.869]
 ];
 
-// T2: Senkrechte→Liegende  [F1, F2, M, B, H, g°]
-const T2 = [
+// Tabelle 2: Verschränkung A=1 — Senkrechte zur Liegenden (1,5°)  [F1, F2, M, B, H, γ°]
+var VR_T2 = [
   [15,75,8.976,2.0969,8.6702,25.496],[30,60,6.742,3.2193,5.8388,17.256],[30,75,2.2692,0.5361,1.9652,61.806],
   [45,45,6.2611,4.3129,4.4273,13.054],[45,60,1.9316,0.9304,1.3659,47.065],[45,75,1.5038,0.3615,1.0633,70.125],
   [60,30,6.742,5.7525,3.371,9.862],[60,45,1.9316,1.3411,0.9658,36.771],[60,60,1.3965,0.6802,0.6983,55.776],
@@ -715,8 +735,8 @@ const T2 = [
   [75,45,1.5038,1.0535,0.3892,43.507],[75,60,1.2042,0.5942,0.3117,59.283],[75,75,1.0725,0.2704,0.2776,74.869]
 ];
 
-// T3: Überkröpfung  [F1, F2, M, A, B, H, g°]
-const T3 = [
+// Tabelle 3: Überkröpfung h=1, 1,5° Neigung der Achsen  [F1, F2, M, A, B, H, γ°]
+var VR_T3 = [
   [30,75,2.33394,0.57633,1.99399,1.06731,16.121],[45,60,1.99667,0.97088,1.38453,1.06168,35.039],
   [45,75,1.51818,0.36591,1.04672,1.03699,19.269],[60,45,1.99668,1.38455,0.97087,1.06168,54.961],
   [60,60,1.41275,0.67950,0.67949,1.03559,45.000],[60,75,1.20901,0.28624,0.57792,1.02263,26.349],
@@ -724,8 +744,8 @@ const T3 = [
   [75,60,1.20901,0.57793,0.28623,1.02263,63.652],[75,75,1.07377,0.25148,0.25147,1.01317,45.000]
 ];
 
-// T4: Gefällsberechnung  [c, d, a°, b°, sin_a, cos_b, h]
-const T4 = [
+// Tabelle 4: Gefällsbrechung ohne seitliche Versetzung, c=1  [c, δ°, α°, β°, a, b, h]
+var VR_T4 = [
   [1,1.5,15,73.5,0.2589,0.9588,0.284],[1,1.5,30,58.5,0.5002,0.8526,0.5225],
   [1,1.5,45,43.5,0.7073,0.6884,0.7254],[1,1.5,60,28.5,0.8663,0.4772,0.8788],
   [1,1.5,75,13.5,0.9663,0.2334,0.9724],[1,3,15,72.0,0.2592,0.9511,0.3090],
@@ -733,9 +753,28 @@ const T4 = [
   [1,3,60,27.0,0.8672,0.4540,0.8910],[1,3,75,12.0,0.9673,0.2079,0.9781]
 ];
 
+function vrLookup(data,f1,f2){ return data.find(function(r){return r[0]===f1&&r[1]===f2;})||null; }
+function vrT4Row(data,alpha,delta){ return data.find(function(r){return r[2]===alpha&&r[1]===delta;})||null; }
+// Formeln des Papiers («Berechnung mit anderen Neigungs- und Formstückwinkeln»):
+// c=1 · b = cos(α+δ) · h = sin(α+δ) · a = h − b·tan δ · β = 90° − α − δ
+function vrT4Calc(alpha,delta){
+  var R=Math.PI/180, s=(alpha+delta)*R;
+  var b=Math.cos(s), h=Math.sin(s), a=h-b*Math.tan(delta*R);
+  return {a:a, b:b, h:h, beta:90-alpha-delta};
+}
+/*ENGINE-END*/
 
-
-let state = {tab:1, t1:{f1:45,f2:60,n:1.5}, t2:{f1:45,f2:60,n:1.5}, t3:{f1:45,f2:60,n:1.5}, t4:{a:45,n:1.5}};
+let state = {tab:1, t1:{f1:45,f2:60,n:1}, t2:{f1:45,f2:60,n:1}, t3:{f1:45,f2:60,n:1}, t4:{alpha:45,delta:1.5,c:1}};
+/* Alt-Stände: t1–t3 hiessen der Multiplikator schon immer `n` (frueher faelschlich
+   «Nennweite-Faktor», jetzt A bzw. h) — Wert bleibt erhalten. t4 hielt {a:α, n:δ}
+   und multiplizierte die Resultate faelschlich mit der NEIGUNG; Migration → {alpha,delta,c:1}. */
+function normState(){
+  [state.t1,state.t2,state.t3].forEach(function(s){ if(!s||!isFinite(s.n)||s.n<=0) (s||{}).n=1; });
+  var t4=state.t4||{};
+  if(t4.alpha===undefined){ state.t4={alpha:(VR_ANGLES.indexOf(t4.a)>=0?t4.a:45), delta:(t4.n===3?3:1.5), c:1}; }
+  if(!isFinite(state.t4.c)||state.t4.c<=0) state.t4.c=1;
+  if(!isFinite(state.t4.delta)||state.t4.delta<0||state.t4.delta>15) state.t4.delta=1.5;
+}
 /* KEIN `const SK = _sk`-Alias: _sk wird beim Objektwechsel (onObjektSelect)
    neu gesetzt — ein eingefrorener Alias liesse Save/Load im Boot-Key haengen. */
 const $=id=>document.getElementById(id);
@@ -745,44 +784,57 @@ const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'
 function stCur(){ return state.tab===1?state.t1:state.tab===2?state.t2:state.tab===3?state.t3:state.t4; }
 window.stCur=stCur;
 
-function lookup(data,f1,f2){ return data.find(r=>r[0]===f1&&r[1]===f2)||null; }
-function lookup4(data,a,n){ return data.find(r=>r[2]===a&&r[1]===n)||null; }
-
 function opts(selected, angles){
   return angles.map(a=>'<option value="'+a+'"'+(a===selected?' selected':'')+'>'+a+'°</option>').join('');
 }
+
+// Beschriftung der Formstücke je Tabelle (F1 = erstes Formstück in Verlegerichtung)
+var VR_FLBL={
+  1:{f1:'an der Liegenden', f2:'an der Senkrechten'},
+  2:{f1:'an der Senkrechten', f2:'an der Liegenden'},
+  3:{f1:'untere Leitung', f2:'obere Leitung'}
+};
 
 function renderInputs(){
   const t=state.tab;
   let h='';
   if(t<=3){
     const s=t===1?state.t1:t===2?state.t2:state.t3;
-    h+='<div class="g-field"><label class="g-label">F1 (Formstück 1)</label><select class="g-sel" onchange="stCur().f1=+this.value;calc()">'+opts(s.f1,F_ANGLES)+'</select></div>';
-    h+='<div class="g-field"><label class="g-label">F2 (Formstück 2)</label><select class="g-sel" onchange="stCur().f2=+this.value;calc()">'+opts(s.f2,F_ANGLES)+'</select></div>';
-    h+='<div class="g-field"><label class="g-label">N (Nennweite-Faktor)</label><div class="g-inp-group"><input class="g-inp" type="text" inputmode="decimal" value="'+s.n+'" onblur="fixLeadingZero(this)" onchange="stCur().n=parseFloat(this.value)||1.5;calc()"/><span class="g-inp-unit">–</span></div></div>';
+    h+='<div class="g-field"><label class="g-label">Formstück F1 ('+VR_FLBL[t].f1+')</label><select class="g-sel" onchange="stCur().f1=+this.value;calc()">'+opts(s.f1,VR_ANGLES)+'</select></div>';
+    h+='<div class="g-field"><label class="g-label">Formstück F2 ('+VR_FLBL[t].f2+')</label><select class="g-sel" onchange="stCur().f2=+this.value;calc()">'+opts(s.f2,VR_ANGLES)+'</select></div>';
+    if(t===3){
+      h+='<div class="g-field"><label class="g-label">Überhöhung h (im Kreuzungspunkt)</label><div class="g-inp-group"><input class="g-inp" type="text" inputmode="decimal" value="'+s.n+'" onblur="fixLeadingZero(this)" onchange="stCur().n=parseFloat(this.value)||1;calc()" title="Höhenabstand der beiden Achsen im Kreuzungspunkt — beliebige Längeneinheit, alle Ergebnisse in derselben Einheit"/><span class="g-inp-unit" title="Beliebige Längeneinheit (m, cm …) — Ergebnisse in derselben Einheit">Einh.</span></div></div>';
+    }else{
+      h+='<div class="g-field"><label class="g-label">Versatz A (Achsabstand im Grundriss)</label><div class="g-inp-group"><input class="g-inp" type="text" inputmode="decimal" value="'+s.n+'" onblur="fixLeadingZero(this)" onchange="stCur().n=parseFloat(this.value)||1;calc()" title="Seitlicher Abstand der Fallleitungs-Achse zur Achse der Liegenden im Grundriss — beliebige Längeneinheit, alle Ergebnisse in derselben Einheit"/><span class="g-inp-unit" title="Beliebige Längeneinheit (m, cm …) — Ergebnisse in derselben Einheit">Einh.</span></div></div>';
+    }
   }else{
-    const s=state.t4;
-    h+='<div class="g-field"><label class="g-label">F1 / α (Winkel)</label><select class="g-sel" onchange="state.t4.a=+this.value;calc()">'+opts(s.a,[15,30,45,60,75])+'</select></div>';
-    h+='<div class="g-field"><label class="g-label">N / d (Faktor)</label><select class="g-sel" onchange="state.t4.n=+this.value;calc()"><option value="1.5"'+(s.n===1.5?' selected':'')+'>1.5</option><option value="3"'+(s.n===3?' selected':'')+'>3</option></select></div>';
+    const s=state.t4, dStd=(s.delta===1.5||s.delta===3);
+    h+='<div class="g-field"><label class="g-label">Formstückwinkel F1 = α</label><select class="g-sel" onchange="stCur().alpha=+this.value;calc()">'+opts(s.alpha,VR_ANGLES)+'</select></div>';
+    h+='<div class="g-field"><label class="g-label">Neigung δ (Gefälle)</label><select class="g-sel" onchange="t4Delta(this.value)">'
+      +'<option value="1.5"'+(s.delta===1.5?' selected':'')+'>1,5°</option>'
+      +'<option value="3"'+(s.delta===3?' selected':'')+'>3°</option>'
+      +'<option value="frei"'+(!dStd?' selected':'')+'>frei …</option></select></div>';
+    if(!dStd){
+      h+='<div class="g-field"><label class="g-label">Neigung δ frei</label><div class="g-inp-group"><input class="g-inp" type="text" inputmode="decimal" value="'+s.delta+'" onblur="fixLeadingZero(this)" onchange="stCur().delta=Math.max(0,Math.min(15,parseFloat(this.value)||1.5));calc()"/><span class="g-inp-unit">°</span></div></div>';
+    }
+    h+='<div class="g-field"><label class="g-label">Länge Schrägstück c</label><div class="g-inp-group"><input class="g-inp" type="text" inputmode="decimal" value="'+s.c+'" onblur="fixLeadingZero(this)" onchange="stCur().c=parseFloat(this.value)||1;calc()" title="Länge des schrägen Rohrstücks — beliebige Längeneinheit, b/h/a ergeben sich in derselben Einheit"/><span class="g-inp-unit" title="Beliebige Längeneinheit (m, cm …) — Ergebnisse in derselben Einheit">Einh.</span></div></div>';
   }
   $('inputArea').innerHTML=h;
 }
+window.t4Delta=function(v){
+  if(v==='frei'){ if(state.t4.delta===1.5||state.t4.delta===3) state.t4.delta=2; }
+  else state.t4.delta=parseFloat(v);
+  renderInputs(); calc();
+};
 
-function renderLookup(data, cols, selRow){
-  let h='<table><thead><tr>';
-  cols.forEach(c=>{ h+='<th>'+esc(c)+'</th>'; });
-  h+='</tr></thead><tbody>';
+function renderLookup(data, cols, selRow, degCols){
+  degCols=degCols||[0,1];
+  let h='<table><thead><tr>'+cols.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>';
   data.forEach(row=>{
-    const isSel=selRow&&row[0]===selRow[0]&&row[1]===selRow[1];
-    h+='<tr'+(isSel?' class="sel"':'')+'>';
-    row.forEach((v,i)=>{
-      const val=typeof v==='number'?(i<=1?v+'°':fmt(v,4)):v;
-      h+='<td>'+esc(String(val))+'</td>';
-    });
-    h+='</tr>';
+    h+='<tr'+(selRow&&row===selRow?' class="sel"':'')+'>'+row.map((v,i)=>
+      '<td>'+esc(String(v))+(degCols.indexOf(i)>=0?'\u00b0':'')+'</td>').join('')+'</tr>';
   });
-  h+='</tbody></table>';
-  $('lookupArea').innerHTML=h;
+  $('lookupArea').innerHTML=h+'</tbody></table>';
 }
 
 function rr(title,frml,hint,val,cls){
@@ -792,225 +844,453 @@ function rr(title,frml,hint,val,cls){
 }
 
 
-// ═══════════════════════════════════════════════
-// SVG VISUALIZATIONS (isometric, live values)
-// ═══════════════════════════════════════════════
-const _c = {
-  pipe:'#ef4444', pipeDash:'#ef4444', constr:'#334d6a', dim:'#60a5fa',
-  green:'#22c55e', amber:'#f59e0b', purple:'#a78bfa', cyan:'#06b6d4',
-  dot:'#fff', lbl:'#94a3b8', title:'#64748b', sub:'#475569',
-  bg:'transparent'
-};
-
-function _svgHead(w,h){ return '<svg viewBox="0 0 '+w+' '+h+'" xmlns="http://www.w3.org/2000/svg" style="max-width:'+w+'px;font-family:DM Sans,system-ui,sans-serif">'; }
-function _arr(id){ return '<defs><marker id="'+id+'" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="'+_c.dim+'"/></marker></defs>'; }
-function _dim(x1,y1,x2,y2,label,color,anchor,dx,dy){
-  dx=dx||0; dy=dy||0; anchor=anchor||'middle';
-  var mx=(x1+x2)/2+dx, my=(y1+y2)/2+dy;
-  return '<line x1="'+x1+'" y1="'+y1+'" x2="'+x2+'" y2="'+y2+'" stroke="'+color+'" stroke-width="1.5" stroke-dasharray="6,3"/>'+
-    '<text x="'+mx+'" y="'+my+'" fill="'+color+'" font-size="13" font-weight="700" text-anchor="'+anchor+'">'+label+'</text>';
+// ═══════════════════════════════════════════════════════════════════
+// SKIZZEN 1:1 nach dem Papier: je Tabelle «Isometrische Darstellung»
+// (Raumecke mit zwei Projektionswänden) + «Geometrische Darstellung»
+// (Aufriss + Grundriss mit Projektionslinien), Tabelle 4 zusätzlich
+// «Formstückwinkel F1». Alle Masse live beschriftet. NUR literale
+// Hex-Farben (GemaPDF-Regel).
+// ═══════════════════════════════════════════════════════════════════
+var VRC={pipe:'#1f2937',thin:'#94a3b8',axis:'#64748b',wall:'#cbd5e1',wallF:'#eef2f9',
+  M:'#7c3aed',B:'#2563eb',H:'#d97706',A:'#16a34a',G:'#dc2626',h1:'#0891b2',N:'#475569'};
+function r1(v){ return Math.round(v*10)/10; }
+function vf(x){ if(!isFinite(x))return '–'; var a=Math.abs(x); return x.toFixed(a>=1?2:3); }
+function va(x){ if(!isFinite(x))return '–'; return (Math.round(x*1000)/1000)+'°'; }
+function svH(w,h,mx){ return '<svg viewBox="0 0 '+w+' '+h+'" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:'+(mx||560)+'px;height:auto;display:block;margin:0 auto;font-family:DM Sans,system-ui,sans-serif">'; }
+function ln(x1,y1,x2,y2,c,w,d){ return '<line x1="'+r1(x1)+'" y1="'+r1(y1)+'" x2="'+r1(x2)+'" y2="'+r1(y2)+'" stroke="'+(c||VRC.thin)+'" stroke-width="'+(w||1.1)+'"'+(d?' stroke-dasharray="'+d+'"':'')+' stroke-linecap="round"/>'; }
+function pl(pts,c,w,d,close){ var s=pts.map(function(p){return r1(p[0])+','+r1(p[1]);}).join(' '); return '<'+(close?'polygon':'polyline')+' points="'+s+'" fill="none" stroke="'+c+'" stroke-width="'+(w||1.1)+'"'+(d?' stroke-dasharray="'+d+'"':'')+' stroke-linecap="round" stroke-linejoin="round"/>'; }
+function pipe2d(pts,w){ return pl(pts,VRC.pipe,w||7); }
+function quad(pts,f,st){ return '<polygon points="'+pts.map(function(p){return r1(p[0])+','+r1(p[1]);}).join(' ')+'" fill="'+f+'" fill-opacity="0.6" stroke="'+st+'" stroke-width="1"/>'; }
+function fdot(x,y,r){ return '<circle cx="'+r1(x)+'" cy="'+r1(y)+'" r="'+(r||5.5)+'" fill="#ffffff" stroke="#1f2937" stroke-width="2"/>'; }
+function ddot(x,y,c){ return '<circle cx="'+r1(x)+'" cy="'+r1(y)+'" r="2.1" fill="'+c+'"/>'; }
+function tx(x,y,t,c,a,sz,w){ return '<text x="'+r1(x)+'" y="'+r1(y)+'" fill="'+(c||'#475569')+'" font-size="'+(sz||12.5)+'" font-weight="'+(w||800)+'" text-anchor="'+(a||'start')+'" paint-order="stroke" stroke="#ffffff" stroke-width="3.4" stroke-linejoin="round">'+t+'</text>'; }
+function dimm(x1,y1,x2,y2,c){ return ln(x1,y1,x2,y2,c,1.4)+ddot(x1,y1,c)+ddot(x2,y2,c); }
+function arc2(cx,cy,r,a1,a2,c){ var p=[]; for(var i=0;i<=16;i++){ var a=a1+(a2-a1)*i/16; p.push([cx+r*Math.cos(a),cy+r*Math.sin(a)]); } return pl(p,c,1.2,'3,2'); }
+// Isometrie: Raumecke hinten bei (u,v)=(0,0), +u nach vorn-rechts, +v nach vorn-links, z nach oben
+function iso(o,u,v,z){ return [o.cx+(u-v)*0.866, o.cy+(u+v)*0.5-z]; }
+function isoLn(o,p,q,c,w,d){ var a=iso(o,p[0],p[1],p[2]),b=iso(o,q[0],q[1],q[2]); return ln(a[0],a[1],b[0],b[1],c,w,d); }
+function isoPl(o,pts,c,w,d){ return pl(pts.map(function(p){return iso(o,p[0],p[1],p[2]);}),c,w,d); }
+function isoPipe(o,pts){ return isoPl(o,pts,VRC.pipe,7); }
+function isoDim(o,p,q,c){ var a=iso(o,p[0],p[1],p[2]),b=iso(o,q[0],q[1],q[2]); return dimm(a[0],a[1],b[0],b[1],c); }
+function isoArc(o,u0,v0,r,f1,f2,c){ var p=[]; for(var i=0;i<=16;i++){ var f=f1+(f2-f1)*i/16; p.push([u0+r*Math.cos(f),v0+r*Math.sin(f),0]); } return isoPl(o,p,c,1.2,'3,2'); }
+function isoRoom(o,U,V,Z){
+  return quad([iso(o,0,0,0),iso(o,0,V,0),iso(o,0,V,Z),iso(o,0,0,Z)],VRC.wallF,VRC.wall)
+       + quad([iso(o,0,0,0),iso(o,U,0,0),iso(o,U,0,Z),iso(o,0,0,Z)],VRC.wallF,VRC.wall);
 }
-function _dot(x,y){ return '<circle cx="'+x+'" cy="'+y+'" r="4.5" fill="'+_c.dot+'" stroke="#1e293b" stroke-width="1.5"/>'; }
-function _lbl(x,y,txt,sz){ return '<text x="'+x+'" y="'+y+'" fill="'+_c.title+'" font-size="'+(sz||11)+'" font-weight="700">'+txt+'</text>'; }
-
-function svgT1(row, s){
-  var B=row?fmt(row[3]*s.n,2):'–', H=row?fmt(row[4]*s.n,2):'–', M=row?fmt(row[2]*s.n,2):'–', g=row?fmt(row[5],1)+'°':'–';
-  var f1=s.f1, f2=s.f2;
-  // Isometric box: horizontal pipe → vertical pipe
-  // Points: bottom-left(bl), front-left(fl), front-right(fr), bottom-right(br), top-left(tl), top-right(tr), top-far(tf), back-right(bkr)
-  var svg = _svgHead(540,420);
-  // Red envelope (3D box)
-  svg += '<path d="M50,340 L50,130 L200,50 L200,260" fill="none" stroke="'+_c.pipe+'" stroke-width="2.5"/>';
-  svg += '<path d="M50,340 L310,340 L460,260 L460,50 L200,50" fill="none" stroke="'+_c.pipe+'" stroke-width="2.5"/>';
-  svg += '<path d="M310,340 L310,130 L460,50" fill="none" stroke="'+_c.pipe+'" stroke-width="1.2" stroke-dasharray="6,4" opacity=".5"/>';
-  // Construction lines (blue)
-  svg += '<line x1="50" y1="130" x2="310" y2="130" stroke="'+_c.constr+'" stroke-width="0.8" stroke-dasharray="3,3"/>';
-  svg += '<line x1="200" y1="260" x2="460" y2="260" stroke="'+_c.constr+'" stroke-width="0.8" stroke-dasharray="3,3"/>';
-  // Pipe centerlines
-  svg += '<line x1="120" y1="340" x2="120" y2="90" stroke="'+_c.constr+'" stroke-width="1.2"/>';
-  svg += '<line x1="120" y1="90" x2="280" y2="90" stroke="'+_c.constr+'" stroke-width="1.2"/>';
-  svg += '<line x1="200" y1="50" x2="200" y2="340" stroke="'+_c.constr+'" stroke-width="0.6" stroke-dasharray="2,3"/>';
-  // Angle arc
-  svg += '<path d="M120,300 A40,40 0 0,1 145,270" fill="none" stroke="'+_c.lbl+'" stroke-width="1"/>';
-  // Crossing dot
-  svg += _dot(200, 160);
-  svg += _dot(120, 280);
-  // Dimension: B (bottom)
-  svg += _dim(50, 370, 310, 370, 'B = '+B+' DN', _c.dim, 'middle', 0, 16);
-  // Dimension: H (right side vertical)
-  svg += _dim(480, 50, 480, 260, 'H = '+H+' DN', _c.amber, 'start', 8, 0);
-  // Dimension: M (center vertical dashed)
-  svg += _dim(200, 50, 200, 260, 'M = '+M, _c.purple, 'start', 8, 0);
-  // Angle label
-  svg += '<text x="80" y="310" fill="'+_c.lbl+'" font-size="12" font-weight="600">γ = '+g+'</text>';
-  // F1/F2 labels
-  svg += '<text x="85" y="200" fill="#fb923c" font-size="11" font-weight="700">F1='+f1+'°</text>';
-  svg += '<text x="230" y="80" fill="#fb923c" font-size="11" font-weight="700">F2='+f2+'°</text>';
-  // Title
-  svg += _lbl(18, 18, 'TABELLE 1');
-  svg += '<text x="18" y="32" fill="'+_c.sub+'" font-size="10">Liegende → Senkrechte</text>';
-  svg += '</svg>';
-  return svg;
+// Massstabs-Anpassung der geometrischen Ansichten: echte Proportionen, weich begrenzt
+function fitBHA(Bh,Hh,Ah,maxB,maxH,maxA){
+  var k=Math.min(maxB/Bh,maxH/Hh,maxA/Ah);
+  var B=Bh*k; if(B<70){ k=70/Bh; B=70; }
+  return {B:B, H:Math.min(maxH,Math.max(34,Hh*k)), A:Math.min(maxA,Math.max(26,Ah*k))};
 }
-
-function svgT2(row, s){
-  var B=row?fmt(row[3]*s.n,2):'–', H=row?fmt(row[4]*s.n,2):'–', M=row?fmt(row[2]*s.n,2):'–', g=row?fmt(row[5],1)+'°':'–';
-  var f1=s.f1, f2=s.f2;
-  var svg = _svgHead(540,400);
-  // Red envelope
-  svg += '<path d="M50,280 L280,280 L430,200 L430,30" fill="none" stroke="'+_c.pipe+'" stroke-width="2.5"/>';
-  svg += '<path d="M50,280 L50,100 L200,30 L430,30" fill="none" stroke="'+_c.pipe+'" stroke-width="2.5"/>';
-  svg += '<path d="M200,30 L200,210 L430,200" fill="none" stroke="'+_c.pipe+'" stroke-width="1.2" stroke-dasharray="6,4" opacity=".5"/>';
-  svg += '<path d="M50,100 L280,100 L280,280" fill="none" stroke="'+_c.constr+'" stroke-width="0.8" stroke-dasharray="3,3"/>';
-  // Pipe centerlines
-  svg += '<line x1="250" y1="30" x2="250" y2="200" stroke="'+_c.constr+'" stroke-width="1.2"/>';
-  svg += '<line x1="250" y1="200" x2="400" y2="200" stroke="'+_c.constr+'" stroke-width="1.2"/>';
-  svg += _dot(250, 150);
-  svg += _dot(320, 200);
-  // Dimensions
-  svg += _dim(50, 300, 280, 300, 'A = '+B+' DN', _c.dim, 'middle', 0, 16);
-  svg += _dim(450, 30, 450, 200, 'H = '+H+' DN', _c.amber, 'start', 8, 0);
-  svg += _dim(280, 100, 280, 280, 'M = '+M, _c.purple, 'start', 8, 0);
-  svg += '<text x="80" y="260" fill="'+_c.lbl+'" font-size="12" font-weight="600">γ = '+g+'</text>';
-  svg += '<text x="210" y="120" fill="#fb923c" font-size="11" font-weight="700">F1='+f1+'°</text>';
-  svg += '<text x="330" y="190" fill="#fb923c" font-size="11" font-weight="700">F2='+f2+'°</text>';
-  svg += _lbl(18, 18, 'TABELLE 2');
-  svg += '<text x="18" y="32" fill="'+_c.sub+'" font-size="10">Senkrechte → Liegende</text>';
-  svg += '</svg>';
-  return svg;
+function dispT12(row,s){
+  var m=(isFinite(s.n)&&s.n>0)?s.n:1;
+  return {ok:!!row, f1:s.f1, f2:s.f2, m:m,
+    Bh:row?row[3]:1.3411, Hh:row?row[4]:0.9658, Ah:1,
+    Ms:row?vf(row[2]*m):'–', Bs:row?vf(row[3]*m):'–', Hs:row?vf(row[4]*m):'–',
+    As:vf(m), gs:row?va(row[5]):'–'};
+}
+function dispT3(row,s){
+  var m=(isFinite(s.n)&&s.n>0)?s.n:1;
+  return {ok:!!row, f1:s.f1, f2:s.f2, m:m,
+    Ah:row?row[3]:0.97, Bh:row?row[4]:1.38, Hh:row?row[5]:1.06,
+    Ms:row?vf(row[2]*m):'–', As:row?vf(row[3]*m):'–', Bs:row?vf(row[4]*m):'–',
+    Hs:row?vf(row[5]*m):'–', hs:vf(m), gs:row?va(row[6]):'–'};
+}
+function dispT4(s,row){
+  var c=(isFinite(s.c)&&s.c>0)?s.c:1, r=vrT4Calc(s.alpha,s.delta);
+  var fB=row?row[5]:r.b, fH=row?row[6]:r.h, fA=row?row[4]:r.a, fBe=row?row[3]:r.beta;
+  return {alpha:s.alpha, delta:s.delta, c:c, bh:Math.max(0,r.b), hh:Math.max(0.02,r.h),
+    fB:fB, fH:fH, fA:fA,
+    fBs:row?String(row[5]):vf4(r.b), fHs:row?String(row[6]):vf4(r.h), fAs:row?String(row[4]):vf4(r.a),
+    bs:vf(fB*c), hs:vf(fH*c), as:vf(fA*c), cs:vf(c),
+    betas:(Math.round(fBe*1000)/1000)+'°', als:s.alpha+'°', ds:(Math.round(s.delta*100)/100)+'°'};
 }
 
-function svgT3(row, s){
-  var M=row?fmt(row[2]*s.n,2):'–', A=row?fmt(row[3]*s.n,2):'–', B=row?fmt(row[4]*s.n,2):'–';
-  var H=row?fmt(row[5]*s.n,2):'–', h=row?fmt((row[5]-1)*s.n,2):'–', g=row?fmt(row[6],1)+'°':'–';
-  var f1=s.f1, f2=s.f2;
-  var svg = _svgHead(520,440);
-  // Red envelope — symmetric Überkröpfung (bridge shape)
-  // Left wall up
-  svg += '<path d="M40,340 L40,120 L210,40 L210,260" fill="none" stroke="'+_c.pipe+'" stroke-width="2.5"/>';
-  // Bottom + right wall
-  svg += '<path d="M40,340 L210,260 L380,340 L380,120 L210,40" fill="none" stroke="'+_c.pipe+'" stroke-width="2.5"/>';
-  // Construction
-  svg += '<line x1="210" y1="40" x2="210" y2="360" stroke="'+_c.constr+'" stroke-width="0.7" stroke-dasharray="2,3"/>';
-  svg += '<line x1="40" y1="260" x2="380" y2="260" stroke="'+_c.constr+'" stroke-width="0.7" stroke-dasharray="2,3"/>';
-  // Pipe centerlines going up-over-down
-  svg += '<line x1="100" y1="340" x2="100" y2="140" stroke="'+_c.constr+'" stroke-width="1.2"/>';
-  svg += '<line x1="100" y1="140" x2="320" y2="140" stroke="'+_c.constr+'" stroke-width="1.2"/>';
-  svg += '<line x1="320" y1="140" x2="320" y2="340" stroke="'+_c.constr+'" stroke-width="1.2"/>';
-  // Dots at bends
-  svg += _dot(210, 140);
-  svg += _dot(210, 190);
-  // Dimensions
-  svg += _dim(40, 370, 210, 370, 'B = '+B+' DN', _c.dim, 'middle', 0, 16);
-  svg += _dim(210, 370, 380, 370, 'A = '+A+' DN', _c.green, 'middle', 0, 16);
-  svg += _dim(400, 120, 400, 340, 'H = '+H+' DN', _c.amber, 'start', 8, 0);
-  svg += _dim(210, 40, 210, 260, 'M = '+M, _c.purple, 'start', 8, 0);
-  // h (Überhöhung)
-  svg += _dim(440, 260, 440, 340, 'h = '+h+' DN', _c.cyan, 'start', 8, 0);
-  svg += '<text x="80" y="310" fill="'+_c.lbl+'" font-size="12" font-weight="600">γ = '+g+'</text>';
-  svg += '<text x="70" y="200" fill="#fb923c" font-size="11" font-weight="700">F1='+f1+'°</text>';
-  svg += '<text x="280" y="200" fill="#fb923c" font-size="11" font-weight="700">F2='+f2+'°</text>';
-  svg += _lbl(18, 18, 'TABELLE 3');
-  svg += '<text x="18" y="32" fill="'+_c.sub+'" font-size="10">Überkröpfung</text>';
-  svg += '</svg>';
-  return svg;
+// ── Zeichen-Helfer der Skizzen ────────────────────────────────────
+var VR_TE=0.105; // gezeichnete Neigung der Liegenden (zur Lesbarkeit überhöht — beschriftet ist der wahre Wert 1,5°)
+function vf4(x){ return isFinite(x)?x.toFixed(4):'–'; }
+function t4dd(delta){ return Math.tan(Math.max(delta,Math.min(4.5,delta*3))*Math.PI/180); }
+function arcS(cx,cy,r,a1,a2,c){ var p=[]; for(var i=0;i<=20;i++){ var a=a1+(a2-a1)*i/20; p.push([cx+r*Math.cos(a),cy+r*Math.sin(a)]); } return pl(p,c,1.3); }
+function isoArcS(o,u0,v0,r,f1,f2,c){ var p=[]; for(var i=0;i<=20;i++){ var f=f1+(f2-f1)*i/20; p.push(iso(o,u0+r*Math.cos(f),v0+r*Math.sin(f),0)); } return pl(p,c,1.3); }
+function scrAng(o,p,q){ var a=iso(o,p[0],p[1],p[2]),b=iso(o,q[0],q[1],q[2]); return Math.atan2(b[1]-a[1],b[0]-a[0]); }
+function nrm(ax,ay,bx,by,side){ var dx=bx-ax,dy=by-ay,L=Math.hypot(dx,dy)||1; var nx=-dy/L,ny=dx/L; if((side==='up'&&ny>0)||(side==='down'&&ny<0)){nx=-nx;ny=-ny;} return [nx,ny]; }
+function dimPar(x1,y1,x2,y2,off,side,c,lbl,anch){
+  var n=nrm(x1,y1,x2,y2,side),ax=x1+n[0]*off,ay=y1+n[1]*off,bx=x2+n[0]*off,by=y2+n[1]*off;
+  var a2=anch||'middle',d2=a2==='middle'?15:9; // end/start: Text wächst von der Linie weg → kleinerer Abstand genügt
+  return ln(x1,y1,ax,ay,VRC.thin,0.9)+ln(x2,y2,bx,by,VRC.thin,0.9)+dimm(ax,ay,bx,by,c)
+       + tx((ax+bx)/2+n[0]*d2,(ay+by)/2+n[1]*d2+4,lbl,c,a2);
 }
+function pnl(svg){ return '<div style="flex:1 1 330px;min-width:290px;max-width:560px">'+svg+'</div>'; }
+function vrWrap(){ return '<div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:center;align-items:flex-start;width:100%">'+Array.prototype.slice.call(arguments).join('')+'</div>'; }
+function panelT(t){ return tx(10,19,t,'#0f172a','start',12.5,800); }
+function endSymA(x,y){ return ln(x,y-9,x,y+9,VRC.pipe,3.4)+ln(x,y-9,x+8,y-9,VRC.pipe,2.2)+ln(x,y+9,x+8,y+9,VRC.pipe,2.2); }
+function fitISO12(d){ var k=Math.min(118/d.Bh,90/d.Ah,90/d.Hh); return {B:Math.max(46,d.Bh*k),A:Math.max(30,d.Ah*k),H:Math.max(30,d.Hh*k)}; }
+function fitISO3(d){ var k=Math.min(106/d.Bh,84/d.Ah,84/d.Hh); return {B:Math.max(44,d.Bh*k),A:Math.max(30,d.Ah*k),H:Math.max(30,d.Hh*k)}; }
 
-function svgT4(row, s){
-  var aAngle=row?row[2]:'–', bAngle=row?fmt(row[3],1)+'°':'–';
-  var sinA=row?fmt(row[4],4):'–', cosB=row?fmt(row[5],4):'–';
-  var h=row?fmt(row[6]*s.n,2):'–', A=row?fmt(row[4]*s.n,2):'–', B=row?fmt(row[5]*s.n,2):'–';
-  var svg = _svgHead(540,400);
-  // Pipe going from lower-left upward at angle, then horizontal
-  // Left vertical section
-  svg += '<path d="M50,320 L50,100 L200,30 L200,250" fill="none" stroke="'+_c.pipe+'" stroke-width="2.5"/>';
-  // Right horizontal section
-  svg += '<path d="M200,250 L490,250 L490,30 L200,30" fill="none" stroke="'+_c.pipe+'" stroke-width="2.5"/>';
-  // Bottom connection
-  svg += '<path d="M50,320 L200,250" fill="none" stroke="'+_c.pipe+'" stroke-width="2.5"/>';
-  // Ground line
-  svg += '<line x1="50" y1="320" x2="490" y2="320" stroke="'+_c.constr+'" stroke-width="0.7" stroke-dasharray="3,3"/>';
-  svg += '<line x1="200" y1="250" x2="200" y2="320" stroke="'+_c.constr+'" stroke-width="0.7" stroke-dasharray="3,3"/>';
-  // Pipe centerline (angled)
-  svg += '<line x1="120" y1="320" x2="120" y2="100" stroke="'+_c.constr+'" stroke-width="1.2"/>';
-  svg += '<line x1="120" y1="100" x2="350" y2="100" stroke="'+_c.constr+'" stroke-width="1.2"/>';
-  // Angle arc at bend
-  svg += '<path d="M120,140 A35,35 0 0,1 150,110" fill="none" stroke="'+_c.lbl+'" stroke-width="1"/>';
-  svg += _dot(200, 150);
-  // Dimensions
-  svg += _dim(50, 345, 200, 345, 'A = '+A+' DN', _c.green, 'middle', 0, 16);
-  svg += _dim(510, 30, 510, 250, 'H = '+h+' DN', _c.amber, 'start', 8, 0);
-  // h between horizontal and ground
-  svg += _dim(25, 250, 25, 320, 'h = '+h+' DN', _c.cyan, 'end', -8, 0);
-  // Angle labels
-  svg += '<text x="135" y="135" fill="'+_c.lbl+'" font-size="11" font-weight="600">α = '+aAngle+'°</text>';
-  svg += '<text x="140" y="300" fill="'+_c.lbl+'" font-size="11" font-weight="600">β = '+bAngle+'</text>';
-  svg += _lbl(18, 18, 'TABELLE 4');
-  svg += '<text x="18" y="32" fill="'+_c.sub+'" font-size="10">Gefällsberechnung</text>';
-  svg += '</svg>';
-  return svg;
+// ── Tabelle 1: Liegende → Senkrechte ──────────────────────────────
+function isoT1(d){
+  var f=fitISO12(d),A=f.A,B=f.B,H=f.H;
+  var uF=20,vS=34,vF=vS+B,uS=uF+A,zL=16,z2=zL+H,zTop=z2+40;
+  var U=uS+34,V=vF+40,Z=zTop+16,zD=Z+16;
+  var o={cx:212,cy:196},s='';
+  s+=isoRoom(o,U,V,Z);
+  var rL=Math.min(B*0.8,74);
+  s+=isoLn(o,[uF,vF,0],[uF,vF-rL,0],VRC.thin,1);
+  s+=isoLn(o,[uF,vF,0],[uS,vS,0],VRC.thin,1,'4,3');
+  s+=isoLn(o,[uF,vF,zL],[uF,vF,0],VRC.thin,1,'2,3');
+  s+=isoLn(o,[uS,vS,z2],[uS,vS,0],VRC.thin,1,'4,3');
+  var f2=Math.atan2(-B,A),rA=Math.min(56,B*0.5+16);
+  s+=isoArcS(o,uF,vF,rA,-Math.PI/2,f2,VRC.G);
+  var fm=(-Math.PI/2+f2)/2,gp=iso(o,uF+(rA+15)*Math.cos(fm),vF+(rA+15)*Math.sin(fm),0);
+  s+=tx(gp[0],gp[1]+12,'γ = '+d.gs,VRC.G,'middle');
+  s+=isoPl(o,[[uF,vF+72,zL-72*VR_TE],[uF,vF,zL],[uF,vF-34,zL+34*VR_TE]],VRC.pipe,7);
+  s+=isoPipe(o,[[uF,vF,zL],[uS,vS,z2]]);
+  s+=isoPipe(o,[[uS,vS,z2],[uS,vS,zTop]]);
+  s+=isoLn(o,[uF,vF,zL],[uF,vF+72,zL],VRC.N,1,'4,3');
+  var np=iso(o,uF,vF+76,zL);
+  s+=tx(np[0],np[1]+17,'N = 1,5°',VRC.N,'start');
+  s+=isoLn(o,[uF,vF,zL+8],[uF,vF,zD],VRC.thin,0.9);
+  s+=isoLn(o,[uF,vS,0],[uF,vS,zD],VRC.thin,0.9,'3,3');
+  s+=isoLn(o,[uS,vS,zTop],[uS,vS,zD],VRC.thin,0.9);
+  var b1=iso(o,uF,vF,zD),b2=iso(o,uF,vS,zD),a2=iso(o,uS,vS,zD);
+  s+=dimm(b1[0],b1[1],b2[0],b2[1],VRC.B)+tx((b1[0]+b2[0])/2-8,(b1[1]+b2[1])/2-8,'B = '+d.Bs,VRC.B,'middle');
+  s+=dimm(b2[0],b2[1],a2[0],a2[1],VRC.A)+tx((b2[0]+a2[0])/2+8,(b2[1]+a2[1])/2-8,'A = '+d.As,VRC.A,'middle');
+  var s1=iso(o,uF,vF,zL),s2=iso(o,uS,vS,z2);
+  s+=dimPar(s1[0],s1[1],s2[0],s2[1],30,'up',VRC.M,'M = '+d.Ms);
+  var h1=iso(o,uS,vS,z2),h0=iso(o,uS,vS,zL),hx=h1[0]+38;
+  s+=ln(h1[0],h1[1],hx,h1[1],VRC.thin,0.9)+ln(h0[0],h0[1],hx,h0[1],VRC.thin,0.9);
+  s+=dimm(hx,h1[1],hx,h0[1],VRC.H)+tx(hx+7,(h1[1]+h0[1])/2+4,'H = '+d.Hs,VRC.H,'start');
+  s+=fdot(s1[0],s1[1]);
+  s+=tx(s1[0]-11,s1[1]+5,'F1','#0f172a','end',13,800);
+  s+=tx(s2[0]+10,s2[1]+2,'F2','#0f172a','start',13,800);
+  s+=panelT('Isometrische Darstellung');
+  return svH(480,414,470)+s+'</svg>';
 }
+function geoT1(d){
+  var f=fitBHA(d.Bh,d.Hh,d.Ah,186,108,84),Bp=f.B,Hp=f.H,Ap=f.A;
+  var x1=112,y1=196,x2=x1+Bp,y2=y1-Hp,yL=316,yP=yL+Ap,s='';
+  s+=ln(x1,y1,432,y1,VRC.N,1,'4,3');
+  s+=pl([[26,y1+(x1-26)*VR_TE],[x1,y1],[430,y1-(430-x1)*VR_TE]],VRC.pipe,6.5);
+  s+=pipe2d([[x1,y1],[x2,y2]]);
+  s+=pipe2d([[x2,y2],[x2,y2-44]]);
+  s+=dimPar(x1,y1,x2,y2,28,'up',VRC.M,'M = '+d.Ms);
+  s+=ln(x2,y2,444,y2,VRC.thin,0.9)+ln(432,y1,444,y1,VRC.thin,0.9);
+  s+=dimm(444,y2,444,y1,VRC.H)+tx(438,(y1+y2)/2+4,'H = '+d.Hs,VRC.H,'end');
+  s+=tx(428,y1+16,'N = 1,5°',VRC.N,'end');
+  s+=fdot(x1,y1)+tx(x1-9,y1+20,'F1','#0f172a','end',13,800)+tx(x2+9,y2+4,'F2','#0f172a','start',13,800);
+  s+=ln(x1,y1+8,x1,yL-8,VRC.thin,1,'3,4')+ln(x2,y2+6,x2,yP-9,VRC.thin,1,'3,4');
+  s+=ln(26,yL,436,yL,VRC.pipe,6.5);
+  s+=pl([[x1,yL],[x2,yP]],VRC.pipe,6.5);
+  s+=ln(x2,yP,436,yP,VRC.thin,1.1);
+  var gR=Math.atan(Ap/Bp),rG=Math.min(46,Math.hypot(Ap,Bp)*0.45);
+  s+=arcS(x2,yP,rG,Math.PI,Math.PI+gR,VRC.G);
+  var mA=Math.PI+gR*0.5;
+  s+=tx(x2+(rG+14)*Math.cos(mA),yP+(rG+14)*Math.sin(mA),'γ = '+d.gs,VRC.G,'end');
+  s+=ln(x1,yL+7,x1,yP+30,VRC.thin,0.9)+ln(x2,yP+8,x2,yP+30,VRC.thin,0.9);
+  s+=dimm(x1,yP+30,x2,yP+30,VRC.B)+tx((x1+x2)/2,yP+45,'B = '+d.Bs,VRC.B,'middle');
+  s+=ln(x2,yP,418,yP,VRC.thin,0.9);
+  s+=dimm(418,yL,418,yP,VRC.A)+tx(412,(yL+yP)/2+4,'A = '+d.As,VRC.A,'end');
+  s+=fdot(x1,yL,4.6)+fdot(x2,yP,7);
+  s+=panelT('Geometrische Darstellung');
+  return svH(460,448,470)+s+'</svg>';
+}
+function svgT1(d){ return vrWrap(pnl(isoT1(d)),pnl(geoT1(d))); }
 
+// ── Tabelle 2: Senkrechte → Liegende ──────────────────────────────
+function isoT2(d){
+  var f=fitISO12(d),A=f.A,B=f.B,H=f.H;
+  var vL=30,uS=24,uF2=uS+B,vS=vL+A,z1=38,z2=z1+H;
+  var U=uF2+92,V=vS+42,Z=z2+52,zD=Z+14;
+  var o={cx:206,cy:186},s='';
+  s+=isoRoom(o,U,V,Z);
+  var rL=Math.min(B*0.7,66);
+  s+=isoLn(o,[uS,vS,0],[uS+rL,vS,0],VRC.thin,1);
+  s+=isoLn(o,[uS,vS,0],[uF2,vL,0],VRC.thin,1,'4,3');
+  s+=isoLn(o,[uF2,vL,z2],[uF2,vL,0],VRC.thin,1,'4,3');
+  var f2=Math.atan2(-A,B),rA=Math.min(52,B*0.5+14);
+  s+=isoArcS(o,uS,vS,rA,f2,0,VRC.G);
+  var fm=f2/2,gp=iso(o,uS+(rA+15)*Math.cos(fm),vS+(rA+15)*Math.sin(fm),0);
+  s+=tx(gp[0]+4,gp[1]+12,'γ = '+d.gs,VRC.G,'start');
+  s+=isoPl(o,[[uS,vS,z1],[uS,vS,2]],VRC.pipe,7);
+  s+=isoLn(o,[uS,vS,z1],[uS,vS,z1+26],VRC.thin,1.1);
+  s+=isoPipe(o,[[uS,vS,z1],[uF2,vL,z2]]);
+  s+=isoPl(o,[[uF2,vL,z2],[uF2+74,vL,z2+74*VR_TE]],VRC.pipe,7);
+  s+=isoLn(o,[uF2,vL,z2],[uF2+74,vL,z2],VRC.N,1,'4,3');
+  var np=iso(o,uF2+78,vL,z2);
+  s+=tx(np[0]-2,np[1]+18,'N = 1,5°',VRC.N,'start');
+  s+=isoLn(o,[uS,vS,z1+30],[uS,vS,zD],VRC.thin,0.9);
+  s+=isoLn(o,[uS,vL,0],[uS,vL,zD],VRC.thin,0.9,'3,3');
+  s+=isoLn(o,[uF2,vL,z2+8],[uF2,vL,zD],VRC.thin,0.9);
+  var a1=iso(o,uS,vS,zD),a2=iso(o,uS,vL,zD),b2=iso(o,uF2,vL,zD);
+  s+=dimm(a1[0],a1[1],a2[0],a2[1],VRC.A)+tx((a1[0]+a2[0])/2-8,(a1[1]+a2[1])/2-8,'A = '+d.As,VRC.A,'middle');
+  s+=dimm(a2[0],a2[1],b2[0],b2[1],VRC.B)+tx((a2[0]+b2[0])/2+6,(a2[1]+b2[1])/2-8,'B = '+d.Bs,VRC.B,'middle');
+  var s1=iso(o,uS,vS,z1),s2=iso(o,uF2,vL,z2);
+  s+=dimPar(s1[0],s1[1],s2[0],s2[1],30,'up',VRC.M,'M = '+d.Ms);
+  var hx=s1[0]-38;
+  s+=ln(s1[0]-8,s1[1],hx,s1[1],VRC.thin,0.9)+ln(s2[0],s2[1],hx,s2[1],VRC.thin,0.9);
+  s+=dimm(hx,s2[1],hx,s1[1],VRC.H)+tx(hx-7,(s1[1]+s2[1])/2+4,'H = '+d.Hs,VRC.H,'end');
+  s+=fdot(s1[0],s1[1]);
+  s+=tx(s1[0]-12,s1[1]+16,'F1','#0f172a','end',13,800);
+  s+=tx(s2[0]-4,s2[1]-12,'F2','#0f172a','end',13,800);
+  s+=panelT('Isometrische Darstellung');
+  return svH(480,388,470)+s+'</svg>';
+}
+function geoT2(d){
+  var f=fitBHA(d.Bh,d.Hh,d.Ah,186,104,82),Bp=f.B,Hp=f.H,Ap=f.A;
+  var xS=116,y2=92,y1=y2+Hp,x2=xS+Bp,yL=300,yP=yL+Ap,s='';
+  s+=ln(xS,y2-16,xS,y1,VRC.thin,1.1);
+  s+=ln(x2,y2,436,y2,VRC.N,1,'4,3');
+  s+=pl([[xS,y1],[xS,236]],VRC.pipe,6.5);
+  s+=pipe2d([[xS,y1],[x2,y2]]);
+  s+=pl([[x2,y2],[434,y2-(434-x2)*VR_TE]],VRC.pipe,6.5);
+  s+=dimPar(xS,y1,x2,y2,26,'down',VRC.M,'M = '+d.Ms);
+  s+=ln(x2,y2,xS-38,y2,VRC.thin,0.9)+ln(xS-8,y1,xS-38,y1,VRC.thin,0.9);
+  s+=dimm(xS-38,y2,xS-38,y1,VRC.H)+tx(xS-45,(y1+y2)/2+4,'H = '+d.Hs,VRC.H,'end');
+  s+=tx(430,y2+16,'N = 1,5°',VRC.N,'end');
+  s+=fdot(xS,y1)+tx(xS-12,y1+6,'F1','#0f172a','end',13,800)+tx(x2+2,y2-12,'F2','#0f172a','middle',13,800);
+  s+=ln(xS,238,xS,yP-9,VRC.thin,1,'3,4')+ln(x2,y2+6,x2,yL-8,VRC.thin,1,'3,4');
+  s+=ln(x2,yL,436,yL,VRC.pipe,6.5);
+  s+=pl([[x2,yL],[xS,yP]],VRC.pipe,6.5);
+  s+=ln(xS,yP,xS+Math.min(Bp*0.7,84),yP,VRC.thin,1.1);
+  var gR=Math.atan(Ap/Bp),rG=Math.min(44,Math.hypot(Ap,Bp)*0.45);
+  s+=arcS(xS,yP,rG,-gR,0,VRC.G);
+  var mA=-gR*0.5;
+  s+=tx(xS+(rG+14)*Math.cos(mA)+2,yP+(rG+14)*Math.sin(mA)+4,'γ = '+d.gs,VRC.G,'start');
+  s+=ln(x2,yL,xS-38,yL,VRC.thin,0.9)+ln(xS-8,yP,xS-38,yP,VRC.thin,0.9);
+  s+=dimm(xS-38,yL,xS-38,yP,VRC.A)+tx(xS-45,(yL+yP)/2+4,'A = '+d.As,VRC.A,'end');
+  s+=ln(xS,yP+8,xS,yP+30,VRC.thin,0.9)+ln(x2,yL+7,x2,yP+30,VRC.thin,0.9);
+  s+=dimm(xS,yP+30,x2,yP+30,VRC.B)+tx((xS+x2)/2,yP+45,'B = '+d.Bs,VRC.B,'middle');
+  s+=fdot(xS,yP,7);
+  s+=panelT('Geometrische Darstellung');
+  return svH(460,436,470)+s+'</svg>';
+}
+function svgT2(d){ return vrWrap(pnl(isoT2(d)),pnl(geoT2(d))); }
+
+// ── Tabelle 3: Überkröpfung (rechtwinklige Kreuzung, h = 1) ───────
+function isoT3(d){
+  var f=fitISO3(d),A=f.A,B=f.B,H=f.H;
+  var u1=20,vX=32,v1=vX+B,uF=u1+A,z1=22,z2=z1+H;
+  var U=uF+78,V=v1+52,Z=z2+40,zD=Z+14;
+  var o={cx:218,cy:176},s='';
+  s+=isoRoom(o,U,V,Z);
+  var rL=Math.min(B*0.7,60);
+  s+=isoLn(o,[u1,v1,0],[u1,v1-rL,0],VRC.thin,1);
+  s+=isoLn(o,[u1,v1,0],[uF,vX,0],VRC.thin,1,'4,3');
+  s+=isoLn(o,[uF,vX,z2],[uF,vX,0],VRC.thin,1,'4,3');
+  s+=isoLn(o,[u1,v1,z1],[u1,v1,0],VRC.thin,1,'2,3');
+  var f2=Math.atan2(-B,A),rA=Math.min(50,B*0.5+14);
+  s+=isoArcS(o,u1,v1,rA,-Math.PI/2,f2,VRC.G);
+  var fm=(-Math.PI/2+f2)/2,gp=iso(o,u1+(rA+14)*Math.cos(fm),v1+(rA+14)*Math.sin(fm),0);
+  s+=tx(gp[0],gp[1]+11,'γ = '+d.gs,VRC.G,'middle');
+  s+=isoPl(o,[[u1,v1+62,z1-62*VR_TE],[u1,v1,z1],[u1,vX-22,z1+(B+22)*VR_TE]],VRC.pipe,7);
+  s+=isoPipe(o,[[u1,v1,z1],[uF,vX,z2]]);
+  s+=isoPl(o,[[uF,vX,z2],[uF+58,vX,z2+58*VR_TE]],VRC.pipe,7);
+  s+=isoLn(o,[uF,vX,z2],[u1-10,vX,z2-(A+10)*VR_TE],VRC.thin,1,'4,3');
+  var pU=iso(o,u1,vX,z2-A*VR_TE),pL=iso(o,u1,vX,z1+B*VR_TE);
+  s+=dimm(pU[0],pU[1],pL[0],pL[1],VRC.h1)+tx(pL[0]+4,pL[1]+18,'h = '+d.hs,VRC.h1,'start');
+  s+=isoLn(o,[u1,v1,z1],[u1,v1+58,z1],VRC.N,1,'4,3');
+  var n1=iso(o,u1,v1+62,z1); s+=tx(n1[0],n1[1]+17,'N = 1,5°',VRC.N,'start');
+  s+=isoLn(o,[uF,vX,z2],[uF+58,vX,z2],VRC.N,1,'4,3');
+  var n2=iso(o,uF+60,vX,z2); s+=tx(n2[0]+2,n2[1]+16,'N = 1,5°',VRC.N,'start');
+  s+=isoLn(o,[u1,v1,z1+8],[u1,v1,zD],VRC.thin,0.9);
+  s+=isoLn(o,[u1,vX,0],[u1,vX,zD],VRC.thin,0.9,'3,3');
+  s+=isoLn(o,[uF,vX,z2+8],[uF,vX,zD],VRC.thin,0.9);
+  var b1=iso(o,u1,v1,zD),b2=iso(o,u1,vX,zD),a2=iso(o,uF,vX,zD);
+  s+=dimm(b1[0],b1[1],b2[0],b2[1],VRC.B)+tx((b1[0]+b2[0])/2-8,(b1[1]+b2[1])/2-8,'B = '+d.Bs,VRC.B,'middle');
+  s+=dimm(b2[0],b2[1],a2[0],a2[1],VRC.A)+tx((b2[0]+a2[0])/2+8,(b2[1]+a2[1])/2-8,'A = '+d.As,VRC.A,'middle');
+  var s1=iso(o,u1,v1,z1),s2=iso(o,uF,vX,z2);
+  s+=dimPar(s1[0],s1[1],s2[0],s2[1],30,'up',VRC.M,'M = '+d.Ms);
+  var hx=s1[0]-36;
+  s+=ln(s1[0]-8,s1[1],hx,s1[1],VRC.thin,0.9)+ln(s2[0],s2[1],hx,s2[1],VRC.thin,0.9);
+  s+=dimm(hx,s2[1],hx,s1[1],VRC.H)+tx(hx-7,(s1[1]+s2[1])/2+4,'H = '+d.Hs,VRC.H,'end');
+  s+=fdot(s1[0],s1[1]);
+  s+=tx(s1[0]-14,s1[1]+22,'F1','#0f172a','end',13,800);
+  s+=tx(s2[0]-2,s2[1]-12,'F2','#0f172a','middle',13,800);
+  s+=panelT('Isometrische Darstellung');
+  return svH(480,380,470)+s+'</svg>';
+}
+function geoT3(d){
+  var f=fitBHA(d.Bh,d.Hh,d.Ah,148,104,78),Bp=f.B,Hp=f.H,Ap=f.A;
+  var x1=118,y1=210,xX=x1+Bp,x2=xX+Ap,y2=y1-Hp,yL=326,yP=yL+Ap,s='';
+  var yLowX=y1-Bp*VR_TE,yUpX=y2+Ap*VR_TE;
+  s+=pl([[26,y1+(x1-26)*VR_TE],[x1,y1],[xX+26,y1-(xX+26-x1)*VR_TE]],VRC.pipe,6.5);
+  s+=ln(xX+26,y1-(xX+26-x1)*VR_TE,434,y1-(434-x1)*VR_TE,VRC.thin,1.1);
+  s+=ln(x2,y2,xX-26,y2+(Ap+26)*VR_TE,VRC.thin,1.1,'4,3');
+  s+=pl([[x2,y2],[x2+58,y2-58*VR_TE]],VRC.pipe,6.5);
+  s+=pipe2d([[x1,y1],[x2,y2]]);
+  s+=ln(x2,y2,x2+58,y2,VRC.N,1,'4,3');
+  s+=tx(x2+56,y2+15,'N = 1,5°',VRC.N,'end');
+  s+=tx(30,y1+(x1-26)*VR_TE+18,'N = 1,5°',VRC.N,'start');
+  s+=dimPar(x1,y1,x2,y2,26,'up',VRC.M,'M = '+d.Ms);
+  s+=dimm(xX,yUpX,xX,yLowX,VRC.h1)+tx(xX+8,(yUpX+yLowX)/2+4,'h = '+d.hs,VRC.h1,'start');
+  s+=ln(x1-8,y1,70,y1,VRC.thin,0.9)+ln(x2,y2,70,y2,VRC.thin,0.9);
+  s+=dimm(70,y2,70,y1,VRC.H)+tx(64,(y1+y2)/2+4,'H = '+d.Hs,VRC.H,'end');
+  s+=fdot(x1,y1)+tx(x1-9,y1+21,'F1','#0f172a','end',13,800)+tx(x2-2,y2-12,'F2','#0f172a','middle',13,800);
+  s+=ln(x1,y1+8,x1,yL-8,VRC.thin,1,'3,4')+ln(xX,yLowX+6,xX,yP-8,VRC.thin,1,'3,4');
+  s+=ln(26,yL,436,yL,VRC.pipe,6.5);
+  s+=pl([[x1,yL],[xX,yP]],VRC.pipe,6.5);
+  s+=pl([[xX,yP],[xX,yP+32]],VRC.pipe,6.5);
+  s+=ln(xX,yP,xX,yL,VRC.thin,1.1,'3,3');
+  var gR=Math.atan(Ap/Bp),rG=Math.min(54,Math.hypot(Ap,Bp)*0.5);
+  s+=arcS(x1,yL,rG,0,gR,VRC.G);
+  var mA=gR*0.55;
+  s+=tx(x1+(rG+15)*Math.cos(mA)+2,yL+(rG+15)*Math.sin(mA)+5,'γ = '+d.gs,VRC.G,'start');
+  s+=ln(xX,yP,xX+42,yP,VRC.thin,0.9);
+  s+=dimm(xX+42,yL,xX+42,yP,VRC.A)+tx(xX+50,(yL+yP)/2+4,'A = '+d.As,VRC.A,'start');
+  s+=ln(x1,yL+7,x1,yP+46,VRC.thin,0.9)+ln(xX,yP+38,xX,yP+46,VRC.thin,0.9);
+  s+=dimm(x1,yP+46,xX,yP+46,VRC.B)+tx((x1+xX)/2,yP+61,'B = '+d.Bs,VRC.B,'middle');
+  s+=fdot(x1,yL,4.6);
+  s+=panelT('Geometrische Darstellung');
+  return svH(460,472,470)+s+'</svg>';
+}
+function svgT3(d){ return vrWrap(pnl(isoT3(d)),pnl(geoT3(d))); }
+
+// ── Tabelle 4: Gefällsbrechung (eben, c = 1) ──────────────────────
+function isoT4(d){
+  var k=Math.min(126/d.bh,108/d.hh),bp=Math.max(40,d.bh*k),hp=Math.max(28,d.hh*k),td=t4dd(d.delta);
+  var u0=26,vE=30,vT=vE+28,vF=vT+bp,vJ=vF+56;
+  var zJ=32,zF=zJ+56*td,zT=zF+hp;
+  var U=u0+50,V=vJ+38,Z=zT+34,zD=Z+10,zD2=zD+22;
+  var o={cx:252,cy:206},s='';
+  s+=isoRoom(o,U,V,Z);
+  s+=isoPl(o,[[u0,vJ,zJ],[u0,vJ,4]],VRC.pipe,7);
+  s+=isoPl(o,[[u0,vJ,zJ],[u0,vF,zF]],VRC.pipe,7);
+  s+=isoPipe(o,[[u0,vF,zF],[u0,vT,zT]]);
+  s+=isoPl(o,[[u0,vT,zT],[u0,vE,zT]],VRC.pipe,7);
+  var pe=iso(o,u0,vE,zT); s+=endSymA(pe[0],pe[1]);
+  var pj=iso(o,u0,vJ,10); s+=fdot(pj[0],pj[1]);
+  s+=isoLn(o,[u0,vF,zF],[u0,vT-8,zF+(bp+8)*td],VRC.thin,1,'4,3');
+  s+=isoLn(o,[u0,vF,zF],[u0,vT-8,zF],VRC.N,1,'4,3');
+  var sF=iso(o,u0,vF,zF),sT=iso(o,u0,vT,zT);
+  var aH=scrAng(o,[u0,vF,zF],[u0,vF-10,zF]);
+  var aD=scrAng(o,[u0,vF,zF],[u0,vF-10,zF+10*td]);
+  var aC=scrAng(o,[u0,vF,zF],[u0,vT,zT]);
+  s+=arcS(sF[0],sF[1],52,aD,aH,VRC.N)+tx(sF[0]+58*Math.cos(aH)+4,sF[1]+58*Math.sin(aH)+12,'δ = '+d.ds,VRC.N,'start');
+  s+=arcS(sF[0],sF[1],33,aC,aD,VRC.G)+tx(sF[0]+42*Math.cos((aD+aC)/2)+2,sF[1]+42*Math.sin((aD+aC)/2)+2,'α = '+d.als,VRC.G,'start');
+  var aTF=scrAng(o,[u0,vT,zT],[u0,vF,zF]);
+  s+=ln(sT[0],sT[1],sT[0],sT[1]+34,VRC.thin,1,'3,3');
+  s+=arcS(sT[0],sT[1],26,Math.PI/2,aTF,VRC.P)+tx(sT[0]+32*Math.cos((aTF+Math.PI/2)/2)+2,sT[1]+32*Math.sin((aTF+Math.PI/2)/2)+4,'β = '+d.betas,VRC.P,'start');
+  s+=isoLn(o,[u0,vJ,zJ+8],[u0,vJ,zD2],VRC.thin,0.9,'3,3');
+  s+=isoLn(o,[u0,vE,zT+10],[u0,vE,zD2],VRC.thin,0.9,'3,3');
+  s+=isoLn(o,[u0,vF,zF+8],[u0,vF,zD],VRC.thin,0.9);
+  s+=isoLn(o,[u0,vT,zT+8],[u0,vT,zD],VRC.thin,0.9);
+  var l1=iso(o,u0,vJ,zD2),l2=iso(o,u0,vE,zD2);
+  s+=dimm(l1[0],l1[1],l2[0],l2[1],VRC.axis)+tx((l1[0]+l2[0])/2-6,(l1[1]+l2[1])/2-8,'L',VRC.axis,'middle');
+  var q1=iso(o,u0,vF,zD),q2=iso(o,u0,vT,zD);
+  s+=dimm(q1[0],q1[1],q2[0],q2[1],VRC.B)+tx((q1[0]+q2[0])/2-6,(q1[1]+q2[1])/2-8,'b = '+d.bs,VRC.B,'middle');
+  s+=dimPar(sF[0],sF[1],sT[0],sT[1],26,'up',VRC.M,'c = '+d.cs);
+  var yT=sT[1],yE=iso(o,u0,vT,zF+bp*td)[1],yF=iso(o,u0,vT,zF)[1],hx1=sT[0]+28,hx2=sT[0]+96;
+  s+=ln(sT[0]+8,yT,hx2+6,yT,VRC.thin,0.9);
+  s+=ln(sT[0]+6,yE,hx1+6,yE,VRC.thin,0.9)+ln(sT[0]+6,yF,hx2+6,yF,VRC.thin,0.9);
+  s+=dimm(hx1,yT,hx1,yE,VRC.A)+tx(hx1+7,(yT+yE)/2+4,'a = '+d.as,VRC.A,'start');
+  s+=dimm(hx2,yT,hx2,yF,VRC.H)+tx(hx2+7,(yT+yF)/2+4,'h = '+d.hs,VRC.H,'start');
+  s+=tx(sF[0]+10,sF[1]+18,'F1','#0f172a','start',13,800);
+  s+=panelT('Isometrische Darstellung');
+  return svH(480,372,470)+s+'</svg>';
+}
+function triT4(d){
+  var k=Math.min(205/d.bh,192/d.hh),bp=Math.max(44,d.bh*k),hp=Math.max(32,d.hh*k),td=t4dd(d.delta);
+  // x0=76: bei steiler Hypotenuse (α=75°) ankert das c-Label 'end' links der Masslinie — mit x0=42 wurde «c = » am viewBox-Rand abgeschnitten
+  var x0=76,y0=262,x1=x0+bp,y2=y0-hp,yD=y0-bp*td,s='';
+  s+=ln(x0,y0,x1,y0,VRC.thin,1.4);
+  s+=ln(x1,y0,x1,y2,VRC.thin,1.4);
+  s+=pl([[x0,y0],[x1,yD]],VRC.pipe,3);
+  s+=pl([[x0,y0],[x1,y2]],VRC.pipe,6.5);
+  var rD=Math.min(96,bp*0.82),aD2=Math.atan2(yD-y0,bp),aC=Math.atan2(y2-y0,bp);
+  s+=arcS(x0,y0,rD,aD2,0,VRC.N)+tx(x0+rD+8,y0-rD*td*0.4+4,'δ = '+d.ds,VRC.N,'start');
+  s+=arcS(x0,y0,58,aC,aD2,VRC.G)+tx(x0+66*Math.cos((aC+aD2)/2),y0+66*Math.sin((aC+aD2)/2)+4,'α = '+d.als,VRC.G,'start');
+  var aTF=Math.atan2(y0-y2,x0-x1);
+  s+=arcS(x1,y2,30,Math.PI/2,aTF,VRC.P)+tx(x1+36*Math.cos((aTF+Math.PI/2)/2)-2,y2+36*Math.sin((aTF+Math.PI/2)/2)+4,'β = '+d.betas,VRC.P,'end');
+  // steile Hypotenuse (α ≥ 60°): Label nach links weg von der Linie ankern, sonst mittig (Default unverändert)
+  s+=dimPar(x0,y0,x1,y2,24,'up',VRC.M,'c = '+d.cs,(d.hh>1.35*d.bh?'end':null));
+  s+=ln(x0,y0+8,x0,y0+30,VRC.thin,0.9)+ln(x1,y0+8,x1,y0+30,VRC.thin,0.9);
+  s+=dimm(x0,y0+30,x1,y0+30,VRC.B)+tx((x0+x1)/2,y0+45,'b = '+d.bs,VRC.B,'middle');
+  s+=ln(x1+6,yD,x1+32,yD,VRC.thin,0.9)+ln(x1+6,y2,x1+58,y2,VRC.thin,0.9)+ln(x1+6,y0,x1+58,y0,VRC.thin,0.9);
+  s+=dimm(x1+26,y2,x1+26,yD,VRC.A)+tx(x1+20,(y2+yD)/2+4,'a = '+d.as,VRC.A,'end');
+  s+=dimm(x1+52,y2,x1+52,y0,VRC.H)+tx(x1+59,(y2+y0)/2+4,'h = '+d.hs,VRC.H,'start');
+  s+=panelT('Formstückwinkel F1');
+  return svH(420,330,440)+s+'</svg>';
+}
+function geoT4(d){
+  var k=Math.min(168/d.bh,148/d.hh),bp=Math.max(44,d.bh*k),hp=Math.max(30,d.hh*k),td=t4dd(d.delta);
+  var xJ=64,x1=xJ+54,yF=232,yJ=yF+54*td,xT=x1+bp,yT=yF-hp,xE=xT+30,yP=352,s='';
+  s+=pl([[xJ,yJ],[xJ,266]],VRC.pipe,6.5);
+  s+=pl([[xJ,yJ],[x1,yF]],VRC.pipe,6.5);
+  s+=pipe2d([[x1,yF],[xT,yT]]);
+  s+=pl([[xT,yT],[xE,yT]],VRC.pipe,6.5);
+  s+=endSymA(xE,yT);
+  s+=fdot(xJ,yJ);
+  s+=ln(x1,yF,xT+62,yF,VRC.N,1,'4,3');
+  s+=ln(x1,yF,xT+62,yF-(bp+62)*td,VRC.thin,1,'4,3');
+  var rD=Math.min(78,bp*0.85),aD2=Math.atan2(-td,1),aC=Math.atan2(yT-yF,bp);
+  s+=arcS(x1,yF,rD,aD2,0,VRC.N)+tx(x1+rD+8,yF-rD*td*0.4+4,'δ = '+d.ds,VRC.N,'start');
+  s+=arcS(x1,yF,40,aC,aD2,VRC.G)+tx(x1+48*Math.cos((aC+aD2)/2),yF+48*Math.sin((aC+aD2)/2)+4,'α = '+d.als,VRC.G,'start');
+  s+=ln(xT,yT,xT,yT+36,VRC.thin,1,'3,3');
+  var aTF=Math.atan2(yF-yT,x1-xT);
+  s+=arcS(xT,yT,27,Math.PI/2,aTF,VRC.P)+tx(xT+33*Math.cos((aTF+Math.PI/2)/2)-2,yT+33*Math.sin((aTF+Math.PI/2)/2)+5,'β = '+d.betas,VRC.P,'end');
+  s+=dimPar(x1,yF,xT,yT,26,'up',VRC.M,'c = '+d.cs,(d.hh>1.35*d.bh?'end':null));
+  var yD=yF-bp*td;
+  s+=ln(xE+8,yT,xT+96,yT,VRC.thin,0.9);
+  s+=dimm(xT+70,yT,xT+70,yD,VRC.A)+tx(xT+64,(yT+yD)/2+4,'a = '+d.as,VRC.A,'end');
+  s+=dimm(xT+92,yT,xT+92,yF,VRC.H)+tx(xT+98,(yT+yF)/2+4,'h = '+d.hs,VRC.H,'start');
+  s+=ln(x1,yF+8,x1,yF+30,VRC.thin,0.9)+ln(xT,yT+38,xT,yF+30,VRC.thin,0.9);
+  s+=dimm(x1,yF+30,xT,yF+30,VRC.B)+tx((x1+xT)/2,yF+45,'b = '+d.bs,VRC.B,'middle');
+  s+=tx(x1+2,yF+22,'F1','#0f172a','middle',13,800);
+  s+=ln(xJ,270,xJ,yP-9,VRC.thin,1,'3,4')+ln(x1,yF+32,x1,yP-7,VRC.thin,1,'3,4')+ln(xE,yT+6,xE,yP-7,VRC.thin,1,'3,4');
+  s+=ln(xJ,yP,xE,yP,VRC.pipe,6.5);
+  s+=fdot(xJ,yP,7);
+  s+=ln(x1,yP-7,x1,yP+7,VRC.pipe,3.2);
+  s+=endSymA(xE,yP);
+  s+=ln(xJ,yP+12,xJ,yP+32,VRC.thin,0.9)+ln(xE,yP+12,xE,yP+32,VRC.thin,0.9);
+  s+=dimm(xJ,yP+32,xE,yP+32,VRC.axis)+tx((xJ+xE)/2,yP+47,'L',VRC.axis,'middle');
+  s+=panelT('Geometrische Darstellung');
+  return svH(460,412,470)+s+'</svg>';
+}
+function svgT4(d){ return vrWrap(pnl(isoT4(d)),pnl(triT4(d)),pnl(geoT4(d))); }
 
 function calc(){
-  const t=state.tab;
-
-  if(t===1){
-    const s=state.t1, row=lookup(T1,s.f1,s.f2);
-    $('visWrap').innerHTML=svgT1(row,s);
-    renderLookup(T1,['F1','F2','M','B','H','γ°'],row);
-    if(!row){ $('results').innerHTML='<div class="vr-no-match">Keine gültige Kombination für F1='+s.f1+'° / F2='+s.f2+'°</div>'; return; }
+  var t=state.tab;
+  if(t===1||t===2){
+    var s=(t===1?state.t1:state.t2),data=(t===1?VR_T1:VR_T2),row=vrLookup(data,s.f1,s.f2),d=dispT12(row,s);
+    $('visWrap').innerHTML=vrWrap(pnl(t===1?isoT1(d):isoT2(d)),pnl(t===1?geoT1(d):geoT2(d)));
+    renderLookup(data,['F1','F2','M','B','H','γ'],row,[0,1,5]);
+    if(!row){ $('results').innerHTML='<div class="vr-no-match">Für F1 = '+s.f1+'° / F2 = '+s.f2+'° gibt das Papier keine Werte — die Summe der beiden Formstückwinkel muss mindestens 90° erreichen (Übergang Liegende ⇄ Senkrechte mit 1,5° Neigung).</div>'; return; }
+    var n=d.m;
     $('results').innerHTML=[
-      rr('Faktor M','M × N','',(fmt(row[2],4)+' × '+s.n+' = <b>'+fmt(row[2]*s.n,2)+'</b>'),''),
-      rr('Breite B','B × N','',fmt(row[3],4)+' × '+s.n+' = <b>'+fmt(row[3]*s.n,2)+' DN</b>','green'),
-      rr('Höhe H','H × N','',fmt(row[4],4)+' × '+s.n+' = <b>'+fmt(row[4]*s.n,2)+' DN</b>','amber'),
-      rr('Winkel γ','','','<b>'+fmt(row[5],3)+'°</b>','')
-    ].join('');
-  }
-  else if(t===2){
-    const s=state.t2, row=lookup(T2,s.f1,s.f2);
-    $('visWrap').innerHTML=svgT2(row,s);
-    renderLookup(T2,['F1','F2','M','B','H','γ°'],row);
-    if(!row){ $('results').innerHTML='<div class="vr-no-match">Keine gültige Kombination für F1='+s.f1+'° / F2='+s.f2+'°</div>'; return; }
-    $('results').innerHTML=[
-      rr('Faktor M','M × N','',fmt(row[2],4)+' × '+s.n+' = <b>'+fmt(row[2]*s.n,2)+'</b>',''),
-      rr('Seite A (=B)','B × N','',fmt(row[3],4)+' × '+s.n+' = <b>'+fmt(row[3]*s.n,2)+' DN</b>','green'),
-      rr('Höhe H','H × N','',fmt(row[4],4)+' × '+s.n+' = <b>'+fmt(row[4]*s.n,2)+' DN</b>','amber'),
-      rr('Winkel γ','','','<b>'+fmt(row[5],3)+'°</b>','')
+      rr('Länge Verschränkungsstück M','M · A','',String(row[2])+' × '+n+' = <b>'+vf(row[2]*n)+'</b>',''),
+      rr('Distanz B — im Grundriss entlang der Liegenden','B · A','',String(row[3])+' × '+n+' = <b>'+vf(row[3]*n)+'</b>','green'),
+      rr('Höhendifferenz H — von F1 zu F2','H · A','',String(row[4])+' × '+n+' = <b>'+vf(row[4]*n)+'</b>','amber'),
+      rr('Verschränkungswinkel γ — Drehung im Grundriss','tan γ = A / B','','<b>'+row[5]+'°</b>','')
     ].join('');
   }
   else if(t===3){
-    const s=state.t3, row=lookup(T3,s.f1,s.f2);
-    $('visWrap').innerHTML=svgT3(row,s);
-    renderLookup(T3,['F1','F2','M','A','B','H','γ°'],row);
-    if(!row){ $('results').innerHTML='<div class="vr-no-match">Keine gültige Kombination für F1='+s.f1+'° / F2='+s.f2+'°</div>'; return; }
-    const h_val=(row[5]-1)*s.n;
+    var s3=state.t3,row3=vrLookup(VR_T3,s3.f1,s3.f2),d3=dispT3(row3,s3);
+    $('visWrap').innerHTML=vrWrap(pnl(isoT3(d3)),pnl(geoT3(d3)));
+    renderLookup(VR_T3,['F1','F2','M','A','B','H','γ'],row3,[0,1,6]);
+    if(!row3){ $('results').innerHTML='<div class="vr-no-match">Für F1 = '+s3.f1+'° / F2 = '+s3.f2+'° gibt das Papier keine Werte — bei der rechtwinkligen Überkröpfung muss die Summe der Formstückwinkel über 90° liegen.</div>'; return; }
+    var m3=d3.m;
     $('results').innerHTML=[
-      rr('Faktor M','M × N','',fmt(row[2],5)+' × '+s.n+' = <b>'+fmt(row[2]*s.n,2)+'</b>',''),
-      rr('Seite A','A × N','',fmt(row[3],5)+' × '+s.n+' = <b>'+fmt(row[3]*s.n,2)+' DN</b>','green'),
-      rr('Seite B','B × N','',fmt(row[4],5)+' × '+s.n+' = <b>'+fmt(row[4]*s.n,2)+' DN</b>','green'),
-      rr('Höhe H','H × N','',fmt(row[5],5)+' × '+s.n+' = <b>'+fmt(row[5]*s.n,2)+' DN</b>','amber'),
-      rr('Überhöhung h','(H−1) × N','','('+fmt(row[5],5)+'−1) × '+s.n+' = <b>'+fmt(h_val,2)+' DN</b>','red'),
-      rr('Winkel γ','','','<b>'+fmt(row[6],3)+'°</b>','')
+      rr('Länge Überkröpfungsstück M','M · h','',String(row3[2])+' × '+m3+' = <b>'+vf(row3[2]*m3)+'</b>',''),
+      rr('Distanz A — Kreuzungspunkt bis F2 (obere Achse)','A · h','',String(row3[3])+' × '+m3+' = <b>'+vf(row3[3]*m3)+'</b>','green'),
+      rr('Distanz B — F1 bis Kreuzungspunkt (untere Achse)','B · h','',String(row3[4])+' × '+m3+' = <b>'+vf(row3[4]*m3)+'</b>','green'),
+      rr('Höhendifferenz H — von F1 zu F2','H = h + (A+B) · tan 1,5°','',String(row3[5])+' × '+m3+' = <b>'+vf(row3[5]*m3)+'</b>','amber'),
+      rr('Verschränkungswinkel γ — Drehung im Grundriss','tan γ = A / B','','<b>'+row3[6]+'°</b>','')
     ].join('');
   }
   else{
-    const s=state.t4, row=lookup4(T4,s.a,s.n);
-    $('visWrap').innerHTML=svgT4(row,s);
-    renderLookup(T4,['c','d','α°','β°','sin α','cos β','h'],row);
-    if(!row){ $('results').innerHTML='<div class="vr-no-match">Keine gültige Kombination für α='+s.a+'° / d='+s.n+'</div>'; return; }
-    $('results').innerHTML=[
-      rr('Winkel α (F1)','','','<b>'+row[2]+'°</b>',''),
-      rr('Winkel β','90° − α + Korr','','<b>'+fmt(row[3],1)+'°</b>',''),
-      rr('sin α','','','<b>'+fmt(row[4],4)+'</b>',''),
-      rr('cos β','','','<b>'+fmt(row[5],4)+'</b>',''),
-      rr('Höhe h','h × d','',fmt(row[6],4)+' × '+s.n+' = <b>'+fmt(row[6]*s.n,2)+' DN</b>','amber'),
-      rr('Seite A','sin α × N','',fmt(row[4],4)+' × '+s.n+' = <b>'+fmt(row[4]*s.n,2)+' DN</b>','green'),
-      rr('Seite B','cos β × N','',fmt(row[5],4)+' × '+s.n+' = <b>'+fmt(row[5]*s.n,2)+' DN</b>','green'),
+    var s4=state.t4,row4=vrT4Row(VR_T4,s4.alpha,s4.delta),d4=dispT4(s4,row4);
+    $('visWrap').innerHTML=vrWrap(pnl(isoT4(d4)),pnl(triT4(d4)),pnl(geoT4(d4)));
+    renderLookup(VR_T4,['c','δ','α','β','a','b','h'],row4,[1,2,3]);
+    var hint=row4?'':'<div style="font-size:12px;color:#64748b;margin:2px 0 10px">δ = '+d4.ds+' steht nicht in der Tabelle — die Werte sind mit den Formeln des Papiers berechnet.</div>';
+    $('results').innerHTML=hint+[
+      rr('Gegenwinkel β — Schrägstück zur Senkrechten','β = 90° − α − δ','','<b>'+d4.betas+'</b>',''),
+      rr('Waagrechte Länge b','b = c · cos(α + δ)','',d4.fBs+' × '+d4.c+' = <b>'+d4.bs+'</b>','green'),
+      rr('Höhenunterschied h','h = c · sin(α + δ)','',d4.fHs+' × '+d4.c+' = <b>'+d4.hs+'</b>','amber'),
+      rr('Steighöhe a — über der verlängerten Gefällsachse','a = h − b · tan δ','',d4.fAs+' × '+d4.c+' = <b>'+d4.as+'</b>','')
     ].join('');
   }
 }
-
 window.switchTab=function(n){
   state.tab=n;
   document.querySelectorAll('.vr-tab').forEach((b,i)=>b.classList.toggle('active',i===n-1));
@@ -1023,11 +1303,11 @@ window.calc=calc;
 
 // Save/Load/Reset
 function saveLocal(){try{if(typeof _GemaDB!=='undefined')_GemaDB.save(_sk,JSON.stringify(state));}catch(e){}toast('Gespeichert.');}
-function loadLocal(){if(typeof _GemaDB==='undefined')return;const raw=(_GemaDB.c[_sk]??null);if(!raw){toast('Keine Daten.');return;}try{const o=JSON.parse(raw);Object.assign(state,o);switchTab(state.tab);toast('Geladen.');}catch(e){toast('Fehler.');}}
+function loadLocal(){if(typeof _GemaDB==='undefined')return;const raw=(_GemaDB.c[_sk]??null);if(!raw){toast('Keine Daten.');return;}try{const o=JSON.parse(raw);Object.assign(state,o);normState();switchTab(state.tab);toast('Geladen.');}catch(e){toast('Fehler.');}}
 // Fuer den Objektwechsel (Meta-IIFE): Stand des AKTUELLEN _sk still anwenden
 // (loadLocal ist IIFE-intern und toastet bei leerem Stand).
-window._objReload=function(){try{if(typeof _GemaDB==='undefined')return;const raw=(_GemaDB.c[_sk]??null);if(raw){const o=JSON.parse(raw);Object.assign(state,o);switchTab(state.tab);}}catch(e){}};
-function resetAll(){state={tab:1,t1:{f1:45,f2:60,n:1.5},t2:{f1:45,f2:60,n:1.5},t3:{f1:45,f2:60,n:1.5},t4:{a:45,n:1.5}};switchTab(1);toast('Zurückgesetzt.');}
+window._objReload=function(){try{if(typeof _GemaDB==='undefined')return;const raw=(_GemaDB.c[_sk]??null);if(raw){const o=JSON.parse(raw);Object.assign(state,o);normState();switchTab(state.tab);}}catch(e){}};
+function resetAll(){state={tab:1,t1:{f1:45,f2:60,n:1},t2:{f1:45,f2:60,n:1},t3:{f1:45,f2:60,n:1},t4:{alpha:45,delta:1.5,c:1}};switchTab(1);toast('Zurückgesetzt.');}
 
 function toast(msg){let el=document.getElementById('toast');if(!el){el=document.createElement('div');el.id='toast';el.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1e293b;color:#e2e8f0;padding:10px 24px;border-radius:10px;font-size:13px;font-weight:600;z-index:999;box-shadow:0 8px 24px rgba(0,0,0,.3);transition:opacity .3s';document.body.appendChild(el);}el.textContent=msg;el.style.opacity='1';clearTimeout(el._t);el._t=setTimeout(()=>{el.style.opacity='0';},2000);}
 
@@ -1037,6 +1317,7 @@ $('btnReset')?.addEventListener('click',resetAll);
 
 // Auto-load
 try{if(typeof _GemaDB!=='undefined'){const raw=(_GemaDB.c[_sk]??null);if(raw){const o=JSON.parse(raw);Object.assign(state,o);}}}catch(e){}
+normState();
 switchTab(state.tab);
 
 })().catch(e=>console.error('[GEMA] Fehler:',e));
