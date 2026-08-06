@@ -1193,7 +1193,10 @@ input::placeholder{color:#cbd5e1}
   // Liegt die Klasse im Cache, entscheidet die LIVE-Mitgliedschaft; fehlt
   // sie (noch nicht geladen), entscheidet wie bisher nurUserIds — nie auf
   // Verdacht ausblenden (Empty-Read-Regel).
-  function _wsKlasseMitglied(b){
+  /** Die Klasse eines Auto-Eimers aus dem Klassen-Pool-Cache auflösen
+      (null = Klasse nicht im Cache — Empty-Read-Regel: nie auf Verdacht
+      entscheiden). Geteilt von _wsKlasseMitglied und der Mitglieder-Liste. */
+  function _wsKlasseVon(b){
     if(!b.autoKlasseId)return null;
     try{
       var arr=(typeof GemaSync!=='undefined'&&GemaSync.getCached&&GemaSync.getCached('gema_schule_klassen_pool_v1'))||null;
@@ -1202,12 +1205,15 @@ input::placeholder{color:#cbd5e1}
         arr=r?JSON.parse(r):null;
       }
       if(!Array.isArray(arr)||!arr.length)return null;
-      var k=arr.find(function(x){return x&&x.id===b.autoKlasseId;});
-      if(!k)return null;
-      var uid=_curUserId();
-      return (Array.isArray(k.studentIds)&&k.studentIds.indexOf(uid)>=0)||
-             (Array.isArray(k.dozentIds)&&k.dozentIds.indexOf(uid)>=0);
+      return arr.find(function(x){return x&&x.id===b.autoKlasseId;})||null;
     }catch(e){ return null; }
+  }
+  function _wsKlasseMitglied(b){
+    var k=_wsKlasseVon(b);
+    if(!k)return null;
+    var uid=_curUserId();
+    return (Array.isArray(k.studentIds)&&k.studentIds.indexOf(uid)>=0)||
+           (Array.isArray(k.dozentIds)&&k.dozentIds.indexOf(uid)>=0);
   }
   function _bucketScopeOk(b){
     var ac=b.accessControl||{};
@@ -2542,7 +2548,11 @@ input::placeholder{color:#cbd5e1}
       +objektChip(b)
       +'<div class="ws-bucket-meta"><span class="ws-meta-chip">'+esc(t.label)+'</span>'
       +'<span class="ws-meta-sep">·</span>'
-      +'<button class="ws-meta-chip ws-meta-chip--btn" onclick="_wsMitglieder()" title="Mitglieder anzeigen">'+icon('users',12)+' '+b.members.length+' Mitglied'+(b.members.length===1?'':'er')+'</button>'
+      /* Der Chip zählt über DENSELBEN Resolver wie die Klick-Liste — was er
+         zählt, zeigt der Klick auch (Feedback 06.08.2026). `b.members` wäre
+         beim Übungs-Eimer leer und beim Klassen-Eimer nur die Kopie. */
+      +(function(){var mz=_wsMitgliederListe(b).length;
+        return '<button class="ws-meta-chip ws-meta-chip--btn" onclick="_wsMitglieder()" title="Mitglieder anzeigen">'+icon('users',12)+' '+mz+' Mitglied'+(mz===1?'':'er')+'</button>';})()
       +'<span class="ws-meta-sep">·</span>'
       +'<span class="ws-meta-chip">erstellt '+new Date(b.createdAt).toLocaleDateString('de-CH')+'</span></div></div></div>'
       +'<div class="ws-bucket-actions">'
@@ -3280,24 +3290,82 @@ input::placeholder{color:#cbd5e1}
     toast('Feedback gesendet','check');
   };
 
-  /* Mitgliederübersicht (Feedback 05.08.2026 «soll anwählbar sein») — der
-     Chip im Kopf öffnet die Liste: wer ist im Eimer, mit welcher Rolle, und
-     von hier aus direkt einladen bzw. entfernen. Quelle ist `beteiligte`
-     (die Namen); `members` hält nur die Initialen für die Avatare. */
+  /* Mitgliederübersicht — der Chip im Kopf öffnet die Liste (Feedback
+     05.08.2026 «soll anwählbar sein» + 06.08.2026 «Mitglieder sollen
+     angezeigt werden, wenn man drauf klickt»): die erste Fassung las NUR
+     `beteiligte` — beim Klassen-/Übungs-Eimer stehen die Mitglieder aber in
+     der KLASSE bzw. in accessControl.nurUserIds, die Liste war dort leer,
+     obwohl der Chip zählte. `_wsMitgliederListe` ist seither die EINE
+     Wahrheit für Chip-Zähler UND Liste. */
+  function _wsMitgliederListe(b){
+    var out=[], seen={}, byId=null;
+    function userById(id){
+      if(!byId){
+        byId={};
+        try{
+          ((typeof GemaAuth!=='undefined'&&GemaAuth.getUsers&&GemaAuth.getUsers())||[]).forEach(function(u){ if(u&&u.id)byId[u.id]=u; });
+        }catch(e){}
+      }
+      return byId[id]||null;
+    }
+    function add(e){
+      if(e.userId){ if(seen[e.userId])return; seen[e.userId]=1; }
+      out.push(e);
+    }
+    // 1) Klassen-Eimer: die KLASSE ist die Wahrheit (LIVE aus dem Pool-Cache)
+    var k=(b.autoTyp==='klasse')?_wsKlasseVon(b):null;
+    if(k){
+      (k.dozentIds||[]).forEach(function(id){
+        var u=userById(id);
+        add({userId:id,name:(u&&(u.name||u.username))||'Unbekanntes Konto',sub:'Dozent',badge:'Klasse'});
+      });
+      (k.studentIds||[]).forEach(function(id){
+        var u=userById(id);
+        add({userId:id,name:(u&&(u.name||u.username))||'Unbekanntes Konto',sub:'Studierende',badge:'Klasse'});
+      });
+    }
+    // 2) Explizit Beteiligte (eingeladen; entfernbar via betIdx)
+    (b.beteiligte||[]).forEach(function(p,idx){
+      if(p.userId&&seen[p.userId])return;
+      if(p.userId)seen[p.userId]=1;
+      out.push({userId:p.userId||'',name:p.name,sub:(p.role||'Mitglied')+(p.org?' · '+p.org:''),badge:p.intern?'intern':'extern',betIdx:idx});
+    });
+    // 3) Zugriffs-Personen (Übungs-Eimer, fixe Eimer, Lerngruppen). Beim
+    //    Klassen-Eimer nur als FALLBACK, wenn die Klasse (noch) nicht im
+    //    Cache liegt — nurUserIds ist dort bloss die Kopie.
+    if(!k){
+      ((b.accessControl||{}).nurUserIds||[]).forEach(function(id){
+        if(seen[id])return;
+        var u=userById(id);
+        add({userId:id,name:(u&&(u.name||u.username))||'Unbekanntes Konto',sub:_wsRoleName(u)||'Mitglied',badge:'Zugriff'});
+      });
+    }
+    // 4) Ersteller (nur von Hand angelegte Eimer — bei autoTyp ist der
+    //    «Ersteller» bloss, wer den Workspace zuerst öffnete)
+    if(b.createdBy&&!b.autoTyp&&!seen[b.createdBy]){
+      var cu=userById(b.createdBy);
+      if(cu)add({userId:b.createdBy,name:cu.name||cu.username||'',sub:_wsRoleName(cu)||'Mitglied',badge:'Ersteller'});
+    }
+    return out;
+  }
   window._wsMitglieder=function(){
     var b=bucketSichtbar(activeTab);if(!b)return;
-    var liste=(b.beteiligte||[]);
+    var liste=_wsMitgliederListe(b);
     var rows=liste.length?liste.map(function(p,idx){
-      var badge=p.intern?'<span class="ws-modpicker-tag">intern</span>':'<span class="ws-modpicker-tag">extern</span>';
+      var badge='<span class="ws-modpicker-tag">'+esc(p.badge||'Mitglied')+'</span>';
       return '<div class="ws-mitglied-row">'
         +avatar(_initials(p.name),34,AVATAR_COLORS[idx%AVATAR_COLORS.length])
         +'<div style="flex:1;min-width:0"><div class="ws-mitglied-name">'+esc(p.name)+' '+badge+'</div>'
-        +'<div class="ws-mitglied-sub">'+esc(p.role||'Mitglied')+(p.org?' · '+esc(p.org):'')+'</div></div>'
-        +(b.autoTyp?'':'<button class="ws-icon-btn" title="Entfernen" onclick="_wsCloseModal();_wsRemoveBet('+idx+')">'+icon('x',13,2)+'</button>')
+        +'<div class="ws-mitglied-sub">'+esc(p.sub||'Mitglied')+'</div></div>'
+        +((!b.autoTyp&&p.betIdx!=null)?'<button class="ws-icon-btn" title="Entfernen" onclick="_wsCloseModal();_wsRemoveBet('+p.betIdx+')">'+icon('x',13,2)+'</button>':'')
         +'</div>';
     }).join(''):'<div class="ws-empty-hint">Noch niemand hinzugefügt — die Avatare zeigen bis dahin nur dich.</div>';
     var hinweis=b.autoTyp
-      ? '<div class="ws-empty-hint" style="margin-top:12px">Dieser Eimer wird automatisch verwaltet — die Mitglieder folgen der Klasse.</div>'
+      ? '<div class="ws-empty-hint" style="margin-top:12px">'
+        +(b.autoTyp==='klasse'
+          ?'Dieser Eimer wird automatisch verwaltet — die Mitglieder folgen der Klasse.'
+          :'Dieser Eimer wird automatisch verwaltet — dein persönlicher Arbeitsbereich.')
+        +'</div>'
       : '<div class="ws-form-actions" style="margin-top:14px"><button class="ws-btn ws-btn-ghost" onclick="_wsCloseModal()">Schliessen</button>'
         +'<button class="ws-btn ws-btn-primary" onclick="_wsCloseModal();_wsInvite()">'+icon('plus',14)+' Einladen</button></div>';
     openModal('Mitglieder · '+b.name,'<div>'+rows+'</div>'+hinweis,520);

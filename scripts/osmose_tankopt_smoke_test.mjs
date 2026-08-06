@@ -57,7 +57,9 @@ console.log('■ Offline-Fall — Profil aktiv, Auto-Verteilen, Warnungen');
   ok(await page.evaluate(() => document.getElementById('tankZwingend').textContent) === 'JA', 'AC49: Tank zwingend = JA');
   ok(await page.evaluate(() => document.getElementById('onlineMoeglich').textContent) === 'NEIN', 'AC51: Online möglich = NEIN');
   ok(await page.evaluate(() => document.getElementById('otBody').style.display !== 'none'), '24-h-Profil eingeblendet');
-  ok(await page.evaluate(() => document.querySelectorAll('#otTbl input[data-kind="b"]').length) === 4 * 24, '4 Verbraucher-Zeilen × 24 Stundenfelder gerendert');
+  /* Feedback 06.08.2026 (Sandro): Standard ist EIN Verbraucher — das Profil
+     zeigt eine Zeile pro ERFASSTEM Verbraucher × 24 Stundenfelder. */
+  ok(await page.evaluate(() => document.querySelectorAll('#otTbl input[data-kind="b"]').length) === 1 * 24, '1 Verbraucher-Zeile (Standard) × 24 Stundenfelder gerendert');
   ok(await page.evaluate(() => document.getElementById('otLaufzeit').textContent) === '8.00', 'Laufzeit = Tagesbedarf 800 / VA 100 = 8 h');
 
   // Bedarf auto-verteilen: 200 l/h × 4 h ab 06

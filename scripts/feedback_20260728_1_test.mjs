@@ -230,11 +230,12 @@ console.log('■ Zirkulationsberechnung');
 {
   const { ctx, page, errs } = await seite('sb_zirkulation.html', () => typeof zkRenderTable === 'function');
 
-  // Temperatur-/ΔT-Auswahl
+  // Temperatur-/ΔT-Auswahl (Feedback 06.08.2026: T WW absteigend 65→52 —
+  // 65 zuoberst; ΔT nur noch ganze K-Schritte 1–5)
   const tww = await page.evaluate(() => [...document.getElementById('zk_tww').options].map(o => +o.value));
-  ok(tww[0] === 52 && tww[tww.length - 1] === 65, 'Temp. Warmwasser 52–65 °C wählbar');
+  ok(tww[0] === 65 && tww[tww.length - 1] === 52 && tww.length === 14, 'Temp. Warmwasser 65→52 °C wählbar (65 zuoberst)');
   const dt = await page.evaluate(() => [...document.getElementById('zk_dtzul').options].map(o => +o.value));
-  ok(dt[0] === 1 && dt[dt.length - 1] === 5, 'Zulässige Abkühlung 1–5 K wählbar');
+  ok(dt.length === 5 && dt[0] === 1 && dt[dt.length - 1] === 5, 'Zulässige Abkühlung 1–5 K in ganzen Schritten');
   ok(!/Erdsonde/.test(await page.evaluate(() => document.body.textContent)), '«Erdsonde» aus «ESH kalt» entfernt');
 
   // Karten einklappbar
