@@ -1,5 +1,5 @@
 /* GEMA Service Worker — Offline Cache + Push Vorbereitung */
-var CACHE_NAME = 'gema-v469';
+var CACHE_NAME = 'gema-v470';
 var CACHE_FILES = [
   '/', '/index.html', '/sb_index.html',
   '/sa_enthaertung.html', '/sa_osmose.html', '/sa_fettabscheider.html',
@@ -82,8 +82,9 @@ self.addEventListener('fetch', function(event) {
   // Dateiendung und fielen sonst in den Cache-First-Zweig unten.
   // NUR same-origin pruefen — eine CDN-URL mit /p/-Segment darf nicht
   // hineinfallen.
-  var cardPfad = '';
-  try { var u = new URL(url); if (u.origin === self.location.origin) cardPfad = u.pathname; } catch (e) { }
+  var pfad = '';
+  try { var u = new URL(url); if (u.origin === self.location.origin) pfad = u.pathname; } catch (e) { }
+  var cardPfad = pfad;
   // Die vCard MUSS bei jedem Abruf frisch sein (Konzept §5: nie gecacht) →
   // reines Netzwerk, kein Cache-Fallback.
   if (/^\/v\/[^/]+$/.test(cardPfad)) { event.respondWith(fetch(event.request)); return; }
@@ -97,6 +98,15 @@ self.addEventListener('fetch', function(event) {
         return r;
       }).catch(function() { return cardGet ? caches.match(event.request) : Promise.reject(); })
     );
+    return;
+  }
+  // Netlify-Functions (direkt oder ueber die /api/-Redirects) sind
+  // dynamische Abfragen und duerfen NIE aus dem Cache kommen. Ohne diesen
+  // Zweig fielen sie in den Cache-First-Zweig ganz unten: eine einmal
+  // beantwortete Firmensuche kam danach immer aus dem Cache zurueck, und
+  // ein Selbsttest zeigte einen veralteten Stand.
+  if (pfad.indexOf('/.netlify/functions/') === 0 || pfad.indexOf('/api/') === 0) {
+    event.respondWith(fetch(event.request));
     return;
   }
   // HTML & JS → Network-First (immer frisch laden, Cache als Fallback)

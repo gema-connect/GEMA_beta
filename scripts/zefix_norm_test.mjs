@@ -138,8 +138,17 @@ console.log('■ LINDAS: Abfrage-Bau');
   ok(/schema:legalName \?name/.test(q), 'sucht über schema:legalName');
   ok(/STRSTARTS\(LCASE\(STR\(\?name\)\), "muster ag"\)/.test(q), 'Prefix-Match, kleingeschrieben');
   ok(/LIMIT 20/.test(q), 'LIMIT gesetzt');
-  const pflicht = q.split('\n').filter(l => /schema:(identifier|address|additionalType|organizationStatus)/.test(l) && !/OPTIONAL/.test(l) && !/^\s+OPTIONAL/.test(l));
-  // Jede dieser Zeilen muss innerhalb eines OPTIONAL-Blocks stehen
+  // Seit 08/2026 ist die Suche ZWEISTUFIG: Stufe 1 sucht NUR den Namen.
+  // Die OPTIONAL-Joins in derselben Abfrage liessen den Namens-Scan über
+  // den ganzen Graphen zuverlässig in den Timeout laufen.
+  ok(!/OPTIONAL/.test(q), 'Stufe 1 hat KEINE OPTIONALs (sonst Timeout beim Namens-Scan)');
+  ok(!/schema:(identifier|address|additionalType|organizationStatus)/.test(q), 'Stufe 1 holt weder Identifier noch Adresse');
+}
+{
+  // Stufe 2 — Details zu den gefundenen URIs. Hier gehören die OPTIONALs hin:
+  // Einstieg über den Subjekt-Index, darum billig.
+  const q = Z._lindasDetailsQuery(['https://ld.admin.ch/company/1', 'https://ld.admin.ch/company/2']);
+  ok(/VALUES \?company \{ <https:\/\/ld\.admin\.ch\/company\/1> <https:\/\/ld\.admin\.ch\/company\/2> \}/.test(q), 'Stufe 2 steigt über die URIs ein');
   ok((q.match(/OPTIONAL \{ \?company schema:identifier/g) || []).length === 2, 'beide Identifier optional');
   ok(/OPTIONAL \{ \?company schema:address/.test(q), 'Adresse optional');
   ok(/OPTIONAL \{ \?company schema:additionalType/.test(q), 'Rechtsform optional');

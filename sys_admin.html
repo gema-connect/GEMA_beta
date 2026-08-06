@@ -1357,6 +1357,32 @@ function _syncKategorieLocking(){
   }
 }
 
+// ── Handelsregister am Firmennamen (Neues Unternehmen) ──────────────────
+// Tippen schlaegt die Schweizer Unternehmen mit Name UND Adresse vor; die
+// Auswahl setzt den offiziellen Namen und fuellt Strasse/PLZ/Ort. Die
+// Felder bleiben ganz normale Eingaben. Ohne erreichbaren Dienst passiert
+// nichts — das Feld ist weiterhin frei tippbar (siehe gema_zefix.js).
+var _orgHr=null;
+function _orgHrInit(){
+  if(_orgHr || typeof GemaZefix==='undefined' || !GemaZefix.firma) return;
+  _orgHr=GemaZefix.firma({
+    firma:'o_name', strasse:'o_strasse', plz:'o_plz', ort:'o_ort',
+    onSelect:function(){
+      // Das Adress-Suchfeld ist nur die Anzeige der drei Felder darunter —
+      // nach der Uebernahme muss es mitziehen, sonst steht dort noch die
+      // alte Adresse.
+      var s=document.getElementById('o_adrSearch');
+      if(s && typeof GemaAdresse!=='undefined' && GemaAdresse.setDisplayValue){
+        GemaAdresse.setDisplayValue(s,{
+          strasse:document.getElementById('o_strasse').value,
+          plz:document.getElementById('o_plz').value,
+          ort:document.getElementById('o_ort').value
+        });
+      }
+    }
+  });
+}
+
 function openOrgModal(oid){
   // Org-Admin darf nur die eigene Org oeffnen und keine neuen anlegen.
   if(!_isSuper){
@@ -1365,6 +1391,9 @@ function openOrgModal(oid){
   var isEdit=!!oid;
   document.getElementById('orgModalTitle').textContent=isEdit?'Unternehmen bearbeiten':'Neues Unternehmen';
   document.getElementById('orgErr').textContent='';
+  // Handelsregister-Siegel des zuletzt bearbeiteten Unternehmens abraeumen —
+  // es gehoert nie zur naechsten Firma.
+  if(_orgHr && _orgHr.zeichne) _orgHr.zeichne(null);
   _orgLogoBase64='';
   _orgLogoVector='';
   var o=oid?orgs.find(x=>x.id===oid):null;
@@ -1641,7 +1670,7 @@ window.recoveryDismiss=recoveryDismiss;
 window.recoveryRestore=recoveryRestore;
 
 // ── INIT ──────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', function(){ init(); _recoveryCheck(); });
+document.addEventListener('DOMContentLoaded', function(){ init(); _recoveryCheck(); _orgHrInit(); });
 </script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
 <script>document.addEventListener('DOMContentLoaded',function(){if(typeof GemaFeedback!=='undefined')GemaFeedback.init('admin','Admin');});</script>
@@ -1649,6 +1678,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); _recoveryCheck
 <script src="gema_mobile_menu.js"></script>
 <script src="gema_dialog.js"></script>
 <script src="gema_adresse.js"></script>
+<script src="gema_zefix.js"></script>
 <script src="gema_avatar.js"></script>
 </body>
 </html>
