@@ -81,6 +81,7 @@
     'sb_ausstosszeiten':'Ausstosszeiten',
     'sb_druckanstieg':'Druckanstieg Temperatur',
     'sb_saugpumpe':'Saugpumpe (Saughöhe)',
+    'sb_mischkreuz':'Mischkreuz',
     'sb_druckdispositiv':'Druckdispositiv',
     'sb_druckerhoehung':'Druckerhöhungsanlage',
     'sb_druckverlust':'Druckverlust Wasser',
