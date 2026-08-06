@@ -69,13 +69,18 @@ ok('Druckansicht: Knöpfe inkl. ✕ zum Löschen fliegen raus',
   /var KNOEPFE = 'button/.test(PR) && /row-del/.test(PR));
 ok('Druckansicht: Kopf = Modul-Titel + Eimer-Name',
   /gp-titel/.test(PR) && /gp-eimer/.test(PR) && /eimerName/.test(PR));
-ok('Logo behält sein Seitenverhältnis (height fix, width auto)',
-  /\.gp-logo\{height:14mm;width:auto/.test(PR));
+/* Feedback 05.08.2026: Logo IMMER links oben in fester Box — object-fit:contain
+   erhält das Seitenverhältnis, die Box macht jeden Bericht gleich. */
+ok('Logo links oben in fester Box, unverzerrt (object-fit:contain)',
+  /gp-kopf">'\s*\+\s*\(m\.logo \?/.test(PR) &&
+  /\.gp-logo\{[^}]*width:34mm[^}]*height:13mm[^}]*object-fit:contain/.test(PR));
 ok('opsz-Kanon gegen das «zu dicke l»',
   /font-optical-sizing:auto/.test(PR) && /"opsz" 14/.test(PR));
-ok('Inline-Script steht am DOKUMENTENDE (Fonts-Link hält sonst den Parser an)',
-  PR.lastIndexOf('gemaDruckFeedback') > PR.indexOf('gp-blatt') &&
-  /gemaDruckFeedback[\s\S]{0,400}<\/body><\/html>/.test(PR));
+/* Feedback 05.08.2026: das Script wird NACHGELEGT statt mitgeschrieben — ein
+   im HTML stehendes <script> wartet auf die (u.U. nie fertig ladenden)
+   Stylesheets und lief nachweislich gar nicht. */
+ok('Druckfenster-Script wird programmatisch angehängt (kein Inline-Script im HTML)',
+  /createElement\('script'\)/.test(PR) && !/\+ '<script>/.test(PR));
 ok('leere Sektionen werden zugeklappt, nicht weggelassen',
   /data-gp-leer="1"/.test(PR) && /keine Angaben/.test(PR));
 

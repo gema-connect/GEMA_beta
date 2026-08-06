@@ -151,6 +151,83 @@ try {
   ok('Viewport-Canvas hat Viewport-Groesse', voll.size[0] === 1280 && voll.size[1] === 760);
   ok('Viewport-Canvas nicht leer (' + voll.inhalt + '% > 3%)', voll.inhalt > 3);
   await ctx.close();
+
+  // ── Body-Pfad auf einem Modul MIT html{scroll-behavior:smooth} ──────────
+  // Bugreport 05.08.2026 (Enthaertung): Seite runtergescrollt, Snip gemacht →
+  // der Snip zeigte den Inhalt, «als waere ich ganz oben an der Seite».
+  // Ursache: html2canvas stellt die Scroll-Position seines Klon-iframes per
+  // cloneWindow.scrollTo wieder her — der Klon ERBT das smooth-CSS, der
+  // scrollTo ANIMIERT, die Positionen werden gelesen, waehrend der Klon noch
+  // bei 0 steht → alle Bounds verschieben sich um +scrollY, der Crop bei
+  // scrollY zeigt den Dokument-Anfang. pm_pruefliste (oben) hat KEIN smooth —
+  // darum brauchte es diesen eigenen Fall. Fix: _instantScroll (inline
+  // scroll-behavior:auto auf der Live-Seite, der Klon kopiert das
+  // style-Attribut) + onclone-Re-Scroll mit behavior:'instant'.
+  // hz_waermepumpe: Bugreport 05.08.2026 (Endrit) «Ausschnitt laesst sich
+  // nicht erstellen» — gleiche Ursache (html{scroll-behavior:smooth}), darum
+  // laeuft der Fall ueber BEIDE gemeldeten Module.
+  for (const modul of ['sa_enthaertung.html', 'hz_waermepumpe.html']) {
+  console.log('\n■ Body-Pfad, Seite gescrollt, Modul mit scroll-behavior:smooth (' + modul + ')');
+  {
+    const { ctx, page } = await newPage(browser, seed(['role_planer']));
+    await ctx.route('**/html2canvas*', r => r.fulfill({ contentType: 'text/javascript', body: H2C }));
+    const errs = []; page.on('pageerror', e => errs.push(e.message));
+    await page.setViewportSize({ width: 1280, height: 760 });
+    await page.goto(BASE + '/' + modul, { waitUntil: 'domcontentloaded' });
+    await page.waitForTimeout(1800);
+    await page.waitForFunction(() => typeof window.GemaFeedback !== 'undefined' && typeof window.html2canvas === 'function', null, { timeout: 20000 });
+
+    // instant runterscrollen (kein Animations-Artefakt) + ABSOLUTE Marke in
+    // den SEITENINHALT an der gescrollten Viewport-Position legen — im
+    // fehlerhaften Bild (Dokument-Anfang) kann sie nicht auftauchen.
+    const info = await page.evaluate(() => {
+      try { window.scrollTo({ top: 1200, behavior: 'instant' }); } catch (e) { window.scrollTo(0, 1200); }
+      const m = document.createElement('div');
+      m.style.cssText = 'position:absolute;left:500px;top:' + (window.scrollY + 300) +
+        'px;width:60px;height:60px;background:rgb(220,38,38);z-index:5';
+      document.body.appendChild(m);
+      const r = m.getBoundingClientRect();
+      return { scrollY: window.scrollY, vx: r.x, vy: r.y,
+               smooth: getComputedStyle(document.documentElement).scrollBehavior };
+    });
+    ok('Modul traegt scroll-behavior:smooth (Vorbedingung des Falls)', info.smooth === 'smooth');
+    ok('Seite ist weit gescrollt (' + info.scrollY + ' > 700)', info.scrollY > 700);
+
+    await page.evaluate(() => GemaFeedback.start());
+    const pad2 = 30, b2 = { x: info.vx - pad2, y: info.vy - pad2, w: 60 + 2 * pad2, h: 60 + 2 * pad2 };
+    await page.mouse.move(b2.x, b2.y);
+    await page.mouse.down();
+    await page.mouse.move(b2.x + b2.w, b2.y + b2.h, { steps: 6 });
+    await page.mouse.up();
+    await page.waitForFunction(() => !!(window._gfbHooks && window._gfbHooks.screenshot()), null, { timeout: 25000 });
+
+    const m2 = await page.evaluate(() => new Promise(res => {
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+        const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+        const d = g.getImageData(0, 0, c.width, c.height).data;
+        let treffer = 0, minX = 1e9, minY = 1e9;
+        for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) {
+          const i = (y * c.width + x) * 4;
+          if (Math.abs(d[i] - 220) < 34 && Math.abs(d[i + 1] - 38) < 34 && Math.abs(d[i + 2] - 38) < 34) {
+            treffer++; if (x < minX) minX = x; if (y < minY) minY = y;
+          }
+        }
+        res({ bild: [c.width, c.height], treffer, min: [minX, minY] });
+      };
+      img.src = window._gfbHooks.screenshot();
+    }));
+    const sc2 = 1.5, erw2 = pad2 * sc2;
+    ok('Marke im Snip gefunden (' + m2.treffer + ' px — Bug zeigte 0)', m2.treffer > 60 * 60 * sc2 * sc2 * 0.5);
+    ok('Marke an der erwarteten Stelle (x ' + m2.min[0] + '≈' + erw2 + ', y ' + m2.min[1] + '≈' + erw2 + ')',
+       Math.abs(m2.min[0] - erw2) <= 6 && Math.abs(m2.min[1] - erw2) <= 6);
+    ok('scroll-behavior der Live-Seite wieder hergestellt',
+       await page.evaluate(() => getComputedStyle(document.documentElement).scrollBehavior) === 'smooth');
+    ok('keine pageerrors', errs.length === 0 || (console.log('   ', errs), false));
+    await ctx.close();
+  }
+  }
 } finally {
   await browser.close(); server.close();
 }

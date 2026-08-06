@@ -699,9 +699,53 @@
     } catch (e) { }
   }
 
+  // KRITISCH #5 (Bugreport 05.08.2026, Enthaertung: «Snip nimmt den Ausschnitt,
+  // als waere ich ganz oben an der Seite»): html2canvas stellt die Scroll-
+  // Position seines Klon-iframes per cloneWindow.scrollTo(scrollX, scrollY)
+  // wieder her — der Klon ERBT aber das CSS der Seite, und fast alle
+  // Berechnungsmodule tragen html{scroll-behavior:smooth}. Damit ANIMIERT der
+  // scrollTo, html2canvas liest die Element-Positionen aber sofort danach:
+  // der Klon steht noch bei 0, alle Bounds verschieben sich um +scrollY
+  // (bounds = clientRect + windowBounds), und der Crop bei scrollY zeigt den
+  // DOKUMENT-ANFANG statt des sichtbaren Ausschnitts. Die Kalibrier-Marken
+  // fangen das nicht (fixed-Elemente landen im verschobenen wie im korrekten
+  // Bild an derselben Stelle — dieselbe Familie wie der _instantScrollTo-Fix
+  // in gema_scroll.js). Abhilfe zweischichtig:
+  //   a) Inline scroll-behavior:auto auf html+body der LIVE-Seite waehrend
+  //      der Erfassung — der Klon kopiert das style-Attribut, inline schlaegt
+  //      die Stylesheet-Regel, der scrollTo des Klons ist damit instant.
+  //   b) onclone erzwingt es zusaetzlich im Klon und scrollt ihn NOCHMALS
+  //      explizit mit behavior:'instant' (deckt !important-Regeln ab; laeuft
+  //      NACH html2canvas' eigenem scrollTo, die Positionen werden erst nach
+  //      onclone gelesen).
+  function _instantScroll() {
+    var de = document.documentElement, bo = document.body;
+    var alt = [de.style.scrollBehavior, bo ? bo.style.scrollBehavior : ''];
+    try { de.style.scrollBehavior = 'auto'; } catch (e) { }
+    try { if (bo) bo.style.scrollBehavior = 'auto'; } catch (e) { }
+    return function () {
+      try { de.style.scrollBehavior = alt[0] || ''; } catch (e) { }
+      try { if (bo) bo.style.scrollBehavior = alt[1] || ''; } catch (e) { }
+    };
+  }
+  function _cloneInstantScroll(sx, sy) {
+    return function (doc) {
+      try {
+        doc.documentElement.style.scrollBehavior = 'auto';
+        if (doc.body) doc.body.style.scrollBehavior = 'auto';
+        var win = doc.defaultView;
+        if (win) {
+          try { win.scrollTo({ left: sx, top: sy, behavior: 'instant' }); }
+          catch (e2) { win.scrollTo(sx, sy); }
+        }
+      } catch (e) { }
+    };
+  }
+
   function _captureViewport(scale) {
     var ov = _fullscreenOverlayEl();
     var lay = _calAn();
+    var zurueck = _instantScroll();
     var p = ov
       ? html2canvas(ov, {
         width: w.innerWidth, height: w.innerHeight,
@@ -711,16 +755,17 @@
       : html2canvas(document.body, {
         x: w.scrollX, y: w.scrollY,
         width: w.innerWidth, height: w.innerHeight,
-        scale: scale, logging: false, useCORS: true, allowTaint: true
+        scale: scale, logging: false, useCORS: true, allowTaint: true,
+        onclone: _cloneInstantScroll(w.scrollX, w.scrollY)
       });
     return Promise.resolve(p).then(function (c) {
-      _calAus(lay);
+      _calAus(lay); zurueck();
       try {
         var cal = _calMessen(c, scale);
         if (cal) { _calWeg(c, cal); c._gfbCal = cal; }
       } catch (e) { }
       return c;
-    }, function (e) { _calAus(lay); throw e; });
+    }, function (e) { _calAus(lay); zurueck(); throw e; });
   }
 
   // Fullscreen-Screenshot fuer Touch-Devices: erfasst den sichtbaren

@@ -20,6 +20,10 @@
  * Titelzeile (nichts wird stillschweigend weggelassen — man sieht, dass es sie
  * gibt und dass sie leer sind).
  *
+ * Die Vorschau-Leiste hat BEWUSST keinen Feedback-Knopf (User-Entscheid
+ * 05.08.2026): die Druckansicht ist ein erzeugtes Dokument — Feedback gehört
+ * aufs Modul selbst, wo GemaFeedback samt Snip zur Verfügung steht.
+ *
  * API:  GemaPrint.open({title, color}) · GemaPrint.meta()
  */
 (function (w, d) {
@@ -130,10 +134,34 @@
   /* Bedienelemente — im Bericht nutzlos, «✕ löschen» sogar irreführend */
   var KNOEPFE = 'button,.g-btn,.btn,.row-del,.del,.x,.close,[role="button"],a.g-nav-btn,input[type="button"],input[type="submit"],input[type="file"],input[type="range"]';
 
+  /* Segmentierte Umschalter: der AKTIVE Knopf TRÄGT den Wert (3/5 grösster LU,
+     «Verschlossen/Gelocht», «Einadrig/Mehradrig», Härte-Einheit …). Sie müssen
+     VOR dem Knopf-Kahlschlag zu Text werden, sonst löscht KNOEPFE die Angabe
+     ersatzlos. NUR echte Bedien-Gruppen listen — `.bseg` (Balken-Segment der
+     Reduktions-Charts) und das nackte `.seg` (Kollisionsgefahr) gehören NICHT
+     hierher. */
+  var SEGMENT = ['.lumax-toggle', '.g-seg-group', '.g-chip-group', '.eh-seg',
+    '.bl-seg', '.unit-toggle', '.nb-src-seg', '.sp-seg', '.wpe-seg'].join(',');
+  /* Aktiv-Marker der Module: .active (Kanon) · .an (el_belastbarkeit) ·
+     .act (hz_waermepumpe) · .on (sb_niederschlag) */
+  var AKTIV = '.active,.sel,.is-active,.on,.an,.act,[aria-pressed="true"],[aria-selected="true"]';
+
   function stempeln() {
     /* Werte auf die LIVE-Elemente stempeln — der Klon trägt property-Werte
        (input.value, selectedIndex, checked) sonst nicht mit. */
     d.querySelectorAll('input,select,textarea').forEach(function (f) {
+      /* Versteckte Felder tragen den ZUSTAND der Seite (JSON-Blobs wie
+         #zk_rows/#enth_straenge, Einheiten-Merker), nicht eine Angabe des
+         Planers — sie gehören nicht in den Bericht. Ohne diese Marke landete
+         der rohe JSON als sichtbarer Text im PDF. */
+      var versteckt = false;
+      try {
+        versteckt = f.type === 'hidden' || f.hidden ||
+          getComputedStyle(f).display === 'none' || getComputedStyle(f).visibility === 'hidden';
+      } catch (e) { versteckt = f.type === 'hidden'; }
+      if (versteckt) { f.setAttribute('data-gp-hide', '1'); return; }
+      /* Ausrichtung mitnehmen, damit Zahlen im Bericht stehen wie am Bildschirm */
+      try { f.setAttribute('data-gp-ta', getComputedStyle(f).textAlign || ''); } catch (e) { }
       if (f.type === 'checkbox' || f.type === 'radio') { f.setAttribute('data-gp-chk', f.checked ? '1' : '0'); return; }
       if (f.tagName === 'SELECT') {
         var o = f.options[f.selectedIndex];
@@ -154,18 +182,75 @@
     }
   }
   function entstempeln() {
-    d.querySelectorAll('[data-gp-val],[data-gp-chk],[data-gp-img],[data-gp-leer]').forEach(function (e) {
+    d.querySelectorAll('[data-gp-val],[data-gp-chk],[data-gp-img],[data-gp-leer],[data-gp-hide],[data-gp-ta]').forEach(function (e) {
       e.removeAttribute('data-gp-val'); e.removeAttribute('data-gp-chk');
       e.removeAttribute('data-gp-img'); e.removeAttribute('data-gp-leer');
+      e.removeAttribute('data-gp-hide'); e.removeAttribute('data-gp-ta');
+    });
+  }
+
+  /** Einheiten-Umschalter (l/s ⇄ m³/h, bar ⇄ kPa, mm ⇄ cm): sie stellen nur die
+      ANZEIGE um — im Bericht steht die Einheit ohnehin bei jedem Wert, der
+      Schalter wäre dort ein toter Knopf.
+      Erkennung ohne Modul-Wissen: ein Schalter mit Beschriftung auf BEIDEN
+      Seiten ist ein Umschalter zwischen zwei Einheiten; einer mit Text nur auf
+      EINER Seite ist eine echte Ja/Nein-Angabe (z.B. «Herleitung anzeigen»)
+      und bleibt als ☑/☐ erhalten. */
+  function istEinheitenSchalter(wrap) {
+    var sw = wrap.querySelector('.g-switch,input[type="checkbox"]');
+    if (!sw) return false;
+    var vor = '', nach = '', gesehen = false;
+    Array.prototype.forEach.call(wrap.childNodes, function (n) {
+      if (n === sw || (n.contains && n.contains(sw))) { gesehen = true; return; }
+      var t = (n.textContent || '').trim();
+      if (!t) return;
+      if (gesehen) nach += t; else vor += t;
+    });
+    return !!vor && !!nach;
+  }
+
+  /** Hülsen, die nach dem Entfernen eines Bedienelements leer zurückbleiben
+      (die Einheiten-Toolbar der Berechnungsmodule besteht NUR aus Schaltern).
+      KRITISCH — nur von den BERÜHRTEN Eltern aus aufräumen, nie generisch
+      über den ganzen Klon: leere Divs sind sonst oft Grafik (die farbigen
+      `.bseg`-Balken der Reduktions-Charts, Farbpunkte in Legenden) und würden
+      mit verschwinden. Eine Toolbar mit Beschriftung + Wert
+      (sa_schlammsammler: «Deckel: Verschlossen») bleibt ohnehin — sie hat
+      Text. */
+  function leereHuelsenWeg(beruehrt) {
+    var TAGS = { DIV: 1, SPAN: 1, P: 1, SECTION: 1, LABEL: 1 };
+    beruehrt.forEach(function (p) {
+      while (p && TAGS[p.tagName] &&
+        !(p.textContent || '').trim() &&
+        !p.querySelector('img,svg,canvas,table,hr,input,select,textarea,.gp-val,.gp-chk')) {
+        var el = p; p = p.parentNode;
+        if (el.parentNode) el.parentNode.removeChild(el); else break;
+      }
     });
   }
 
   function aufbereiten(klon) {
-    var i, n;
+    /* Eltern entfernter Bedienelemente — nur DIESE Hülsen werden am Schluss
+       aufgeräumt (siehe leereHuelsenWeg). */
+    var beruehrt = [];
+    function raus(e) { if (e.parentNode) { beruehrt.push(e.parentNode); e.parentNode.removeChild(e); } }
     /* 1) Chrome raus */
     klon.querySelectorAll(WEG).forEach(function (e) { e.remove(); });
+    /* 1a) Segmentierte Umschalter → ihr aktiver Wert als Text.
+           MUSS vor Schritt 2 laufen — sonst nimmt der Knopf den Wert mit. */
+    klon.querySelectorAll(SEGMENT).forEach(function (g) {
+      var a = g.querySelector(AKTIV), sp = d.createElement('span');
+      var t = a ? (a.textContent || '').trim() : '';
+      sp.className = 'gp-solo gp-val' + (t ? '' : ' leer');
+      sp.textContent = t || '—';
+      if (g.parentNode) g.parentNode.replaceChild(sp, g);
+    });
+    /* 1b) Einheiten-Umschalter raus (die Einheit steht bei jedem Wert) */
+    klon.querySelectorAll('.g-switch-wrap').forEach(function (e) {
+      if (istEinheitenSchalter(e)) raus(e);
+    });
     /* 2) Knöpfe raus (inkl. der ✕ zum Löschen) */
-    klon.querySelectorAll(KNOEPFE).forEach(function (e) { e.remove(); });
+    klon.querySelectorAll(KNOEPFE).forEach(function (e) { raus(e); });
     /* 3) Canvas → Bild */
     klon.querySelectorAll('canvas').forEach(function (c) {
       var src = c.getAttribute('data-gp-img');
@@ -177,17 +262,23 @@
     });
     /* 4) Eingaben → statischer Text */
     klon.querySelectorAll('input,select,textarea').forEach(function (f) {
+      /* Versteckte Zustands-Felder ersatzlos raus (siehe stempeln) */
+      if (f.getAttribute('data-gp-hide') === '1') { f.remove(); return; }
       var sp = d.createElement('span');
       if (f.hasAttribute('data-gp-chk')) {
         sp.className = 'gp-chk';
         sp.textContent = f.getAttribute('data-gp-chk') === '1' ? '☑' : '☐';
       } else {
         var v = f.getAttribute('data-gp-val') || '';
-        sp.className = 'gp-val' + (v ? '' : ' leer');
+        /* KRITISCH — die Klassen des Feldes MITNEHMEN: die Seite legt darüber
+           die Breite fest (.g-inp{width:100%}, Raster-/Tabellen-Regeln). Ein
+           nackter Span fällt auf seine Mindestbreite zusammen, der Wert klebt
+           dann links neben der Einheiten-Box und ein Teil des Feldes fehlt. */
+        sp.className = (f.className ? f.className + ' ' : 'gp-solo ') + 'gp-val' + (v ? '' : ' leer');
         sp.textContent = v || '—';
+        var ta = f.getAttribute('data-gp-ta');
+        if (ta && ta !== 'start') sp.style.textAlign = ta;
       }
-      /* Feldbreite grob erhalten, damit Raster nicht zusammenfallen */
-      if (f.className) sp.setAttribute('data-von', f.className);
       f.parentNode.replaceChild(sp, f);
     });
     /* 5) Leere Sektionen zuklappen (Kopf bleibt sichtbar) */
@@ -204,6 +295,8 @@
     klon.querySelectorAll('[onclick],[oninput],[onchange]').forEach(function (e) {
       e.removeAttribute('onclick'); e.removeAttribute('oninput'); e.removeAttribute('onchange');
     });
+    /* 8) Was durch das Entfernen eines Bedienelements leer wurde */
+    leereHuelsenWeg(beruehrt);
     return klon;
   }
 
@@ -246,10 +339,12 @@
       'body{font-family:"DM Sans",ui-sans-serif,system-ui,sans-serif;font-optical-sizing:auto;',
       '  font-variation-settings:"opsz" 14;font-size:9.5pt;line-height:1.45;color:#000;background:#fff;margin:0}',
       '*{box-sizing:border-box}',
-      /* Kopf des Berichts */
-      '.gp-kopf{display:flex;align-items:flex-start;gap:14px;border-bottom:2px solid ' + b.acc + ';padding-bottom:9px;margin-bottom:14px}',
+      /* Kopf des Berichts — Logo IMMER links oben und IMMER gleich gross:
+         feste Box + object-fit:contain, damit ein breites und ein hohes Logo
+         denselben Platz einnehmen und jeder Bericht gleich beginnt. */
+      '.gp-kopf{display:flex;align-items:flex-start;gap:10px;border-bottom:2px solid ' + b.acc + ';padding-bottom:9px;margin-bottom:14px}',
       '.gp-kopf-l{flex:1;min-width:0}',
-      '.gp-logo{height:14mm;width:auto;max-width:52mm;object-fit:contain;flex:0 0 auto}',
+      '.gp-logo{flex:0 0 auto;width:34mm;height:13mm;object-fit:contain;object-position:left center}',
       '.gp-titel{font-size:17pt;font-weight:800;color:' + b.acc + ';line-height:1.15;margin:0}',
       '.gp-eimer{font-size:11pt;font-weight:600;color:#0f172a;margin-top:3px}',
       '.gp-meta{text-align:right;font-size:8pt;color:#475569;flex:0 0 auto;line-height:1.5}',
@@ -263,20 +358,48 @@
       '.gp-body .gsek-nr{background:' + b.acc + '!important}',
       '.gp-zu{opacity:.62}',
       '.gp-zu .g-card-hd::after{content:" — keine Angaben";font-size:8pt;font-weight:600;color:#94a3b8}',
-      /* Werte statt Eingabefeldern */
-      '.gp-val{display:inline-block;font-weight:700;color:#0f172a;border-bottom:1px solid #cbd5e1;',
-      '  min-width:12mm;padding:0 2px;text-align:right}',
-      '.gp-val.leer{color:#cbd5e1;font-weight:400;border-bottom-style:dotted}',
+      /* Werte statt Eingabefeldern — der Span trägt die Klassen des Feldes:
+         Breite, Rahmen und Ausrichtung kommen von der Seite (WYSIWYG), hier
+         nur noch die Optik. Keine erzwungene Ausrichtung — der Wert steht,
+         wo er am Bildschirm steht. */
+      '.gp-val{display:inline-block;font-weight:700;color:#0f172a;',
+      '  background:#fff!important;box-shadow:none!important;overflow-wrap:break-word}',
+      '.gp-val.leer{color:#cbd5e1;font-weight:400}',
+      /* Im Raster/Feldverbund die volle Slot-Breite einnehmen — sonst klebt der
+         Wert links an der Einheiten-Box und das Feld wirkt abgeschnitten. */
+      '.gp-body .g-inp-group>.gp-val,.gp-body td>.gp-val,.gp-body th>.gp-val{width:100%;flex:1 1 auto}',
+      /* Feld ohne eigene Klassen: dezente Linie, damit man den Wert als Angabe erkennt */
+      '.gp-val.gp-solo{border-bottom:1px solid #cbd5e1;min-width:10mm}',
+      '.gp-val.gp-solo.leer{border-bottom-style:dotted}',
       '.gp-chk{font-size:11pt;line-height:1}',
       /* Tabellen + Schemata */
-      '.gp-body table{width:100%!important;border-collapse:collapse!important;font-size:8.5pt!important}',
+      '.gp-body table{width:100%!important;border-collapse:collapse!important;font-size:8.5pt!important;',
+      '  table-layout:auto!important}',
       '.gp-body table th,.gp-body table td{border:1px solid #e2e8f0!important;padding:3px 5px!important}',
       '.gp-body thead{display:table-header-group}',
       '.gp-body tr{break-inside:avoid;page-break-inside:avoid}',
       '.gp-body svg,.gp-body img{max-width:100%!important;height:auto!important}',
       '.gp-body .gp-canvas{break-inside:avoid;page-break-inside:avoid}',
-      /* Alles, was am Bildschirm scrollt, im Druck ganz zeigen */
-      '.gp-body [style*="overflow"],.gp-body .lu-scroll,.gp-body .ot-wrap{overflow:visible!important;max-height:none!important}',
+      /* KEIN horizontaler Scrollbalken im Bericht: was am Bildschirm scrollt,
+         wird im Druck ganz gezeigt — und die Mindestbreiten, die den Inhalt
+         breit halten, gelten hier nicht (gescrollt werden kann auf Papier
+         nicht; was nicht passt, verkleinert das Einpass-Script). */
+      '.gp-body [style*="overflow"],.gp-body .lu-scroll,.gp-body .ot-wrap,',
+      '.gp-body .g-table-wrap,.gp-body .pos-wrap,.gp-body .tbl-wrap{overflow:visible!important;max-height:none!important}',
+      '.gp-body table th,.gp-body table td,.gp-body table .gp-val,',
+      '.gp-body table select,.gp-body table input{min-width:0!important}',
+      /* Schemata tragen eine Mindestbreite, damit sie am Bildschirm im
+         Scroll-Rahmen lesbar bleiben — auf Papier hält sie den Bericht breiter
+         als das Blatt. */
+      '.gp-body svg,.gp-body img,.gp-body .gp-canvas{min-width:0!important}',
+      /* KEIN Umbruch mitten im Wort: er drückt die Mindestbreite einer Spalte
+         auf EIN Zeichen — die Tabelle verteilt dann so eng, dass «120» als
+         1/2/0 untereinander steht. */
+      '.gp-body table .gp-val{padding:0 2px;white-space:normal;word-break:normal;overflow-wrap:normal}',
+      /* Einpassen: was breiter ist als das Blatt, wird als Ganzes verkleinert.
+         Der Rahmen behält die verkleinerte Höhe, damit nichts überlappt. */
+      '.gp-fit{overflow:visible!important}',
+      '.gp-fit>*{transform-origin:left top}',
       /* Bedienleiste der Vorschau (nur Bildschirm) */
       '.gp-bar{position:fixed;top:0;left:0;right:0;z-index:50;display:flex;align-items:center;gap:8px;',
       '  padding:8px 12px;background:#0f172a;color:#fff;font-size:12.5px;font-weight:600;',
@@ -307,6 +430,60 @@
       '  box-shadow:none;border-radius:0;padding:0}}';
   }
 
+  /** Script im Druckfenster: Einpassen.
+      Auf Papier lässt sich nicht scrollen — eine breite Tabelle wäre sonst
+      rechts abgeschnitten (gemeldet 05.08.2026). Erst nimmt die Druck-CSS den
+      Inhalten ihre Mindestbreiten, was den meisten Tabellen schon genügt; was
+      danach immer noch über das Blatt hinausragt, wird als Ganzes proportional
+      verkleinert — nichts wird weggelassen, nur kleiner gesetzt.
+      Läuft bei load, kurz danach (Bilder/Schriften) und vor jedem Druck. */
+  function fitScript() {
+    return [
+      'function gemaFit(){',
+      ' var body=document.querySelector(".gp-body"); if(!body) return;',
+      ' var max=body.clientWidth; if(!(max>0)) return;',
+      /* Zuerst alle früheren Anpassungen zurücknehmen — sonst misst der zweite
+         Lauf die bereits verkleinerte Breite und schrumpft weiter. */
+      ' body.querySelectorAll(".gp-fit").forEach(function(w){',
+      '  w.classList.remove("gp-fit"); w.style.height=""; w.firstElementChild&&(w.firstElementChild.style.transform="");});',
+      /* Von INNEN nach AUSSEN: zuerst den engsten Block einpassen (die breite
+         Tabelle), dann erst grössere. Andersherum würde eine ganze Sektion
+         samt Text verkleinert, obwohl nur die Tabelle zu breit ist.
+         Umgekehrte Dokumentreihenfolge = Kinder vor ihren Eltern. */
+      ' var kand=[body].concat(Array.prototype.slice.call(body.querySelectorAll("*"))).reverse();',
+      ' kand.forEach(function(e){',
+      '  if(e.closest(".gp-fit")&&e!==body) return;',                    /* schon in einem verkleinerten Block */
+      '  var k=e.firstElementChild; if(!k) return;',
+      /* Mehrere Kinder: sie kommen in EINEN Rahmen, der als Ganzes verkleinert
+         wird. Nur bei block-Containern — in einem Flex-/Grid-Container würde
+         ein zusätzlicher Rahmen das Layout verändern. */
+      '  if(e.children.length!==1){',
+      '   if(e===body||getComputedStyle(e).display!=="block") return;',
+      '   if(!(e.scrollWidth>e.clientWidth+2)) return;',
+      '   var w=document.createElement("div");',
+      '   while(e.firstChild) w.appendChild(e.firstChild);',
+      '   e.appendChild(w); k=w;',
+      '  }',
+      '  var breit=Math.max(k.scrollWidth,k.getBoundingClientRect().width);',
+      '  var platz=e.clientWidth||max;',
+      '  if(!(breit>platz+2)||!(platz>0)) return;',
+      '  var f=platz/breit; if(!(f>0.28&&f<1)) return;',                 /* < 28 % wäre unlesbar — dann lieber lassen */
+      '  e.classList.add("gp-fit");',
+      '  k.style.transform="scale("+f.toFixed(4)+")";',
+      '  e.style.height=Math.ceil(k.getBoundingClientRect().height)+"px";',
+      ' });',
+      '}',
+      /* Mehrfach nachfassen: Bilder und Schriften ändern die Breiten noch.
+         Bewusst NICHT nur am load-Ereignis — hängt ein Stylesheet, kommt es
+         nie, und der Bericht bliebe ungepasst. */
+      'window.addEventListener("load",gemaFit);',
+      'window.addEventListener("resize",gemaFit);',
+      'window.addEventListener("beforeprint",gemaFit);',
+      '[60,300,900,2000].forEach(function(t){setTimeout(gemaFit,t);});',
+      'gemaFit();'
+    ].join('');
+  }
+
   /* ── Öffnen ─────────────────────────────────────────────────────────────── */
   function open(opts) {
     opts = opts || {};
@@ -325,8 +502,10 @@
       entstempeln();
     }
 
+    /* Logo ZUERST → immer links oben, in jedem Bericht an derselben Stelle */
     var kopf = ''
       + '<div class="gp-kopf">'
+      + (m.logo ? '<img class="gp-logo" src="' + esc(m.logo) + '" alt="">' : '')
       + '<div class="gp-kopf-l">'
       + '<div class="gp-titel">' + esc(m.titel) + '</div>'
       + (m.eimer ? '<div class="gp-eimer">' + esc(m.eimer) + '</div>' : '')
@@ -336,13 +515,13 @@
       + esc(m.datum)
       + (m.firma ? '<br>' + esc(m.firma) : '')
       + '</div>'
-      + (m.logo ? '<img class="gp-logo" src="' + esc(m.logo) + '" alt="">' : '')
       + '</div>';
 
+    /* BEWUSST KEIN Feedback-Knopf (User-Entscheid 05.08.2026): die Druckansicht
+       ist ein erzeugtes Dokument — Feedback gehört aufs Modul selbst. */
     var bar = ''
       + '<div class="gp-bar no-print">'
       + '<span>Druckansicht — bitte prüfen</span><span class="sp"></span>'
-      + '<button class="fb" onclick="gemaDruckFeedback()">🔴 Feedback</button>'
       + '<button class="sec" onclick="window.close()">✕ Schliessen</button>'
       + '<button class="prim" onclick="window.print()">🖨 Drucken / Als PDF speichern</button>'
       + '</div>';
@@ -358,17 +537,24 @@
       + '</head><body>'
       + bar
       + '<div class="gp-blatt">' + kopf + '<div class="gp-body">' + klon.innerHTML + '</div></div>'
-      /* KRITISCH: Inline-Script ans DOKUMENTENDE — ein noch ladender
-         Fonts-Link hält den Parser an, und ein Script davor würde beim
-         document.close() alles Nachfolgende verschlucken (CLAUDE.md). */
-      + '<script>function gemaDruckFeedback(){try{var o=window.opener;'
-      + 'if(o&&!o.closed&&o.GemaFeedback&&o.GemaFeedback.startWithImage){o.GemaFeedback.startWithImage("");o.focus();}'
-      + '}catch(e){}}<\/script>'
       + '</body></html>';
 
     win.document.open();
     win.document.write(html);
     win.document.close();
+
+    /* KRITISCH — das Script wird NACHGELEGT, nicht mitgeschrieben.
+       Ein <script> im geschriebenen HTML wartet auf die noch ladenden
+       Stylesheets (Fonts-Link!); bleibt einer hängen, läuft es NIE. Ein
+       programmatisch angehängtes Script führt sofort aus, unabhängig davon,
+       wie weit der Parser ist. Nebeneffekt: im geschriebenen HTML steht kein
+       Script mehr, das etwas Nachfolgendes verschlucken könnte (CLAUDE.md). */
+    try {
+      var sc = win.document.createElement('script');
+      sc.textContent = fitScript();
+      (win.document.body || win.document.documentElement).appendChild(sc);
+    } catch (e) { }
+
     try { win.focus(); } catch (e) { }
     return win;
   }

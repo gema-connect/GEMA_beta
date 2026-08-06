@@ -380,7 +380,10 @@ try {
         scopeFremd: _wsHooks.scopeOk({ accessControl: { nurRollen: ['role_planer'] } }) };
     }, ORG_ROWS.toString());
     ok(!!r.b && r.b.pinned === true && r.b.autoTyp === 'rolle', 'Lieferanten-Eimer wird automatisch angelegt (hervorgehoben)', r.b && { p: r.b.pinned, t: r.b.autoTyp });
-    ok(r.b && r.b.modules.some(m => m.mod === 'sys_lieferant_dashboard'), 'Lieferanten-Dashboard liegt im Eimer', r.b && r.b.modules);
+    /* Feedback 05.08.2026: das Dashboard ist FIX IM EIMER INTEGRIERT
+       (direktModul → eingebettete Übersicht) statt als Modul-Kachel. */
+    ok(r.b && r.b.direktModul === 'sys_lieferant_dashboard', 'Lieferanten-Dashboard ist direkt integriert (direktModul)', r.b && r.b.direktModul);
+    ok(r.b && !(r.b.modules || []).some(m => m.mod === 'sys_lieferant_dashboard'), 'keine Dashboard-Kachel mehr im Eimer', r.b && r.b.modules);
     ok(r.b && JSON.stringify(r.b.accessControl.nurRollen) === JSON.stringify(['role_lieferant', 'role_produktlieferant']), 'Zugriff ueber Rollen-Praefix (Unterrollen inbegriffen)', r.b && r.b.accessControl);
     ok(r.sichtbar === true, 'role_lieferant_admin sieht ihn ueber den Praefix-Match');
     ok(r.scopeFremd === false, 'ein Eimer fuer role_planer bleibt dem Lieferanten verborgen', r.scopeFremd);
