@@ -295,6 +295,7 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
 <script src="gema_objekte_api.js"></script>
 <script src="gema_produktkatalog_api.js"></script>
+<script src="gema_zefix.js"></script>
 <script>
 var current = null; // current lieferant
 function E(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');}
@@ -525,6 +526,8 @@ function openLieferant(id){
   if(!current) return;
   document.getElementById('edTitle').textContent = current.firma;
   fillEditor(current);
+  _liefHrInit();
+  if(_liefHr&&_liefHr.zeichne)_liefHr.zeichne(null);
   document.getElementById('btnDeactivate').style.display='';
   document.getElementById('btnDelete').style.display='';
   document.getElementById('btnDeactivate').textContent = current.status==='aktiv' ? '⏸ Deaktivieren' : '▶ Reaktivieren';
@@ -540,10 +543,25 @@ function closeEditor(){
   renderKPIs(); renderList();
 }
 
+// ── Handelsregister am Firma-Feld ───────────────────────────────────────
+// Tippen schlaegt die Schweizer Unternehmen mit Name UND Adresse vor; die
+// Auswahl fuellt zusaetzlich UID und Rechtsform — genau die Felder, die
+// hier sonst von Hand aus dem Zefix-Auszug abgetippt werden.
+var _liefHr=null;
+function _liefHrInit(){
+  if(_liefHr||typeof GemaZefix==='undefined'||!GemaZefix.firma)return;
+  _liefHr=GemaZefix.firma({
+    firma:'edFirma', strasse:'edStrasse', plz:'edPlz', ort:'edOrt',
+    uid:'edUid', rechtsform:'edRechtsform'
+  });
+}
+
 function clearEditor(){
   ['edFirma','edRechtsform','edUid','edBranche','edKontakt','edEmail','edTelefon','edWebsite','edStrasse','edPlz','edOrt','edKanton','edBeschreibung'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.value='';
   });
+  _liefHrInit();
+  if(_liefHr&&_liefHr.zeichne)_liefHr.zeichne(null);
   document.getElementById('edAboTyp').value='basis';
   document.getElementById('edAboStatus').value='testphase';
   document.getElementById('edAboStart').value=new Date().toISOString().split('T')[0];

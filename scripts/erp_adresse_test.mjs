@@ -176,7 +176,10 @@ ok(/^Bearer\s+\S+/.test(zefixAuth), 'Anfrage trägt das GEMA-JWT (Function ist a
 {
   const items = await page.$$eval('#kundeModal .gema-hr-drop .gema-hr-item', els => els.map(e => e.textContent));
   ok(items.length === 2, 'Zwei Handelsregister-Treffer');
-  ok(/Muster AG/.test(items[0]) && /AG · Zürich · CHE-123\.456\.789/.test(items[0]), 'Treffer zeigt Rechtsform · Sitz · UID');
+  // Seit 08/2026 steht die ADRESSE zuoberst in der Vorschlagszeile — daran
+  // erkennt man den Betrieb. Die Such-Antwort dieses Mocks fuehrt (wie die
+  // REST-Quellen) keine Adresse, darum erscheint hier der Sitz.
+  ok(/Muster AG/.test(items[0]) && /Zürich · AG · CHE-123\.456\.789/.test(items[0]), 'Treffer zeigt Adresse/Sitz · Rechtsform · UID');
   ok(/gelöscht/i.test(items[1]), 'Gelöschte Firma ist als solche markiert');
 }
 await page.$eval('#kundeModal .gema-hr-drop .gema-hr-item', el => el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));

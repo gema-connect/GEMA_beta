@@ -1,24 +1,54 @@
-/* gema_zefix.js — Handelsregister-Anbindung (Zefix, Bundesverwaltung)
+/* gema_zefix.js — Handelsregister-Anbindung (Zefix/LINDAS, Bundesverwaltung)
  *
- * Hängt an ein «Firma»-Eingabefeld ein Vorschlags-Dropdown mit den
- * Treffern aus dem Schweizer Handelsregister. Bei Auswahl liefert der
- * Helper den vollständigen Datensatz (offizieller Name, UID, Rechtsform,
- * Sitz, Adresse) — was das Modul damit befüllt, entscheidet es selbst
- * im onSelect-Callback.
+ * Hängt an ein «Firma»-Eingabefeld ein Vorschlags-Dropdown mit den Firmen
+ * aus dem Schweizer Handelsregister — MIT ADRESSE, damit man den Betrieb
+ * schon in der Liste erkennt und nicht erst nach dem Auswählen.
  *
  * Der Abruf läuft über die JWT-gegatete Netlify-Function
  * /.netlify/functions/zefix (CORS + Zugangsdaten bleiben serverseitig).
- * Ohne konfigurierten Zefix-Zugang meldet der Helper das im Dropdown —
- * das Feld bleibt normal tippbar (Graceful Degradation wie DataSelect).
+ * Ohne erreichbaren Dienst meldet der Helper das im Dropdown — das Feld
+ * bleibt normal tippbar (Graceful Degradation wie DataSelect).
  *
- * Verwendung:
- *   GemaZefix.attach('k_firma', {
- *     onSelect: function(f){ … },        // f = normalisierter Datensatz
- *     onClear:  function(){ … }          // optional: User tippt wieder
- *   });
+ * ── EMPFOHLENE VERWENDUNG: der Einzeiler ────────────────────────────────
+ *   GemaZefix.firma({ firma:'o_name', strasse:'o_strasse',
+ *                     plz:'o_plz', ort:'o_ort' });
  *
- *   GemaZefix.search('muster')     → Promise<Array>   (Liste ohne Adresse)
- *   GemaZefix.detail('CHE-…')      → Promise<Object|null> (inkl. Adresse)
+ * Das bindet das Feld an, übernimmt bei der Auswahl den OFFIZIELLEN
+ * Firmennamen und die Adresse, zeichnet darunter die grüne Bestätigungs-
+ * zeile («✓ Handelsregister: UID · Rechtsform · Sitz») und löst den
+ * Handelsregister-Bezug wieder, sobald jemand den Namen umtippt — es soll
+ * nie eine UID an einem von Hand geänderten Namen kleben.
+ *
+ * Optionen (alle ausser `firma` optional):
+ *   firma        Firma-Eingabefeld (id oder Element) — PFLICHT
+ *   strasse/plz/ort   Zielfelder für die Adresse (id oder Element)
+ *   adresse      EIN Feld für die ganze Adresse («Strasse, PLZ Ort»),
+ *                für Dialoge ohne getrennte Felder
+ *   uid          Zielfeld für die UID (CHE-123.456.789)
+ *   rechtsform   Zielfeld für die Rechtsform
+ *   hint         Container für die Bestätigungszeile; fehlt er, legt der
+ *                Helper ihn selbst direkt unter dem Feld an
+ *   nurLeere     true = nur leere Zielfelder füllen (Default false:
+ *                übernehmen, was das Register führt — der Nutzer hat die
+ *                Firma bewusst ausgewählt; die Felder bleiben editierbar)
+ *   onSelect(f)  zusätzlich eigener Code (z.B. dirty-Flag setzen)
+ *   onClear()    Name wurde umgetippt — Bezug ist weg
+ *
+ * Rückgabe: ctx mit ctx.daten() → der zuletzt gewählte Datensatz (oder
+ * null), damit das Modul ihn beim Speichern mitschreiben kann.
+ *
+ * ── Rohe API ────────────────────────────────────────────────────────────
+ *   GemaZefix.attach(input, {onSelect, onClear})   volle Kontrolle
+ *   GemaZefix.search('muster')   → Promise<Array>
+ *   GemaZefix.detail('CHE-…')    → Promise<Object|null>
+ *   GemaZefix.selftest()         → Promise<Object>  (s. unten)
+ *
+ * ── Wenn es «nicht mehr geht» ───────────────────────────────────────────
+ * In der Browser-Konsole:
+ *   GemaZefix.selftest().then(r => console.log(r.zusammenfassung, r.quellen))
+ * Der Selbsttest fragt JEDE Quelle einzeln ab und meldet Status, Dauer und
+ * Trefferzahl — man sieht also sofort, ob der Dienst, die Konfiguration
+ * oder die Anbindung klemmt, statt zu raten.
  *
  * Datensatz: {name, uid, uidFormatted, chid, sitz, rechtsform,
  *             rechtsformKurz, status, aktiv, zefixUrl, strasse, plz, ort}
@@ -40,6 +70,12 @@
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
+  // «Bahnhofstrasse 1, 8001 Zürich» — leere Teile fallen weg.
+  function _adrText(f) {
+    if (!f) return '';
+    var ortZeile = [f.plz, f.ort].filter(Boolean).join(' ');
+    return [f.strasse, ortZeile].filter(Boolean).join(', ');
+  }
   function _authHeaders() {
     var h = { 'Accept': 'application/json' };
     try {
@@ -60,7 +96,9 @@
         if (!data) {
           throw new Error(res.status === 404
             ? 'Handelsregister-Dienst nicht verfügbar (Function nicht deployed).'
-            : 'Handelsregister antwortet unerwartet (HTTP ' + res.status + ').');
+            : res.status === 401
+              ? 'Nicht angemeldet — bitte neu einloggen.'
+              : 'Handelsregister antwortet unerwartet (HTTP ' + res.status + ').');
         }
         if (!data.ok) throw new Error(data.error || 'Handelsregister-Abfrage fehlgeschlagen.');
         return data;
@@ -84,10 +122,17 @@
       return (d.firmen && d.firmen[0]) || null;
     });
   }
-  // Diagnose: liefert zusätzlich die abgesetzte SPARQL-Abfrage und den Anfang
-  // der Rohantwort. Gedacht für die Konsole, um das publizierte Datenmodell
-  // gegen den Live-Dienst zu prüfen:
-  //   GemaZefix.debug({name:'Muster'}).then(d => console.log(d.debug))
+  // Selbsttest: prüft jede Quelle einzeln (s. Kopf).
+  function _selftest(name) {
+    var qs = 'selftest=1' + (name ? '&name=' + encodeURIComponent(name) : '');
+    return fetch(ENDPOINT + '?' + qs, { headers: _authHeaders() })
+      .then(function (r) { return r.text().then(function (t) {
+        try { return JSON.parse(t); }
+        catch (e) { return { ok: false, error: 'Keine JSON-Antwort (HTTP ' + r.status + ')', rohantwort: t.slice(0, 2000) }; }
+      }); });
+  }
+  // Diagnose einer einzelnen Abfrage: liefert zusätzlich die abgesetzte
+  // SPARQL-Abfrage und den Anfang der Rohantwort.
   function _debug(opts) {
     opts = opts || {};
     var qs = (opts.uid ? 'uid=' + encodeURIComponent(opts.uid) : 'name=' + encodeURIComponent(opts.name || '')) + '&debug=1';
@@ -125,7 +170,11 @@
   function _render(list, drop, ctx) {
     if (!list.length) { _msg(drop, 'Kein Handelsregister-Eintrag gefunden'); return; }
     drop.innerHTML = list.map(function (f, i) {
-      var sub = [f.rechtsformKurz || f.rechtsform, f.sitz, f.uidFormatted].filter(Boolean).join(' · ');
+      // Adresse zuerst — daran erkennt man den Betrieb. Führt das Register
+      // keine Adresse (REST-Quellen liefern sie erst im Detail), steht der
+      // Sitz da; sie wird beim Auswählen nachgeladen.
+      var sub = [_adrText(f) || f.sitz, f.rechtsformKurz || f.rechtsform, f.uidFormatted]
+        .filter(Boolean).join(' · ');
       return '<div class="gema-hr-item' + (f.aktiv ? '' : ' geloescht') + '" data-idx="' + i + '" role="option">'
         + '<div class="gema-hr-main">' + _esc(f.name) + (f.aktiv ? '' : ' <span class="gema-hr-tag">gelöscht</span>') + '</div>'
         + '<div class="gema-hr-sub">' + _esc(sub) + '</div></div>';
@@ -160,7 +209,9 @@
     drop.classList.remove('open');
     drop._activeIdx = -1;
     ctx.suppress = true;   // programmatisches Setzen darf onClear nicht auslösen
-    // Adresse steht erst im Detail-Datensatz — nachladen, dann melden.
+    // Adresse steht je nach Quelle erst im Detail-Datensatz — nachladen,
+    // dann melden. Der Name ist bereits gesetzt, das Nachladen ist also
+    // reine Ergänzung und darf ruhig eine Sekunde brauchen.
     var done = function (full) {
       ctx.suppress = false;
       if (typeof ctx.onSelect === 'function') {
@@ -177,8 +228,14 @@
   function _attach(input, opts) {
     input = _resolve(input);
     if (!input) return null;
-    if (input._gzAttached) return input._gzAttached;
     opts = opts || {};
+    if (input._gzAttached) {
+      // Zweiter Aufruf (Dialog neu aufgebaut): Handler nicht doppelt binden,
+      // aber die Callbacks aktualisieren.
+      if (opts.onSelect) input._gzAttached.onSelect = opts.onSelect;
+      if (opts.onClear) input._gzAttached.onClear = opts.onClear;
+      return input._gzAttached;
+    }
     var ctx = { input: input, onSelect: opts.onSelect, onClear: opts.onClear, suppress: false };
     input.setAttribute('autocomplete', 'off');
     input.classList.add('gema-hr-input');
@@ -228,6 +285,87 @@
     return ctx;
   }
 
+  // ── Einzeiler für die Module ───────────────────────────────────────────
+  // Bindet das Feld an, übernimmt Name + Adresse und zeichnet die
+  // Bestätigungszeile. Siehe Kopf für die Optionen.
+  function _hintEl(input, opts) {
+    var el = _resolve(opts.hint);
+    if (el) return el;
+    if (input._gzHint && input._gzHint.parentNode) return input._gzHint;
+    el = document.createElement('div');
+    el.className = '';
+    // NACH dem Eingabefeld einhängen — _ensureDrop hat es ggf. in einen
+    // relativ positionierten Wrapper gelegt, der Hinweis landet dann darin
+    // und rendert als Block direkt darunter.
+    if (input.parentNode) input.parentNode.insertBefore(el, input.nextSibling);
+    input._gzHint = el;
+    return el;
+  }
+
+  function _setzen(ziel, wert, nurLeere) {
+    var el = _resolve(ziel);
+    if (!el || !wert) return false;
+    if (nurLeere && String(el.value || '').trim()) return false;
+    el.value = wert;
+    // Module hängen teils an input/change (AutoSave, dirty-Flags) — die
+    // programmatische Zuweisung feuert von sich aus nichts.
+    try {
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    } catch (e) {}
+    return true;
+  }
+
+  function _firma(opts) {
+    opts = opts || {};
+    var input = _resolve(opts.firma || opts.input || opts.el);
+    if (!input) return null;
+    var hint = _hintEl(input, opts);
+    var state = { f: null };
+
+    function zeichne(f, uebernommen) {
+      if (!hint) return;
+      if (!f) { hint.innerHTML = ''; hint.className = ''; return; }
+      var teile = [f.uidFormatted || f.uid, f.rechtsformKurz || f.rechtsform, f.sitz || f.ort]
+        .filter(Boolean).map(_esc);
+      hint.className = 'gema-hr-hint';
+      hint.innerHTML = '✓ Handelsregister: ' + teile.join(' · ')
+        + (f.aktiv === false ? ' <b>(gelöscht)</b>' : '')
+        + (f.zefixUrl ? ' · <a href="' + _esc(f.zefixUrl) + '" target="_blank" rel="noopener">Eintrag ↗</a>' : '')
+        + (uebernommen ? '<div class="gema-hr-hint-sub">Adresse übernommen — jederzeit anpassbar.</div>' : '');
+    }
+
+    var ctx = _attach(input, {
+      onSelect: function (f) {
+        state.f = f;
+        var nurLeere = opts.nurLeere === true;
+        var uebernommen = false;
+        if (_setzen(opts.strasse, f.strasse, nurLeere)) uebernommen = true;
+        if (_setzen(opts.plz, f.plz, nurLeere)) uebernommen = true;
+        if (_setzen(opts.ort, f.ort, nurLeere)) uebernommen = true;
+        if (opts.adresse && _setzen(opts.adresse, _adrText(f), nurLeere)) uebernommen = true;
+        _setzen(opts.uid, f.uidFormatted || f.uid, nurLeere);
+        _setzen(opts.rechtsform, f.rechtsformKurz || f.rechtsform, nurLeere);
+        zeichne(f, uebernommen);
+        if (typeof opts.onSelect === 'function') {
+          try { opts.onSelect(f); } catch (e) { console.warn('[GemaZefix] onSelect:', e); }
+        }
+      },
+      onClear: function () {
+        // Name umgetippt ⇒ der Registerbezug gilt nicht mehr. Die bereits
+        // übernommene Adresse bleibt stehen (sie ist erfasst, nicht falsch)
+        // — nur das Siegel verschwindet.
+        state.f = null;
+        zeichne(null);
+        if (typeof opts.onClear === 'function') { try { opts.onClear(); } catch (e) {} }
+      }
+    });
+    if (!ctx) return null;
+    ctx.daten = function () { return state.f; };
+    ctx.zeichne = zeichne;
+    return ctx;
+  }
+
   document.addEventListener('click', function (e) {
     var drops = document.querySelectorAll('.gema-hr-drop.open');
     Array.prototype.forEach.call(drops, function (d) {
@@ -235,5 +373,10 @@
     });
   });
 
-  w.GemaZefix = { attach: _attach, search: _search, detail: _detail, debug: _debug, ENDPOINT: ENDPOINT };
+  w.GemaZefix = {
+    attach: _attach, firma: _firma,
+    search: _search, detail: _detail,
+    selftest: _selftest, debug: _debug,
+    adresseText: _adrText, ENDPOINT: ENDPOINT
+  };
 })(window);

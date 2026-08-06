@@ -1,65 +1,106 @@
 /**
  * netlify/functions/zefix.js
  *
- * Proxy für das Schweizer Handelsregister. Zwei Quellen:
- *
- *   1) LINDAS SPARQL (DEFAULT, Open Data — KEINE Zugangsdaten nötig)
- *      Linked-Data-Dienst der Bundesverwaltung, Graph des Bundesamts für
- *      Justiz: <https://lindas.admin.ch/foj/zefix>. Endpunkt
- *      https://lindas.admin.ch/query, Vokabular schema.org.
- *   2) Zefix Public REST API (Fallback, braucht ein kostenloses Konto)
- *      ZEFIX_USER/ZEFIX_PASSWORD — wird genutzt, wenn ZEFIX_SOURCE=rest
- *      gesetzt ist oder LINDAS ausfällt und Zugangsdaten hinterlegt sind.
- *
- * Der Browser kann beide wegen CORS nicht direkt aufrufen.
+ * Proxy für das Schweizer Handelsregister — liefert zu einem Suchbegriff
+ * die Firmen mit NAMEN UND ADRESSE. Der Browser kann die Quellen wegen
+ * CORS nicht direkt aufrufen; Zugangsdaten (falls konfiguriert) bleiben
+ * serverseitig.
  *
  * Aufruf (via gema_zefix.js, JWT im Authorization-Header):
- *   GET …/zefix?name=Muster          → Firmensuche (Liste)
- *   GET …/zefix?uid=CHE-123.456.789  → Detail inkl. Adresse
+ *   GET …/zefix?name=Muster          → Firmensuche (Liste, mit Adresse)
+ *   GET …/zefix?uid=CHE-123.456.789  → Detail einer Firma
  *   GET …/zefix?…&debug=1            → zusätzlich die abgesetzte Abfrage +
- *                                      Rohantwort (zum Verifizieren des
- *                                      Datenmodells gegen den Live-Dienst)
+ *                                      Anfang der Rohantwort
+ *   GET …/zefix?selftest=1           → prüft JEDE Quelle einzeln und meldet
+ *                                      Status/Dauer/Trefferzahl (s. unten)
  *
  * Antwort:
- *   { ok:true, quelle:'lindas'|'rest', firmen:[ {name,uid,uidFormatted,chid,
+ *   { ok:true, quelle:'<strategie-id>', firmen:[ {name,uid,uidFormatted,chid,
  *       sitz,rechtsform,rechtsformKurz,status,aktiv,zefixUrl,lindasUri,
- *       strasse,plz,ort,land}, … ], anzahl }
- *   { ok:false, error:'…' }
+ *       strasse,plz,ort,land}, … ], anzahl, versuche:[…] }
+ *   { ok:false, error:'…', versuche:[…] }
  *
- * ── SPARQL-Robustheit (WICHTIG) ─────────────────────────────────────────
- * Ausser `a schema:Organization` + `schema:legalName` ist in den Abfragen
- * ALLES `OPTIONAL`. Weicht das publizierte Modell in einem Detail ab
- * (Identifier-Label, Adress-Prädikat, Rechtsform), fehlt dann nur das
- * betroffene Feld — die Trefferliste bleibt. Ein PFLICHT-Tripel würde
- * dagegen die ganze Abfrage leer laufen lassen.
+ * ── QUELLEN-KASKADE (der Grund für den Umbau) ───────────────────────────
+ * Vorher gab es EINE Quelle (LINDAS) und einen Fallback, der ohne
+ * hinterlegte Zugangsdaten nie griff: fiel LINDAS aus oder lief die
+ * Abfrage in den Timeout, war die Firmensuche komplett tot. Jetzt werden
+ * mehrere Strategien der Reihe nach probiert, jede mit eigenem kurzem
+ * Timeout innerhalb des 10-s-Budgets von Netlify. Die erste, die Treffer
+ * liefert, gewinnt; sie wird gemerkt (`_letzteGute`) und beim nächsten
+ * Aufruf zuerst probiert. Eine Quelle, die gerade gescheitert ist, wird
+ * für ein paar Minuten übersprungen, damit ein toter Dienst nicht bei
+ * jeder Anfrage erneut das Zeitbudget frisst.
+ *
+ * KEINE Quelle wird stillschweigend verschluckt: was womit gescheitert
+ * ist, steht in `versuche` und (bei Totalausfall) im `error`.
+ *
+ * ── WARUM DIE LINDAS-ABFRAGE ZWEISTUFIG IST (KRITISCH) ──────────────────
+ * Die alte Abfrage suchte den Namen UND zog in derselben Abfrage über
+ * fünf OPTIONAL-Blöcke Identifier, Rechtsform, Adresse und Status. Der
+ * Namensfilter ist aber ein Scan über alle ~1.5 Mio `schema:legalName`
+ * des Graphen — zusammen mit den OPTIONAL-Joins läuft das zuverlässig in
+ * den Timeout. Jetzt:
+ *   Stufe 1  nur `?company ?name` + LIMIT — nichts sonst.
+ *   Stufe 2  Details NUR für die max. 20 gefundenen URIs (`VALUES ?company`),
+ *            damit über den Subjekt-Index statt über einen Scan.
+ * Fällt Stufe 2 aus, werden trotzdem die NAMEN geliefert (die Adresse holt
+ * das Frontend beim Auswählen per `?uid=` nach) — Teilausfall ist besser
+ * als gar keine Vorschläge.
+ *
+ * Der Namensfilter selbst ist ein RANGE (`?name >= "Muster" && ?name <
+ * "Muster￿"`) statt `STRSTARTS(LCASE(…))`: ein Bereichsvergleich auf
+ * dem Literal kann den Index nutzen, `LCASE` auf jeder Zeile nicht. Weil
+ * der Bereich zeichengenau ist, werden zwei Schreibweisen angeboten
+ * (Eingabe wie getippt + erster Buchstabe gross). `STRSTARTS(LCASE(…))`
+ * bleibt als eigene, langsamere Strategie erhalten — sie findet auch
+ * Namen mit abweichender Gross-/Kleinschreibung.
+ *
+ * ── SPARQL-Robustheit ───────────────────────────────────────────────────
+ * Ausser `schema:legalName` ist ALLES `OPTIONAL`. Weicht das publizierte
+ * Modell in einem Detail ab (Identifier-Label, Adress-Prädikat), fehlt
+ * nur das betroffene Feld — die Trefferliste bleibt. Ein PFLICHT-Tripel
+ * würde die ganze Abfrage leer laufen lassen.
  *
  * Konfiguration (Netlify-Env, alle optional):
- *   ZEFIX_SOURCE            'lindas' (Default) | 'rest'
+ *   ZEFIX_SOURCE            leer (Default) = Kaskade · 'lindas' · 'rest'
+ *                           (erzwingt genau eine Familie)
  *   ZEFIX_LINDAS_ENDPOINT   Default https://lindas.admin.ch/query
  *   ZEFIX_LINDAS_GRAPH      Default https://lindas.admin.ch/foj/zefix
- *   ZEFIX_LINDAS_MATCH      'prefix' (Default) | 'contains'
- *                           contains findet mehr, ist aber deutlich teurer
- *   ZEFIX_LINDAS_QUERY      Ersetzt die Such-Abfrage komplett.
- *                           Platzhalter {{Q}} (bereits escapt), {{LIMIT}},
- *                           {{GRAPH}} — Notausgang, falls das Modell
- *                           angepasst wird, ohne neuen Deploy.
- *   ZEFIX_LINDAS_DETAIL_QUERY  dito für das Detail, Platzhalter {{UID}},
- *                           {{UIDPLAIN}}, {{GRAPH}}
- *   ZEFIX_USER/ZEFIX_PASSWORD/ZEFIX_AUTH/ZEFIX_BASE   REST-Zugang
+ *   ZEFIX_LINDAS_MATCH      'prefix' (Default) | 'contains' — betrifft nur
+ *                           die STRSTARTS-Strategie
+ *   ZEFIX_LINDAS_QUERY      Ersetzt die Such-Abfrage komplett. Platzhalter
+ *                           {{Q}} (escapt), {{LIMIT}}, {{GRAPH}} — Notausgang,
+ *                           falls das Modell wechselt, ohne neuen Deploy.
+ *   ZEFIX_LINDAS_DETAIL_QUERY  dito fürs Detail: {{UID}}, {{UIDPLAIN}}, {{GRAPH}}
+ *   ZEFIX_PUBLIC_BASE       Default https://www.zefix.ch/ZefixREST — die vom
+ *                           öffentlichen Zefix-Suchportal genutzte API,
+ *                           ohne Zugangsdaten. NICHT vertraglich zugesichert:
+ *                           ob sie auf dieser Installation trägt, zeigt
+ *                           ?selftest=1. Leer setzen schaltet sie ab.
+ *   ZEFIX_BASE / ZEFIX_USER / ZEFIX_PASSWORD / ZEFIX_AUTH
+ *                           Zefix Public REST mit Konto (admin.ch)
  *
- * SSRF: fixe Hosts aus der Env — es wird NIE eine vom Client gelieferte URL
- * abgerufen (nur Suchbegriff bzw. UID, beide streng validiert und escapt).
+ * SSRF: fixe Hosts aus der Env — es wird NIE eine vom Client gelieferte
+ * URL abgerufen (nur Suchbegriff bzw. UID, beide streng validiert und
+ * escapt).
  */
 'use strict';
 
 const { requireAuth } = require('./_jwt');
 
-const SOURCE = String(process.env.ZEFIX_SOURCE || 'lindas').toLowerCase();
+const SOURCE = String(process.env.ZEFIX_SOURCE || '').toLowerCase();
 const LINDAS_ENDPOINT = process.env.ZEFIX_LINDAS_ENDPOINT || 'https://lindas.admin.ch/query';
 const LINDAS_GRAPH = process.env.ZEFIX_LINDAS_GRAPH || 'https://lindas.admin.ch/foj/zefix';
 const LINDAS_MATCH = String(process.env.ZEFIX_LINDAS_MATCH || 'prefix').toLowerCase();
 const REST_BASE = (process.env.ZEFIX_BASE || 'https://www.zefix.admin.ch/ZefixPublicREST').replace(/\/+$/, '');
-const TIMEOUT_MS = 9000;   // Netlify bricht synchrone Functions bei ~10 s ab
+const PUBLIC_BASE = (process.env.ZEFIX_PUBLIC_BASE === undefined
+  ? 'https://www.zefix.ch/ZefixREST'
+  : String(process.env.ZEFIX_PUBLIC_BASE || '')).replace(/\/+$/, '');
+
+const GESAMT_MS = 8500;   // Netlify bricht synchrone Functions bei ~10 s ab
+const QUELLE_MS = 3400;   // pro Quelle — so passen zwei Versuche ins Budget
+const DETAIL_MS = 2600;   // Stufe 2 der LINDAS-Suche (Adressen nachladen)
+const SPERRE_MS = 5 * 60 * 1000;
 const MAX_ENTRIES = 20;
 
 function _err(status, msg, headers, extra) {
@@ -125,7 +166,7 @@ function _normAdresse(a) {
   };
 }
 
-// REST-Datensatz (JSON der Zefix Public API) → GEMA-Schema
+// REST-Datensatz (JSON der Zefix-APIs) → GEMA-Schema
 function _normFirma(r) {
   if (!r || typeof r !== 'object') return null;
   const name = _txt(_pick(r, ['name', 'firmenname', 'companyName', 'legalName']));
@@ -172,6 +213,58 @@ function _sparqlLit(s) {
     .replace(/\r/g, '').replace(/\n/g, ' ');
 }
 
+// Schreibweisen für den Bereichsvergleich: wie getippt + erster Buchstabe
+// gross (Firmennamen im Register beginnen praktisch immer gross). Mehr
+// Varianten kosten je einen weiteren Bereich — bewusst auf zwei begrenzt.
+function _praefixVarianten(q) {
+  const roh = String(q || '').trim();
+  if (!roh) return [];
+  const gross = roh.charAt(0).toUpperCase() + roh.slice(1);
+  return gross === roh ? [roh] : [gross, roh];
+}
+
+// Bereichsfilter: alles, was mit `p` beginnt, liegt zwischen p und
+// p+￿. Ein Bereichsvergleich auf dem Literal kann den Index nutzen —
+// STRSTARTS(LCASE(?name)) muss jede Zeile anfassen.
+function _rangeFilter(variante) {
+  const lit = _sparqlLit(variante);
+  return 'FILTER(?name >= "' + lit + '" && ?name < "' + lit + '\\uFFFF")';
+}
+
+// Stufe 1 — NUR Name + URI. Kein Typ-Tripel (im Zefix-Graph trägt ohnehin
+// nur eine Organisation einen legalName), keine OPTIONALs: jeder Join hier
+// vervielfacht den Scan.
+function _lindasNamenQuery(q, limit, modus) {
+  const tpl = process.env.ZEFIX_LINDAS_QUERY;
+  if (tpl) {
+    return tpl.replace(/\{\{Q\}\}/g, _sparqlLit(q.toLowerCase()))
+              .replace(/\{\{LIMIT\}\}/g, String(limit))
+              .replace(/\{\{GRAPH\}\}/g, LINDAS_GRAPH);
+  }
+  let wo;
+  if (modus === 'range') {
+    const bloecke = _praefixVarianten(q).map(function (v) {
+      return '  { ?company schema:legalName ?name . ' + _rangeFilter(v) + ' }';
+    });
+    wo = bloecke.join('\n  UNION\n');
+  } else {
+    const lit = _sparqlLit(q.toLowerCase());
+    const f = LINDAS_MATCH === 'contains'
+      ? '  FILTER(CONTAINS(LCASE(STR(?name)), "' + lit + '"))'
+      : '  FILTER(STRSTARTS(LCASE(STR(?name)), "' + lit + '"))';
+    wo = '  ?company schema:legalName ?name .\n' + f;
+  }
+  return [
+    'PREFIX schema: <http://schema.org/>',
+    'SELECT DISTINCT ?company ?name',
+    'FROM <' + LINDAS_GRAPH + '>',
+    'WHERE {',
+    wo,
+    '}',
+    'LIMIT ' + limit
+  ].join('\n');
+}
+
 // Gemeinsamer OPTIONAL-Block: alles ausser Name ist optional (s. Kopf).
 function _lindasOptionals() {
   return [
@@ -190,30 +283,18 @@ function _lindasOptionals() {
   ].join('\n');
 }
 
-function _lindasSearchQuery(q, limit) {
-  const tpl = process.env.ZEFIX_LINDAS_QUERY;
-  const lit = _sparqlLit(q.toLowerCase());
-  if (tpl) {
-    return tpl.replace(/\{\{Q\}\}/g, lit)
-              .replace(/\{\{LIMIT\}\}/g, String(limit))
-              .replace(/\{\{GRAPH\}\}/g, LINDAS_GRAPH);
-  }
-  // Prefix-Match ist gegen den grossen Graph deutlich billiger als CONTAINS
-  // und entspricht dem Tippverhalten («Muster» → «Muster AG»).
-  const filter = LINDAS_MATCH === 'contains'
-    ? '  FILTER(CONTAINS(LCASE(STR(?name)), "' + lit + '"))'
-    : '  FILTER(STRSTARTS(LCASE(STR(?name)), "' + lit + '"))';
+// Stufe 2 — Details zu bekannten URIs. Einstieg über den Subjekt-Index,
+// darum sind die OPTIONALs hier billig.
+function _lindasDetailsQuery(uris) {
   return [
     'PREFIX schema: <http://schema.org/>',
     'SELECT ?company ?name ?uid ?chid ?legalFormName ?legalFormShort ?street ?zip ?locality ?status',
     'FROM <' + LINDAS_GRAPH + '>',
     'WHERE {',
-    '  ?company a schema:Organization ;',
-    '           schema:legalName ?name .',
-    filter,
+    '  VALUES ?company { ' + uris.map(function (u) { return '<' + String(u).replace(/[<>"\s]/g, '') + '>'; }).join(' ') + ' }',
+    '  ?company schema:legalName ?name .',
     _lindasOptionals(),
-    '}',
-    'LIMIT ' + limit
+    '}'
   ].join('\n');
 }
 
@@ -242,9 +323,9 @@ function _lindasDetailQuery(uidFormatted, uidPlain) {
   ].join('\n');
 }
 
-async function _lindasFetch(query) {
+async function _lindasFetch(query, ms) {
   const ctrl = new AbortController();
-  const t = setTimeout(function () { ctrl.abort(); }, TIMEOUT_MS);
+  const t = setTimeout(function () { ctrl.abort(); }, Math.max(500, ms || QUELLE_MS));
   try {
     const res = await fetch(LINDAS_ENDPOINT, {
       method: 'POST',
@@ -316,7 +397,68 @@ function _normBindings(json) {
   }).slice(0, MAX_ENTRIES);
 }
 
-// ═════════════════════════ Zefix REST (Fallback) ═════════════════════════
+// Stufe 1 → Stufe 2. Scheitert Stufe 2, werden die NAMEN trotzdem
+// geliefert (Adresse holt das Frontend beim Auswählen nach).
+async function _lindasSuche(q, modus, ms, dbg) {
+  const q1 = _lindasNamenQuery(q, MAX_ENTRIES, modus);
+  if (dbg) dbg.query = q1;
+  const r1 = await _lindasFetch(q1, ms);
+  if (dbg) { dbg.status = r1.status; dbg.rohantwort = String(r1.text || '').slice(0, 2500); }
+  if (r1.status < 200 || r1.status >= 300) throw new Error('LINDAS meldet HTTP ' + r1.status + '.');
+  const j1 = _parseJson(r1.text);
+  if (!j1 || !j1.results) throw new Error('Unerwartete Antwort von LINDAS (kein SPARQL-Resultat).');
+
+  const treffer = [];
+  const gesehen = {};
+  (j1.results.bindings || []).forEach(function (b) {
+    const uri = _bindVal(b, 'company'), name = _bindVal(b, 'name');
+    if (!name || gesehen[uri || name]) return;
+    gesehen[uri || name] = 1;
+    treffer.push({ uri: uri, name: name });
+  });
+  if (!treffer.length) return [];
+
+  const uris = treffer.map(function (t) { return t.uri; }).filter(Boolean);
+  let detail = [];
+  if (uris.length) {
+    try {
+      const q2 = _lindasDetailsQuery(uris);
+      if (dbg) dbg.detailQuery = q2;
+      const r2 = await _lindasFetch(q2, DETAIL_MS);
+      if (r2.status >= 200 && r2.status < 300) {
+        const j2 = _parseJson(r2.text);
+        if (j2 && j2.results) detail = _normBindings(j2);
+      }
+      if (dbg) dbg.detailStatus = r2.status;
+    } catch (e) {
+      if (dbg) dbg.detailFehler = String((e && e.message) || e);
+    }
+  }
+  const perUri = {};
+  detail.forEach(function (f) { if (f.lindasUri) perUri[f.lindasUri] = f; });
+  // Reihenfolge der Stufe 1 behalten; ohne Detail wenigstens den Namen.
+  return treffer.map(function (t) {
+    return perUri[t.uri] || {
+      name: t.name, uid: '', uidFormatted: '', chid: '', ehraid: '', sitz: '',
+      rechtsform: '', rechtsformKurz: '', status: '', aktiv: true,
+      zefixUrl: _zefixUrl(t.name), lindasUri: t.uri,
+      strasse: '', plz: '', ort: '', land: ''
+    };
+  });
+}
+
+async function _lindasDetail(uidPlain, ms, dbg) {
+  const q = _lindasDetailQuery(_fmtUid(uidPlain), uidPlain);
+  if (dbg) dbg.query = q;
+  const r = await _lindasFetch(q, ms);
+  if (dbg) { dbg.status = r.status; dbg.rohantwort = String(r.text || '').slice(0, 2500); }
+  if (r.status < 200 || r.status >= 300) throw new Error('LINDAS meldet HTTP ' + r.status + '.');
+  const j = _parseJson(r.text);
+  if (!j || !j.results) throw new Error('Unerwartete Antwort von LINDAS (kein SPARQL-Resultat).');
+  return _normBindings(j);
+}
+
+// ═════════════════════════ Zefix REST (JSON-API) ═════════════════════════
 
 function _restAuthHeader() {
   const u = process.env.ZEFIX_USER || '';
@@ -328,15 +470,15 @@ function _restAuthHeader() {
 }
 function _hatRestZugang() { return !!_restAuthHeader(); }
 
-async function _restCall(path, opts) {
+async function _restCall(base, path, opts) {
   const ctrl = new AbortController();
-  const t = setTimeout(function () { ctrl.abort(); }, TIMEOUT_MS);
+  const ms = (opts && opts.ms) || QUELLE_MS;
+  const t = setTimeout(function () { ctrl.abort(); }, Math.max(500, ms));
   try {
-    const auth = _restAuthHeader();
     const headers = { 'Accept': 'application/json', 'User-Agent': 'GEMA/1.0' };
-    if (auth) headers['Authorization'] = auth;
+    if (opts && opts.auth) headers['Authorization'] = opts.auth;
     if (opts && opts.body) headers['Content-Type'] = 'application/json';
-    const res = await fetch(REST_BASE + path, {
+    const res = await fetch(base + path, {
       method: (opts && opts.method) || 'GET',
       headers: headers,
       body: (opts && opts.body) || undefined,
@@ -348,6 +490,197 @@ async function _restCall(path, opts) {
   } finally { clearTimeout(t); }
 }
 
+async function _restSuche(base, auth, name, sprache, ms, dbg) {
+  const r = await _restCall(base, '/api/v1/firm/search.json', {
+    method: 'POST', auth: auth, ms: ms,
+    body: JSON.stringify({ name: name, languageKey: sprache, maxEntries: MAX_ENTRIES, offset: 0, activeOnly: false })
+  });
+  if (dbg) { dbg.status = r.status; dbg.rohantwort = String(r.text || '').slice(0, 2500); dbg.query = base + '/api/v1/firm/search.json'; }
+  if (r.status === 401 || r.status === 403) throw new Error('Zugang abgelehnt (HTTP ' + r.status + ') — Zugangsdaten prüfen.');
+  if (r.status === 404) return [];
+  if (r.status < 200 || r.status >= 300) throw new Error('HTTP ' + r.status + '.');
+  const data = _parseJson(r.text);
+  if (!data) throw new Error('Keine JSON-Antwort.');
+  return _extractList(data).map(_normFirma).filter(Boolean).slice(0, MAX_ENTRIES);
+}
+
+async function _restDetail(base, auth, uidPlain, ms, dbg) {
+  const r = await _restCall(base, '/api/v1/firm/' + encodeURIComponent(uidPlain) + '.json', { auth: auth, ms: ms });
+  if (dbg) { dbg.status = r.status; dbg.rohantwort = String(r.text || '').slice(0, 2500); }
+  if (r.status === 401 || r.status === 403) throw new Error('Zugang abgelehnt (HTTP ' + r.status + ') — Zugangsdaten prüfen.');
+  if (r.status === 404) return [];
+  if (r.status < 200 || r.status >= 300) throw new Error('HTTP ' + r.status + '.');
+  const data = _parseJson(r.text);
+  if (!data) throw new Error('Keine JSON-Antwort.');
+  return _extractList(data).map(_normFirma).filter(Boolean).slice(0, MAX_ENTRIES);
+}
+
+// ═══════════════════════════ Quellen-Kaskade ═════════════════════════════
+
+// Reihenfolge = absteigende Erwartung. LINDAS zuerst, weil es Open Data
+// ohne Zugangsdaten ist UND als einzige Quelle die Adressen gleich mit der
+// Trefferliste liefert.
+const QUELLEN = [
+  {
+    id: 'lindas-range', familie: 'lindas',
+    label: 'LINDAS (Open Data, Bereichssuche)',
+    aktiv: function () { return SOURCE !== 'rest'; },
+    suche: function (a) { return _lindasSuche(a.name, 'range', a.ms, a.dbg); },
+    detail: function (a) { return _lindasDetail(a.uid, a.ms, a.dbg); }
+  },
+  {
+    id: 'lindas-strstarts', familie: 'lindas',
+    label: 'LINDAS (Open Data, Textsuche)',
+    aktiv: function () { return SOURCE !== 'rest'; },
+    suche: function (a) { return _lindasSuche(a.name, 'strstarts', a.ms, a.dbg); },
+    // Das Detail ist in beiden LINDAS-Strategien dieselbe Abfrage — als
+    // eigener Versuch trotzdem sinnvoll (ein Aussetzer kann vorbeigehen).
+    detail: function (a) { return _lindasDetail(a.uid, a.ms, a.dbg); }
+  },
+  {
+    id: 'zefix-rest-konto', familie: 'rest',
+    label: 'Zefix Public REST (mit Konto)',
+    aktiv: function () { return SOURCE !== 'lindas' && _hatRestZugang(); },
+    suche: function (a) { return _restSuche(REST_BASE, _restAuthHeader(), a.name, a.sprache, a.ms, a.dbg); },
+    detail: function (a) { return _restDetail(REST_BASE, _restAuthHeader(), a.uid, a.ms, a.dbg); }
+  },
+  {
+    id: 'zefix-rest-offen', familie: 'rest',
+    label: 'Zefix-Suchportal (ohne Konto)',
+    aktiv: function () { return SOURCE !== 'lindas' && !!PUBLIC_BASE; },
+    suche: function (a) { return _restSuche(PUBLIC_BASE, '', a.name, a.sprache, a.ms, a.dbg); },
+    detail: function (a) { return _restDetail(PUBLIC_BASE, '', a.uid, a.ms, a.dbg); }
+  }
+];
+
+// Kurzzeit-Sperre je Quelle: ein toter Dienst soll nicht bei JEDER Anfrage
+// erneut das Zeitbudget fressen. Überlebt bewusst nur den warmen
+// Function-Prozess — ein Deploy/Kaltstart probiert wieder alles.
+const _sperre = {};
+const _quellenState = { letzteGute: '' };
+function _gesperrt(id) { return !!(_sperre[id] && _sperre[id] > Date.now()); }
+
+// Reihenfolge: zuletzt erfolgreiche Quelle zuerst, gesperrte ans Ende.
+function _reihenfolge(art) {
+  const nutzbar = QUELLEN.filter(function (q) { return q.aktiv() && typeof q[art] === 'function'; });
+  return nutzbar.slice().sort(function (a, b) {
+    const ga = _gesperrt(a.id) ? 1 : 0, gb = _gesperrt(b.id) ? 1 : 0;
+    if (ga !== gb) return ga - gb;
+    const la = a.id === _quellenState.letzteGute ? 0 : 1;
+    const lb = b.id === _quellenState.letzteGute ? 0 : 1;
+    if (la !== lb) return la - lb;
+    return QUELLEN.indexOf(a) - QUELLEN.indexOf(b);
+  });
+}
+
+function _fehlerText(e) {
+  if (!e) return 'Unbekannter Fehler.';
+  if (e.name === 'AbortError') return 'Zeitüberschreitung.';
+  return String(e.message || e);
+}
+
+/**
+ * Probiert die Quellen der Reihe nach. Die erste mit Treffern gewinnt.
+ * Liefert eine Quelle technisch sauber NULL Treffer, wird trotzdem
+ * weitergesucht (die nächste kennt die Firma vielleicht) — bleibt es
+ * dabei, ist «nichts gefunden» eine gültige Antwort, kein Fehler.
+ */
+async function _kaskade(art, arg, opts) {
+  const start = Date.now();
+  const versuche = [];
+  let leerErfolg = false;
+  const liste = _reihenfolge(art);
+  if (!liste.length) {
+    return { firmen: [], quelle: '', versuche: versuche,
+             fehler: 'Keine Handelsregister-Quelle aktiv (ZEFIX_SOURCE / Zugangsdaten prüfen).' };
+  }
+  for (let i = 0; i < liste.length; i++) {
+    const q = liste[i];
+    const rest = GESAMT_MS - (Date.now() - start);
+    if (rest < 900) {
+      versuche.push({ quelle: q.id, ok: false, uebersprungen: 'Zeitbudget aufgebraucht' });
+      continue;
+    }
+    const dbg = opts && opts.debug ? {} : null;
+    const t0 = Date.now();
+    try {
+      const firmen = await q[art](Object.assign({ ms: Math.min(QUELLE_MS, rest - 300), dbg: dbg }, arg));
+      const n = (firmen || []).length;
+      versuche.push(Object.assign({ quelle: q.id, label: q.label, ok: true, ms: Date.now() - t0, treffer: n }, dbg ? { debug: dbg } : {}));
+      delete _sperre[q.id];
+      if (n) {
+        _quellenState.letzteGute = q.id;
+        return { firmen: firmen, quelle: q.id, versuche: versuche };
+      }
+      leerErfolg = true;
+    } catch (e) {
+      _sperre[q.id] = Date.now() + SPERRE_MS;
+      versuche.push(Object.assign({ quelle: q.id, label: q.label, ok: false, ms: Date.now() - t0, fehler: _fehlerText(e) }, dbg ? { debug: dbg } : {}));
+    }
+  }
+  if (leerErfolg) return { firmen: [], quelle: '', versuche: versuche };
+  const gruende = versuche.filter(function (v) { return !v.ok; })
+    .map(function (v) { return (v.label || v.quelle) + ': ' + (v.fehler || v.uebersprungen); });
+  return { firmen: [], quelle: '', versuche: versuche,
+           fehler: 'Handelsregister nicht erreichbar — ' + (gruende.join(' · ') || 'keine Quelle lieferte eine Antwort.') };
+}
+
+// ── Selbsttest ───────────────────────────────────────────────────────────
+// Beantwortet «es funktioniert nicht mehr» ohne Raten: prüft JEDE Quelle
+// einzeln (auch die, die die Kaskade übersprungen hätte) und meldet
+// Status, Dauer und Trefferzahl. Env-Variablen werden nur als gesetzt/
+// nicht gesetzt gemeldet — nie ihr Wert.
+async function _selftest(name, sprache) {
+  const ergebnis = [];
+  for (let i = 0; i < QUELLEN.length; i++) {
+    const q = QUELLEN[i];
+    const eintrag = { quelle: q.id, label: q.label, aktiv: q.aktiv(), gesperrt: _gesperrt(q.id) };
+    if (!eintrag.aktiv) {
+      eintrag.hinweis = q.familie === 'rest' && !_hatRestZugang() && q.id === 'zefix-rest-konto'
+        ? 'Keine Zugangsdaten hinterlegt (ZEFIX_USER/ZEFIX_PASSWORD).'
+        : 'Durch ZEFIX_SOURCE=' + SOURCE + ' abgeschaltet.';
+      ergebnis.push(eintrag);
+      continue;
+    }
+    const t0 = Date.now();
+    try {
+      const firmen = await q.suche({ name: name, sprache: sprache, ms: QUELLE_MS, dbg: null });
+      eintrag.ok = true;
+      eintrag.ms = Date.now() - t0;
+      eintrag.treffer = (firmen || []).length;
+      eintrag.mitAdresse = (firmen || []).filter(function (f) { return !!(f.strasse || f.plz || f.ort); }).length;
+      eintrag.beispiel = firmen && firmen[0]
+        ? { name: firmen[0].name, uid: firmen[0].uidFormatted, adresse: [firmen[0].strasse, [firmen[0].plz, firmen[0].ort].filter(Boolean).join(' ')].filter(Boolean).join(', ') }
+        : null;
+    } catch (e) {
+      eintrag.ok = false;
+      eintrag.ms = Date.now() - t0;
+      eintrag.fehler = _fehlerText(e);
+    }
+    ergebnis.push(eintrag);
+  }
+  const gut = ergebnis.filter(function (e) { return e.ok && e.treffer; });
+  return {
+    ok: true,
+    suchbegriff: name,
+    zusammenfassung: gut.length
+      ? gut.length + ' von ' + ergebnis.length + ' Quellen liefern Treffer — die Firmensuche funktioniert.'
+      : 'KEINE Quelle liefert Treffer — die Firmensuche ist aktuell tot. Gründe siehe unten.',
+    quellen: ergebnis,
+    konfiguration: {
+      ZEFIX_SOURCE: SOURCE || '(leer — Kaskade)',
+      ZEFIX_LINDAS_ENDPOINT: LINDAS_ENDPOINT,
+      ZEFIX_LINDAS_GRAPH: LINDAS_GRAPH,
+      ZEFIX_LINDAS_MATCH: LINDAS_MATCH,
+      ZEFIX_PUBLIC_BASE: PUBLIC_BASE || '(abgeschaltet)',
+      ZEFIX_BASE: REST_BASE,
+      ZEFIX_KONTO: _hatRestZugang() ? 'gesetzt' : 'nicht gesetzt',
+      eigeneSuchabfrage: !!process.env.ZEFIX_LINDAS_QUERY,
+      eigeneDetailabfrage: !!process.env.ZEFIX_LINDAS_DETAIL_QUERY
+    }
+  };
+}
+
 // ══════════════════════════════ Handler ══════════════════════════════════
 
 function _parseJson(text) {
@@ -356,7 +689,7 @@ function _parseJson(text) {
 }
 
 exports.handler = async function (event) {
-  const cors = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' };
+  const cors = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json; charset=utf-8' };
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers: {
       'Access-Control-Allow-Origin': '*',
@@ -374,74 +707,30 @@ exports.handler = async function (event) {
 
   const uidPlain = _uidDigits(p.uid || '');
   const name = String(p.name || '').trim().slice(0, 80);
-  const debug = String(p.debug || '') === '1' || String(p.debug || '').toLowerCase() === 'true';
+  const flag = function (v) { return String(v || '') === '1' || String(v || '').toLowerCase() === 'true'; };
+  const debug = flag(p.debug);
+  const sprache = ['de', 'fr', 'it', 'en'].indexOf(String(p.sprache || 'de').toLowerCase()) >= 0
+    ? String(p.sprache || 'de').toLowerCase() : 'de';
+
+  // ── Selbsttest ──
+  if (flag(p.selftest)) {
+    const begriff = name.length >= 3 ? name : 'Muster';
+    const out = await _selftest(begriff, sprache);
+    return { statusCode: 200, headers: cors, body: JSON.stringify(out) };
+  }
+
   if (!uidPlain && !name) return _err(400, 'Bitte Firmennamen (name) oder UID (uid) angeben.', cors);
   if (!uidPlain && p.uid) return _err(400, 'Ungültige UID — erwartet wird CHE-123.456.789.', cors);
   if (!uidPlain && name.length < 3) return _err(400, 'Suchbegriff zu kurz (mind. 3 Zeichen).', cors);
 
-  const sprache = ['de', 'fr', 'it', 'en'].indexOf(String(p.sprache || 'de').toLowerCase()) >= 0
-    ? String(p.sprache || 'de').toLowerCase() : 'de';
+  const art = uidPlain ? 'detail' : 'suche';
+  const r = await _kaskade(art, { name: name, uid: uidPlain, sprache: sprache }, { debug: debug });
 
-  // ── 1) LINDAS (Open Data, ohne Zugangsdaten) ──
-  const lindasZuerst = SOURCE !== 'rest';
-  if (lindasZuerst) {
-    const query = uidPlain
-      ? _lindasDetailQuery(_fmtUid(uidPlain), uidPlain)
-      : _lindasSearchQuery(name, MAX_ENTRIES);
-    let r = null, netzFehler = '';
-    try { r = await _lindasFetch(query); }
-    catch (e) {
-      netzFehler = (e && e.name === 'AbortError')
-        ? 'Handelsregister-Abfrage hat zu lange gedauert (LINDAS).'
-        : 'LINDAS nicht erreichbar.';
-    }
-    const dbg = debug ? { quelle: 'lindas', endpoint: LINDAS_ENDPOINT, query: query,
-                          status: r ? r.status : 0, rohantwort: r ? String(r.text || '').slice(0, 2500) : netzFehler } : null;
-    if (r && r.status >= 200 && r.status < 300) {
-      const json = _parseJson(r.text);
-      if (json && json.results) {
-        const firmen = _normBindings(json);
-        const out = { ok: true, quelle: 'lindas', firmen: firmen, anzahl: firmen.length };
-        if (dbg) out.debug = dbg;
-        return { statusCode: 200, headers: cors, body: JSON.stringify(out) };
-      }
-      if (!_hatRestZugang()) {
-        return _err(502, 'Unerwartete Antwort von LINDAS (kein SPARQL-Resultat).', cors, dbg ? { debug: dbg } : null);
-      }
-    } else if (!_hatRestZugang()) {
-      const msg = netzFehler || ('LINDAS meldet HTTP ' + (r ? r.status : '?') + '.');
-      return _err(502, msg, cors, dbg ? { debug: dbg } : null);
-    }
-    // sonst: unten auf die REST-API zurückfallen
-  }
-
-  // ── 2) Zefix Public REST (Fallback bzw. ZEFIX_SOURCE=rest) ──
-  let r;
-  try {
-    r = uidPlain
-      ? await _restCall('/api/v1/firm/' + encodeURIComponent(uidPlain) + '.json')
-      : await _restCall('/api/v1/firm/search', {
-          method: 'POST',
-          body: JSON.stringify({ name: name, languageKey: sprache, maxEntries: MAX_ENTRIES, offset: 0, activeOnly: false })
-        });
-  } catch (e) {
-    const msg = (e && e.name === 'AbortError')
-      ? 'Handelsregister antwortet nicht (Zeitüberschreitung).'
-      : 'Handelsregister nicht erreichbar.';
-    return _err(504, msg, cors);
-  }
-
-  if (r.status === 401 || r.status === 403) {
-    return _err(502, 'Handelsregister-Zugang nicht konfiguriert oder abgelehnt — die Open-Data-Quelle LINDAS war nicht erreichbar und für die Zefix-REST-API fehlen ZEFIX_USER/ZEFIX_PASSWORD.', cors);
-  }
-  if (r.status === 404) return { statusCode: 200, headers: cors, body: JSON.stringify({ ok: true, quelle: 'rest', firmen: [], anzahl: 0 }) };
-  if (r.status < 200 || r.status >= 300) return _err(502, 'Handelsregister meldet HTTP ' + r.status + '.', cors);
-
-  const data = _parseJson(r.text);
-  if (!data) return _err(502, 'Unerwartete Antwort des Handelsregisters (kein JSON).', cors);
-
-  const firmen = _extractList(data).map(_normFirma).filter(Boolean).slice(0, MAX_ENTRIES);
-  return { statusCode: 200, headers: cors, body: JSON.stringify({ ok: true, quelle: 'rest', firmen: firmen, anzahl: firmen.length }) };
+  if (r.fehler) return _err(502, r.fehler, cors, { versuche: r.versuche });
+  return {
+    statusCode: 200, headers: cors,
+    body: JSON.stringify({ ok: true, quelle: r.quelle, firmen: r.firmen, anzahl: r.firmen.length, versuche: r.versuche })
+  };
 };
 
 // Für Node-Tests
@@ -454,5 +743,13 @@ exports._txt = _txt;
 exports._istAktiv = _istAktiv;
 exports._sparqlLit = _sparqlLit;
 exports._normBindings = _normBindings;
-exports._lindasSearchQuery = _lindasSearchQuery;
+exports._praefixVarianten = _praefixVarianten;
+exports._lindasNamenQuery = _lindasNamenQuery;
+exports._lindasDetailsQuery = _lindasDetailsQuery;
 exports._lindasDetailQuery = _lindasDetailQuery;
+exports._reihenfolge = _reihenfolge;
+exports._kaskade = _kaskade;
+exports._selftest = _selftest;
+exports.QUELLEN = QUELLEN;
+// Rückwärtskompatibel: der frühere Name der Such-Abfrage.
+exports._lindasSearchQuery = function (q, limit) { return _lindasNamenQuery(q, limit, 'strstarts'); };
