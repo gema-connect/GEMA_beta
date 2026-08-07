@@ -216,6 +216,9 @@ body.beta-mine-only .fbp-input{display:none}
 .um-lbl:hover{border-color:var(--grn-bd);color:var(--grn)}
 .um-lbl.on{background:var(--grn-bg);border-color:var(--grn-bd);color:var(--grn)}
 .um-lbl input{width:14px;height:14px;accent-color:var(--grn);cursor:pointer;margin:0;flex-shrink:0}
+/* Marke an einem AUTOMATISCH freigegebenen Punkt (Admin-Feedback) — ein
+   gesetzter Haken ohne erkennbaren Grund sieht sonst aus wie ein Fehler. */
+.um-auto{margin-left:2px;padding:1px 5px;border-radius:4px;background:var(--grn-bd);color:#fff;font-size:9px;font-weight:900;letter-spacing:.03em}
 .fb-card.fb-um{border-color:var(--grn-bd);box-shadow:inset 3px 0 0 0 var(--grn)}
 .fbp-um{font-size:10.5px;font-weight:800;color:var(--grn);background:var(--grn-bg);border:1.5px solid var(--grn-bd);border-radius:6px;padding:3px 8px;white-space:nowrap}
 .fbp-um:empty{display:none}
@@ -778,6 +781,36 @@ const fbRollenText = (c) => {
   return teile.join(' · ');
 };
 
+/* ── «Feedback umsetzen»: Admin-Feedback ist automatisch freigegeben ──
+   User-Entscheid 07.08.2026. Genau die zwei Marker, die gema_feedback.js
+   beim Absenden erfasst: die System-Rolle `role_admin` (GEMA-Admin) und
+   `orgAdmin` (Firmen-Admin — keine roleId, wirkt aber wie eine).
+   Ein Punkt OHNE Rollen-Angabe (Altbestand vor 08/2026 oder ohne Login
+   abgesendet) zählt NICHT als Admin — eine fehlende Angabe wird nie
+   geraten. */
+const fbIstAdmin = (c) => {
+  if (!c) return false;
+  if (c.orgAdmin === true) return true;
+  const arr = fbRollenListe(c);
+  return Array.isArray(arr) && arr.some(r => r && r.id === 'role_admin');
+};
+/* DER Resolver für die Export-Freigabe — Board UND Export laufen darüber,
+   sonst driften Anzeige und Markdown auseinander.
+   Eine bewusste Wahl am Datensatz gewinnt IMMER (`true` = angehakt,
+   `false` = ausdrücklich abgewählt, auch bei einem Admin). Fehlt das Feld,
+   greift die Admin-Regel — damit sind auch die BEREITS vorhandenen
+   Admin-Punkte freigegeben, ohne dass irgendwo Daten überschrieben werden. */
+const fbUmsetzen = (c) => {
+  if (!c) return false;
+  if (c.umsetzen === true)  return true;
+  if (c.umsetzen === false) return false;
+  return fbIstAdmin(c);
+};
+/* Ist die Freigabe abgeleitet (statt am Datensatz gesetzt)? Wird an der
+   Checkbox ausgewiesen — ein automatisch gesetzter Haken ohne Erklärung
+   sieht aus wie ein Fehler. */
+const fbUmAuto = (c) => !!c && c.umsetzen === undefined && fbIstAdmin(c);
+
 // ── ACTIVITY LOG ──────────────────────────────────────────────
 const logActivity = (type, text) => {
   state.activity.unshift({ type, text, ts: nowStr() });
@@ -936,7 +969,7 @@ const buildPanelRow = (m) => {
       <span class="fbp-title">💬 Feedback &amp; Kommentare — ${escHtml(m.name)}</span>
       <button class="fbp-selall" onclick="fbSelAll('${m.id}')">☑ Alle markieren</button>
       <span class="fbp-um" id="umc-${m.id}">${escHtml(umHeadText(m.id))}</span>
-      <span class="fbp-hint">«Feedback umsetzen» = kommt in den Export · Punkte markieren → Status unten gemeinsam wechseln</span>
+      <span class="fbp-hint">«Feedback umsetzen» = kommt in den Export (bei Admin-Feedback automatisch) · Punkte markieren → Status unten gemeinsam wechseln</span>
     </div>
     <div class="fbp-list" id="cl-${m.id}">${renderComments(m.id)}</div>
     <div class="comment-input-row fbp-input">
@@ -990,10 +1023,14 @@ const renderComments = (id) => {
     // «Feedback umsetzen» — nur an Feedback-Punkten: der Markdown-Export liest
     // ausschliesslich getFeedback(); an einem manuellen Board-Kommentar waere
     // der Haken eine Zusage, die der Export nicht einloest.
-    const umsetzen = c._isFeedback && c.umsetzen === true;
+    const umsetzen = c._isFeedback && fbUmsetzen(c);
+    const umAuto   = c._isFeedback && fbUmAuto(c);
+    const umTitle  = umAuto
+      ? 'Automatisch freigegeben, weil dieser Punkt von einem Admin gemeldet wurde — Haken entfernen nimmt ihn aus dem Export'
+      : 'Angehakt = dieser Punkt wird in den Markdown-Export für Claude Code übernommen';
     const umBox = c._isFeedback
-      ? `<label class="um-lbl${umsetzen?' on':''}" title="Angehakt = dieser Punkt wird in den Markdown-Export für Claude Code übernommen">
-          <input type="checkbox" ${umsetzen?'checked':''} onchange="setCommentUmsetzen('${id}',${idx},this.checked)"/>Feedback umsetzen
+      ? `<label class="um-lbl${umsetzen?' on':''}" title="${umTitle}">
+          <input type="checkbox" ${umsetzen?'checked':''} onchange="setCommentUmsetzen('${id}',${idx},this.checked)"/>Feedback umsetzen${umAuto?'<span class="um-auto">Admin</span>':''}
         </label>`
       : '';
 
@@ -1164,7 +1201,11 @@ const fbBulkUmsetzen = (on) => {
     const fb = getFeedback(modId);
     byMod[modId].forEach(idx => {
       if (!fb[idx]) return;
-      if (on) fb[idx].umsetzen = true; else delete fb[idx].umsetzen;
+      // Abwählen speichert `false` explizit, wenn die Admin-Regel den Punkt
+      // sonst automatisch wieder freigäbe (siehe setCommentUmsetzen).
+      if (on) fb[idx].umsetzen = true;
+      else if (fbIstAdmin(fb[idx])) fb[idx].umsetzen = false;
+      else delete fb[idx].umsetzen;
       n++;
     });
     if (typeof _GemaDB !== 'undefined') {
@@ -1212,10 +1253,11 @@ const addComment = (id, name) => {
 };
 
 // ── «FEEDBACK UMSETZEN» — Export-Freigabe pro Punkt ───────────
-// Der Markdown-Export nimmt AUSSCHLIESSLICH Punkte mit `umsetzen === true`.
-// Das Feld lebt im Feedback-Datensatz (wie cStatus) und wird beim Anhaken
-// sofort nach `feedback_<modId>` geschrieben.
-const umCount = (id) => getFeedback(id).filter(c => c && c.umsetzen === true).length;
+// Der Markdown-Export nimmt AUSSCHLIESSLICH freigegebene Punkte — was
+// freigegeben ist, entscheidet allein fbUmsetzen(): der Haken am Datensatz
+// (`umsetzen`, lebt dort wie cStatus und wird beim Anhaken sofort nach
+// `feedback_<modId>` geschrieben) ODER, wenn er fehlt, die Admin-Regel.
+const umCount = (id) => getFeedback(id).filter(c => fbUmsetzen(c)).length;
 const umHeadText = (id) => {
   const n = umCount(id);
   return n ? '🎯 ' + n + ' für Umsetzung markiert' : '';
@@ -1233,11 +1275,21 @@ const _umPaintCard = (modId, idx, on) => {
   card.classList.toggle('fb-um', !!on);
   const lbl = card.querySelector('.um-lbl');
   if (lbl) lbl.classList.toggle('on', !!on);
+  // Die «Admin»-Marke gilt nur, solange die Freigabe wirklich abgeleitet ist —
+  // nach einer bewussten Wahl steht sie am Datensatz und die Marke fällt weg.
+  const marke = lbl && lbl.querySelector('.um-auto');
+  if (marke) marke.remove();
 };
+/* Setzt die Freigabe am Datensatz. KRITISCH beim Abwählen eines
+   Admin-Punkts: `false` muss EXPLIZIT gespeichert werden — ein blosses
+   Löschen des Feldes liesse die Admin-Ableitung sofort zurückkommen und
+   der Haken wäre gar nicht abwählbar. */
 const setCommentUmsetzen = (modId, idx, on) => {
   const fb = getFeedback(modId);
   if (!fb[idx]) return;
-  if (on) fb[idx].umsetzen = true; else delete fb[idx].umsetzen;
+  if (on) fb[idx].umsetzen = true;
+  else if (fbIstAdmin(fb[idx])) fb[idx].umsetzen = false;
+  else delete fb[idx].umsetzen;
   if (typeof _GemaDB !== 'undefined') {
     try { _GemaDB.save('feedback_' + modId, JSON.stringify(fb)); } catch(e){}
   }
@@ -1494,7 +1546,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         <span id="exStats" style="font-size:11.5px;color:#6b7280;font-weight:600"></span>
       </div>
       <div id="exUmHint" style="margin-top:9px;font-size:11.5px;font-weight:600;line-height:1.5;padding:8px 11px;border-radius:9px;border:1.5px solid #bbf7d0;background:#f0fdf4;color:#15803d">
-        🎯 Exportiert werden nur Punkte, die im Board mit <strong>«Feedback umsetzen»</strong> angehakt sind.
+        🎯 Exportiert werden nur Punkte, die im Board mit <strong>«Feedback umsetzen»</strong> angehakt sind — bei Feedback von Admins ist der Haken automatisch gesetzt.
       </div>
     </div>
 
@@ -1563,8 +1615,9 @@ function _exModuleLabel(modId){
 
 // Sammelt Feedback-Eintraege ueber alle FEEDBACK_IDS und liefert ein Array
 // von { modId, modName, item, idx } pro Eintrag.
-// `nurUmsetzen` (Default true) laesst NUR Punkte durch, die im Board mit
-// «Feedback umsetzen» freigegeben wurden — das ist die Export-Wahrheit.
+// `nurUmsetzen` (Default true) laesst NUR Punkte durch, die fuer die
+// Umsetzung freigegeben sind — Resolver fbUmsetzen (Haken am Datensatz ODER
+// Admin-Regel). Das ist die Export-Wahrheit.
 function _exCollectAll(nurUmsetzen){
   var nur = (nurUmsetzen !== false);
   var out = [];
@@ -1573,7 +1626,7 @@ function _exCollectAll(nurUmsetzen){
     if(!Array.isArray(fb) || !fb.length) return;
     fb.forEach(function(item, idx){
       if(!item) return;
-      if(nur && item.umsetzen !== true) return;
+      if(nur && !fbUmsetzen(item)) return;
       out.push({ modId: modId, modName: _exModuleLabel(modId), item: item, idx: idx });
     });
   });
@@ -1585,7 +1638,7 @@ function _exCollectAll(nurUmsetzen){
 // wegfaellt, muss sichtbar sein und darf nie stillschweigend verschwinden.
 function _exOhneHaken(){
   return _exApplyFilter(_exCollectAll(false).filter(function(e){
-    return e.item.umsetzen !== true;
+    return !fbUmsetzen(e.item);
   }));
 }
 
@@ -1647,7 +1700,7 @@ function _exGenerate(filtered, withScreenshots){
   lines.push('');
   lines.push('> **Generiert:** ' + ts);
   lines.push('> **Filter:** ' + (statusFilter.join(' + ') || '(nichts)') + (withScreenshots ? ' · mit Screenshots' : ' · ohne Screenshots'));
-  lines.push('> **Auswahl:** nur Punkte mit «Feedback umsetzen»');
+  lines.push('> **Auswahl:** nur Punkte mit «Feedback umsetzen» (bei Admin-Feedback automatisch gesetzt)');
   lines.push('> **Total:** ' + filtered.length + ' Eintr' + (filtered.length===1?'ag':'äge') + ' aus ' + modIds.length + ' Modul' + (modIds.length===1?'':'en'));
   lines.push('');
   lines.push('---');
@@ -1732,7 +1785,7 @@ function refreshExportPreview(){
   var hint = document.getElementById('exUmHint');
   if(hint){
     var offen = _exOhneHaken().length;
-    var basis = '🎯 Exportiert werden nur Punkte, die im Board mit <strong>«Feedback umsetzen»</strong> angehakt sind.';
+    var basis = '🎯 Exportiert werden nur Punkte, die im Board mit <strong>«Feedback umsetzen»</strong> angehakt sind — bei Feedback von Admins ist der Haken automatisch gesetzt.';
     if(offen){
       hint.style.borderColor = '#fde68a';
       hint.style.background  = '#fffbeb';
