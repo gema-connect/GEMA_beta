@@ -849,6 +849,21 @@
     } catch(e) { return null; }
   }
 
+  /* Zählt der Absender als Admin? Genau die zwei Marker, die
+     `_rollenKontext` erfasst: die System-Rolle `role_admin` (GEMA-Admin)
+     und `orgAdmin` (Firmen-Admin — keine roleId, wirkt aber wie eine).
+     sys_beta leitet mit derselben Regel ab, damit Board und Absende-Weg
+     nicht auseinanderlaufen. */
+  function _istAdmin(k) {
+    if (!k) return false;
+    if (k.orgAdmin === true) return true;
+    if (!Array.isArray(k.rollen)) return false;
+    for (var i = 0; i < k.rollen.length; i++) {
+      if (k.rollen[i] && k.rollen[i].id === 'role_admin') return true;
+    }
+    return false;
+  }
+
   function close() {
     var m = document.getElementById('gfb-modal');
     if (m) m.style.display = 'none';
@@ -880,6 +895,12 @@
       if (kontext.orgAdmin) entry.orgAdmin = true;
       if (kontext.orgId)    entry.orgId    = kontext.orgId;
       if (kontext.orgName)  entry.orgName  = kontext.orgName;
+      /* Feedback von Admins ist automatisch für die Umsetzung freigegeben
+         (User-Entscheid 07.08.2026) — es kommt damit ohne Zutun in den
+         Markdown-Export. Der Haken im Board bleibt abwählbar: die Freigabe
+         ist voreingestellt, nicht erzwungen. Quelle ist wie beim Rollen-
+         Kontext IMMER die Sitzung, nie das freie Autor-Textfeld. */
+      if (_istAdmin(kontext)) entry.umsetzen = true;
     }
 
     var ok = false;
@@ -961,7 +982,8 @@
     finish: _finishAnnotation,
     commitText: _commitTextInput,
     screenshot: function() { return _screenshotDataUrl; },
-    rollenKontext: _rollenKontext
+    rollenKontext: _rollenKontext,
+    istAdmin: _istAdmin
   };
 
 })(window);
