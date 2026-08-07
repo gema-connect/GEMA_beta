@@ -46,15 +46,20 @@ ok(await page.locator('#mkSchema svg').count() === 1, 'Mischungskreuz-SVG gezeic
 ok((await page.locator('#mkSchema').innerHTML()).indexOf('Q erfassen') >= 0, 'Schema zeigt «Q erfassen» in den Volumenstrom-Boxen');
 
 console.log('— Excel-Beispiel mit Q = 30 l/min —');
+// Feedback 06.08.2026: das Feld startet neu auf l/s — fürs Excel-Beispiel bewusst umschalten.
+ok(await page.locator('#mk_qunit').inputValue() === 'ls', 'Standard-Einheit ist l/s');
+await page.selectOption('#mk_qunit', 'lmin');
 await page.fill('#mk_q', '30');
 await page.waitForTimeout(300);
 ok((await txt('mk_out_qww')).indexOf('21.00') === 0, 'Q_WW = 21.00 l/min (Excel V23)');
 ok((await txt('mk_out_qww_ls')).indexOf('0.35') === 0, 'Q_WW = 0.35 l/s (Excel Z23)');
 ok((await txt('mk_out_qkw')).indexOf('9.00') === 0, 'Q_KW = 9.00 l/min (Excel V27)');
 ok((await txt('mk_out_qkw_ls')).indexOf('0.15') === 0, 'Q_KW = 0.15 l/s (Excel Z27)');
-ok((await txt('mk_out_sum')).indexOf('30.00') === 0, 'Kontrolle: Summe 30.00 l/min (Excel V29)');
+ok((await txt('mk_out_sum')).indexOf('0.50') === 0, 'Kontrolle: Summe 0.50 l/s (Excel V29 = 30 l/min)');
 ok((await txt('mk_out_qlmin')).indexOf('30.00') === 0 && (await txt('mk_out_qls')).indexOf('0.50') === 0, 'Q-Spiegel 30.00 l/min / 0.50 l/s');
-ok((await txt('mk_kpi_qww')) === '21.00' && (await txt('mk_kpi_qkw')) === '9.00', 'KPIs 21.00 / 9.00');
+// l/s ist der Leitwert der KPI-Kacheln (gross), l/min steht klein darunter.
+ok((await txt('mk_kpi_qww')) === '0.35' && (await txt('mk_kpi_qkw')) === '0.15', 'KPIs in l/s: 0.35 / 0.15');
+ok((await txt('mk_kpi_qww_s')).indexOf('21.00 l/min') > 0, 'KPI-Subtext trägt l/min');
 ok((await txt('mk_kpi_pct')).indexOf('70') === 0, 'Mischverhältnis-KPI 70 / 30');
 ok(!(await page.locator('#mk_hint_q').isVisible()), 'Q-Hinweis verschwindet');
 ok((await page.locator('#mkSchema').innerHTML()).indexOf('21.00') >= 0, 'Schema zeigt Q_WW 21.00');
@@ -69,6 +74,10 @@ await page.selectOption('#mk_qunit', 'lh');
 await page.fill('#mk_q', '1800');
 await page.waitForTimeout(300);
 ok((await txt('mk_out_qkw')).indexOf('9.00') === 0, '1800 l/h → identisches Ergebnis (9.00 l/min)');
+await page.selectOption('#mk_qunit', 'm3h');
+await page.fill('#mk_q', '1.8');
+await page.waitForTimeout(300);
+ok((await txt('mk_out_qkw')).indexOf('9.00') === 0, '1.8 m³/h → identisches Ergebnis (9.00 l/min)');
 await page.selectOption('#mk_qunit', 'lmin');
 await page.fill('#mk_q', '30');
 await page.waitForTimeout(300);

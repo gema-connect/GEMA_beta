@@ -36,7 +36,8 @@ console.log('■ A: Statik — Zirkulation');
 ok(/id="zk_fabrikat2"/.test(zk) && /function zkFab2Changed/.test(zk) && /function zkRowFab/.test(zk),
   '#6: zweites Fabrikat wählbar (zk_fabrikat2 + zkFab2Changed + zkRowFab)');
 ok(/data-k="fabsel"/.test(zk), '#6: Fabrikat-Wahl pro Zeile (data-k="fabsel") im 2-Fabrikate-Modus');
-ok(/Temperatur Austritt Wassererwärmer/.test(zk), '#8: Label «Temperatur Austritt Wassererwärmer»');
+// Feedback 06.08.2026 (Runde 2): «Wassererwärmer» heisst jetzt «Warmwassererzeugung».
+ok(/Temperatur Austritt Warmwassererzeugung/.test(zk), '#8: Label «Temperatur Austritt Warmwassererzeugung»');
 ok(/zkFillRangeSelect\('zk_tww',\s*65,\s*52,\s*-1,\s*58\)/.test(zk),
   '#10: T WW 65→52 °C absteigend (65 zuoberst), Vorgabe 58');
 ok(/zkFillRangeSelect\('zk_dtzul',\s*1,\s*5,\s*1,\s*3\)/.test(zk),

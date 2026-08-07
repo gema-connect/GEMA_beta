@@ -1638,7 +1638,19 @@ window.wwGrobPersUebernehmen=function(){
 function wwPersist(){
   _wwInternal=true;
   var ta=document.getElementById('ww_rows');
-  ta.value=JSON.stringify(wwState);
+  /* ADDITIV: die Ergebnisse der Grobauslegung reisen im Save-Payload mit,
+     damit sie andere Module lesen können (Muster `totals` in
+     sb_du_zusammenstellung / `straengeSummary` in sb_niederschlag).
+     Konsument: sa_frischwasserstation «Grobauslegung übernehmen»
+     (Feedback 06.08.2026 #7). Gespeicherte Alt-Stände ohne das Feld
+     verhalten sich unverändert — wwRestoreFromTA liest es nicht. */
+  var payload=JSON.parse(JSON.stringify(wwState));
+  try{
+    var r=wwCalc();
+    payload.wwSummary={grobTotal:r.grobTotal||0, vz:r.vz||0, vzFein:r.vzFein||0,
+      qw:r.qw||0, tww:parseFloat((document.getElementById('ww_tWw')||{}).value)||0};
+  }catch(e){}
+  ta.value=JSON.stringify(payload);
   try{ta.dispatchEvent(new Event('change',{bubbles:true}));}catch(e){}
   _wwInternal=false;
 }

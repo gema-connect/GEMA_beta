@@ -188,6 +188,34 @@ body {
 .g-card-hd h3 { font-size: 13px; font-weight: 700; color: var(--text); }
 .g-card-bd { padding: 18px; }
 
+/* ── Einheiten-Wahl Schacht (Feedback 06.08.2026 #1) ── */
+.sch-unit{display:inline-flex;gap:2px;background:var(--bg2,#eef2f7);border:1px solid var(--border);border-radius:8px;padding:2px;margin-left:auto;}
+.sch-unit-btn{border:0;background:transparent;color:var(--muted);font-family:inherit;font-size:12px;font-weight:700;padding:4px 12px;border-radius:6px;cursor:pointer;transition:.15s;}
+.sch-unit-btn:hover{color:var(--text);}
+.sch-unit-btn.active{background:#fff;color:var(--accent);box-shadow:0 1px 3px rgba(0,0,0,.10);}
+
+/* ── Unterblöcke Dauerbelastung / Niederschlag (Feedback #4/#5) ── */
+.sub-block{margin-top:14px;padding-top:14px;border-top:1px dashed var(--border);}
+.sub-block-hd{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px;}
+.sub-block-t{font-size:11.5px;font-weight:800;color:var(--accent);text-transform:uppercase;letter-spacing:.4px;}
+.qc-row{display:grid;grid-template-columns:1fr 130px 34px;gap:8px;align-items:center;margin-bottom:6px;}
+.ns-row{display:grid;grid-template-columns:1fr 110px 90px 110px 34px;gap:8px;align-items:center;margin-bottom:6px;}
+@media(max-width:760px){.qc-row{grid-template-columns:1fr 110px 30px;}.ns-row{grid-template-columns:1fr 1fr;}}
+.row-x{border:1.5px solid var(--red-bd,#fecaca);background:var(--red-bg,#fef2f2);color:var(--red,#dc2626);border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;height:34px;font-family:inherit;}
+.row-x:hover{background:var(--red-bd,#fecaca);}
+.ns-src{display:inline-block;font-size:10.5px;font-weight:700;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:5px;padding:1px 6px;margin-left:6px;}
+
+/* ── Apparate-Gruppen (Feedback #6 — wie in der DU-Berechnung) ── */
+.grp-row td{background:var(--bg2,#eef2f7);border-top:1px solid var(--border);padding:7px 14px!important;}
+.grp-lbl{font-size:11.5px;font-weight:800;color:var(--accent);text-transform:uppercase;letter-spacing:.4px;}
+.grp-cnt{font-size:11px;color:var(--muted);margin-left:10px;}
+.grp-sum{float:right;font-family:var(--mono);font-size:12px;font-weight:700;color:var(--text2);}
+
+/* ── Visualisierungen (Feedback #2/#8) ── */
+.sch-vis{margin-top:4px;}
+.sch-vis-t{font-size:11.5px;font-weight:800;color:var(--accent);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px;}
+.sch-vis svg{width:100%;height:auto;display:block;background:#f8fafc;border:1px solid var(--border);border-radius:10px;}
+
 /* ── TABS ── */
 .g-tabs {
   display: flex; gap: 2px;
@@ -652,8 +680,8 @@ function fixLeadingZero(el){
   <!-- TABS -->
   <div class="g-tabs" role="tablist">
     <button class="g-tab active" data-tab="tab1">Hebeanlage</button>
-    <button class="g-tab" data-tab="tab2">Druckleitung</button>
     <button class="g-tab" data-tab="tab3">Schacht</button>
+    <button class="g-tab" data-tab="tab2">Pumpendruckleitung</button>
     <button class="g-tab" data-tab="tab5">🏭 Anlagen-Auswahl</button>
     <button class="g-tab" data-tab="tab4">Datenbasis</button>
   </div>
@@ -665,7 +693,7 @@ function fixLeadingZero(el){
         <div class="g-card">
           <div class="g-card-hd">
             <h2>1) Eingangsdaten</h2>
-            <span class="g-badge neutral">Qtot = max(0.5·√(ΣDU), max(l/s‑Quelle)) + Zusatz</span>
+            <span class="g-badge neutral" id="qtotFormel">Q<sub>tot</sub> = max(K·√(ΣDU), max(l/s‑Quelle)) + Q<sub>c</sub> + Q<sub>r</sub> + Zusatz</span>
           </div>
           <div class="g-card-bd">
             <div class="g-grid-2" style="margin-bottom:14px;">
@@ -688,6 +716,52 @@ function fixLeadingZero(el){
                   <option value="3">3 (2+1)</option>
                 </select>
               </div>
+              <!-- Abflusskennzahl K (Feedback 06.08.2026 #5 — wie in der DU-Berechnung) -->
+              <div class="g-field">
+                <label class="g-label">Abflusskennzahl K</label>
+                <select class="g-sel" id="k_wert">
+                  <option value="0.5" selected>0.5 — Wohnhäuser, Büros (unregelmässig)</option>
+                  <option value="0.7">0.7 — Spitäler, Schulen, Hotels (regelmässig)</option>
+                  <option value="1.0">1.0 — Öffentl. Duschen, Toiletten (häufig)</option>
+                  <option value="1.2">1.2 — Spezialbetriebe (Labor, Industrie)</option>
+                  <option value="frei">Eigener K-Wert …</option>
+                </select>
+                <div class="g-inp-group" id="k_freiWrap" style="display:none;margin-top:6px;">
+                  <input class="g-inp" id="k_frei" type="text" inputmode="decimal" placeholder="z.B. 0.6" onblur="fixLeadingZero(this)"/>
+                  <span class="g-inp-unit">K</span>
+                </div>
+                <span class="g-hint">Q<sub>ww</sub> = K × √(ΣDU) nach SN EN 12056-2</span>
+              </div>
+            </div>
+
+            <!-- Dauerbelastung (Feedback 06.08.2026 #5 — wie in der DU-Berechnung) -->
+            <div class="sub-block">
+              <div class="sub-block-hd">
+                <div class="sub-block-t">Dauerbelastung Q<sub>c</sub></div>
+                <span class="g-hint">Dauerabflüsse zählen 1:1 — sie werden NICHT über K reduziert</span>
+              </div>
+              <div id="qcRows"></div>
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap;">
+                <button class="g-btn sm no-print" id="btn_qc_add">+ Dauerverbraucher</button>
+                <span class="g-hint">Σ Q<sub>c</sub>: <b class="mono" id="qcSum">0.00</b> l/s</span>
+              </div>
+            </div>
+
+            <!-- Niederschlag (Feedback 06.08.2026 #4) -->
+            <div class="sub-block">
+              <div class="sub-block-hd">
+                <div class="sub-block-t">Niederschlag Q<sub>r</sub></div>
+                <span class="g-hint">Flächen, die in den Schacht entwässern (Lichtschacht, Rampe, Hofeinlauf)</span>
+              </div>
+              <div id="nsRows"></div>
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap;">
+                <div style="display:flex;gap:6px;flex-wrap:wrap;" class="no-print">
+                  <button class="g-btn sm" id="btn_ns_add">+ Fläche</button>
+                  <button class="g-btn sm" id="btn_ns_import">⇩ Aus Niederschlagsberechnung</button>
+                </div>
+                <span class="g-hint">Σ Q<sub>r</sub>: <b class="mono" id="nsSum">0.00</b> l/s</span>
+              </div>
+              <div class="g-hint" id="nsHint" style="margin-top:6px;"></div>
             </div>
             <div class="g-info" style="margin-bottom:12px;">Apparate werden in der Tabelle «Angeschlossene Apparate» unten erfasst. Sonderfälle (l/s) sind pro Quelle editierbar.</div>
             <div style="display:flex;gap:8px;" class="no-print">
@@ -736,7 +810,7 @@ function fixLeadingZero(el){
             <div class="g-kpi"><div class="g-kpi-label">ΣDU</div><div class="g-kpi-val" id="k_du">0.00</div>
 <span class="frml">ΣDU = Summe aller Ablauf-DU-Werte</span></div>
             <div class="g-kpi blue"><div class="g-kpi-label">Qtot</div><div class="g-kpi-val" id="k_q">0.00</div>
-<span class="frml">Q<sub>tot</sub> = K × √(ΣDU)&nbsp;&nbsp;K = 0.5 Wohnen</span><div class="g-kpi-unit" id="k_q_unit">l/s</div></div>
+<span class="frml" id="k_q_frml">Q<sub>tot</sub> = K × √(ΣDU) + Q<sub>c</sub> + Q<sub>r</sub>&nbsp;&nbsp;K = 0.5</span><div class="g-kpi-unit" id="k_q_unit">l/s</div></div>
             <div class="g-kpi"><div class="g-kpi-label">Q je Pumpe</div><div class="g-kpi-val" id="k_qp">0.00</div>
 <span class="frml">Q<sub>Pumpe</sub> = Q<sub>tot</sub> / n<sub>Pumpen</sub></span><div class="g-kpi-unit" id="k_qp_unit">l/s</div></div>
           </div>
@@ -762,7 +836,7 @@ function fixLeadingZero(el){
   <div id="tab2" class="tab-content">
     <div class="g-main-grid">
       <div class="g-card">
-        <div class="g-card-hd"><h2>3) Druckleitung &amp; Druckverlust</h2><span class="g-badge neutral">Hvj-Tabellen</span></div>
+        <div class="g-card-hd"><h2>4) Pumpendruckleitung &amp; Druckverlust</h2><span class="g-badge neutral">Hvj-Tabellen</span></div>
         <div class="g-card-bd">
           <div class="g-grid-2" style="margin-bottom:14px;">
             <div class="g-field">
@@ -809,7 +883,15 @@ function fixLeadingZero(el){
 <span class="frml">v = Q / A = Q / (π/4 × d²)&nbsp;&nbsp;[m/s]</span></div>
             <div class="g-kpi blue"><div class="g-kpi-label">Druckverlust / Total‑H</div><div class="g-kpi-val" id="k_ht">–</div></div>
           </div>
-          <div class="g-info" style="margin-top:14px;">Qnew entspricht Qtot aus Tab "Hebeanlage". Total-H = statisch + Armaturen + Hvj · Länge.</div>
+          <div class="g-info" style="margin-top:14px;">Q entspricht Q<sub>tot</sub> aus dem Tab «Hebeanlage». Total-H = statisch + Armaturen + Hvj · Länge.</div>
+
+          <!-- Diagramm nach SN EN 12056-4 (Feedback 06.08.2026 #2) -->
+          <div class="g-divider"></div>
+          <div class="sch-vis">
+            <div class="sch-vis-t">Diagramm — Fliessgeschwindigkeit und Druckverlust über dem Volumenstrom</div>
+            <div id="dlSchema"></div>
+            <div class="g-hint" id="dlSchemaNote" style="margin-top:8px;"></div>
+          </div>
         </div>
       </div>
 
@@ -829,12 +911,21 @@ function fixLeadingZero(el){
   <div id="tab3" class="tab-content">
     <div class="g-main-grid">
       <div class="g-card">
-        <div class="g-card-hd"><h2>Schachtvolumen</h2><span class="g-badge neutral">Zylinder V = π·(d/2)²·h</span></div>
+        <div class="g-card-hd">
+          <h2>3) Schachtvolumen</h2>
+          <!-- Einheiten-Wahl (Feedback 06.08.2026 #1): ALLE Schachtmasse in
+               derselben Einheit; die Werte werden beim Umschalten umgerechnet. -->
+          <div class="sch-unit no-print" role="group" aria-label="Einheit der Schachtmasse">
+            <button type="button" class="sch-unit-btn active" data-schunit="m">m</button>
+            <button type="button" class="sch-unit-btn" data-schunit="cm">cm</button>
+          </div>
+          <span class="g-badge neutral">Zylinder V = π·(d/2)²·h</span>
+        </div>
         <div class="g-card-bd">
           <div class="g-grid-2" style="margin-bottom:14px;">
             <div class="g-field">
               <label class="g-label">Schachtdurchmesser</label>
-              <div class="g-inp-group"><input class="g-inp" id="sch_d" type="text" inputmode="decimal" value="80.0" onblur="fixLeadingZero(this)"/><span class="g-inp-unit">cm</span></div>
+              <div class="g-inp-group"><input class="g-inp" id="sch_d" type="text" inputmode="decimal" value="0.80" onblur="fixLeadingZero(this)"/><span class="g-inp-unit" id="sch_d_unit">m</span></div>
             </div>
             <div class="g-field">
               <label class="g-label">Pumpensumpf (Höhe)</label>
@@ -865,6 +956,14 @@ function fixLeadingZero(el){
 <span class="frml">V<sub>res</sub> = V<sub>nutz</sub> × f<sub>res</sub></span><div class="g-kpi-unit" id="v_res_u">Liter</div></div>
             <div class="g-kpi blue"><div class="g-kpi-label">Nutzvolumen</div><div class="g-kpi-val" id="v_nutz">–</div>
 <span class="frml">V<sub>nutz</sub> = Q × t<sub>Schalt</sub>&nbsp;&nbsp;[l]</span><div class="g-kpi-unit" id="v_nutz_u">Liter</div></div>
+          </div>
+
+          <!-- Schacht-Schnitt (Feedback 06.08.2026 #8) -->
+          <div class="g-divider"></div>
+          <div class="sch-vis">
+            <div class="sch-vis-t">Schacht im Schnitt</div>
+            <div id="schSchema"></div>
+            <div class="g-hint" id="schSchemaNote" style="margin-top:8px;"></div>
           </div>
         </div>
       </div>
@@ -929,8 +1028,8 @@ function fixLeadingZero(el){
     </div>
   </div>
 
-  <!-- TAB 5: Export -->
-  <div id="tab5" class="tab-content">
+  <!-- TAB 6: Export (kein Tab-Knopf — Sicherungs-/JSON-Werkzeug) -->
+  <div id="tab6" class="tab-content">
     <div class="g-main-grid">
       <div class="g-card">
         <div class="g-card-hd"><h2>Export</h2><span class="g-badge neutral">JSON / localStorage</span></div>
@@ -950,8 +1049,8 @@ function fixLeadingZero(el){
         <div class="g-card-bd">
           <div class="g-result-list">
             <div class="g-result-row"><span class="g-result-lbl">1. Tab "Hebeanlage"</span><span class="g-result-val">Apparate → Qtot</span></div>
-            <div class="g-result-row"><span class="g-result-lbl">2. Tab "Druckleitung"</span><span class="g-result-val">Art → ID → Total-H</span></div>
-            <div class="g-result-row"><span class="g-result-lbl">3. Tab "Schacht"</span><span class="g-result-val">Höhen → Volumen</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">2. Tab "Schacht"</span><span class="g-result-val">Höhen → Volumen</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">3. Tab "Pumpendruckleitung"</span><span class="g-result-val">Art → ID → Total-H</span></div>
           </div>
         </div>
       </div>
@@ -984,6 +1083,139 @@ document.querySelectorAll('.g-tab').forEach(btn => {
 
   const $ = (id) => document.getElementById(id);
   const clamp = (x,a,b)=>Math.max(a,Math.min(b,x));
+  const esc = (s)=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  const num = (v)=>{const n=parseFloat(String(v==null?'':v).replace(/[’'\s]/g,'').replace(',','.'));return isFinite(n)?n:0;};
+
+  /* ── Zustand der Ergänzungen (Feedback 06.08.2026) ── */
+  let schUnit='m';                 /* #1: Einheit ALLER Schachtmasse */
+  let qcRows=[{bez:'',q:''}];      /* #5: Dauerbelastung */
+  let nsRows=[];                   /* #4: Niederschlagsflächen */
+  let _hebTouched=false;
+
+  /* #1 — Umrechnung Anzeige ⇄ SI. Gespeichert wird IMMER in Metern
+     (bzw. d in cm wie bisher) — Bestandsschutz für gespeicherte Stände. */
+  function schToM(v){ return schUnit==='cm' ? num(v)/100 : num(v); }
+  function schFromM(m){ return schUnit==='cm' ? (m*100) : m; }
+  function schFmtIn(m){ const v=schFromM(m); return String(schUnit==='cm'?Math.round(v*10)/10:Math.round(v*1000)/1000); }
+  function setSchUnit(u,convert){
+    if(u!=='m'&&u!=='cm') return;
+    if(u===schUnit) return;
+    const felder=['sch_d','sch_ps','sch_res','sch_nutz'];
+    const alt=felder.map(id=>num($(id).value));
+    schUnit=u;
+    if(convert){
+      felder.forEach((id,i)=>{
+        const m = (u==='cm') ? alt[i] : alt[i]/100;      /* alt war m bzw. cm */
+        $(id).value = String(u==='cm' ? Math.round(m*100*10)/10 : Math.round(m*1000)/1000);
+      });
+    }
+    schUnitSync();
+    recalcAll();
+  }
+  function schUnitSync(){
+    document.querySelectorAll('.sch-unit-btn').forEach(b=>{
+      b.classList.toggle('active', b.dataset.schunit===schUnit);
+    });
+    ['sch_d_unit','sch_ps_unit','sch_res_unit','sch_nutz_unit'].forEach(id=>{
+      const e=$(id); if(e) e.textContent=schUnit;
+    });
+  }
+
+  /* #5 — Abflusskennzahl K (wie in der DU-Berechnung) */
+  function getK(){
+    const sel=$('k_wert'); if(!sel) return 0.5;
+    if(sel.value==='frei'){ const v=num($('k_frei').value); return v>0?v:0.5; }
+    const v=parseFloat(sel.value); return isFinite(v)&&v>0?v:0.5;
+  }
+  function kFreiSync(){
+    const w=$('k_freiWrap'); if(!w) return;
+    w.style.display = ($('k_wert').value==='frei') ? 'flex' : 'none';
+  }
+
+  /* #5 — Dauerbelastung Qc: FOKUS-REGEL — die Zeilen-Inputs feuern `input`;
+     hier darf NIE renderQc() laufen, sonst reisst es den Fokus aus dem Feld. */
+  function qcSet(i,key,val){ if(qcRows[i]){ qcRows[i][key]=val; recalcAll(); } }
+  function qcAdd(){ qcRows.push({bez:'',q:''}); renderQc(); recalcAll(); }
+  function qcDel(i){ qcRows.splice(i,1); if(!qcRows.length) qcRows.push({bez:'',q:''}); renderQc(); recalcAll(); }
+  function qcTotal(){ return qcRows.reduce((s,r)=>s+Math.max(0,num(r.q)),0); }
+  function renderQc(){
+    const host=$('qcRows'); if(!host) return;
+    host.innerHTML=qcRows.map((r,i)=>`
+      <div class="qc-row">
+        <input class="g-inp" type="text" placeholder="Bezeichnung (z.B. Kondensat Kälteanlage)" value="${esc(r.bez)}" oninput="qcSet(${i},'bez',this.value)"/>
+        <div class="g-inp-group">
+          <input class="g-inp" type="text" inputmode="decimal" placeholder="0.00" value="${esc(r.q)}" oninput="qcSet(${i},'q',this.value)" onblur="fixLeadingZero(this)"/>
+          <span class="g-inp-unit">l/s</span>
+        </div>
+        <button class="row-x no-print" onclick="qcDel(${i})" title="Zeile entfernen">✕</button>
+      </div>`).join('');
+  }
+
+  /* #4 — Niederschlag Qr = Fläche × C × r */
+  function nsSet(i,key,val){ if(nsRows[i]){ nsRows[i][key]=val; if(key!=='bez') nsRows[i].quelle=''; recalcAll(); } }
+  function nsAdd(){ nsRows.push({bez:'',flaeche:'',c:'1.0',r:'0.030',quelle:''}); renderNs(); recalcAll(); }
+  function nsDel(i){ nsRows.splice(i,1); renderNs(); recalcAll(); }
+  function nsQ(r){ return Math.max(0,num(r.flaeche))*Math.max(0,num(r.c))*Math.max(0,num(r.r)); }
+  function nsTotal(){ return nsRows.reduce((s,r)=>s+nsQ(r),0); }
+  function renderNs(){
+    const host=$('nsRows'); if(!host) return;
+    if(!nsRows.length){
+      host.innerHTML='<div class="g-hint">Keine Fläche erfasst — bei reinem Schmutzwasser bleibt Q<sub>r</sub> = 0.</div>';
+      return;
+    }
+    host.innerHTML=nsRows.map((r,i)=>`
+      <div class="ns-row">
+        <input class="g-inp" type="text" placeholder="Bezeichnung (z.B. Lichtschacht Nord)" value="${esc(r.bez)}" oninput="nsSet(${i},'bez',this.value)"/>
+        <div class="g-inp-group">
+          <input class="g-inp" type="text" inputmode="decimal" placeholder="0" value="${esc(r.flaeche)}" oninput="nsSet(${i},'flaeche',this.value)" onblur="fixLeadingZero(this)"/>
+          <span class="g-inp-unit">m²</span>
+        </div>
+        <div class="g-inp-group">
+          <input class="g-inp" type="text" inputmode="decimal" placeholder="1.0" value="${esc(r.c)}" oninput="nsSet(${i},'c',this.value)" onblur="fixLeadingZero(this)"/>
+          <span class="g-inp-unit">C</span>
+        </div>
+        <div class="g-inp-group">
+          <input class="g-inp" type="text" inputmode="decimal" placeholder="0.030" value="${esc(r.r)}" oninput="nsSet(${i},'r',this.value)" onblur="fixLeadingZero(this)"/>
+          <span class="g-inp-unit">l/s·m²</span>
+        </div>
+        <button class="row-x no-print" onclick="nsDel(${i})" title="Zeile entfernen">✕</button>
+      </div>
+      <div class="g-hint" style="margin:-2px 0 8px 2px;">Q = ${fmt(nsQ(r),3)} l/s${r.quelle?('<span class="ns-src">⇩ '+esc(r.quelle)+'</span>'):''}</div>`).join('');
+  }
+  /* Übernahme aus sb_niederschlag (defensiver Cross-Modul-Read, Muster
+     sb_grundleitungen): das Zielmodul bleibt autoritativ, die Werte sind hier
+     danach ganz normal editierbar. */
+  function nsImport(){
+    let daten=null;
+    try{
+      const oid=getObjektId();
+      const key='gema_niederschlagsanfall_v1'+(oid?('__'+oid):'');
+      let raw=(typeof _GemaDB!=='undefined'&&_GemaDB.c)?_GemaDB.c[key]:null;
+      if(!raw&&typeof _GemaDB!=='undefined'&&_GemaDB.loadFromModule){
+        _GemaDB.loadFromModule('niederschlagsanfall',[key]).then(function(){ nsImport(); });
+      }
+      if(!raw) raw=localStorage.getItem(key);
+      if(raw) daten=JSON.parse(raw);
+    }catch(e){}
+    const str=(daten&&Array.isArray(daten.straengeSummary))?daten.straengeSummary:null;
+    if(!str||!str.length){
+      $('nsHint').innerHTML='Keine Stränge in der Niederschlagsberechnung gefunden — bitte dort erfassen oder die Flächen hier von Hand eintragen.';
+      return;
+    }
+    str.forEach(s=>{
+      const q=Math.max(0,num(s.qLps));
+      if(!(q>0)) return;
+      const a=Math.max(0,num(s.areaM2));
+      /* Q ist im Quellmodul bereits gerechnet — hier wird r so gesetzt, dass
+         Fläche × C × r denselben Wert ergibt (C = 1, kein Wert erfunden). */
+      nsRows.push({bez:String(s.name||'Strang'), flaeche:a>0?String(a):'1',
+                   c:'1.0', r:String(Math.round((a>0?q/a:q)*10000)/10000), quelle:'Niederschlagsberechnung'});
+    });
+    $('nsHint').innerHTML='<b>'+str.length+'</b> Strang/Stränge übernommen — Werte bleiben editierbar.';
+    renderNs(); recalcAll();
+  }
+
+  window.qcSet=qcSet; window.qcDel=qcDel; window.nsSet=nsSet; window.nsDel=nsDel;
   function lsToM3h(ls){return ls*3.6;}
   function m3hToLs(m3h){return m3h/3.6;}
   function mToFt(m){return m*3.280839895;}
@@ -1039,11 +1271,44 @@ document.querySelectorAll('.g-tab').forEach(btn => {
     });
   });
 
+  /* #6 — Apparate nach DU-Wert gruppieren (gleiche Unterteilung wie in der
+     DU-Berechnung). Die REIHENFOLGE der FIXTURES bleibt unangetastet, damit
+     gespeicherte Anzahlen (Index-basiert) weiterhin passen. */
+  function fixtureGruppen(){
+    const gr=[];
+    FIXTURES.forEach((f,idx)=>{
+      const isLS=(f.unit==='l/s'||f.unit==='LS');
+      const key=isLS?'ls':('du'+f.val);
+      let g=gr.find(x=>x.key===key);
+      if(!g){
+        g={key:key, isLS:isLS, val:f.val,
+           label:isLS?'Sonderfälle (direkt l/s)':('DU = '+fmt(f.val,1)+' l/s'), idx:[]};
+        gr.push(g);
+      }
+      g.idx.push(idx);
+    });
+    gr.sort((a,b)=>(a.isLS?1:0)-(b.isLS?1:0)||a.val-b.val);
+    return gr;
+  }
+
   // Build fixtures table
   function buildTable() {
     const tb = $("tbl").querySelector("tbody");
     tb.innerHTML = "";
-    FIXTURES.forEach((f, idx) => {
+    fixtureGruppen().forEach(g=>{
+      const gtr=document.createElement('tr');
+      gtr.className='grp-row';
+      gtr.innerHTML='<td colspan="5"><span class="grp-lbl">'+esc(g.label)+'</span>'
+        +'<span class="grp-cnt">'+g.idx.length+' Apparat'+(g.idx.length===1?'':'e')+'</span>'
+        +'<span class="grp-sum" data-grpsum="'+esc(g.key)+'">0.00</span></td>';
+      tb.appendChild(gtr);
+      g.idx.forEach(idx=>tb.appendChild(fixtureRow(idx)));
+    });
+  }
+
+  function fixtureRow(idx){
+    const f=FIXTURES[idx];
+    {
       const tr = document.createElement("tr");
 
       const tdN = document.createElement("td"); tdN.textContent = f.name; tr.appendChild(tdN);
@@ -1076,8 +1341,8 @@ document.querySelectorAll('.g-tab').forEach(btn => {
       const tdS=document.createElement("td"); tdS.className="right mono"; tdS.id=`sub_${idx}`; tdS.textContent="0.00";
       tr.appendChild(tdS);
 
-      tb.appendChild(tr);
-    });
+      return tr;
+    }
   }
 
   // Wastewater types select
@@ -1173,21 +1438,25 @@ document.querySelectorAll('.g-tab').forEach(btn => {
 
     const wt_idx = parseInt($("waste_type").value||"0",10);
 
-    const sch_d_cm = parseFloat($("sch_d").value||"0");
-    const sch_ps = parseFloat($("sch_ps").value||"0");
-    const sch_res = parseFloat($("sch_res").value||"0");
-    const sch_nutz = parseFloat($("sch_nutz").value||"0");
-    const sch_ps_m = lenIsFt ? ftToM(sch_ps) : sch_ps;
-    const sch_res_m = lenIsFt ? ftToM(sch_res) : sch_res;
-    const sch_nutz_m = lenIsFt ? ftToM(sch_nutz) : sch_nutz;
+    /* Schachtmasse IMMER in SI ablegen (d in cm, Höhen in m) — die Anzeige-
+       Einheit (#1) ist nur eine Darstellung. */
+    const sch_d_cm = schToM($("sch_d").value) * 100;
+    const sch_ps_m = schToM($("sch_ps").value);
+    const sch_res_m = schToM($("sch_res").value);
+    const sch_nutz_m = schToM($("sch_nutz").value);
 
     return {
       projekt: $("metaProjekt").value||"",
       bemerkung: $("bem").value||"",
-      toggles: {flowIsM3h, lenIsFt},
+      toggles: {flowIsM3h, lenIsFt, schUnit},
       inputs: {
         q_add_ls: q_add,
         n_pumpen: n_p,
+        k_wert: getK(),
+        k_wahl: $("k_wert") ? $("k_wert").value : '0.5',
+        k_frei: $("k_frei") ? $("k_frei").value : '',
+        dauer: qcRows.map(r=>({bez:r.bez||'', q:num(r.q)})),
+        niederschlag: nsRows.map(r=>({bez:r.bez||'', flaeche:num(r.flaeche), c:num(r.c), r:num(r.r), quelle:r.quelle||''})),
         fixtures: qty.map((q,i)=>{
           const base=FIXTURES[i];
           const isLS = (base.unit==="l/s" || base.unit==="LS");
@@ -1210,15 +1479,29 @@ document.querySelectorAll('.g-tab').forEach(btn => {
   function calcHebeanlage(st) {
     const fix=st.inputs.fixtures;
     let sumDU=0, maxLs=0;
+    const grpSum={};
+    const gruppen=fixtureGruppen();
     fix.forEach((f,i)=>{
       const subtotal=(f.val||0)*(f.qty||0);
-      $("sub_"+i).textContent = fmt(subtotal,2);
+      const cell=$("sub_"+i); if(cell) cell.textContent = fmt(subtotal,2);
       if (f.unit==="DU") sumDU += subtotal;
       else if ((f.qty||0)>0) maxLs = Math.max(maxLs, (f.val||0));
+      const g=gruppen.find(x=>x.idx.indexOf(i)>=0);
+      if(g) grpSum[g.key]=(grpSum[g.key]||0)+subtotal;
     });
-    const q_from_du = 0.5*Math.sqrt(Math.max(sumDU,0));
-    const qtot_ls = Math.max(q_from_du, maxLs) + (st.inputs.q_add_ls||0);
-    return {sumDU, qtot_ls};
+    /* Gruppen-Summen (#6) nachziehen */
+    document.querySelectorAll('[data-grpsum]').forEach(e=>{
+      const k=e.getAttribute('data-grpsum');
+      const g=gruppen.find(x=>x.key===k);
+      e.textContent=(g&&g.isLS?'max ':'Σ ')+fmt(grpSum[k]||0,2);
+    });
+    /* K frei wählbar (#5), Dauerbelastung + Niederschlag zählen 1:1 (#4/#5) */
+    const K = st.inputs.k_wert || 0.5;
+    const q_from_du = K*Math.sqrt(Math.max(sumDU,0));
+    const qc = (st.inputs.dauer||[]).reduce((s,r)=>s+Math.max(0,r.q||0),0);
+    const qr = (st.inputs.niederschlag||[]).reduce((s,r)=>s+Math.max(0,(r.flaeche||0)*(r.c||0)*(r.r||0)),0);
+    const qtot_ls = Math.max(q_from_du, maxLs) + (st.inputs.q_add_ls||0) + qc + qr;
+    return {sumDU, qtot_ls, K, qc, qr, q_from_du, maxLs};
   }
 
   function cylVolLiters(d_cm, h_m) {
@@ -1230,10 +1513,22 @@ document.querySelectorAll('.g-tab').forEach(btn => {
 
   function recalcAll() {
     const st=getState();
-    const {sumDU, qtot_ls} = calcHebeanlage(st);
+    const calc = calcHebeanlage(st);
+    const {sumDU, qtot_ls} = calc;
 
     $("k_du").textContent = fmt(sumDU,2);
     $("sumDuBottom").textContent = fmt(sumDU,2);
+
+    /* Zusatz-Summen + Formel-Chip (Feedback #4/#5) */
+    const elQc=$("qcSum"); if(elQc) elQc.textContent=fmt(calc.qc,2);
+    const elNs=$("nsSum"); if(elNs) elNs.textContent=fmt(calc.qr,2);
+    const frml=$("k_q_frml");
+    if(frml){
+      let t='Q<sub>tot</sub> = K × √(ΣDU)';
+      if(calc.qc>0) t+=' + Q<sub>c</sub>';
+      if(calc.qr>0) t+=' + Q<sub>r</sub>';
+      frml.innerHTML=t+'&nbsp;&nbsp;K = '+fmt(calc.K,2);
+    }
 
     const showM3h = st.toggles.flowIsM3h;
     $("k_q").textContent = fmt(showM3h ? lsToM3h(qtot_ls) : qtot_ls, 2);
@@ -1265,9 +1560,8 @@ document.querySelectorAll('.g-tab').forEach(btn => {
     $("pipe_len_unit").textContent = lenIsFt ? "ft" : "m";
     $("static_h_unit").textContent = lenIsFt ? "ft" : "mWS";
     $("h_minor_unit").textContent = lenIsFt ? "ft" : "mWS";
-    $("sch_ps_unit").textContent = lenIsFt ? "ft" : "m";
-    $("sch_res_unit").textContent = lenIsFt ? "ft" : "m";
-    $("sch_nutz_unit").textContent = lenIsFt ? "ft" : "m";
+    /* Die Schachtmasse folgen der eigenen m/cm-Wahl (#1), nicht dem ft-Schalter. */
+    schUnitSync();
 
     // Status velocity
     if (!isFinite(qtot_ls) || qtot_ls < 0) setStatus("bad","Ungültige Eingabe");
@@ -1312,6 +1606,18 @@ document.querySelectorAll('.g-tab').forEach(btn => {
 
     // Produktkatalog: Matches aktualisieren
     try { hebRefreshMatches(qtot_ls, ht_m, wt); } catch(e){}
+
+    /* Visualisierungen (Feedback #2/#8) — eigene Script-Blöcke, geguardet
+       aufgerufen (Cross-Block-Scope-Regel). */
+    try { if (window._schSchemaDraw) window._schSchemaDraw({
+      d_cm: dcm, ps_m: st.inputs.schacht.ps_m, res_m: st.inputs.schacht.res_m,
+      nutz_m: st.inputs.schacht.nutz_m, v_ps: v_ps_l, v_res: v_res_l, v_nutz: v_nutz_l,
+      unit: schUnit, qtot: qtot_ls, n_pumpen: st.inputs.n_pumpen
+    }); } catch(e){}
+    try { if (window._dlSchemaDraw) window._dlSchemaDraw({
+      id_mm: idmm, q_ls: qtot_ls, hvj: hvj, v: v, tab: HVJ[String(idmm)]||[],
+      wt: wt, len_m: st.inputs.pipe.len_m
+    }); } catch(e){}
   }
 
   // ── Produktkatalog-Anbindung: passende Hebeanlagen anzeigen ──
@@ -1382,11 +1688,16 @@ document.querySelectorAll('.g-tab').forEach(btn => {
     $("h_minor").value="1";
     $("waste_type").value="0";
 
-    // Schacht defaults
-    $("sch_d").value = String(SCHACHT_DEFAULTS.diam_cm ?? 80);
-    $("sch_ps").value = String(SCHACHT_DEFAULTS.pumpensumpf_h_m ?? 0.2);
-    $("sch_res").value = String(SCHACHT_DEFAULTS.reserve_h_m ?? 0);
-    $("sch_nutz").value = String(SCHACHT_DEFAULTS.nutz_h_m ?? 0);
+    $("k_wert").value="0.5"; $("k_frei").value=""; kFreiSync();
+    qcRows=[{bez:'',q:''}]; nsRows=[]; renderQc(); renderNs();
+    if ($("nsHint")) $("nsHint").innerHTML="";
+
+    // Schacht defaults (in der aktuell gewählten Anzeige-Einheit)
+    $("sch_d").value = schFmtIn((SCHACHT_DEFAULTS.diam_cm ?? 80)/100);
+    $("sch_ps").value = schFmtIn(SCHACHT_DEFAULTS.pumpensumpf_h_m ?? 0.2);
+    $("sch_res").value = schFmtIn(SCHACHT_DEFAULTS.reserve_h_m ?? 0);
+    $("sch_nutz").value = schFmtIn(SCHACHT_DEFAULTS.nutz_h_m ?? 0);
+    schUnitSync();
 
     document.querySelectorAll('input[data-kind="qty"]').forEach(el=>el.value="0");
     document.querySelectorAll('input[data-kind="lsval"]').forEach(el=>{
@@ -1482,14 +1793,36 @@ document.querySelectorAll('.g-tab').forEach(btn => {
         if (v!=null) { el.value=String(v); FIXTURES[i].val=v; }
       });
 
-      // schacht
-      $("sch_d").value=String(st.inputs?.schacht?.d_cm ?? $("sch_d").value);
+      // K-Wert + Dauerbelastung + Niederschlag (Feedback 06.08.2026 #4/#5)
+      if (st.inputs?.k_wahl) { $("k_wert").value=String(st.inputs.k_wahl); }
+      else if (st.inputs?.k_wert != null) {
+        /* Bestandsschutz: ältere Stände kennen nur den Zahlenwert. */
+        const kv=String(st.inputs.k_wert);
+        $("k_wert").value = [...$("k_wert").options].some(o=>o.value===kv) ? kv : 'frei';
+        if ($("k_wert").value==='frei') $("k_frei").value=kv;
+      }
+      if (st.inputs?.k_frei != null) $("k_frei").value=String(st.inputs.k_frei);
+      kFreiSync();
+      qcRows = Array.isArray(st.inputs?.dauer) && st.inputs.dauer.length
+        ? st.inputs.dauer.map(r=>({bez:r.bez||'', q:(r.q==null||r.q==='')?'':String(r.q)}))
+        : [{bez:'',q:''}];
+      nsRows = Array.isArray(st.inputs?.niederschlag)
+        ? st.inputs.niederschlag.map(r=>({bez:r.bez||'', flaeche:String(r.flaeche??''),
+            c:String(r.c??'1.0'), r:String(r.r??''), quelle:r.quelle||''}))
+        : [];
+      renderQc(); renderNs();
+
+      // schacht — gespeichert ist SI (d in cm, Höhen in m); Anzeige folgt der Wahl
+      schUnit = (st.toggles?.schUnit==='cm') ? 'cm' : 'm';
+      const d_cm=st.inputs?.schacht?.d_cm ?? 80;
       const ps_m=st.inputs?.schacht?.ps_m ?? 0.2;
       const res_m=st.inputs?.schacht?.res_m ?? 0;
       const nutz_m=st.inputs?.schacht?.nutz_m ?? 0;
-      $("sch_ps").value=String(lenIsFt ? mToFt(ps_m).toFixed(2) : ps_m);
-      $("sch_res").value=String(lenIsFt ? mToFt(res_m).toFixed(2) : res_m);
-      $("sch_nutz").value=String(lenIsFt ? mToFt(nutz_m).toFixed(2) : nutz_m);
+      $("sch_d").value=schFmtIn(d_cm/100);
+      $("sch_ps").value=schFmtIn(ps_m);
+      $("sch_res").value=schFmtIn(res_m);
+      $("sch_nutz").value=schFmtIn(nutz_m);
+      schUnitSync();
 
       setStatus("good","Geladen");
       setTimeout(recalcAll,700);
@@ -1500,7 +1833,9 @@ document.querySelectorAll('.g-tab').forEach(btn => {
   $("t_len").addEventListener("change", ()=>{
     const wasFt=!$("t_len").checked;
     const nowFt=$("t_len").checked;
-    const fields=["pipe_len","static_h","h_minor","sch_ps","sch_res","sch_nutz"];
+    /* Schachtmasse bewusst NICHT dabei — sie folgen der eigenen m/cm-Wahl (#1),
+       sonst gäbe es zwei Wahrheiten für dieselben Felder. */
+    const fields=["pipe_len","static_h","h_minor"];
     fields.forEach(id=>{
       const v=parseFloat($(id).value||"0");
       if (wasFt && !nowFt) $(id).value = String(ftToM(v).toFixed(2));
@@ -1511,10 +1846,20 @@ document.querySelectorAll('.g-tab').forEach(btn => {
 
   $("t_flow").addEventListener("change", recalcAll);
 
-  ["q_add","n_pumpen","pipe_id","pipe_len","static_h","h_minor","metaProjekt","bem","waste_type","sch_d","sch_ps","sch_res","sch_nutz"].forEach(id=>{
+  ["q_add","n_pumpen","pipe_id","pipe_len","static_h","h_minor","metaProjekt","bem","waste_type","sch_d","sch_ps","sch_res","sch_nutz","k_frei"].forEach(id=>{
     $(id).addEventListener("input", recalcAll);
     $(id).addEventListener("change", recalcAll);
   });
+  $("k_wert").addEventListener("change", ()=>{ kFreiSync(); recalcAll(); });
+  /* Einheiten-Wahl der Schachtmasse (#1) — umgerechnet wird NUR bei echter
+     Benutzer-Wahl (Muster ehSetUnit in sa_enthaertung). */
+  document.querySelectorAll('.sch-unit-btn').forEach(b=>{
+    b.addEventListener('click', (ev)=>{ setSchUnit(b.dataset.schunit, !!ev.isTrusted); });
+  });
+  $("btn_qc_add").addEventListener("click", qcAdd);
+  $("btn_ns_add").addEventListener("click", nsAdd);
+  $("btn_ns_import").addEventListener("click", nsImport);
+  renderQc(); renderNs(); kFreiSync(); schUnitSync();
 
   $("btn_reset").addEventListener("click", resetAll);
   $("btn_demo").addEventListener("click", fillDemo);
@@ -1645,6 +1990,210 @@ document.addEventListener('DOMContentLoaded', function(){
     }
   });
 });
+</script>
+<script>
+/* ═══════════════════════════════════════════════════════════════════
+   Schacht-Schnitt (Feedback 06.08.2026 #8) und Druckleitungs-Diagramm
+   (#2). Eigene Script-Blöcke → window-exponiert, aus recalcAll geguardet
+   aufgerufen (Cross-Block-Scope-Regel). NUR literale Hex-Farben
+   (GemaPDF/html2canvas-Regel).
+   ═══════════════════════════════════════════════════════════════════ */
+(function(){
+  var E=function(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');};
+  var F=function(n,d){ return isFinite(n)?Number(n).toFixed(d==null?2:d):'–'; };
+
+  /* ── #8: Schacht im Schnitt ─────────────────────────────────────── */
+  window._schSchemaDraw=function(d){
+    var host=document.getElementById('schSchema');
+    var note=document.getElementById('schSchemaNote');
+    if(!host) return;
+    var dcm=Math.max(0,d.d_cm||0);
+    var ps=Math.max(0,d.ps_m||0), res=Math.max(0,d.res_m||0), nz=Math.max(0,d.nutz_m||0);
+    var hGes=ps+res+nz;
+    if(!(dcm>0)||!(hGes>0)){
+      host.innerHTML='';
+      if(note) note.innerHTML='Durchmesser und mindestens eine Höhe erfassen — dann erscheint der Schnitt.';
+      return;
+    }
+
+    var W=560, H=330, mTop=30, mBot=52;
+    var zonH=H-mTop-mBot;                  /* Höhe für die Zonen           */
+    var xL=170, wS=200;                    /* Schachtquerschnitt           */
+    var wand=7;
+
+    /* Zonen von unten: Pumpensumpf, Reserve, Nutzvolumen */
+    var zonen=[
+      {k:'ps',  h:ps,  lbl:'Pumpensumpf',    v:d.v_ps,   f:'#cbd5e1', s:'#64748b', t:'#334155'},
+      {k:'res', h:res, lbl:'Reservevolumen', v:d.v_res,  f:'#bfdbfe', s:'#2563eb', t:'#1d4ed8'},
+      {k:'nz',  h:nz,  lbl:'Nutzvolumen',    v:d.v_nutz, f:'#93c5fd', s:'#1d4ed8', t:'#1e3a8a'}
+    ].filter(function(z){return z.h>0;});
+
+    var o=[];
+    o.push('<svg viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg" style="font-family:\'DM Sans\',sans-serif">');
+
+    /* Erdreich + Deckel */
+    o.push('<rect x="0" y="'+(mTop-10)+'" width="'+W+'" height="12" fill="#e7e5e4"/>');
+    o.push('<line x1="0" y1="'+(mTop-10)+'" x2="'+W+'" y2="'+(mTop-10)+'" stroke="#a8a29e" stroke-width="1"/>');
+    o.push('<rect x="'+(xL-14)+'" y="'+(mTop-16)+'" width="'+(wS+28)+'" height="10" rx="2" fill="#94a3b8" stroke="#475569" stroke-width="1"/>');
+    o.push('<text x="'+(xL+wS/2)+'" y="'+(mTop-20)+'" font-size="10" fill="#475569" text-anchor="middle" font-weight="700">Schachtdeckel</text>');
+
+    /* Schachtwände */
+    var yTop=mTop, yBot=mTop+zonH;
+    o.push('<rect x="'+(xL-wand)+'" y="'+yTop+'" width="'+wand+'" height="'+(zonH+8)+'" fill="#d6d3d1" stroke="#78716c" stroke-width="1"/>');
+    o.push('<rect x="'+(xL+wS)+'" y="'+yTop+'" width="'+wand+'" height="'+(zonH+8)+'" fill="#d6d3d1" stroke="#78716c" stroke-width="1"/>');
+    o.push('<rect x="'+(xL-wand)+'" y="'+(yBot)+'" width="'+(wS+2*wand)+'" height="8" fill="#d6d3d1" stroke="#78716c" stroke-width="1"/>');
+
+    /* Zonen */
+    var y=yBot, i;
+    for(i=0;i<zonen.length;i++){
+      var z=zonen[i];
+      var h=zonH*(z.h/hGes);
+      y-=h;
+      o.push('<rect x="'+xL+'" y="'+F(y,1)+'" width="'+wS+'" height="'+F(h,1)+'" fill="'+z.f+'" stroke="'+z.s+'" stroke-width="1"/>');
+      if(h>=16){
+        o.push('<text x="'+(xL+10)+'" y="'+F(y+h/2-1,1)+'" font-size="11" fill="'+z.t+'" font-weight="800">'+E(z.lbl)+'</text>');
+        o.push('<text x="'+(xL+10)+'" y="'+F(y+h/2+12,1)+'" font-size="10.5" fill="'+z.t+'">'+F(z.h,2)+' m · '+F(z.v,0)+' l</text>');
+      }else{
+        o.push('<text x="'+(xL+wS+30)+'" y="'+F(y+h/2+3.5,1)+'" font-size="10" fill="'+z.t+'" font-weight="700">'+E(z.lbl)+' '+F(z.v,0)+' l</text>');
+      }
+      /* Schaltpunkt an der Oberkante der Zone */
+      if(z.k!=='ps'){
+        o.push('<line x1="'+(xL-wand-16)+'" y1="'+F(y,1)+'" x2="'+(xL+wS+wand+10)+'" y2="'+F(y,1)+'" stroke="'+z.s+'" stroke-width="1" stroke-dasharray="4 3"/>');
+      }
+    }
+
+    /* Zulauf + Pumpe + Druckleitung */
+    var yZu=yTop+zonH*0.12;
+    o.push('<path d="M20,'+F(yZu,1)+' L'+(xL-wand)+','+F(yZu,1)+'" stroke="#b45309" stroke-width="3" fill="none" stroke-linecap="round"/>');
+    o.push('<polygon points="'+(xL-wand-12)+','+F(yZu-5,1)+' '+(xL-wand-12)+','+F(yZu+5,1)+' '+(xL-wand-2)+','+F(yZu,1)+'" fill="#b45309"/>');
+    o.push('<text x="24" y="'+F(yZu-8,1)+'" font-size="10.5" fill="#b45309" font-weight="700">Zulauf Q '+F(d.qtot,2)+' l/s</text>');
+
+    var pxc=xL+wS/2, pyb=yBot-6;
+    o.push('<rect x="'+(pxc-22)+'" y="'+F(pyb-30,1)+'" width="44" height="30" rx="4" fill="#ffffff" stroke="#1d4ed8" stroke-width="1.5"/>');
+    o.push('<circle cx="'+pxc+'" cy="'+F(pyb-15,1)+'" r="8" fill="none" stroke="#1d4ed8" stroke-width="1.5"/>');
+    o.push('<polygon points="'+(pxc-3)+','+F(pyb-20,1)+' '+(pxc-3)+','+F(pyb-10,1)+' '+(pxc+6)+','+F(pyb-15,1)+'" fill="#1d4ed8"/>');
+    o.push('<text x="'+pxc+'" y="'+F(pyb+12,1)+'" font-size="10" fill="#1d4ed8" text-anchor="middle" font-weight="700">Pumpe'+((d.n_pumpen||1)>1?(' ×'+d.n_pumpen):'')+'</text>');
+    o.push('<path d="M'+pxc+','+F(pyb-30,1)+' L'+pxc+','+F(yTop+6,1)+' L'+(W-30)+','+F(yTop+6,1)+'" fill="none" stroke="#dc2626" stroke-width="2.5" stroke-linejoin="round"/>');
+    o.push('<polygon points="'+(W-30)+','+F(yTop+1,1)+' '+(W-30)+','+F(yTop+11,1)+' '+(W-20)+','+F(yTop+6,1)+'" fill="#dc2626"/>');
+    o.push('<text x="'+(W-34)+'" y="'+F(yTop-4,1)+'" font-size="10.5" fill="#dc2626" text-anchor="end" font-weight="700">Pumpendruckleitung</text>');
+
+    /* Durchmesser-Massband */
+    var yM=yBot+22;
+    o.push('<line x1="'+xL+'" y1="'+yM+'" x2="'+(xL+wS)+'" y2="'+yM+'" stroke="#64748b" stroke-width="1"/>');
+    o.push('<line x1="'+xL+'" y1="'+(yM-4)+'" x2="'+xL+'" y2="'+(yM+4)+'" stroke="#64748b" stroke-width="1"/>');
+    o.push('<line x1="'+(xL+wS)+'" y1="'+(yM-4)+'" x2="'+(xL+wS)+'" y2="'+(yM+4)+'" stroke="#64748b" stroke-width="1"/>');
+    var dTxt=(d.unit==='cm')?(F(dcm,1)+' cm'):(F(dcm/100,2)+' m');
+    o.push('<text x="'+(xL+wS/2)+'" y="'+(yM+15)+'" font-size="10.5" fill="#475569" text-anchor="middle" font-weight="700">Ø '+dTxt+'</text>');
+
+    /* Gesamthöhe */
+    o.push('<line x1="'+(W-46)+'" y1="'+yTop+'" x2="'+(W-46)+'" y2="'+yBot+'" stroke="#64748b" stroke-width="1"/>');
+    o.push('<line x1="'+(W-50)+'" y1="'+yTop+'" x2="'+(W-42)+'" y2="'+yTop+'" stroke="#64748b" stroke-width="1"/>');
+    o.push('<line x1="'+(W-50)+'" y1="'+yBot+'" x2="'+(W-42)+'" y2="'+yBot+'" stroke="#64748b" stroke-width="1"/>');
+    o.push('<text x="'+(W-40)+'" y="'+F((yTop+yBot)/2,1)+'" font-size="10" fill="#475569" transform="rotate(-90,'+(W-40)+','+F((yTop+yBot)/2,1)+')" text-anchor="middle" font-weight="700">'+F(hGes,2)+' m</text>');
+
+    o.push('</svg>');
+    host.innerHTML=o.join('');
+    if(note){
+      note.innerHTML='Zonen im Grössenverhältnis der erfassten Höhen · Gesamtvolumen '
+        +'<b>'+F((d.v_ps||0)+(d.v_res||0)+(d.v_nutz||0),0)+' l</b> · '
+        +'gestrichelte Linien = Schaltpunkte (Ein/Aus) nach SN EN 12056-4.';
+    }
+  };
+
+  /* ── #2: Diagramm nach SN — v und Hvj über dem Volumenstrom ─────── */
+  window._dlSchemaDraw=function(d){
+    var host=document.getElementById('dlSchema');
+    var note=document.getElementById('dlSchemaNote');
+    if(!host) return;
+    var tab=(d.tab||[]).filter(function(p){return isFinite(p[0])&&isFinite(p[1])&&p[1]>0&&p[1]<1;});
+    var id=d.id_mm||0;
+    if(!tab.length||!(id>0)){
+      host.innerHTML='';
+      if(note) note.innerHTML='Für diese Rohr-ID liegt keine auswertbare Hvj-Tabelle vor.';
+      return;
+    }
+    tab=tab.slice().sort(function(a,b){return a[0]-b[0];});
+
+    var W=620,H=300,L=58,R=52,T=22,B=44;
+    var pw=W-L-R, ph=H-T-B;
+    var qMin=tab[0][0], qMax=tab[tab.length-1][0];
+    var qBet=(d.q_ls||0)*3.6;                                  /* m³/h */
+    if(qBet>0){ qMin=Math.min(qMin,qBet*0.9); qMax=Math.max(qMax,qBet*1.1); }
+    var hMax=0, i;
+    for(i=0;i<tab.length;i++) hMax=Math.max(hMax,tab[i][1]);
+    hMax=Math.max(hMax,(d.hvj||0))*1.12 || 0.1;
+    var A=Math.PI*Math.pow(id/1000,2)/4;
+    var vMax=Math.max(2.6,(qMax/3600)/A*1.1);
+
+    var X=function(q){ return L+(q-qMin)/(qMax-qMin)*pw; };
+    var Yh=function(h){ return T+ph-(h/hMax)*ph; };
+    var Yv=function(v){ return T+ph-(v/vMax)*ph; };
+
+    var o=[];
+    o.push('<svg viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg" style="font-family:\'DM Sans\',sans-serif">');
+    o.push('<rect x="'+L+'" y="'+T+'" width="'+pw+'" height="'+ph+'" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>');
+
+    /* Zulässiger v-Bereich 0.7 … 2.0 m/s (SN EN 12056-4) */
+    var y07=Yv(0.7), y20=Yv(2.0);
+    o.push('<rect x="'+L+'" y="'+F(y20,1)+'" width="'+pw+'" height="'+F(Math.max(0,y07-y20),1)+'" fill="#dcfce7" opacity=".55"/>');
+    o.push('<line x1="'+L+'" y1="'+F(y07,1)+'" x2="'+(L+pw)+'" y2="'+F(y07,1)+'" stroke="#16a34a" stroke-width="1" stroke-dasharray="5 4"/>');
+    o.push('<line x1="'+L+'" y1="'+F(y20,1)+'" x2="'+(L+pw)+'" y2="'+F(y20,1)+'" stroke="#16a34a" stroke-width="1" stroke-dasharray="5 4"/>');
+    o.push('<text x="'+(L+6)+'" y="'+F(y07-4,1)+'" font-size="9.5" fill="#15803d" font-weight="700">v = 0.7 m/s (Mindest-Fliessgeschwindigkeit)</text>');
+    o.push('<text x="'+(L+6)+'" y="'+F(y20+11,1)+'" font-size="9.5" fill="#15803d" font-weight="700">v = 2.0 m/s (Richtwert oben)</text>');
+
+    /* Achsen-Ticks */
+    for(i=0;i<=4;i++){
+      var q=qMin+(qMax-qMin)*i/4, x=X(q);
+      o.push('<line x1="'+F(x,1)+'" y1="'+(T+ph)+'" x2="'+F(x,1)+'" y2="'+(T+ph+4)+'" stroke="#94a3b8" stroke-width="1"/>');
+      o.push('<text x="'+F(x,1)+'" y="'+(T+ph+16)+'" font-size="9.5" fill="#64748b" text-anchor="middle">'+F(q,1)+'</text>');
+      var h=hMax*i/4;
+      o.push('<line x1="'+(L-4)+'" y1="'+F(Yh(h),1)+'" x2="'+L+'" y2="'+F(Yh(h),1)+'" stroke="#94a3b8" stroke-width="1"/>');
+      o.push('<text x="'+(L-7)+'" y="'+F(Yh(h)+3.5,1)+'" font-size="9.5" fill="#2563eb" text-anchor="end">'+F(h,3)+'</text>');
+      var v=vMax*i/4;
+      o.push('<text x="'+(L+pw+7)+'" y="'+F(Yv(v)+3.5,1)+'" font-size="9.5" fill="#b45309">'+F(v,1)+'</text>');
+    }
+    o.push('<text x="'+(L+pw/2)+'" y="'+(H-8)+'" font-size="10.5" fill="#475569" text-anchor="middle" font-weight="700">Volumenstrom Q [m³/h]</text>');
+    o.push('<text x="14" y="'+(T+ph/2)+'" font-size="10.5" fill="#2563eb" font-weight="700" transform="rotate(-90,14,'+(T+ph/2)+')" text-anchor="middle">Hvj [m/m]</text>');
+    o.push('<text x="'+(W-10)+'" y="'+(T+ph/2)+'" font-size="10.5" fill="#b45309" font-weight="700" transform="rotate(-90,'+(W-10)+','+(T+ph/2)+')" text-anchor="middle">v [m/s]</text>');
+
+    /* Hvj-Kurve aus der Tabelle */
+    var pts=tab.map(function(p){ return F(X(p[0]),1)+','+F(Yh(p[1]),1); }).join(' ');
+    o.push('<polyline points="'+pts+'" fill="none" stroke="#2563eb" stroke-width="2.2"/>');
+
+    /* v-Gerade (v = Q/A) */
+    var vA=(qMin/3600)/A, vB=(qMax/3600)/A;
+    o.push('<line x1="'+F(X(qMin),1)+'" y1="'+F(Yv(vA),1)+'" x2="'+F(X(qMax),1)+'" y2="'+F(Yv(vB),1)+'" stroke="#b45309" stroke-width="2" stroke-dasharray="7 4"/>');
+
+    /* Betriebspunkt */
+    if(qBet>0){
+      var bx=X(qBet), byH=Yh(d.hvj||0), byV=Yv(d.v||0);
+      o.push('<line x1="'+F(bx,1)+'" y1="'+T+'" x2="'+F(bx,1)+'" y2="'+(T+ph)+'" stroke="#dc2626" stroke-width="1" stroke-dasharray="4 3"/>');
+      o.push('<circle cx="'+F(bx,1)+'" cy="'+F(byH,1)+'" r="5" fill="#dc2626" stroke="#ffffff" stroke-width="1.5"/>');
+      o.push('<circle cx="'+F(bx,1)+'" cy="'+F(byV,1)+'" r="5" fill="#dc2626" stroke="#ffffff" stroke-width="1.5"/>');
+      /* Labels auseinanderziehen: v nach OBEN, Hvj nach UNTEN — sonst
+         überlappen sie, sobald die beiden Punkte nahe beieinander liegen. */
+      var lx=Math.min(bx+9,L+pw-150);
+      var lyV=Math.max(T+12, byV-9), lyH=Math.min(T+ph-6, byH+16);
+      if(lyH-lyV<16) lyH=lyV+16;
+      o.push('<text x="'+F(lx,1)+'" y="'+F(lyV,1)+'" font-size="10" fill="#dc2626" font-weight="800">v '+F(d.v,2)+' m/s</text>');
+      o.push('<text x="'+F(lx,1)+'" y="'+F(lyH,1)+'" font-size="10" fill="#dc2626" font-weight="800">Hvj '+F(d.hvj,3)+' m/m</text>');
+      o.push('<text x="'+F(bx,1)+'" y="'+(T-8)+'" font-size="10" fill="#dc2626" text-anchor="middle" font-weight="800">Q '+F(qBet,2)+' m³/h</text>');
+    }
+
+    o.push('</svg>');
+    host.innerHTML=o.join('');
+
+    if(note){
+      var v=d.v||0;
+      var urteil = (v<0.7)
+        ? '<b style="color:#dc2626">v unter 0.7 m/s</b> — Ablagerungsgefahr, kleinere ID prüfen'
+        : (v>2.0 ? '<b style="color:#b45309">v über 2.0 m/s</b> — grössere ID prüfen'
+                 : '<b style="color:#15803d">v im empfohlenen Bereich</b>');
+      note.innerHTML='Rohr ID '+E(String(id))+' mm · blaue Kurve = Hvj aus der Tabelle, orange Gerade = v = Q/A, '
+        +'grünes Band = zulässiger Bereich nach SN EN 12056-4. '+urteil+'.';
+    }
+  };
+})();
 </script>
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>
