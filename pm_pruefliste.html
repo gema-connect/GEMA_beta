@@ -135,7 +135,18 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 .fld input:focus,.fld select:focus,.fld textarea:focus{border-color:var(--acc)}
 .fld textarea{min-height:70px;resize:vertical;line-height:1.45}
 .fld-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-@media(max-width:480px){.fld-row{grid-template-columns:1fr}}
+/* Datum · Uhrzeit · Prüfer (Feedback 07.08.2026 Tim Löhrer) — die Uhrzeit ist
+   das schmale Feld in der Mitte. */
+.fld-row.r3{grid-template-columns:1fr 150px 1fr}
+@media(max-width:480px){.fld-row,.fld-row.r3{grid-template-columns:1fr}}
+/* Angeschlossene Einheiten-Box «Uhr» (GEMA-Kanon: die Einheit steht in der Box
+   am Feld, nicht im Label). Beide Teile tragen dasselbe Padding wie ein
+   normales .fld-Feld, damit sie oben/unten buendig abschliessen. */
+.uhr-grp{display:flex;align-items:stretch}
+/* .fld input traegt width:100% — ohne flex/min-width:0 drueckt es die
+   Einheiten-Box aus der Zeile. */
+.uhr-grp input{flex:1 1 auto;min-width:0;border-top-right-radius:0;border-bottom-right-radius:0;border-right:none}
+.uhr-grp .uhr-u{display:inline-flex;align-items:center;padding:12px 12px;border:1.5px solid var(--brd2);border-left:none;border-radius:0 10px 10px 0;background:var(--sur2);color:var(--mut);font-size:15px;font-weight:700;white-space:nowrap}
 
 /* ANLAGE + PRÜFPUNKTE */
 .anlage{border:1.5px solid var(--brd2);border-radius:14px;margin-bottom:12px;background:var(--sur);overflow:hidden}
@@ -1271,7 +1282,15 @@ function renderEditor(){
   h+='<div class="fld" id="eNutzFreiWrap" style="'+(nz.indexOf('andere')>=0?'':'display:none')+'"><label>Nutzung (Freitext)</label>'
     +'<input type="text" id="eNutzFrei" placeholder="z.B. Arztpraxis, Kita" value="'+esc(b.nutzungFrei||'')+'" '+(abg?'disabled':'')+' onchange="prEField(\'nutzungFrei\',this.value)"></div>';
 
-  h+='<div class="fld-row"><div class="fld"><label>Datum</label><input type="date" id="eDatum" value="'+esc(b.datum||'')+'" '+(abg?'disabled':'')+' onchange="prEField(\'datum\',this.value)"></div>'
+  /* Datum · Uhrzeit · Prüfer (Feedback 07.08.2026 Tim Löhrer: «Zwischen Datum
+     und Prüfer Uhrzeit mit Textfeld und fix Uhr dahinter»). Bewusst ein
+     TEXTFELD und kein type="time": gewuenscht ist die Schweizer Schreibweise
+     mit Punkt («11.00 Uhr») — ein natives Zeitfeld zeigt 11:00 mit eigenem
+     Waehler und bringt auf iOS die bekannten Layout-Probleme mit. */
+  h+='<div class="fld-row r3"><div class="fld"><label>Datum</label><input type="date" id="eDatum" value="'+esc(b.datum||'')+'" '+(abg?'disabled':'')+' onchange="prEField(\'datum\',this.value)"></div>'
+    +'<div class="fld"><label>Uhrzeit</label><div class="uhr-grp">'
+      +'<input type="text" id="eUhrzeit" inputmode="numeric" placeholder="11.00" value="'+esc(b.uhrzeit||'')+'" '+(abg?'disabled':'')+' onchange="prUhrzeit(this)">'
+      +'<span class="uhr-u">Uhr</span></div></div>'
     +'<div class="fld"><label>Prüfer / Fachperson</label><input type="text" id="ePruefer" value="'+esc(b.prueferName||'')+'" '+(abg?'disabled':'')+' onchange="prEField(\'prueferName\',this.value)"></div></div>';
   h+='<div class="fld"><label>Titel (optional)</label><input type="text" id="eTitel" placeholder="z.B. Jährliche Kontrolle Technikzentrale" value="'+esc(b.titel||'')+'" '+(abg?'disabled':'')+' onchange="prEField(\'titel\',this.value)"></div>';
   /* Titelbild fürs Deckblatt des Berichts (Feedback 25.07.2026) */
@@ -1552,6 +1571,27 @@ window.prEField=function(f,v){
     var hd=document.querySelector('#edBody .sec-hd h3');
     if(hd){ var car=hd.querySelector('.fold-caret'); hd.textContent=' 📋 '+prArtLabel(_cur.art,_cur.artFrei); if(car) hd.insertBefore(car,hd.firstChild); }
   }
+};
+/* Uhrzeit der Begehung (Feedback 07.08.2026 Tim Löhrer).
+   Freies Textfeld — normalisiert wird nur, was gefahrlos eindeutig ist: der
+   Doppelpunkt zur Schweizer Punkt-Schreibweise («11:00» → «11.00», Beispiel
+   aus dem Feedback) und umschliessende Leerzeichen. Ein angehaengtes «Uhr»
+   faellt weg, es steht bereits fix in der Box daneben. Sonst bleibt die
+   Eingabe UNANGETASTET — nichts wird geraten, nichts still gekappt; wer
+   «vormittags» oder «11.00–12.30» erfasst, behaelt das. Der normalisierte
+   Wert wird ins Feld zurueckgeschrieben, die Aenderung ist also sichtbar. */
+function prUhrzeitNorm(s){
+  var t=String(s==null?'':s).trim();
+  if(!t) return '';
+  t=t.replace(/:/g,'.');
+  t=t.replace(/\s*uhr\s*$/i,'').trim();
+  return t;
+}
+window.prUhrzeit=function(el){
+  if(!_cur||!el) return;
+  var v=prUhrzeitNorm(el.value);
+  if(el.value!==v) el.value=v;
+  _cur.uhrzeit=v; touch();
 };
 /* Nutzungen: Mehrfachauswahl per Chip (Feedback 28.07.2026) */
 window.prToggleNutzung=function(id){
@@ -2836,11 +2876,23 @@ function printBericht(b){
     +'.pgrid img{width:auto;max-width:100%;height:auto;max-height:85mm;object-fit:contain;object-position:left top;border-radius:6px;break-inside:avoid;background:#fff}'
     +'.no-print{position:fixed;top:10px;right:10px;display:flex;gap:8px;z-index:50}.no-print button{padding:9px 16px;border-radius:9px;border:1.5px solid #ccc;background:#fff;font-weight:700;cursor:pointer;font-family:inherit}'
     +'.no-print button.fbb{border-color:#dc2626;color:#dc2626}.no-print button[disabled]{opacity:.6;cursor:default}'
-    +'@media print{.no-print{display:none!important}}</style></head><body>';
+    /* Deckblatt = Seite 1, der Inhalt beginnt auf Seite 2 (Feedback
+       07.08.2026). `break-after` ist die aktuelle Schreibweise,
+       `page-break-after` der Fallback fuer aeltere Druck-Engines — beide
+       setzen, sonst greift es je nach Browser nicht. */
+    +'@media print{.no-print{display:none!important}'
+      +'.titelseite{break-after:page;page-break-after:always}}</style></head><body>';
   h+='<div class="no-print"><button onclick="window.print()">🖨 Drucken / Als PDF speichern</button>'
     +'<button onclick="gemaBerichtBearbeiten()">✎ Bearbeiten</button>'
     +'<button class="fbb" onclick="gemaBerichtFeedback()">🔴 Feedback</button>'
     +'<button onclick="window.close()">Schliessen</button></div>';
+  /* Deckblatt = eigene Seite (Feedback 07.08.2026 Tim Löhrer: «Rechteck Seite 1
+     = Titelseite, ab Abwasser Seite 2 und folgende»). Alles bis und mit der
+     KPI-Zeile steht in .titelseite; der Seitenumbruch dahinter gilt NUR im
+     Druck — am Bildschirm laeuft der Bericht wie bisher als ein Fluss (die
+     Vorschau ist nicht paginiert, ein Trenner dort waere eine Behauptung ueber
+     Seitengrenzen, die so gar nicht stimmen muss). */
+  h+='<div class="titelseite">';
   h+='<div class="top"><div class="abs"><strong>'+E(orgName||'GEMA')+'</strong>'+(adr?'<br>'+E(adr):'')+'</div>'
     +'<div class="logo">'+(logo?'<img src="'+E(logo)+'" alt="">':'<span class="wm">GEMA</span>')+'</div></div>';
   h+='<div class="coverbar"></div>';
@@ -2858,12 +2910,16 @@ function printBericht(b){
     +(objTypLbl?'<tr><td class="l">Objekttyp</td><td>'+E(objTypLbl)+'</td></tr>':'')
     +(prNutzungenText(b)?'<tr><td class="l">Nutzungen</td><td>'+E(prNutzungenText(b))+'</td></tr>':'')
     +'<tr><td class="l">Datum</td><td>'+E(fmtDatum(b.datum))+'</td></tr>'
+    /* Uhrzeit nur wenn erfasst — ein Altbestands-Bericht ohne das Feld
+       (07.08.2026 ergaenzt) druckt exakt wie bisher. */
+    +(b.uhrzeit?'<tr><td class="l">Uhrzeit</td><td>'+E(b.uhrzeit)+' Uhr</td></tr>':'')
     +'<tr><td class="l">Prüfer / Fachperson</td><td>'+E(b.prueferName||'—')+'</td></tr>'
     +'<tr><td class="l">Status</td><td>'+(b.status==='abgeschlossen'?'Abgeschlossen':'Offen')+'</td></tr>'
     +'</table>';
   /* KPI-Chips: Summe geht IMMER auf (Feedback 30.07.2026 «die Zahlen stimmen
      nicht») — entfällt separat, offen = offen + noch nicht bewertet. */
   h+='<div class="sum"><div class="sumb">Prüfpunkte: <b>'+bw.total+'</b></div><div class="sumb bw-gut">gut: <b>'+bw.gut+'</b></div><div class="sumb bw-maessig">mässig: <b>'+bw.maessig+'</b></div><div class="sumb bw-schlecht">schlecht: <b>'+bw.schlecht+'</b></div><div class="sumb bw-nicht_bewertet">entfällt: <b>'+bw.entfaellt+'</b></div><div class="sumb">offen: <b>'+(bw.offen+bw.nicht_bewertet)+'</b></div></div>';
+  h+='</div>';   /* Ende .titelseite — ab hier Seite 2 */
 
   (b.anlagen||[]).forEach(function(a){
     var art=prArt(a.anlagenart);

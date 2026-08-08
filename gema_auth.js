@@ -1565,12 +1565,21 @@
      App-Ansicht, Benachrichtigungen) waren damit für alle Nicht-GEMA-Admins
      unerreichbar (Feedback 30.07.2026 «Menü für Einstellungen»); in
      notify_prefs_gating_test war das als Quirk umschifft.
-     sys_admin bleibt bewusst DRAUSSEN — die Seite hat keinen eigenen harten
-     Zugriffs-Guard, der Redirect ist dort die Schutzschicht. sys_unternehmen
-     darf rein, weil es sich selbst guardet (GemaAuth.isOrgAdmin → «Nur
-     Unternehmens-Admins»). Neue Seite hier nur aufnehmen, wenn sie entweder
-     für JEDEN offen ist oder einen eigenen In-Page-Guard hat. */
-  var _KONTO_SEITEN=['sys_profil','sys_preise','sys_beta','sys_unternehmen'];
+     sys_unternehmen darf rein, weil es sich selbst guardet
+     (GemaAuth.isOrgAdmin → «Nur Unternehmens-Admins»).
+     sys_admin ebenfalls (07.08.2026): die Seite hat entgegen der früheren
+     Notiz hier sehr wohl einen harten In-Page-Guard (init() ersetzt den Body
+     durch «Kein Zugriff», wenn der User weder role_admin noch Org-Admin der
+     eigenen Firma ist). Solange sie draussen stand, warf der Rollen-Redirect
+     jeden ORG-ADMIN hinaus, dessen Landing nicht index.html ist — also genau
+     die Gruppe, für die die Seite gebaut ist: er kam gar nie an die
+     Benutzerverwaltung seiner eigenen Firma. Der Schutz wird dadurch nicht
+     schwächer, er verschiebt sich nur vom Redirect auf den Guard der Seite
+     (für Rollen mit Landing index.html — Monteur, Magaziner — griff ohnehin
+     seit je nur dieser Guard).
+     Neue Seite hier nur aufnehmen, wenn sie entweder für JEDEN offen ist oder
+     einen eigenen In-Page-Guard hat. */
+  var _KONTO_SEITEN=['sys_profil','sys_preise','sys_beta','sys_unternehmen','sys_admin'];
 
   // ── Rollenspezifische Zielseite ─────────────────────────────────
   function _getRedirectForUser(u){

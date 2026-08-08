@@ -487,8 +487,15 @@ input::placeholder{color:#cbd5e1}
     <div id="wsSearchResults" class="ws-search-results" style="display:none"></div>
   </div>
   <div class="g-nav-right">
-    <a class="g-nav-btn no-print" href="sys_unternehmen.html" title="Unternehmen verwalten" id="wsNavOrgAdmin" style="display:none">🏢</a>
-    <a class="g-nav-btn no-print" href="sys_admin.html" title="Benutzerverwaltung" id="wsNavUsers" style="display:none">👥</a>
+    <!-- Verstecken laeuft ueber .gnav-weg, NIE ueber Inline-display:none: die
+         zentrale Metrik-Regel in gema_responsive.css setzt
+         `.g-nav .g-nav-btn{display:inline-flex!important}` und schlaegt jedes
+         Inline-Style — beide Knoepfe waren damit fuer JEDE Rolle sichtbar und
+         fuehrten in eine Sackgasse (Feedback 07.08.2026 Mathias Schlaefli:
+         «Button ausblenden wenn kein Zugriff»). Beide starten versteckt; der
+         Boot-Block unten schaltet sie je nach echtem Zugriff frei. -->
+    <a class="g-nav-btn no-print gnav-weg" href="sys_unternehmen.html" title="Unternehmen verwalten" id="wsNavOrgAdmin">🏢</a>
+    <a class="g-nav-btn no-print gnav-weg" href="sys_admin.html" title="Benutzerverwaltung" id="wsNavUsers">👥</a>
     <a class="g-nav-btn no-print" href="sys_profil.html" title="Profil & Einstellungen">⚙️</a>
     <button class="gema-feedback-btn no-print" onclick="if(typeof GemaFeedback!=='undefined')GemaFeedback.start()">🔴 Feedback</button>
     <button class="g-nav-btn no-print" onclick="if(typeof GemaAuth!=='undefined')GemaAuth.logout()" title="Abmelden">Abmelden</button>
@@ -3942,12 +3949,21 @@ document.addEventListener('DOMContentLoaded',function(){
   try{
     var u=GemaAuth.getCurrentUser();
     if(u){
+      /* Jeder Knopf folgt dem Guard SEINER Zielseite — nicht mehr beide
+         gemeinsam einem ODER. Vorher zeigte ein Org-Admin-Konto auch den
+         GEMA-Admin-Knopf und umgekehrt; wer keines von beidem ist, sah
+         trotzdem alles (Inline-display:none wirkungslos, siehe Markup). */
       var isAdmin=u.roleIds&&u.roleIds.indexOf('role_admin')>=0;
       var isOrgA=(typeof GemaAuth.isOrgAdmin==='function')&&GemaAuth.isOrgAdmin(u.id);
-      if(isAdmin||isOrgA){
-        var nb=document.getElementById('wsNavUsers');if(nb)nb.style.display='';
-        var ob=document.getElementById('wsNavOrgAdmin');if(ob)ob.style.display='';
-      }
+      /* 👥 Benutzerverwaltung: sys_admin.html laesst GEMA-Admin ODER
+         Org-Admin der eigenen Firma herein (eigener Guard in sys_admin.html:
+         «Nur GEMA-Administratoren oder Unternehmensadmins»). */
+      var nb=document.getElementById('wsNavUsers');
+      if(nb)nb.classList.toggle('gnav-weg',!(isAdmin||isOrgA));
+      /* 🏢 Firmendaten: sys_unternehmen.html ist reine Org-Admin-Sache.
+         `isOrgAdmin` liefert fuer den GEMA-Admin ohnehin true. */
+      var ob=document.getElementById('wsNavOrgAdmin');
+      if(ob)ob.classList.toggle('gnav-weg',!isOrgA);
     }
   }catch(e){}
   // Coachmark-Tour NICHT auf dem Handy (Feedback 29.07.2026): die Schritte
