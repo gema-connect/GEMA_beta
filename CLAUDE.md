@@ -1419,10 +1419,82 @@ Auto-Save/Load bei Objektwechsel.
 - 📋 «Zugeordnet zu: <Objekt>» (grün) wenn Objekt aktiv
 - ⚠ «Nicht zugeordnet — bitte Projekt wählen» (amber) sonst
 
-Geplant: `gema_lu_api.js` für den Datenfluss aus der LU-Zusammenstellung:
+`gema_lu_api.js` für den Datenfluss aus der LU-Zusammenstellung:
 - `GemaLU.getVerbraucher(objektId)` – alle Verbraucher eines Projekts
 - `GemaLU.getByMedium(objektId, medium)` – Verbraucher gefiltert nach Medium
-- `GemaLU.getSpitzenvolumenstrom(objektId, medium)` – berechneter l/s-Wert
+- `GemaLU.getSpitzenvolumenstrom(objektId, medium)` – berechneter l/s-Wert (alle 7 Medien: kw/ww/nd/bw/ow/gw/grau)
+- `GemaLU.getHausanschluss(objektId)` – Gesamt-LU über alle Medien
+
+---
+
+## Werte-Verknüpfungen erfassen (gema_verknuepfung.js + gema_werte_katalog.js)
+
+Werkzeug, mit dem **dokumentiert** wird, welcher Wert aus welcher Berechnung in
+welchem anderen Modul vorgeschlagen werden soll — die Erfassungsstelle für das
+Kernprinzip «Daten einmal erfassen, überall verknüpfen». Der Knopf **«🔗 Verknüpfung»**
+steht in der Navigation JEDER Berechnung, wie der Feedback-Knopf, aber **nur für
+`role_admin`** (User-Entscheid 08/2026). Drift-Guard: `scripts/verknuepfung_test.mjs`
+(72 Checks, Node + Browser).
+
+**Ablauf — bewusst im ZIELMODUL, nicht im Quellmodul:** Knopf drücken → «＋ Wert hier
+vorschlagen lassen» → **das Zielfeld direkt anklicken** → Quelle aus dem Katalog
+wählen → speichern. **Mehrere Quellen sind der Normalfall**: eine Druckerhöhung wird
+für Kaltwasser ODER für Regenwasser ausgelegt; jede Quelle trägt ein Feld «Gilt wenn»,
+der Planer entscheidet später. Dazu je Quelle eine optionale Umrechnung
+(«l/s → m³/h (×3.6)»), pro Verknüpfung das Verhalten (Vorschlag/fest), ein Hinweis
+und ein Status (offen/umgesetzt/verworfen).
+
+**Es dokumentiert nur und exportiert Markdown für Claude Code (User-Entscheid 08/2026)** —
+es schlägt selbst keine Werte vor. So kann das Erfassen nie eine laufende Berechnung
+verfälschen; die eigentliche Vorbefüllung programmiert Claude Code danach ins Modul
+(Herkunfts-Chip, überschreibbar, Muster `sb_saugpumpe`).
+
+**IDs (User-Entscheid 08/2026):** WERTE tragen sprechende, stabile IDs
+(`druckerhoehung.vfd_LU`, `lu_tabelle.q_kw_api`), VERKNÜPFUNGEN kurze Nummern
+(`VK-0007`). Geändert wird immer eine Verknüpfung, nie ein Wert — «VK-0007 streichen»
+genügt damit als Ansage, und Claude Code sieht am Wert-Namen ohne Nachschlagen, worum
+es geht.
+
+**Werte-Katalog** (`gema_werte_katalog.js`, **AUTOMATISCH ERZEUGT** von
+`scripts/werte_katalog_gen.mjs` — nie von Hand bearbeiten): 48 Module, ~1440 Werte.
+Der Generator scannt **nur statisches Markup ausserhalb von `<script>`-Blöcken** —
+Felder, die ein Modul zur Laufzeit in JS-Strings baut (Teilstrecken-Zeilen), haben
+keine stabile ID und taugen nicht als Verknüpfungsziel. Ergebniswerte kommen aus
+`getBerechnungswerte()` und aus Ausgabe-Elementen mit id (`out`/`res`/`erg`).
+Jeder Wert trägt seinen **Lesekanal**: bei Eingaben den AutoSave-Snapshot
+(`gema_<modul>__<objektId>`, Feld unter seiner id), bei API-Werten den echten Aufruf.
+**Bei einem neuen Modul / neuen Feldern: `node scripts/werte_katalog_gen.mjs`** —
+der Drift-Guard failt sonst («Katalog VERALTET»).
+
+**`scripts/werte_katalog_manuell.json` ist handgepflegt** und enthält, was es GIBT,
+aber nicht im Markup steht: die Cross-Modul-APIs. Die LU-Tabelle baut ihre Ergebnisse
+komplett in JS und hätte sonst **keinen einzigen** Wert im Katalog — dort stehen jetzt
+alle sieben Medien-Spitzenvolumenströme mit ihrem Lesekanal, dazu Osmose (Permeat/
+Konzentrat), Apparateliste und Objekt-Stammdaten. **Neue Cross-Modul-API: hier
+eintragen, dann neu generieren.**
+
+- **Speicherung**: per-Record (moduleKey `verknuepfungen`, prefix `vk:`, Pool-Cache
+  `gema_vk_pool_v1`) — **NIE `persistCollection`**, der Pool ist org-übergreifend.
+  Records tragen `orgId` (RLS-Regel). Gebunden wird **erst beim Öffnen** des Werkzeugs,
+  ebenso der Katalog (~250 KB Script-Injection) — für alle anderen Nutzer kostet der
+  Helfer nichts ausser dem Rollen-Check.
+- **Das Panel tritt während der Feldwahl beiseite (KRITISCH)**: es liegt rechts über
+  der halben Seite — ohne `display:none` im Zielwahl-Modus sind die Felder darunter
+  schlicht nicht anklickbar (genau daran ist der Browser-Test zuerst gescheitert).
+- **Die Feld-Beschriftung wird LIVE aus dem DOM gelesen** (`labelText`) und dabei um
+  Zusatztexte bereinigt: Hint-Spans, Sprung-Links, die zweite Zeile nach `<br>` — und
+  **versteckte Herkunfts-Tags** (`<span class="lu-tag" style="display:none">LU ↗</span>`).
+  Die stehen in vielen Modulen mitten im Label und heissen je Modul anders; deshalb
+  filtert der Helfer über `getComputedStyle` auf Sichtbarkeit statt über eine
+  Klassenliste. Ungefiltert käme «Total LULU ↗Summe aller Lasteinheiten» in den Export.
+- **Feld ohne feste id** (dynamisch erzeugte Tabellenzeile) wird abgelehnt statt still
+  erfasst — Claude Code könnte es nicht sicher ansprechen.
+- **Markdown-Export** («📋 kopieren» / «⬇ Datei»): nach Zielmodul gruppiert, je
+  Verknüpfung Ziel-Feld-ID, Wert-ID, Verhalten und eine Tabelle aller Quellen mit
+  Lesekanal, Bedingung und Umrechnung. Pipes im Freitext werden maskiert (sonst
+  zerreisst die Tabelle), der leere Export erklärt sich statt leer zu bleiben.
+- Registriert: 49 Berechnungsmodule (Script-Tag nach `gema_sektion.js`), sw.js (v473).
+  Kein Eintrag in gema_auth/MODULES — es ist ein Werkzeug IN den Modulen, keine Seite.
 
 ---
 
@@ -3944,6 +4016,8 @@ UI-Anbindung:
 | `gema_scroll.js` | Scroll-Position-Restore + globaler Body-Scroll-Lock fuer Modals (`GemaScroll.lock/unlock`, Auto-Hook auf `.modal-bg`). **Zwei Sperr-Verfahren (KRITISCH, Drift-Guard `scripts/scroll_stabilitaet_test.mjs`)**: ausserhalb von iOS `overflow-y:hidden` auf **`<html>`** (Klasse `gema-modal-soft`) — die Scroll-Position wird gar nicht angefasst, beim Oeffnen UND Schliessen bewegt sich nichts; die Klasse MUSS auf `<html>` liegen, weil html/body `overflow-x:clip` tragen und body-overflow damit nicht mehr auf den Viewport propagiert. Nur auf **iOS** (dort ignoriert die Engine overflow auf dem Scroll-Container) weiterhin `position:fixed` + negativer `top` — der noetige Ruecksprung laeuft ueber `_instantScrollTo()`, das `scroll-behavior` kurz auf `auto` setzt: mehrere Module haben `html{scroll-behavior:smooth}` (if_werkzeug, if_fahrzeug, ab_*, …), ein blosses `scrollTo()` wurde dadurch ANIMIERT und man sah die Seite nach dem Schliessen sichtbar von oben zurueckfahren. Im sanften Modus wird zusaetzlich die Scrollbalken-Breite als `padding-right` ausgeglichen (sonst rutscht der Inhalt beim Sperren seitlich). **Neue Modals brauchen nichts zu tun** — der Auto-Hook greift. |
 | `gema_storage.js` | **Bild-Upload in Supabase Storage** (Bucket `gema-fotos`). `GemaStorage.uploadDataUrl(dataUrl, pathHint)` laedt ein Base64-Bild als Datei hoch, verifiziert die oeffentliche Erreichbarkeit (Image-Load) und liefert `{url, path}`; im Record steht dann nur die URL statt Base64 → kleine Records, keine Request-Groessen-/localStorage-Quota-Probleme. Reject bei fehlendem/falsch konfiguriertem Bucket → Aufrufer faellt auf Base64 zurueck. **Loeschen: `pathFromUrl`/`collectFiles`/`confirmDelete`/`deleteFiles`/`zipDownload`** — siehe «Storage-Aufraeumen beim Loeschen». **Setup (Dashboard, einmalig):** Bucket `gema-fotos` als Public anlegen + INSERT-Policy fuer Rolle `anon`. **Akzeptiert `data:image/*` UND `data:application/pdf`** (PDF-Verifikation via HEAD/Range-fetch statt Image-Load; genutzt fuer Lieferanten-Offerten-PDFs, Pfad `offerten/<lieferantId>`). Eingesetzt in `sp_dachbericht.html`, `sd_schadensbericht.html`, `sys_lieferant_dashboard.html` (Offerten-PDF) und `pm_abnahme.html` (Mangel-Fotos + Plan-Pin-Fotos via `_abUploadFotosToStorage`; Plan-Dateien/PDFs werden NICHT ausgelagert — Helper akzeptiert nur Bilder + Canvas/pdf.js-Kopplung). Bilder werden beim Save nach Storage ausgelagert; Bild-Quelle via `url || dataUrl`, jsPDF-Export rehydriert `url`→DataURL. **`GemaStorage.uploadFile(file, pathHint, opts)` (08/2026) laedt eine File/Blob DIREKT hoch — ohne den Base64-Umweg** und ist der Weg fuer alles ab ein paar MB: `uploadDataUrl` liest erst eine Data-URL ein (+33 %), dekodiert sie mit `atob` in einen String und kopiert sie Byte fuer Byte in ein Uint8Array — ein 7-MB-PDF belegt so kurzzeitig gegen 30 MB. **`opts.onProgress(pct, geladen, total)` gibt es nur hier**: beide Wege laufen seither ueber `_uploadBlob` mit **XHR statt fetch**, weil fetch keinen Upload-Fortschritt kennt (`opts.maxMb` Default 12, `opts.onXhr` fuer Abbruch; HTTP 413 wird als Bucket-Limit im Klartext gemeldet statt als nackter Code). |
 | `gema_undo.js` | Undo/Redo |
+| `gema_verknuepfung.js` | **Werte-Verknüpfungen erfassen** — Knopf «🔗 Verknüpfung» in jeder Berechnung (nur `role_admin`): Zielfeld anklicken, Quellwert aus einer anderen Berechnung wählen (mehrere Varianten mit Bedingung), Markdown-Export für Claude Code. Dokumentiert nur, schlägt selbst nichts vor. Siehe «Werte-Verknüpfungen erfassen» |
+| `gema_werte_katalog.js` | **AUTOMATISCH ERZEUGT** (`node scripts/werte_katalog_gen.mjs`) — Katalog aller ~1440 erfassbaren Werte in 48 Berechnungsmodulen mit stabiler ID (`modul.feldId`), Beschriftung, Einheit und Lesekanal. `byId/label/suche/werte/modulListe`. Wird nur bei Bedarf geladen (zu gross für jede Seite) |
 | `gema_vergleich.js` | Produkt-/Offert-Vergleich |
 | `gema_wasserdaten.js` | Wasserhärte/Trinkwasserdaten |
 | `gema_zefix.js` | **Handelsregister-Anbindung (LINDAS/Zefix)**: `GemaZefix.attach(firmaInput,{onSelect,onClear})` hängt Vorschläge aus dem Schweizer Handelsregister an ein Firma-Feld; `search(name)`/`detail(uid)`/`debug(opts)` als reine API. Abruf über den JWT-gegateten Proxy `netlify/functions/zefix.js` (`/api/zefix`) — Standardquelle ist **LINDAS SPARQL (Open Data, ohne Zugangsdaten)**, Zefix REST als Fallback. Ohne erreichbare Quelle klarer Hinweis statt stiller Fehler — Feld bleibt tippbar. Siehe «Handelsregister-Anbindung (LINDAS/Zefix)» |

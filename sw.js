@@ -1,5 +1,5 @@
 /* GEMA Service Worker — Offline Cache + Push Vorbereitung */
-var CACHE_NAME = 'gema-v472';
+var CACHE_NAME = 'gema-v473';
 var CACHE_FILES = [
   '/', '/index.html', '/sb_index.html',
   '/sa_enthaertung.html', '/sa_osmose.html', '/sa_fettabscheider.html',
@@ -29,7 +29,7 @@ var CACHE_FILES = [
   '/gema_lu_api.js', '/gema_osmose_api.js', '/gema_offer_request.js', '/gema_offerten_tab.js',
   '/gema_anlagenwahl.css', '/gema_responsive.css', '/gema_scroll.js', '/gema_pdf.js', '/gema_notify.js', '/gema_notify_ui.js', '/gema_chat.js',
   '/gema_coachmarks.js', '/gema_mobile_menu.js', '/gema_recent.js',
-  '/gema_pwa.js', '/gema_print_a4.js', '/gema_sektion.js', '/gema_print.js', '/gema-native.css', '/gema-native.js', '/gema_native_mobil.js', '/gema_adresse.js', '/gema_erp_adressen.js', '/gema_erp_import.js', '/gema_pumpenkennlinie.js', '/gema_zefix.js', '/gema_hoehe.js', '/gema_avatar.js', '/gema_dialog.js', '/gema_aushang.js', '/gema_dataselect.js',
+  '/gema_pwa.js', '/gema_print_a4.js', '/gema_sektion.js', '/gema_verknuepfung.js', '/gema_werte_katalog.js', '/gema_print.js', '/gema-native.css', '/gema-native.js', '/gema_native_mobil.js', '/gema_adresse.js', '/gema_erp_adressen.js', '/gema_erp_import.js', '/gema_pumpenkennlinie.js', '/gema_zefix.js', '/gema_hoehe.js', '/gema_avatar.js', '/gema_dialog.js', '/gema_aushang.js', '/gema_dataselect.js',
   '/gema_qr_scanner.js', '/gema_nfc_scanner.js', '/gema_aktivitaetslog.js', '/gema_editlock.js', '/gema_fotoqueue.js',
   '/gema_schaden_pdf.js', '/gema_dachbericht_pdf.js', '/gema_claude.js', '/gema_storage.js', '/gema_revision_pdf.js', '/gema_abo_api.js',
   '/icon-192.svg', '/icon-512.svg', '/manifest.json'
