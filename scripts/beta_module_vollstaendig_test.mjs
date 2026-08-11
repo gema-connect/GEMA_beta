@@ -29,14 +29,26 @@ page.on('pageerror', e => errors.push(e.message));
 // selbst) — plus einer fuer die Pruefliste.
 const EINTRAG = [{ ts: '27.07.2026 09:00', author: 'Sandro', type: 'bug',
                    text: 'Prüfpunkt liess sich nicht speichern', cStatus: 'offen' }];
+// IDs, die in der FEEDBACK_IDS-SEED-Liste stehen, aber KEIN gema_auth-Modul
+// sind (Startseite, Profil, diese Seite selbst). Genau die hatten nie eine
+// Board-Zeile: der Export zeigte ihre Punkte, das Board nicht.
+const SEED_MIT_DATEN = ['module', 'profil', 'beta_pruefungen'];
+const punkt = id => [{ ts: '05.08.2026 11:00', author: 'Robin', type: 'bug',
+                       text: 'PUNKT-' + id, cStatus: 'offen' }];
 await ctx.route('**/rest/v1/gema_data*', route => {
   const u = route.request().url();
   if (route.request().method() !== 'GET') return route.fulfill({ contentType: 'application/json', body: '{}' });
   if (/feedback_/.test(decodeURIComponent(u))) {
-    return route.fulfill({ contentType: 'application/json', body: JSON.stringify([
+    const rows = [
       { data_key: 'feedback_pruefliste',       payload: { data: EINTRAG, v: JSON.stringify(EINTRAG), _lm: 1 } },
-      { data_key: 'feedback_ein_altes_modul',  payload: { data: [], v: '[]', _lm: 1 } }
-    ]) });
+      { data_key: 'feedback_ein_altes_modul',  payload: { data: [], v: '[]', _lm: 1 } },
+      // 'preise' steht ebenfalls in der Seed-Liste, traegt aber KEINE Daten
+      // → darf keine leere Karteileiche im Board erzeugen.
+      { data_key: 'feedback_preise',           payload: { data: [], v: '[]', _lm: 1 } }
+    ];
+    SEED_MIT_DATEN.forEach(id => rows.push({ data_key: 'feedback_' + id,
+      payload: { data: punkt(id), v: JSON.stringify(punkt(id)), _lm: 1 } }));
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify(rows) });
   }
   return route.fulfill({ contentType: 'application/json', body: '[]' });
 });
@@ -86,6 +98,44 @@ console.log('■ FEEDBACK_IDS: Quelle des Exports, vollständig');
   ok(r.fehlt.length === 0, 'jedes registrierte Modul kann Feedback tragen' + (r.fehlt.length ? ' — fehlt: ' + r.fehlt.join(', ') : ''));
   ok(r.cloudId, 'in der Cloud gefundene Feedback-ID wird ergänzt (auch wenn sie nirgends registriert ist)');
   ok(r.cloudImBoard, 'diese ID erscheint auch im Board — sonst läge Feedback nur im Export');
+}
+
+console.log('■ Jeder Feedback-Punkt ist im Board erreichbar (nicht nur im Export)');
+{
+  // Die Kern-Invariante: was der Export sieht, MUSS das Board zeigen.
+  // Der Export iteriert FEEDBACK_IDS, das Board rendert nur MODULES-Zeilen —
+  // Seed-IDs ohne Modul (Startseite/Profil/diese Seite) fielen genau hier
+  // durch und waren unsichtbar, obwohl «Daten geladen» stand.
+  const r = await page.evaluate(() => {
+    const board = {}; MODULES.forEach(c => (c.items || []).forEach(i => {
+      board[i.id] = i; (i.sub || []).forEach(s => { board[s.id] = s; }); }));
+    const mitDaten = FEEDBACK_IDS.filter(id => { try { return (getFeedback(id) || []).length > 0; } catch (e) { return false; } });
+    const hint = document.getElementById('fbLueckeHint');
+    const zeile = id => { const it = board[id]; return it ? { name: it.name, href: it.href } : null; };
+    return {
+      ohneZeile: mitDaten.filter(id => !board[id]),
+      mitDatenAnzahl: mitDaten.length,
+      startseite: zeile('module'), profil: zeile('profil'),
+      leerHatZeile: !!board['preise'],
+      hintSichtbar: !!hint && hint.style.display !== 'none',
+      hintText: hint ? hint.textContent : '',
+      // Sichtbar heisst: die Karte steht wirklich im DOM, nicht nur im State
+      startseiteKarteImDom: (function () {
+        try { toggleFbPanel('module'); } catch (e) { }
+        return document.body.innerText.indexOf('PUNKT-module') >= 0;
+      })()
+    };
+  });
+  ok(r.ohneZeile.length === 0, 'jede Feedback-ID mit Daten hat eine Board-Zeile ('
+    + r.mitDatenAnzahl + ' mit Daten)' + (r.ohneZeile.length ? ' — ohne Zeile: ' + r.ohneZeile.join(', ') : ''));
+  ok(!!r.startseite, 'Startseiten-Feedback («module») hat eine Zeile');
+  ok(r.startseite && /Startseite/.test(r.startseite.name), 'die Zeile heisst sprechend statt «Module» (' + (r.startseite && r.startseite.name) + ')');
+  ok(r.startseite && r.startseite.href === 'index.html', 'sie verlinkt auf index.html (' + (r.startseite && r.startseite.href) + ')');
+  ok(r.profil && r.profil.href === 'sys_profil.html', 'Profil-Feedback verlinkt auf sys_profil.html');
+  ok(!r.leerHatZeile, 'eine Seed-ID OHNE Feedback bekommt KEINE leere Zeile');
+  ok(r.startseiteKarteImDom, 'die Feedback-Karte der Startseite steht wirklich im DOM');
+  ok(r.hintSichtbar, 'die Lücke wird sichtbar gemeldet statt still geschlossen');
+  ok(/module/.test(r.hintText) && /profil/.test(r.hintText), 'der Hinweis nennt die betroffenen Bereiche');
 }
 
 console.log('■ Markdown-Export enthält das Modul');
