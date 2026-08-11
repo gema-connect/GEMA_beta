@@ -910,6 +910,16 @@
     if (typeof _GemaDB !== 'undefined' && _GemaDB.loadFromModule) {
       try {
         var existing = await _GemaDB.loadFromModule(BETA_KEY, dataKey) || [];
+        /* KRITISCH — der gespeicherte Wert ist NICHT immer ein Array: das
+           Board (sys_beta) schreibt bei jeder Status-/Haken-Aenderung
+           `JSON.stringify(fb)`, also einen String. Ein blosses
+           `if(!Array.isArray) = []` warf damit beim naechsten Absenden die
+           GANZE Modul-Historie weg (stiller Datenverlust). Darum erst
+           parsen — und nur bei wirklich unbrauchbarem Inhalt leer starten. */
+        if (typeof existing === 'string') {
+          try { var _p = JSON.parse(existing); existing = Array.isArray(_p) ? _p : []; }
+          catch (e) { existing = []; }
+        }
         if (!Array.isArray(existing)) existing = [];
         existing.unshift(entry);
         if (existing.length > 100) existing = existing.slice(0, 100);

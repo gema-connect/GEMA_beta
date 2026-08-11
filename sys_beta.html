@@ -309,6 +309,10 @@ body.beta-mine-only .fbp-input{display:none}
     </div>
     <div class="g-nav-right">
       <button class="g-nav-btn" onclick="openExportModal()" title="Feedback aller Module als Markdown fuer Claude Code exportieren">📋 Markdown-Export</button>
+      <!-- Start VERSTECKT (fail-closed): bricht der Boot-Block ab, bleibt der
+           destruktive Knopf weg. Verstecken NUR ueber .gnav-weg — ein
+           Inline-display:none schlaegt die zentrale Nav-Metrik nicht. -->
+      <button id="btnFbClean" class="g-nav-btn gnav-weg" onclick="fbCleanOpen()" title="Erledigte Feedback-Punkte aelter als 3 Tage entfernen">🧹 Aufräumen</button>
       <button class="g-nav-btn primary" onclick="speichern()">💾 Speichern</button>
       <button class="gema-feedback-btn no-print" onclick="GemaFeedback.start()">🔴 Feedback</button>
     </div>
@@ -735,6 +739,176 @@ const getFeedback = (id) => {
 const totalComments = (id) => {
   return (mState(id).comments || []).length + getFeedback(id).length;
 };
+
+/*FBCLEAN-ENGINE-START*/
+/* ── Feedback-Bereinigung — reine Logik (DOM-frei, Node-testbar) ───────
+   Anlass: das Board konnte das Feedback nicht mehr anzeigen. Ursache ist
+   die Datenmenge — `_GemaDB.init` holt ALLE `feedback_*`-Zeilen in EINER
+   Anfrage und bricht nach 4 s hart ab (AbortController in gema_db.js).
+   Schwer sind die Zeilen wegen der Screenshots: gema_feedback.js legt sie
+   als Base64 IN den Eintrag (bis 400'000 Zeichen pro Punkt, bis 100 Punkte
+   pro Modul). Erledigte Altpunkte wegzuräumen nimmt genau dieses Gewicht
+   heraus.
+
+   Zwei Regeln, die NICHT verhandelbar sind:
+   (1) Entfernt wird ausschliesslich `cStatus === 'erledigt'`. «Offen» und
+       «in Arbeit» bleiben immer — auch uralte.
+   (2) Wer sich nicht datieren lässt, BLEIBT. Der Zeitstempel ist ein
+       de-CH-Anzeigestring («07.08.26, 14:32»), kein ISO-Datum; ein
+       unlesbares Feld darf nie zu einer Löschung führen.
+
+   Bewusst NICHT angefasst: die Board-eigenen Kommentare
+   (state.mods[].comments). Deren Zeitstempel trägt KEIN Jahr
+   («07.08., 14:32», nowStr) — sie sind damit grundsätzlich nicht datierbar,
+   und sie wiegen ohnehin nichts (keine Screenshots). */
+var FBCLEAN_TAGE = 3;
+
+/* «07.08.26, 14:32» → Date. Nimmt 2- und 4-stellige Jahre und eine
+   fehlende Uhrzeit. Liefert null, wenn das Feld kein Datum MIT Jahr
+   enthält — insbesondere beim jahrlosen Board-Zeitstempel. */
+function fbTsDate(ts){
+  if(typeof ts !== 'string') return null;
+  var m = ts.match(/(\d{1,2})\.(\d{1,2})\.(\d{4}|\d{2})(?![\d.])(?:[,\s]+(\d{1,2}):(\d{2}))?/);
+  if(!m) return null;
+  var tag = +m[1], mon = +m[2], jahr = +m[3];
+  if(jahr < 100) jahr += 2000;
+  var d = new Date(jahr, mon - 1, tag, m[4] != null ? +m[4] : 0, m[5] != null ? +m[5] : 0);
+  /* Gegenprobe: ein ungültiges Datum (31.02.) rollt der Date-Konstruktor
+     still weiter — dann lieber gar kein Datum als ein falsches. */
+  if(d.getFullYear() !== jahr || d.getMonth() !== mon - 1 || d.getDate() !== tag) return null;
+  return d;
+}
+
+/* Alter in Tagen, null wenn nicht datierbar. */
+function fbAlterTage(ts, jetzt){
+  var d = fbTsDate(ts);
+  return d ? (jetzt.getTime() - d.getTime()) / 86400000 : null;
+}
+
+/* Darf dieser Punkt weg? Nur erledigt UND nachweislich älter als N Tage.
+   Ein in der Zukunft liegender Stempel (verstellte Uhr) ergibt ein
+   negatives Alter und bleibt damit ebenfalls stehen. */
+function fbAufraeumbar(e, jetzt, tage){
+  if(!e || (e.cStatus || 'offen') !== 'erledigt') return false;
+  var alter = fbAlterTage(e.ts, jetzt);
+  if(alter === null) return false;
+  return alter > (tage == null ? FBCLEAN_TAGE : tage);
+}
+
+/* Teilt ein Modul-Array in behalten/entfernt und misst, wie viel Gewicht
+   die Entfernten ausmachen (das ist der Punkt der Übung). */
+function fbCleanArray(arr, jetzt, tage){
+  var behalten = [], entfernt = [], bytes = 0;
+  (Array.isArray(arr) ? arr : []).forEach(function(e){
+    if(fbAufraeumbar(e, jetzt, tage)){
+      entfernt.push(e);
+      try{ bytes += JSON.stringify(e).length; }catch(err){}
+    } else behalten.push(e);
+  });
+  return { behalten: behalten, entfernt: entfernt, bytes: bytes };
+}
+
+/* Der gespeicherte Wert ist mal ein Array (gema_feedback.js schreibt das
+   Array direkt) und mal ein JSON-String (sys_beta schreibt stringify) —
+   beide Formen existieren im Bestand. null = «kann ich nicht deuten»;
+   solche Zeilen fasst die Bereinigung NICHT an. */
+function fbParseRoh(roh){
+  if(roh == null) return null;
+  if(Array.isArray(roh)) return roh;
+  if(typeof roh === 'string'){
+    try{ var p = JSON.parse(roh); return Array.isArray(p) ? p : null; }catch(e){ return null; }
+  }
+  return null;
+}
+
+/* kB/MB lesbar — die Zahl ist das Argument fürs Aufräumen. */
+function fbCleanGroesse(bytes){
+  if(bytes > 1048576) return (bytes / 1048576).toFixed(1) + ' MB';
+  if(bytes > 1024) return Math.round(bytes / 1024) + ' kB';
+  return bytes + ' B';
+}
+/*FBCLEAN-ENGINE-END*/
+
+// ── FEEDBACK-BEREINIGUNG — Cloud-Teil ─────────────────────────
+// Destruktiv und org-übergreifend (das Board ist ein Admin-Werkzeug) →
+// nur für den GEMA-Admin.
+function _fbCleanDarf(){
+  try{ return !!(typeof GemaAuth !== 'undefined' && GemaAuth.isAdmin && GemaAuth.isAdmin()); }
+  catch(e){ return false; }
+}
+function _fbCleanHdrs(){
+  var tok = '', key = '';
+  try{ tok = (GemaSync.getAuthToken && GemaSync.getAuthToken()) || ''; key = GemaSync.SB_KEY || ''; }catch(e){}
+  return { 'apikey': key, 'Authorization': 'Bearer ' + (tok || key), 'Content-Type': 'application/json' };
+}
+
+/* Welche Feedback-Zeilen gibt es WIRKLICH? Bewusst `select=data_key` ohne
+   payload: die Bereinigung muss auch dann laufen, wenn der Bulk-Load des
+   Boards an der Datenmenge scheitert — genau dieser Fall ist der Anlass.
+   Ein Aufräumen, das die kaputte Ladung braucht, hätte nichts zu tun. */
+async function _fbCleanKeys(){
+  if(typeof GemaSync === 'undefined' || !GemaSync.SB_URL) throw new Error('GemaSync fehlt');
+  var url = GemaSync.SB_URL + '/rest/v1/gema_data'
+    + '?module_key=eq.' + encodeURIComponent(SK)
+    + '&data_key=like.feedback_*&select=data_key&order=data_key.asc';
+  var r = await fetch(url, { headers: _fbCleanHdrs() });
+  if(!r.ok) throw new Error('HTTP ' + r.status);
+  var rows = await r.json();
+  return (Array.isArray(rows) ? rows : []).map(function(x){ return x.data_key; }).filter(Boolean);
+}
+
+/* Zeile für Zeile prüfen (Bündel zu 4). Sequenziell statt in EINER Anfrage
+   — so hängt die Prüfung nie am 4-s-Deckel und der Speicher bleibt klein:
+   pro Runde wird nur gezählt und gemessen, die Nutzlast selbst wird sofort
+   wieder verworfen. Geschrieben wird erst nach der Bestätigung. */
+async function _fbCleanScan(onProgress){
+  var keys = await _fbCleanKeys();
+  var jetzt = new Date(), res = { module:[], weg:0, bytes:0, gesamt:0, fehler:[], zeilen:keys.length };
+  for(var i = 0; i < keys.length; i += 4){
+    await Promise.all(keys.slice(i, i + 4).map(async function(k){
+      var roh = null;
+      try{ roh = await _GemaDB.loadFromModule(SK, k); }catch(e){ res.fehler.push(k); return; }
+      var arr = fbParseRoh(roh);
+      if(arr === null){ res.fehler.push(k); return; }
+      res.gesamt += arr.length;
+      var c = fbCleanArray(arr, jetzt, FBCLEAN_TAGE);
+      if(!c.entfernt.length) return;
+      res.module.push({ key:k, id:k.slice('feedback_'.length), weg:c.entfernt.length, bleibt:c.behalten.length, bytes:c.bytes });
+      res.weg += c.entfernt.length; res.bytes += c.bytes;
+    }));
+    if(onProgress) onProgress(Math.min(i + 4, keys.length), keys.length);
+  }
+  res.module.sort(function(a, b){ return b.bytes - a.bytes; });
+  return res;
+}
+
+/* Anwenden: Zeile frisch laden, filtern, zurückschreiben. Frisch laden ist
+   Absicht — zwischen Vorschau und Bestätigung kann neues Feedback
+   eingetroffen sein, das nicht verloren gehen darf.
+   KRITISCH: als ARRAY schreiben (nicht stringify) — gema_feedback.js
+   verlangt beim nächsten Absenden `Array.isArray`, sonst beginnt es mit
+   einer leeren Liste und die Modul-Historie wäre weg. */
+async function _fbCleanApply(scan, onProgress){
+  var jetzt = new Date(), out = { weg:0, bytes:0, module:0, fehler:[] };
+  for(var i = 0; i < scan.module.length; i++){
+    var m = scan.module[i];
+    if(onProgress) onProgress(i, scan.module.length, m.id);
+    var roh = null;
+    try{ roh = await _GemaDB.loadFromModule(SK, m.key); }catch(e){ out.fehler.push(m.id); continue; }
+    var arr = fbParseRoh(roh);
+    if(arr === null){ out.fehler.push(m.id); continue; }
+    var c = fbCleanArray(arr, jetzt, FBCLEAN_TAGE);
+    if(!c.entfernt.length) continue;
+    var ok = false;
+    try{ ok = await _GemaDB.saveToModule(SK, m.key, c.behalten); }catch(e){ ok = false; }
+    if(!ok){ out.fehler.push(m.id); continue; }
+    /* Lokalen Cache nachziehen, damit das Board den bereinigten Stand ohne
+       Reload zeigt — und zwar auch dann, wenn der Bulk-Load leer blieb. */
+    try{ _GemaDB.c[m.key] = c.behalten; }catch(e){}
+    out.weg += c.entfernt.length; out.bytes += c.bytes; out.module++;
+  }
+  return out;
+}
 
 // ── «Meine Feedbacks»-Filter ──────────────────────────────────
 // Autor-Namen sind Freitext; GemaFeedback stempelt user.name||user.username vor.
@@ -1458,6 +1632,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   load();
   renderAll();
 
+  /* Aufräumen ist destruktiv und org-übergreifend → nur GEMA-Admin.
+     Sichtbar gemacht wird über .gnav-weg (die zentrale Nav-Metrik erzwingt
+     display:inline-flex!important, ein Inline-Style griffe nicht). */
+  try{
+    var bClean = document.getElementById('btnFbClean');
+    if(bClean) bClean.classList.toggle('gnav-weg', !_fbCleanDarf());
+  }catch(e){}
+
   // ── Quiz Community Review Panel ──
   // Community-Fragen liegen als per-Record-Pool (moduleKey 'quiz', prefix
   // 'quizq:') — frisch binden statt des frueheren localStorage-Seitenkanals
@@ -1581,6 +1763,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     <div style="padding:14px 22px;border-top:1.5px solid #e2e7f0;display:flex;gap:8px;justify-content:flex-end;background:#f7f8fc">
       <button onclick="closeExMarkDialog()" style="padding:9px 16px;border-radius:9px;border:1.5px solid #cdd4e4;background:#fff;color:#334155;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Nicht setzen</button>
       <button id="exMarkApply" onclick="exMarkApply()" style="padding:9px 18px;border-radius:9px;border:none;background:#f59e0b;color:#fff;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit">🟡 Setzen</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────── FEEDBACK AUFRÄUMEN: erledigt + älter als N Tage ─────────── -->
+<div id="fbCleanModal" style="display:none;position:fixed;inset:0;z-index:9300;background:rgba(15,23,42,.55);backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:20px">
+  <div style="background:#fff;border-radius:16px;width:100%;max-width:660px;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.25);font-family:'DM Sans',ui-sans-serif,sans-serif">
+    <div style="padding:16px 22px;border-bottom:1.5px solid #e2e7f0;display:flex;align-items:center;gap:10px">
+      <div style="font-size:18px">🧹</div>
+      <div style="flex:1">
+        <div style="font-size:15px;font-weight:800;color:#0f172a">Feedback aufräumen</div>
+        <div style="font-size:12px;color:#6b7280;margin-top:2px">Entfernt <strong>erledigte</strong> Punkte, die älter als <span id="fbCleanTage">3</span> Tage sind — samt ihrer Screenshots.</div>
+      </div>
+      <button onclick="fbCleanClose()" style="background:#f4f6fb;border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:#6b7280">✕</button>
+    </div>
+    <div style="padding:12px 22px;border-bottom:1px solid #e2e7f0;background:#f7f8fc;font-size:11.5px;line-height:1.55;color:#334155">
+      <strong>🔴 Offen</strong> und <strong>🟡 In Arbeit</strong> bleiben immer stehen — auch alte. Punkte ohne lesbares Datum bleiben ebenfalls.
+      Die Kommentare, die du direkt im Board erfasst hast, werden nicht angefasst (ihr Zeitstempel trägt kein Jahr).
+      <strong>Das Entfernen lässt sich nicht rückgängig machen.</strong>
+    </div>
+    <div id="fbCleanBody" style="padding:14px 22px;flex:1;overflow:auto;min-height:120px"></div>
+    <div style="padding:14px 22px;border-top:1.5px solid #e2e7f0;display:flex;gap:8px;justify-content:flex-end;background:#f7f8fc">
+      <button onclick="fbCleanClose()" style="padding:9px 16px;border-radius:9px;border:1.5px solid #cdd4e4;background:#fff;color:#334155;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Abbrechen</button>
+      <button id="fbCleanGo" onclick="fbCleanApply()" disabled style="padding:9px 18px;border-radius:9px;border:none;background:#dc2626;color:#fff;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;opacity:.5">🗑 Entfernen</button>
     </div>
   </div>
 </div>
@@ -1767,6 +1973,116 @@ function closeExportModal(){
 }
 window.openExportModal  = openExportModal;
 window.closeExportModal = closeExportModal;
+
+// ═══════════════════════════════════════════════════
+// FEEDBACK AUFRÄUMEN — Dialog
+// ═══════════════════════════════════════════════════
+var _fbCleanScanRes = null, _fbCleanBusy = false;
+
+function fbCleanOpen(){
+  if(!_fbCleanDarf()){ toast('⚠ Nur für GEMA-Admins'); return; }
+  _fbCleanScanRes = null;
+  var el = document.getElementById('fbCleanTage'); if(el) el.textContent = FBCLEAN_TAGE;
+  document.getElementById('fbCleanModal').style.display = 'flex';
+  _fbCleanBtn(false, '🗑 Entfernen');
+  _fbCleanSay('<div style="font-size:12.5px;color:#6b7280">⏳ Feedback wird geprüft …</div>');
+  _fbCleanScan(function(fertig, total){
+    _fbCleanSay('<div style="font-size:12.5px;color:#6b7280">⏳ Feedback wird geprüft … ' + fertig + ' / ' + total + ' Modulen</div>');
+  }).then(function(res){
+    _fbCleanScanRes = res;
+    _fbCleanZeigeVorschau(res);
+  }).catch(function(e){
+    _fbCleanSay('<div style="font-size:12.5px;color:#b91c1c;font-weight:700">⚠ Prüfung fehlgeschlagen: ' + escHtml(e && e.message || String(e)) + '</div>'
+      + '<div style="font-size:12px;color:#6b7280;margin-top:6px">Verbindung prüfen und erneut öffnen.</div>');
+  });
+}
+function fbCleanClose(){
+  if(_fbCleanBusy) return;   // mitten im Schreiben nicht wegklicken
+  document.getElementById('fbCleanModal').style.display = 'none';
+}
+function _fbCleanSay(html){
+  var b = document.getElementById('fbCleanBody'); if(b) b.innerHTML = html;
+}
+function _fbCleanBtn(an, text){
+  var b = document.getElementById('fbCleanGo'); if(!b) return;
+  b.disabled = !an; b.style.opacity = an ? '1' : '.5'; b.style.cursor = an ? 'pointer' : 'default';
+  if(text) b.textContent = text;
+}
+
+function _fbCleanZeigeVorschau(res){
+  if(!res.weg){
+    _fbCleanSay('<div style="font-size:13px;font-weight:700;color:#15803d">✓ Nichts aufzuräumen</div>'
+      + '<div style="font-size:12.5px;color:#6b7280;margin-top:6px">'
+      + res.zeilen + ' Modul-Zeilen mit ' + res.gesamt + ' Punkten geprüft — kein erledigter Punkt ist älter als ' + FBCLEAN_TAGE + ' Tage.</div>'
+      + _fbCleanFehlerHtml(res.fehler));
+    _fbCleanBtn(false, '🗑 Entfernen');
+    return;
+  }
+  _fbCleanSay(
+    '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px">'
+      + _fbCleanKachel(res.weg, 'Punkte werden entfernt', '#dc2626')
+      + _fbCleanKachel(fbCleanGroesse(res.bytes), 'Daten weniger', '#1d4ed8')
+      + _fbCleanKachel((res.gesamt - res.weg), 'Punkte bleiben', '#15803d')
+    + '</div>'
+    + '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;margin-bottom:6px">Betroffene Module</div>'
+    + '<div style="border:1.5px solid #e2e7f0;border-radius:10px;overflow:hidden">'
+    + res.module.map(function(m, i){
+        return '<div style="display:flex;align-items:center;gap:10px;padding:7px 11px;font-size:12.5px;'
+          + (i % 2 ? 'background:#f7f8fc' : '') + '">'
+          + '<span style="flex:1;font-weight:700;color:#0f172a">' + escHtml(_modLabelFallback(m.id)) + '</span>'
+          + '<span style="color:#dc2626;font-weight:700">−' + m.weg + '</span>'
+          + '<span style="color:#6b7280;min-width:64px;text-align:right">' + fbCleanGroesse(m.bytes) + '</span>'
+          + '<span style="color:#9aa3b2;min-width:78px;text-align:right">' + m.bleibt + ' bleiben</span>'
+          + '</div>';
+      }).join('')
+    + '</div>'
+    + _fbCleanFehlerHtml(res.fehler)
+  );
+  _fbCleanBtn(true, '🗑 ' + res.weg + ' Punkte entfernen');
+}
+function _fbCleanKachel(wert, label, farbe){
+  return '<div style="flex:1;min-width:120px;padding:10px 12px;border:1.5px solid #e2e7f0;border-radius:10px">'
+    + '<div style="font-size:19px;font-weight:800;color:' + farbe + '">' + escHtml(String(wert)) + '</div>'
+    + '<div style="font-size:11.5px;color:#6b7280;font-weight:600">' + label + '</div></div>';
+}
+/* Übersprungene Zeilen werden BENANNT, nie stillschweigend weggelassen —
+   sonst sieht «fertig» nach mehr aus, als es war. */
+function _fbCleanFehlerHtml(fehler){
+  if(!fehler || !fehler.length) return '';
+  return '<div style="margin-top:10px;padding:8px 11px;border-radius:9px;border:1.5px solid #fde68a;background:#fffbeb;color:#92400e;font-size:11.5px;font-weight:600">'
+    + '⚠ ' + fehler.length + ' Zeile(n) übersprungen (nicht lesbar oder nicht erreichbar): '
+    + escHtml(fehler.map(function(k){ return String(k).replace(/^feedback_/, ''); }).join(', ')) + '</div>';
+}
+
+function fbCleanApply(){
+  var res = _fbCleanScanRes;
+  if(!res || !res.weg || _fbCleanBusy) return;
+  _fbCleanBusy = true;
+  _fbCleanBtn(false, '⏳ Wird entfernt …');
+  _fbCleanApply(res, function(i, total, id){
+    _fbCleanSay('<div style="font-size:12.5px;color:#6b7280">⏳ ' + (i + 1) + ' / ' + total + ' — ' + escHtml(_modLabelFallback(id)) + ' …</div>');
+  }).then(function(out){
+    _fbCleanBusy = false;
+    _fbCleanSay(
+      '<div style="font-size:13px;font-weight:800;color:#15803d">✓ ' + out.weg + ' Punkte entfernt</div>'
+      + '<div style="font-size:12.5px;color:#6b7280;margin-top:6px">'
+      + fbCleanGroesse(out.bytes) + ' weniger, über ' + out.module + ' Module.</div>'
+      + _fbCleanFehlerHtml(out.fehler)
+    );
+    _fbCleanBtn(false, '✓ Erledigt');
+    logActivity('comment', '<strong>Feedback aufgeräumt</strong> — ' + out.weg + ' erledigte Punkte älter als ' + FBCLEAN_TAGE + ' Tage entfernt (' + fbCleanGroesse(out.bytes) + ')');
+    autoSave();
+    renderAll();
+    toast('🧹 ' + out.weg + ' Punkte entfernt');
+  }).catch(function(e){
+    _fbCleanBusy = false;
+    _fbCleanSay('<div style="font-size:12.5px;color:#b91c1c;font-weight:700">⚠ Fehler: ' + escHtml(e && e.message || String(e)) + '</div>');
+    _fbCleanBtn(true, '🗑 Erneut versuchen');
+  });
+}
+window.fbCleanOpen  = fbCleanOpen;
+window.fbCleanClose = fbCleanClose;
+window.fbCleanApply = fbCleanApply;
 
 function refreshExportPreview(){
   var all = _exCollectAll();
