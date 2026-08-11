@@ -380,6 +380,10 @@ body.beta-mine-only .fbp-input{display:none}
     </div>
   </div>
 
+  <!-- Feedback ohne Board-Zeile: siehe _fbZeilenFuerDatenErgaenzen() -->
+  <div id="fbLueckeHint" style="display:none;margin:0 0 12px;padding:10px 14px;border-radius:10px;
+       background:#fffbeb;border:1px solid #fde68a;color:#92400e;font-size:12.5px;font-weight:600"></div>
+
   <!-- ═══════ MODULE CATEGORIES ═══════ -->
   <div id="catContainer"></div>
 
@@ -683,15 +687,98 @@ async function _fbDiscoverIds(){
     // Board-IDs schon uebernommen) — als eigene Zeilen anhaengen, sonst
     // laege das Feedback im Export, waere aber im Board unsichtbar.
     if(neu.length){
-      var auto = MODULES.find(function(c){ return c.catId === 'auto'; });
-      if(!auto){ auto = { cat:'🆕 Weitere Module', catId:'auto', items:[] }; MODULES.push(auto); }
-      neu.forEach(function(id){
-        auto.items.push({ id:id, name:_modLabelFallback(id), href:null, defaultStatus:'open', _autoDiscovered:true });
-      });
+      neu.forEach(_fbZeileAnhaengen);
       console.info('[sys_beta] Feedback-IDs aus der Cloud ergaenzt:', neu.join(', '));
     }
     return neu;
   }catch(e){ return []; }
+}
+
+// IDs, die kein gema_auth-Modul sind (Hubs, Systemseiten, entfernte Module),
+// aber Feedback tragen. Ohne diese Map hiessen sie im Board z.B. 'Module'
+// statt '🏠 Startseite' und haetten keinen Link.
+// href:null = bewusst kein Link (Seite gibt es nicht mehr).
+const FB_ZUSATZ = {
+  'module':           { name:'🏠 Startseite (Modulübersicht)', href:'index.html' },
+  'profil':           { name:'👤 Profil & Einstellungen',      href:'sys_profil.html' },
+  'preise':           { name:'💳 Abos & Preise',               href:'sys_preise.html' },
+  'beta_pruefungen':  { name:'🧪 Beta-Prüfungen (diese Seite)',href:'sys_beta.html' },
+  'ausschreibung_mod':{ name:'📑 Ausschreibung (Hub)',         href:'pm_ausschreibung.html' },
+  'ausbildung_mod':   { name:'🎓 Ausbildung (Hub)',            href:'ab_index.html' },
+  'sanberech':        { name:'💧 Sanitärberechnungen (Hub)',   href:'sb_index.html' },
+  'elberech':         { name:'⚡ Elektroberechnungen (Hub)',   href:'el_index.html' },
+  'berechnungen':     { name:'🧮 Berechnungen (Sammel-ID)',    href:null },
+  'inspektion':       { name:'🔍 Inspektion & Wartung (entfernt)', href:null }
+};
+
+// Alle Modul-IDs, die aktuell eine Board-Zeile haben.
+function _fbBoardIds(){
+  var da = {};
+  MODULES.forEach(function(c){(c.items||[]).forEach(function(it){
+    da[it.id] = true;(it.sub||[]).forEach(function(s){ da[s.id] = true; });
+  });});
+  return da;
+}
+
+// Haengt eine Board-Zeile fuer eine ID an, die in keinem Kategorie-Block
+// steht. Name/Link aus FB_ZUSATZ, sonst aus gema_auth (Label + FILE_MAP),
+// sonst die lesbar gemachte ID — geraten wird kein Link.
+function _fbZeileAnhaengen(id){
+  var z = FB_ZUSATZ[id] || {};
+  var href = z.href;
+  if(href === undefined){
+    href = null;
+    try{
+      var fm = (typeof GemaAuth!=='undefined'&&GemaAuth.getFileMap) ? GemaAuth.getFileMap() : null;
+      if(fm) Object.keys(fm).forEach(function(d){ if(!href && fm[d]===id) href = d + '.html'; });
+    }catch(e){}
+  }
+  var auto = MODULES.find(function(c){ return c.catId === 'auto'; });
+  if(!auto){ auto = { cat:'🆕 Weitere Module', catId:'auto', items:[] }; MODULES.push(auto); }
+  auto.items.push({
+    id:id, name:z.name || _modLabelFallback(id), href:href,
+    defaultStatus:'open', _autoDiscovered:true
+  });
+  return auto;
+}
+
+// KRITISCH — jeder Feedback-Punkt MUSS im Board erreichbar sein.
+// FEEDBACK_IDS ist die Quelle des Markdown-Exports, das Board rendert aber
+// nur MODULES-Zeilen. Alles, was in der Seed-Liste steht und kein Modul ist
+// (Startseite, Profil, Preise, Hubs, entfernte Module), hatte deshalb NIE
+// eine Zeile: der Export zeigte die Punkte, das Board nicht.
+// _fbDiscoverIds konnte das nicht heilen — es legt nur Zeilen fuer IDs an,
+// die _fbAddIds als NEU meldet, und die Seed-IDs stehen bereits drin.
+// Laeuft NACH _GemaDB.init (vorher ist getFeedback leer) und VOR renderAll.
+function _fbZeilenFuerDatenErgaenzen(){
+  var da = _fbBoardIds(), ergaenzt = [];
+  FEEDBACK_IDS.forEach(function(id){
+    if(da[id]) return;
+    var n = 0;
+    try{ n = (getFeedback(id)||[]).length; }catch(e){}
+    if(!n) return;                       // ohne Daten keine Karteileiche
+    _fbZeileAnhaengen(id); da[id] = true;
+    ergaenzt.push({ id:id, anzahl:n });
+  });
+  if(ergaenzt.length){
+    try{ console.info('[sys_beta] Zeilen fuer Feedback ohne Modul ergaenzt:',
+      ergaenzt.map(function(e){ return e.id+' ('+e.anzahl+')'; }).join(', ')); }catch(e){}
+  }
+  return ergaenzt;
+}
+
+// Der Hinweis macht die Luecke sichtbar — ein blinder Fleck darf nie wieder
+// still sein (dieselbe Regel wie «no silent caps» im Export).
+function _fbLueckeHinweis(ergaenzt){
+  var el = document.getElementById('fbLueckeHint');
+  if(!el) return;
+  if(!ergaenzt || !ergaenzt.length){ el.style.display = 'none'; return; }
+  var summe = ergaenzt.reduce(function(s,e){ return s + e.anzahl; }, 0);
+  el.innerHTML = '⚠ ' + summe + ' Feedback-Punkt' + (summe===1?'':'e') + ' aus '
+    + ergaenzt.length + ' Bereich' + (ergaenzt.length===1?'':'en')
+    + ' gehören zu keinem Modul der Liste (' + ergaenzt.map(function(e){ return escHtml(e.id); }).join(', ')
+    + '). Sie sind unten unter «Weitere Module» eingehängt.';
+  el.style.display = '';
 }
 // Anzeigename fuer eine ID, die das Board nicht kennt: erst gema_auth
 // fragen, sonst die ID lesbar machen.
@@ -1630,7 +1717,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     new Promise(function(r){ setTimeout(r, 5000); })
   ]);
   load();
+  // Erst JETZT ist getFeedback gefuellt — Zeilen fuer Feedback ohne Modul
+  // anhaengen, sonst bleiben die Punkte im Board unsichtbar (Export sieht
+  // sie trotzdem, weil er FEEDBACK_IDS iteriert).
+  var _fbLuecke = [];
+  try{ _fbLuecke = _fbZeilenFuerDatenErgaenzen(); }catch(e){}
   renderAll();
+  try{ _fbLueckeHinweis(_fbLuecke); }catch(e){}
 
   /* Aufräumen ist destruktiv und org-übergreifend → nur GEMA-Admin.
      Sichtbar gemacht wird über .gnav-weg (die zentrale Nav-Metrik erzwingt
