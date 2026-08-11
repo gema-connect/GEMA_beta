@@ -291,17 +291,29 @@
           `&data_key=in.(${csv})` +
           `&select=data_key,payload`;
 
+        /* KRITISCH — der 4-s-Abort begrenzt NUR den Verbindungsaufbau:
+           fetch() loest auf, sobald die ANTWORTKOEPFE da sind. Body-Download
+           und JSON.parse laufen danach weiter und brauchen bei grossen
+           Collections (Feedback mit Base64-Screenshots) Sekunden bis
+           Minuten. Aufrufer, die init() gegen einen eigenen Timeout rennen
+           lassen, MUESSEN darum nachzeichnen, sobald init wirklich fertig
+           ist (Muster sys_beta.html) — sonst rendern sie einen leeren Cache,
+           waehrend init spaeter «✓ Daten geladen» meldet. */
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 4000);
+        let timeoutId = setTimeout(() => controller.abort(), 4000);
         const r = await fetch(url, { headers: hdrs(), signal: controller.signal });
         clearTimeout(timeoutId);
+        // Der Body darf dauern — aber nicht ewig haengen (vorher unbegrenzt).
+        timeoutId = setTimeout(() => controller.abort(), 120000);
         if (!r.ok) {
+          clearTimeout(timeoutId);
           console.warn('[GemaDB] Lade-Fehler', r.status, await r.text());
           showBadge('⚠ Ladefehler', 'red');
           _obOverlay();
           return;
         }
         const rows = await r.json();
+        clearTimeout(timeoutId);
         rows.forEach(row => {
           _cache[row.data_key] = (row.payload && row.payload.v != null)
             ? row.payload.v : null;

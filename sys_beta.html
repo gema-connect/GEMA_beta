@@ -380,6 +380,12 @@ body.beta-mine-only .fbp-input{display:none}
     </div>
   </div>
 
+  <!-- Ladevorgang laeuft noch: siehe _fbLadeHinweis() im Boot -->
+  <div id="fbLadeHint" style="display:none;margin:0 0 12px;padding:10px 14px;border-radius:10px;
+       background:#ecfeff;border:1px solid #a5f3fc;color:#0e7490;font-size:12.5px;font-weight:600">
+    ⏳ Feedback wird noch geladen — die Liste aktualisiert sich automatisch, sobald alles da ist.
+  </div>
+
   <!-- Feedback ohne Board-Zeile: siehe _fbZeilenFuerDatenErgaenzen() -->
   <div id="fbLueckeHint" style="display:none;margin:0 0 12px;padding:10px 14px;border-radius:10px;
        background:#fffbeb;border:1px solid #fde68a;color:#92400e;font-size:12.5px;font-weight:600"></div>
@@ -765,6 +771,14 @@ function _fbZeilenFuerDatenErgaenzen(){
       ergaenzt.map(function(e){ return e.id+' ('+e.anzahl+')'; }).join(', ')); }catch(e){}
   }
   return ergaenzt;
+}
+
+// «Wird noch geladen» sichtbar machen. Ein leeres Board ohne Hinweis sieht
+// aus wie «es gibt kein Feedback» — genau die Fehldeutung, die den Bugreport
+// ausgeloest hat.
+function _fbLadeHinweis(an){
+  var el = document.getElementById('fbLadeHint');
+  if(el) el.style.display = an ? '' : 'none';
 }
 
 // Der Hinweis macht die Luecke sichtbar — ein blinder Fleck darf nie wieder
@@ -1712,18 +1726,45 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Schluessel waere weder im Board noch im Markdown-Export sichtbar.
   await _fbDiscoverIds();
   const feedbackKeys = FEEDBACK_IDS.map(id => 'feedback_' + id);
-  if(typeof _GemaDB!=='undefined') await Promise.race([
-    _GemaDB.init(SK, [SK, SK_COMMQ, ...feedbackKeys]),
-    new Promise(function(r){ setTimeout(r, 5000); })
-  ]);
-  load();
-  // Erst JETZT ist getFeedback gefuellt — Zeilen fuer Feedback ohne Modul
-  // anhaengen, sonst bleiben die Punkte im Board unsichtbar (Export sieht
-  // sie trotzdem, weil er FEEDBACK_IDS iteriert).
-  var _fbLuecke = [];
-  try{ _fbLuecke = _fbZeilenFuerDatenErgaenzen(); }catch(e){}
-  renderAll();
-  try{ _fbLueckeHinweis(_fbLuecke); }catch(e){}
+
+  /* KRITISCH — das Laden darf nicht ins Leere laufen.
+     _GemaDB.init begrenzt nur den ANTWORTKOPF auf 4 s; Body-Download und
+     JSON.parse der Feedback-Zeilen (mit Base64-Screenshots schnell
+     zweistellige MB) sind danach unbegrenzt. Das 5-s-Rennen gewann deshalb
+     regelmaessig: renderAll() lief mit LEEREM Cache — jede Modul-Zeile
+     zeigte «Kommentar hinzufügen» statt der Zaehler —, und wenn init
+     spaeter fertig wurde, meldete es «✓ Daten geladen», ohne dass jemand
+     neu zeichnete. Der Markdown-Export las den Cache dagegen erst beim
+     Klick und zeigte alle Punkte: genau das gemeldete Bild
+     («daten geladen, aber kein Feedback — im Export schon»).
+     Das Rennen bleibt fuer den schnellen ersten Aufbau, ABER wir zeichnen
+     nach, sobald das Laden wirklich fertig ist. */
+  var _ladenFertig = false;
+  var _initP = (typeof _GemaDB !== 'undefined')
+    ? _GemaDB.init(SK, [SK, SK_COMMQ, ...feedbackKeys])
+    : Promise.resolve();
+  _initP = _initP.catch(function(){}).then(function(){ _ladenFertig = true; });
+  await Promise.race([_initP, new Promise(function(r){ setTimeout(r, 5000); })]);
+
+  // Zeichnet das Board aus dem aktuellen Cache — mehrfach aufrufbar.
+  function _boardZeichnen(){
+    load();
+    // Erst JETZT ist getFeedback gefuellt — Zeilen fuer Feedback ohne Modul
+    // anhaengen, sonst bleiben die Punkte im Board unsichtbar (Export sieht
+    // sie trotzdem, weil er FEEDBACK_IDS iteriert).
+    var luecke = [];
+    try{ luecke = _fbZeilenFuerDatenErgaenzen(); }catch(e){}
+    renderAll();
+    try{ _fbLueckeHinweis(luecke); }catch(e){}
+  }
+  _boardZeichnen();
+
+  if(!_ladenFertig){
+    // Sichtbar machen, dass noch geladen wird — ein leeres Board ohne
+    // Hinweis sieht aus wie «es gibt kein Feedback».
+    _fbLadeHinweis(true);
+    _initP.then(function(){ _fbLadeHinweis(false); _boardZeichnen(); });
+  }
 
   /* Aufräumen ist destruktiv und org-übergreifend → nur GEMA-Admin.
      Sichtbar gemacht wird über .gnav-weg (die zentrale Nav-Metrik erzwingt
