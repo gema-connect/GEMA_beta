@@ -1164,10 +1164,10 @@ Umbau von gema_print.js — Drift-Guard `scripts/pdf_vorlage_stil_test.mjs`
 JS-Paginierung** statt in ein fliessendes Dokument — nur so bekommt JEDES
 Blatt den Vorlagen-Kopf und die Fusszeile mit gerechneter Seitenzahl.
 - **Blatt-Aufbau (je Blatt, aus `<template id="gpBlattTpl">`):** Kopf oben
-  12 mm — **Logo-Box fix 26×18 mm links** (`org.logoVector||logo`,
-  object-fit:contain) | Projektzeile (`.gp-eimer`, Markenfarbe) +
-  Modul-Titel (`.gp-titel`, 16.5 pt dunkle Markenfarbe) | rechts Firma
-  fett / Datum / «Bearbeitung: Name» — darunter die Markenlinie
+  12 mm als **Drei-Spalten-Grid `minmax(0,1fr) auto minmax(0,1fr)`** —
+  Logo links | Projektzeile (`.gp-eimer`, Markenfarbe) + Modul-Titel
+  (`.gp-titel`, 16.5 pt dunkle Markenfarbe) **mittig auf dem Blatt** |
+  rechts Firma fett / Datum / «Bearbeitung: Name» — darunter die Markenlinie
   (`.gp-linie`) bei 40 mm; Inhalt (`.gp-body`) absolut 46 mm→20 mm;
   Fusslinie bei 15 mm + 3-spaltige Fusszeile (Firma fett ·
   gema-connect.ch · **«Seite X / Y»**, von der Paginierung gestempelt).
@@ -1175,6 +1175,18 @@ Blatt den Vorlagen-Kopf und die Fusszeile mit gerechneter Seitenzahl.
   Kontrastschutz (`acc` ≥ 4.5, Titel-Ton ≥ 7 gegen Weiss), sonst
   Modul-`--accent`. Der **Kicker-Chip** (Kategorie aus dem Breadcrumb
   `a.bc-cat`) steht NUR auf Blatt 1.
+- **Das Logo ist so HOCH wie der Kopf-Text daneben** (Projektname +
+  Berechnungsname): CSS-Vorgabe `--gp-kopftext:13.6mm` (10.5 pt·1.45 +
+  2 mm + 16.5 pt·1.08), `gemaKopfLogo()` misst den Textblock nach und
+  setzt die exakte Höhe (deckt den 2-zeiligen Titel ab). Die **Breite
+  folgt dem Seitenverhältnis** (`width:auto` + `object-fit:contain`,
+  verzerrt nie) und wird nur von der Spalte begrenzt — ein 3.5:1-Logo
+  steht damit rund 47 × 13.6 mm statt der früheren 26 × 18-mm-Box (in
+  der es auf ~26 × 7.5 mm schrumpfte). **Keine Rückkopplung**: die
+  Kopfhöhe steht fest bei 26 mm, das Logo geht nie in die Zeilenhöhe
+  ein. **Ohne Firmenlogo hält `.gp-logo-leer` die erste Spalte** —
+  sonst rutschte der Titel im Drei-Spalten-Grid nach links und stünde
+  nicht mehr mittig.
 - **Karten-Nummern 01, 02, …** vergibt `nummerieren()` fortlaufend über die
   Top-Level-Karten (`<span class="gp-num">` als erstes Kopf-Kind); die
   Bildschirm-Schrittnummern (`.gsek-nr`) sind im Druck ausgeblendet — EINE
@@ -1228,10 +1240,12 @@ Blatt den Vorlagen-Kopf und die Fusszeile mit gerechneter Seitenzahl.
 **PDF-Layout-Feedback 05.08.2026 (annotierter Enthärtungs-Bericht, 4 Punkte —
 Drift-Guard `scripts/pdf_layout_feedback_test.mjs` 51 Checks):**
 - **Logo IMMER links oben, IMMER gleich** — das Logo steht als ERSTES Element im
-  `.gp-kopf` (vor Titel/Meta) in einer **festen Box** (seit dem Vorlagen-Layout
-  12.08.2026 **26×18 mm**, vorher 34×13) mit `object-fit:contain` +
-  `object-position:left center`: ein breites und ein hohes
-  Logo nehmen denselben Platz ein, jeder Bericht beginnt gleich, nichts verzerrt.
+  `.gp-kopf` (vor Titel/Meta) mit `object-fit:contain` + `object-position:left
+  center`: jeder Bericht beginnt gleich, nichts verzerrt. **Was «fest» ist, hat
+  sich zweimal bewusst geändert**: 34×13-mm-Box → 26×18-mm-Box (Vorlagen-Layout
+  12.08.2026) → seit Feedback 12.08.2026 die **Höhe = Kopf-Text** bei
+  aspektgerechter Breite (siehe oben) — ein breites Logo war in der festen Box
+  nur noch ~7.5 mm hoch und wirkte verloren neben dem Titel.
 - **Bedienelemente konsequent raus**: (a) **Segmentierte Umschalter** (SEGMENT-
   Liste: `.lumax-toggle`/`.g-seg-group`/`.g-chip-group`/`.eh-seg`/`.bl-seg`/
   `.unit-toggle`/`.nb-src-seg`/`.sp-seg`/`.wpe-seg`) werden VOR dem
@@ -4111,7 +4125,7 @@ UI-Anbindung:
 | `gema_responsive.css` | Globale Responsive-/Layout-Regeln (Mobile + Tablet) |
 | `gema_schule_api.js` | **Schul-Modul-API** (`window.GemaSchule`): 6 per-Record-Pools (Klassen/Lernmittel/**Lernmittel-Notizen**/Aufgaben/Prüfungen/Lösungen, moduleKey `schule`; die Notizen `smatan:` tragen Markierungen pro Lernmittel UND Person — `notizId/meineNotiz/notizenFor/saveNotiz/deleteNotiz` + die reinen LESE-Regeln `notizSichtbar`/`notizSeitenBereich`) + Abgaben-Handling (eigener Offline-Spiegel), Engine im `/*ENGINE-START*/`-Block (Note CH-Formel, seeded Shuffle, Zeitfenster inkl. Verlängerungen, MC-/Zahlenfeld-Autokorrektur, **Lösungs-Split** `schuleSplitPruefung`/`mergePruefung`), Studenten-Gating-Cache (`refreshStudentMods`/`addExamTools` → `gema_student_mods_v1`), Datei-Upload (Bilder/PDF → GemaStorage `schule/<orgId>/…`), Klassen-Notifys, Erinnerungs-Scan. Konsumenten: ab_klassen, ab_pruefungen, ab_pruefung_live. |
 | `gema_sektion.js` | **Einheitliche ein-/ausklappbare Sektionen für ALLE Module** (`GemaSektion`). Findet die Karten selbst (`.g-card`/`.el-card`/`.g-section`/`.card` mit Kopf + Rumpf), gibt jeder einen deutlichen Pfeil-Knopf **ganz rechts im Kopf** (nach allfälligen Bedienelementen — nur so stehen die Pfeile untereinander), blendet zugeklappt die **Kopf-Knöpfe** mit dem Inhalt aus und vereinheitlicht die **Sektionsnummern** (Grösse/Schrift/Form gleich, Farbe = `--accent` des Moduls). API: `init/sektionen/hatWerte/setzeAlle/zustand/wiederherstellen/umschalten/istOffen/sync`. Siehe «Einheitliche Sektionen & A4-Druckansicht». |
-| `gema_print.js` | **A4-Druckansicht statt Screenshot-PDF** (`GemaPrint.open({title})`). Löst `GemaPDF.export` in den 47 Berechnungsmodulen ab: echter Text statt Bild, Vorschau zum Prüfen, darin der Knopf «🖨 Drucken / Als PDF speichern». **Seit 12.08.2026 im Vorlagen-Layout (Schmutz + Partner): feste A4-Blätter mit JS-Paginierung** — Kopf auf JEDEM Blatt (Logo-Box 26×18 mm, Projekt + Titel in Markenfarbe, Firma/Datum/Bearbeitung), Fusszeile mit «Seite X / Y», Kicker-Chip nur Blatt 1, Karten-Nummern 01…, Fortsetzungs-Karten mit wiederholtem Kopf + «Fortsetzung»-Marke, Tabellen-Teilung mit thead je Teil und tfoot genau einmal. Hero, Norm-Untertitel, Projektleiste und alle Knöpfe (inkl. ✕) bleiben draussen; Sektionen mit Werten kommen offen, leere als Titelzeile mit «— keine Angaben». Siehe «Einheitliche Sektionen & A4-Druckansicht» (Vorlagen-Layout 12.08.2026). |
+| `gema_print.js` | **A4-Druckansicht statt Screenshot-PDF** (`GemaPrint.open({title})`). Löst `GemaPDF.export` in den 47 Berechnungsmodulen ab: echter Text statt Bild, Vorschau zum Prüfen, darin der Knopf «🖨 Drucken / Als PDF speichern». **Seit 12.08.2026 im Vorlagen-Layout (Schmutz + Partner): feste A4-Blätter mit JS-Paginierung** — Kopf auf JEDEM Blatt (Logo links, so hoch wie der Kopf-Text; Projekt + Titel in Markenfarbe MITTIG; rechts Firma/Datum/Bearbeitung), Fusszeile mit «Seite X / Y», Kicker-Chip nur Blatt 1, Karten-Nummern 01…, Fortsetzungs-Karten mit wiederholtem Kopf + «Fortsetzung»-Marke, Tabellen-Teilung mit thead je Teil und tfoot genau einmal. Hero, Norm-Untertitel, Projektleiste und alle Knöpfe (inkl. ✕) bleiben draussen; Sektionen mit Werten kommen offen, leere als Titelzeile mit «— keine Angaben». Siehe «Einheitliche Sektionen & A4-Druckansicht» (Vorlagen-Layout 12.08.2026). |
 | `gema_scroll.js` | Scroll-Position-Restore + globaler Body-Scroll-Lock fuer Modals (`GemaScroll.lock/unlock`, Auto-Hook auf `.modal-bg`). **Zwei Sperr-Verfahren (KRITISCH, Drift-Guard `scripts/scroll_stabilitaet_test.mjs`)**: ausserhalb von iOS `overflow-y:hidden` auf **`<html>`** (Klasse `gema-modal-soft`) — die Scroll-Position wird gar nicht angefasst, beim Oeffnen UND Schliessen bewegt sich nichts; die Klasse MUSS auf `<html>` liegen, weil html/body `overflow-x:clip` tragen und body-overflow damit nicht mehr auf den Viewport propagiert. Nur auf **iOS** (dort ignoriert die Engine overflow auf dem Scroll-Container) weiterhin `position:fixed` + negativer `top` — der noetige Ruecksprung laeuft ueber `_instantScrollTo()`, das `scroll-behavior` kurz auf `auto` setzt: mehrere Module haben `html{scroll-behavior:smooth}` (if_werkzeug, if_fahrzeug, ab_*, …), ein blosses `scrollTo()` wurde dadurch ANIMIERT und man sah die Seite nach dem Schliessen sichtbar von oben zurueckfahren. Im sanften Modus wird zusaetzlich die Scrollbalken-Breite als `padding-right` ausgeglichen (sonst rutscht der Inhalt beim Sperren seitlich). **Neue Modals brauchen nichts zu tun** — der Auto-Hook greift. |
 | `gema_storage.js` | **Bild-Upload in Supabase Storage** (Bucket `gema-fotos`). `GemaStorage.uploadDataUrl(dataUrl, pathHint)` laedt ein Base64-Bild als Datei hoch, verifiziert die oeffentliche Erreichbarkeit (Image-Load) und liefert `{url, path}`; im Record steht dann nur die URL statt Base64 → kleine Records, keine Request-Groessen-/localStorage-Quota-Probleme. Reject bei fehlendem/falsch konfiguriertem Bucket → Aufrufer faellt auf Base64 zurueck. **Loeschen: `pathFromUrl`/`collectFiles`/`confirmDelete`/`deleteFiles`/`zipDownload`** — siehe «Storage-Aufraeumen beim Loeschen». **Setup (Dashboard, einmalig):** Bucket `gema-fotos` als Public anlegen + INSERT-Policy fuer Rolle `anon`. **Akzeptiert `data:image/*` UND `data:application/pdf`** (PDF-Verifikation via HEAD/Range-fetch statt Image-Load; genutzt fuer Lieferanten-Offerten-PDFs, Pfad `offerten/<lieferantId>`). Eingesetzt in `sp_dachbericht.html`, `sd_schadensbericht.html`, `sys_lieferant_dashboard.html` (Offerten-PDF) und `pm_abnahme.html` (Mangel-Fotos + Plan-Pin-Fotos via `_abUploadFotosToStorage`; Plan-Dateien/PDFs werden NICHT ausgelagert — Helper akzeptiert nur Bilder + Canvas/pdf.js-Kopplung). Bilder werden beim Save nach Storage ausgelagert; Bild-Quelle via `url || dataUrl`, jsPDF-Export rehydriert `url`→DataURL. **`GemaStorage.uploadFile(file, pathHint, opts)` (08/2026) laedt eine File/Blob DIREKT hoch — ohne den Base64-Umweg** und ist der Weg fuer alles ab ein paar MB: `uploadDataUrl` liest erst eine Data-URL ein (+33 %), dekodiert sie mit `atob` in einen String und kopiert sie Byte fuer Byte in ein Uint8Array — ein 7-MB-PDF belegt so kurzzeitig gegen 30 MB. **`opts.onProgress(pct, geladen, total)` gibt es nur hier**: beide Wege laufen seither ueber `_uploadBlob` mit **XHR statt fetch**, weil fetch keinen Upload-Fortschritt kennt (`opts.maxMb` Default 12, `opts.onXhr` fuer Abbruch; HTTP 413 wird als Bucket-Limit im Klartext gemeldet statt als nackter Code). |
 | `gema_undo.js` | Undo/Redo |

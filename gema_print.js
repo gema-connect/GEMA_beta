@@ -385,17 +385,26 @@
 
       /* ── Das A4-Blatt: feste Grösse, Kopf/Inhalt/Fuss absolut positioniert ── */
       '.gp-blatt{width:210mm;height:297mm;position:relative;overflow:hidden;background:#fff}',
-      /* Kopfzeile auf JEDEM Blatt: Logo links in fester Box (object-fit:contain
-         hält das Seitenverhältnis — breite und hohe Logos nehmen denselben
-         Platz ein, jeder Bericht beginnt gleich), Mitte Projekt + Titel,
-         rechts Firma/Datum/Bearbeitung. */
+      /* Kopfzeile auf JEDEM Blatt: drei Spalten — Logo links, Projekt + Titel
+         MITTIG auf dem Blatt (Grid 1fr auto 1fr zentriert die Mittelspalte
+         unabhängig von den Seitenbreiten), rechts Firma/Datum/Bearbeitung.
+         Die Seitenspalten sind minmax(0,1fr): sie dürfen schrumpfen, ein
+         sehr breites Logo bläht die Spalte damit nie auf. */
       '.gp-kopf{position:absolute;top:12mm;left:14mm;right:14mm;height:26mm;',
-      '  display:flex;align-items:center;gap:6mm}',
-      '.gp-logo{flex:0 0 auto;width:26mm;height:18mm;object-fit:contain;object-position:left center}',
-      '.gp-kopf-l{flex:1 1 auto;min-width:0}',
+      '  --gp-kopftext:13.6mm;',                                 /* Höhe von Projektzeile + Titel (10.5pt·1.45 + 2mm + 16.5pt·1.08) */
+      '  display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:5mm}',
+      /* Logo so HOCH wie der Text daneben (Projektname + Berechnungsname);
+         die Breite folgt dem Seitenverhältnis und wird nur von der Spalte
+         begrenzt — object-fit:contain verzerrt dabei nie. Das Script misst
+         den Textblock nach und setzt die exakte Höhe (auch bei 2-zeiligem
+         Titel); der mm-Wert hier gilt, solange es nicht gelaufen ist. */
+      '.gp-logo{justify-self:start;height:var(--gp-kopftext);width:auto;max-width:100%;',
+      '  object-fit:contain;object-position:left center}',
+      '.gp-logo-leer{display:block;height:var(--gp-kopftext)}',
+      '.gp-kopf-l{min-width:0;max-width:86mm;text-align:center}',
       '.gp-eimer{color:' + b.acc + ';font-weight:700;font-size:10.5pt;letter-spacing:.01em;margin:0 0 2mm}',
       '.gp-titel{font-size:16.5pt;font-weight:800;line-height:1.08;color:' + b.dunkel + ';margin:0}',
-      '.gp-meta{flex:0 0 auto;max-width:55mm;text-align:right;font-size:8.4pt;line-height:1.45;color:#667085}',
+      '.gp-meta{justify-self:end;max-width:55mm;text-align:right;font-size:8.4pt;line-height:1.45;color:#667085}',
       '.gp-meta strong{color:#1d2633;font-weight:700}',
       '.gp-linie{position:absolute;top:40mm;left:14mm;right:14mm;height:.55mm;background:' + b.acc + ';border-radius:2mm}',
       /* Inhaltsbereich mit fester Höhe — die Paginierung füllt ihn blattweise */
@@ -583,6 +592,7 @@
       ' var stage=document.querySelector(".gp-stage");',
       ' var tplEl=document.getElementById("gpBlattTpl");',
       ' if(!stage||!tplEl) return;',
+      ' gemaKopfLogo();',                                        /* auch auf dem Roh-Blatt + im Kein-Neuaufbau-Fall */
       /* Der Fluss-Inhalt kommt EINMAL aus dem Roh-Blatt (Fallback-Ansicht) —
          jeder weitere Lauf baut aus dieser unveränderten Quelle neu auf
          (idempotent; Teilungen des Vorlaufs sammeln sich nie an). */
@@ -860,8 +870,19 @@
       /* Seitenzahlen «Seite X / Y» in die Fusszeile jedes Blatts */
       ' Array.prototype.forEach.call(seiten,function(s,i){',
       '  var z=s.querySelector(".gp-seite");if(z)z.textContent="Seite "+(i+1)+" / "+seiten.length;});',
+      ' gemaKopfLogo();',                                        /* frisch gestempelte Blatt-Köpfe */
       ' mess.innerHTML="";mess.style.display="none";',
       ' gemaStageFit();',
+      '}',
+      /* Das Logo bekommt GENAU die Höhe des Textblocks daneben (Projektname +
+         Berechnungsname) — der mm-Wert im CSS deckt den Normalfall ab, hier
+         wird nachgemessen (2-zeiliger Titel, andere Schriftgrösse). Keine
+         Rückkopplung: die Blatt-Kopfhöhe steht fest (26 mm), das Logo geht
+         nie in die Zeilenhöhe ein. */
+      'function gemaKopfLogo(){',
+      ' var t=document.querySelector(".gp-kopf-l");if(!t)return;',
+      ' var h=t.getBoundingClientRect().height;if(!(h>0))return;',
+      ' Array.prototype.forEach.call(document.querySelectorAll(".gp-logo,.gp-logo-leer"),function(l){l.style.height=h.toFixed(2)+"px";});',
       '}',
       /* Bühne auf schmale Fenster einpassen (nur Anzeige — die Blätter behalten
          ihre exakte Geometrie; transform ändert keine Layout-Masse). */
@@ -904,9 +925,12 @@
 
     /* Blatt-Kopf (auf JEDEM Blatt): Logo ZUERST → immer links oben, in jedem
        Bericht an derselben Stelle; Mitte Projekt (Eimer) + Modul-Titel;
-       rechts Firma / Datum / Bearbeitung. */
+       rechts Firma / Datum / Bearbeitung.
+       OHNE Logo steht eine leere Spalte — sonst rutschte der Titel im
+       Drei-Spalten-Grid in die Logo-Spalte und stünde nicht mehr mittig. */
     var kopf = ''
-      + '<header class="gp-kopf">' + (m.logo ? '<img class="gp-logo" src="' + esc(m.logo) + '" alt="">' : '')
+      + '<header class="gp-kopf">'
+      + (m.logo ? '<img class="gp-logo" src="' + esc(m.logo) + '" alt="">' : '<span class="gp-logo-leer"></span>')
       + '<div class="gp-kopf-l">'
       + (m.eimer ? '<div class="gp-eimer">' + esc(m.eimer) + '</div>' : '')
       + '<div class="gp-titel">' + esc(m.titel) + '</div>'
