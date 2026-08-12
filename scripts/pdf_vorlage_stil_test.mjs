@@ -46,6 +46,16 @@ ok('Kopf: Titel im dunkleren Ton derselben Farbfamilie (brand → brand-dark)',
   /var dunkel = lesbar\(/.test(P) && /\.gp-titel\{[^}]*color:' \+ b\.dunkel/.test(P));
 ok('Kopf rechts: Firma fett, Datum, «Bearbeitung: …»',
   /Bearbeitung: ' \+ esc\(m\.bearbeiter\)/.test(P) && /<strong>' \+ esc\(m\.firma\)/.test(P));
+/* Feedback 12.08.2026: Projekt + Titel MITTIG (Grid 1fr auto 1fr), Logo links
+   so hoch wie dieser Textblock — die Breite folgt dem Seitenverhältnis. */
+ok('Kopf: drei Spalten, Projekt + Titel mittig',
+  /\.gp-kopf\{[^}]*grid-template-columns:minmax\(0,1fr\) auto minmax\(0,1fr\)/.test(P) &&
+  /\.gp-kopf-l\{[^}]*text-align:center/.test(P));
+ok('Logo-Höhe folgt dem Kopf-Text (CSS-Vorgabe + Nachmessung im Script)',
+  /--gp-kopftext:/.test(P) && /\.gp-logo\{[^}]*height:var\(--gp-kopftext\)/.test(P) &&
+  /function gemaKopfLogo\(\)/.test(P) && /querySelector\("\.gp-kopf-l"\)/.test(P));
+ok('ohne Firmenlogo hält eine leere Spalte den Titel in der Mitte',
+  /gp-logo-leer/.test(P));
 ok('Fusszeile: Firma · gema-connect.ch · Seite X / Y',
   /gema-connect\.ch/.test(P) && /gp-seite/.test(P) && /"Seite "\+\(i\+1\)\+" \/ "\+seiten\.length/.test(P));
 ok('Kicker aus dem Breadcrumb des Moduls (Kategorie-Zeile, nur erstes Blatt)',
@@ -128,7 +138,19 @@ console.log('\n■ B: sb_lu_tabelle — Blätter, Kopf/Fuss überall, Kicker, Nu
       numsAufsteigend: nums.length > 1 && nums.every((v, i) => i === 0 || parseInt(v, 10) >= parseInt(nums[i - 1], 10)),
       schrittNrSichtbar: [...document.querySelectorAll('.gp-body .gsek-nr')].filter(e => getComputedStyle(e).display !== 'none').length,
       ueberlauf: blaetter.map(b => { const bd = b.querySelector('.gp-body'); return bd ? Math.max(0, bd.scrollHeight - bd.clientHeight - 2) : 0; }),
-      messLeer: !document.getElementById('gpMess') || !document.getElementById('gpMess').childElementCount
+      messLeer: !document.getElementById('gpMess') || !document.getElementById('gpMess').childElementCount,
+      /* Kopf-Geometrie je Blatt: Titel mittig, Logo (bzw. seine leere
+         Spalte) genau so hoch wie der Textblock daneben */
+      kopfGeo: blaetter.map(b => {
+        const k = b.querySelector('.gp-kopf'), t = b.querySelector('.gp-kopf-l');
+        const l = b.querySelector('.gp-logo, .gp-logo-leer');
+        if (!k || !t || !l) return null;
+        const kb = k.getBoundingClientRect(), tb = t.getBoundingClientRect(), lb = l.getBoundingClientRect();
+        return {
+          versatz: Math.round((tb.left + tb.width / 2) - (kb.left + kb.width / 2)),
+          dh: Math.round(Math.abs(lb.height - tb.height))
+        };
+      })
     };
   });
   ok('mindestens ein fertiges Blatt, Roh-Fallback abgebaut', r.blaetter >= 1 && r.roh === 0, r);
@@ -144,6 +166,10 @@ console.log('\n■ B: sb_lu_tabelle — Blätter, Kopf/Fuss überall, Kicker, Nu
     r.nums.length >= 2 && /^0\d$|^\d\d$/.test(r.nums[0]) && r.nums[0] === '01' && r.numsAufsteigend, r.nums.slice(0, 6));
   ok('Bildschirm-Schrittnummern im Bericht ausgeblendet', r.schrittNrSichtbar === 0, r.schrittNrSichtbar);
   ok('kein Blatt läuft vertikal über', r.ueberlauf.every(u => u === 0), r.ueberlauf);
+  ok('Projekt + Titel stehen auf JEDEM Blatt mittig',
+    r.kopfGeo.every(g => g && Math.abs(g.versatz) <= 1), r.kopfGeo);
+  ok('Logo-Spalte auf JEDEM Blatt so hoch wie der Kopf-Text',
+    r.kopfGeo.every(g => g && g.dh <= 1), r.kopfGeo);
   ok('Mess-Container nach der Paginierung geleert', r.messLeer);
   ok('keine JS-Fehler auf der Modulseite', errs.length === 0, errs.slice(0, 2));
 

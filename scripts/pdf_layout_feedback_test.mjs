@@ -32,9 +32,13 @@ console.log('■ A: gema_print.js — Regeln im Code verankert');
 const P = readFileSync('gema_print.js', 'utf8');
 
 ok('Logo steht als ERSTES im Kopf (links oben)',
-  /gp-kopf">'\s*\+\s*\(m\.logo \?/.test(P));
-ok('Logo-Box ist fest (immer gleich, unabhängig vom Seitenverhältnis)',
-  /\.gp-logo\{[^}]*width:26mm[^}]*height:18mm[^}]*object-fit:contain/.test(P));
+  /\(m\.logo \?\s*'<img class="gp-logo"/.test(P));
+/* Feedback 12.08.2026: fest ist seither die HÖHE (= Textblock daneben), die
+   Breite folgt dem Seitenverhältnis und wird nur von der Spalte begrenzt —
+   object-fit:contain verzerrt dabei nie. */
+ok('Logo-Höhe ist fest an den Kopf-Text gebunden, unverzerrt',
+  /\.gp-logo\{[^}]*height:var\(--gp-kopftext\)[^}]*width:auto/.test(P) &&
+  /object-fit:contain/.test(P) && /--gp-kopftext:/.test(P));
 ok('Einheiten-Umschalter werden erkannt und entfernt',
   /istEinheitenSchalter/.test(P) && /querySelectorAll\('\.g-switch-wrap'\)/.test(P));
 ok('Segmentierte Umschalter werden VOR dem Knopf-Kahlschlag zu Text',
@@ -99,25 +103,37 @@ async function druck(datei, vorbereiten) {
   return { page, pop };
 }
 
-console.log('\n■ B: Punkt 1 — Logo immer links oben, immer gleich gross');
+/* Punkt 1 «Logo immer links oben, immer gleich» — seit 12.08.2026 ist die
+   feste Grösse die HÖHE: sie folgt dem Kopf-Text (Projektname +
+   Berechnungsname), die Breite dem Seitenverhältnis. Damit ist das Logo
+   deutlich grösser als in der 26×18-mm-Box und der Titel steht mittig. */
+console.log('\n■ B: Punkt 1 — Logo links oben, Höhe = Kopf-Text, Titel mittig');
 {
   const { page, pop } = await druck('sa_enthaertung.html');
   const r = await pop.evaluate(() => {
     const l = document.querySelector('.gp-logo'), k = document.querySelector('.gp-kopf');
     if (!l) return { fehlt: true };
-    const lb = l.getBoundingClientRect(), kb = k.getBoundingClientRect();
+    const t = document.querySelector('.gp-kopf-l');
+    const lb = l.getBoundingClientRect(), kb = k.getBoundingClientRect(), tb = t.getBoundingClientRect();
     return {
       erstesKind: k.firstElementChild === l,
       links: Math.round(lb.left - kb.left),
-      box: Math.round(lb.width) + 'x' + Math.round(lb.height),
+      hoehe: Math.round(lb.height),
+      textHoehe: Math.round(tb.height),
+      breite: Math.round(lb.width),
+      spalte: Math.round((kb.width - tb.width) / 2),
+      mitteVersatz: Math.round((tb.left + tb.width / 2) - (kb.left + kb.width / 2)),
       titelRechtsVomLogo: document.querySelector('.gp-titel').getBoundingClientRect().left > lb.right - 1
     };
   });
   ok('Logo ist das erste Element im Kopf', r.erstesKind === true, r);
   ok('Logo sitzt bündig links (0 px Versatz)', r.links === 0, r.links);
-  /* 26 mm × 18 mm bei 96 dpi (Vorlagen-Layout 12.08.2026) */
-  ok('Logo-Box trotz 7.5:1-Logo auf feste Grösse begrenzt', r.box === '98x68', r.box);
-  ok('Titel steht rechts neben dem Logo', r.titelRechtsVomLogo === true);
+  ok('Logo ist so hoch wie der Kopf-Text (Projekt + Berechnung)',
+    Math.abs(r.hoehe - r.textHoehe) <= 1, r);
+  ok('breites 7.5:1-Logo bleibt in seiner Spalte (überlappt den Titel nie)',
+    r.breite <= r.spalte + 1 && r.titelRechtsVomLogo === true, r);
+  ok('Projektname + Berechnungsname stehen mittig auf dem Blatt',
+    Math.abs(r.mitteVersatz) <= 1, r.mitteVersatz);
   await pop.close(); await page.close();
 }
 

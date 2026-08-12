@@ -69,11 +69,14 @@ ok('Druckansicht: Knöpfe inkl. ✕ zum Löschen fliegen raus',
   /var KNOEPFE = 'button/.test(PR) && /row-del/.test(PR));
 ok('Druckansicht: Kopf = Modul-Titel + Eimer-Name',
   /gp-titel/.test(PR) && /gp-eimer/.test(PR) && /eimerName/.test(PR));
-/* Feedback 05.08.2026: Logo IMMER links oben in fester Box — object-fit:contain
-   erhält das Seitenverhältnis, die Box macht jeden Bericht gleich. */
-ok('Logo links oben in fester Box, unverzerrt (object-fit:contain)',
-  /gp-kopf">'\s*\+\s*\(m\.logo \?/.test(PR) &&
-  /\.gp-logo\{[^}]*width:26mm[^}]*height:18mm[^}]*object-fit:contain/.test(PR));
+/* Feedback 05.08.2026 + 12.08.2026: Logo IMMER links oben, unverzerrt
+   (object-fit:contain). Feste Grösse ist seit 12.08.2026 die HÖHE — sie folgt
+   dem Textblock daneben (Projektname + Berechnungsname), die Breite dem
+   Seitenverhältnis. */
+ok('Logo links oben, unverzerrt (object-fit:contain)',
+  /\(m\.logo \?\s*'<img class="gp-logo"/.test(PR) &&
+  /\.gp-logo\{[^}]*justify-self:start[^}]*height:var\(--gp-kopftext\)/.test(PR) &&
+  /object-fit:contain/.test(PR));
 ok('opsz-Kanon gegen das «zu dicke l»',
   /font-optical-sizing:auto/.test(PR) && /"opsz" 14/.test(PR));
 /* Feedback 05.08.2026: das Script wird NACHGELEGT statt mitgeschrieben — ein
