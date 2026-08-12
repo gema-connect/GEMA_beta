@@ -134,10 +134,16 @@
       }
     } catch (e) { }
     /* Kategorie-Zeile («Kicker» der Vorlage) aus dem Breadcrumb des Moduls —
-       z.B. «Sanitärberechnungen», «Heizung & Wärmeerzeugung». */
+       z.B. «Sanitärberechnungen», «Heizung & Wärmeerzeugung».
+       AUS EINEM EIMER heraus trägt der Breadcrumb den Eimer-Namen (siehe
+       _eimerPfad in gema_auth.js) — der steht bereits im Kopf. Dann entfällt
+       der Kicker, statt das Projekt auf jedem Bericht doppelt zu nennen und
+       das erste Blatt mit einer reinen Wiederholung zu beginnen. */
     try {
       var bc = d.querySelector('.g-nav-bc a.bc-cat, a.bc-cat');
       m.kategorie = bc ? bc.textContent.trim() : '';
+      var norm = function (s) { return String(s || '').replace(/\s+/g, ' ').trim().toLowerCase(); };
+      if (m.kategorie && (norm(m.kategorie) === norm(m.eimer) || norm(m.kategorie) === norm(m.titel))) m.kategorie = '';
     } catch (e) { }
     return m;
   }
@@ -151,6 +157,9 @@
     '.gema-hamburger', '.gema-menu-overlay', '.gema-menu-panel',
     '.footer-bar', '.act-bar', '.toolbar', '.tb-search-toggle',
     '#pwaInstallBanner', '.save-status', '.gema-dlg-bg', '.modal-bg', '.modal-overlay',
+    /* Offerten-Postfach: ein Bedien-Reiter der Modulseite («📨 Offerten 0»)
+       samt Panel — im Bericht eine tote, klickbare Hülse. */
+    '#gema-offerten-tab', '#gema-offerten-panel',
     'script', 'link[rel="import"]'
   ].join(',');
   /* Bedienelemente — im Bericht nutzlos, «✕ löschen» sogar irreführend */
@@ -294,9 +303,20 @@
       sp.textContent = t || '—';
       if (g.parentNode) g.parentNode.replaceChild(sp, g);
     });
-    /* 1b) Einheiten-Umschalter raus (die Einheit steht bei jedem Wert) */
+    /* 1b) Einheiten-Umschalter raus (die Einheit steht bei jedem Wert).
+           Mit ihm geht seine BESCHRIFTUNGS-ZEILE, wenn danach nur noch die
+           Beschriftung übrig bleibt (sb_lu_tabelle: «Durchfluss l/s ⇄ m³/h»
+           liess sonst eine 38-px-Hülse «Durchfluss» stehen, die auf Blatt 1
+           Platz für die erste Karte frass). Eine Zeile, die noch einen Wert
+           trägt, bleibt — deshalb der Ziffern-/Feld-Test. */
     klon.querySelectorAll('.g-switch-wrap').forEach(function (e) {
-      if (istEinheitenSchalter(e)) raus(e);
+      if (!istEinheitenSchalter(e)) return;
+      var zeile = e.parentNode;
+      raus(e);
+      if (!zeile || zeile === klon || !zeile.parentNode) return;
+      if (zeile.querySelector('input,select,textarea,table,canvas,svg,img,.g-switch-wrap,.gp-val,.gp-chk')) return;
+      if (/\d/.test(zeile.textContent || '')) return;
+      zeile.parentNode.removeChild(zeile);
     });
     /* 2) Knöpfe raus (inkl. der ✕ zum Löschen) */
     klon.querySelectorAll(KNOEPFE).forEach(function (e) { raus(e); });
@@ -612,9 +632,18 @@
       ' var body=null;',
       ' function neuesBlatt(){stage.insertAdjacentHTML("beforeend",tpl);body=stage.lastElementChild.querySelector(".gp-body");}',
       ' function passt(){return body.scrollHeight<=body.clientHeight+2;}',
+      /* «Leer» heisst: es steht noch NICHTS SICHTBARES auf dem Blatt. Gezählt
+         wird die gemessene Höhe, nicht die Zahl der Kinder — eine unsichtbare
+         Hülse (z.B. ein leeres <span> der Modulseite) machte das Blatt sonst
+         «belegt», das erste echte Element rutschte auf Blatt 2 und Blatt 1
+         blieb bis auf den Kicker leer (gemeldet 12.08.2026). */
       ' function leerIst(){',
-      '  if(!body.childElementCount) return true;',
-      '  return body.childElementCount===1&&body.firstElementChild.classList.contains("gp-kicker");',
+      '  for(var i=0;i<body.children.length;i++){',
+      '   var c=body.children[i];',
+      '   if(c.classList.contains("gp-kicker")) continue;',
+      '   if(c.getBoundingClientRect().height>1) return false;',
+      '  }',
+      '  return true;',
       ' }',
       /* Der Hinweis sitzt ABSOLUT in der Zone zwischen Inhalt und Fusslinie —
          im Fluss wäre nach dem randvollen Füllen fast nie mehr Platz für ihn
@@ -858,8 +887,17 @@
       '  if(!leerIst()){neuesBlatt();return platziere(bl);}',
       '  teile(bl,st);',
       ' }',
+      /* Unsichtbare Reste der Modulseite (leere Hülsen ohne Text, Bild oder
+         Feld) gar nicht erst platzieren — sie tragen nichts bei, belegten
+         aber Blätter und Teilungs-Entscheide. */
+      /* Ohne gemessene Höhe zeigt das Element NICHTS — auch wenn es Text
+         trägt (ausgeblendete Hinweise wie #apparateImportBar). scrollHeight
+         fängt den Randfall «Box 0 hoch, Inhalt ragt heraus» ab. */
+      ' function sichtbar(el){',
+      '  return el.getBoundingClientRect().height>1||el.scrollHeight>1;',
+      ' }',
       ' neuesBlatt();',
-      ' Array.prototype.slice.call(mess.children).forEach(platziere);',
+      ' Array.prototype.slice.call(mess.children).filter(sichtbar).forEach(platziere);',
       /* leeres Schluss-Blatt (Randfall nach einer Teilung) entfernen */
       ' var seiten=stage.querySelectorAll(".gp-blatt");',
       ' if(seiten.length>1){var l=seiten[seiten.length-1],lb=l.querySelector(".gp-body");',
