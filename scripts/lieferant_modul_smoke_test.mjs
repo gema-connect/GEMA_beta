@@ -141,8 +141,15 @@ try {
     await page.goto(BASE + '/sys_lieferant_dashboard.html', { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(2200);
     ok(!/Kein Zugriff/.test(await page.textContent('body')), 'Dashboard öffnet sich (kein Zugriffs-Screen)');
+    // Feedback 11.08.2026 (#11): der Pfad heisst zur LAUFZEIT «Workspace ›
+    // Lieferanten-Dashboard» (das statische Markup bleibt der Nav-Kanon
+    // «Lieferanten» — nav_uniform_test/lieferant_modul_test prüfen es).
     const bc = await page.textContent('.g-nav-bc .bc-cat').catch(() => null);
-    ok(bc && bc.trim() === 'Lieferanten', 'Breadcrumb «Lieferanten» gerendert');
+    ok(bc && bc.trim() === 'Workspace', 'Breadcrumb «Workspace» gerendert (11.08.2026 #11 — ist: «' + (bc||'—') + '»)');
+    const bcHref = await page.getAttribute('.g-nav-bc .bc-cat', 'href').catch(() => null);
+    ok(bcHref === 'sys_workspace.html', 'Breadcrumb führt in den Workspace');
+    const bcCur = await page.textContent('#navFirma').catch(() => null);
+    ok(bcCur && bcCur.trim() === 'Lieferanten-Dashboard', 'bc-cur heisst schlicht «Lieferanten-Dashboard»');
     const karte = await page.$('#meineBerechnungen');
     ok(!!karte, 'Karte #meineBerechnungen im DOM');
     const html = karte ? await karte.innerHTML() : '';

@@ -247,6 +247,60 @@ console.log('■ sys_beta: Export nur mit «Feedback umsetzen» + Dialog «In Be
     (JSON.parse(_GemaDB.c['feedback_druckdispositiv'])[0].cStatus || 'offen') === 'offen'
   ), '«Nicht setzen» ändert keine Status');
 
+  /* ── Ziel «Erledigt» (Feedback 11.08.2026) ──────────────────
+     «beim MD-Export soll es die Möglichkeit geben, die Punkte direkt als
+     erledigt zu markieren». Stand hier: A = in Arbeit, C = offen.
+     «In Arbeit» dazuschalten, damit A ueberhaupt mit exportiert wird. */
+  await page.evaluate(() => {
+    document.getElementById('exFilterArbeit').checked = true;
+    refreshExportPreview(); downloadExport();
+  });
+  await page.waitForFunction(() => document.getElementById('exMarkModal').style.display === 'flex', null, { timeout: 5000 });
+  ok(await page.evaluate(() => window._exMarkZiel === 'bearbeitung'),
+    'Ziel startet auf «In Bearbeitung», solange offene Punkte dabei sind (Altverhalten)');
+  ok(await page.evaluate(() => document.querySelectorAll('#exMarkList .exmark-cb').length === 1),
+    '… und listet dafür nur den offenen Punkt C');
+
+  await page.evaluate(() => exMarkSetZiel('erledigt'));
+  ok(await page.evaluate(() => document.querySelectorAll('#exMarkList .exmark-cb').length === 3),
+    'Ziel «Erledigt» nimmt offene UND laufende Punkte auf (C offen + A und E in Arbeit)');
+  ok(await page.evaluate(() => document.getElementById('exMarkApply').textContent.indexOf('3 Punkte setzen') >= 0),
+    'Zähler folgt dem Ziel');
+  ok(await page.evaluate(() => document.getElementById('exMarkList').textContent.indexOf('in Arbeit') >= 0),
+    'laufende Punkte sind als solche markiert (offen und in Arbeit stehen nebeneinander)');
+  ok(await page.evaluate(() => document.getElementById('exMarkTitel').textContent.indexOf('erledigt') >= 0
+    && document.getElementById('exMarkZielE').classList.contains('on')),
+    'Titel und Umschalter zeigen das gewählte Ziel');
+
+  await page.evaluate(() => exMarkApply());
+  await page.waitForFunction(() => document.getElementById('exMarkModal').style.display === 'none', null, { timeout: 4000 });
+  {
+    const s = await page.evaluate(() => ({
+      lu: JSON.parse(_GemaDB.c['feedback_lu_tabelle']),
+      dd: JSON.parse(_GemaDB.c['feedback_druckdispositiv'])
+    }));
+    ok(s.lu[0].cStatus === 'erledigt' && s.dd[0].cStatus === 'erledigt' && s.dd[1].cStatus === 'erledigt',
+      'alle drei sind erledigt — auch die, die schon in Arbeit waren (A, E)');
+    ok(/^\d{2}\.\d{2}\.\d{2},/.test(s.lu[0].erledigtAm || ''),
+      'Erledigt-Datum ist gestempelt, MIT Jahr (sonst greift die 3-Tage-Frist der Bereinigung nie)',
+      s.lu[0].erledigtAm);
+    ok((s.lu[2].cStatus || 'offen') === 'offen', 'nicht exportierter Punkt D bleibt offen');
+  }
+  // Zurueckstufen loescht den Stempel — sonst waere ein spaeter erneut
+  // abgehakter Punkt mit dem alten Datum sofort aufraeumbar.
+  await page.evaluate(() => setCommentStatus('lu_tabelle', 'fb', 0, 'bearbeitung'));
+  ok(await page.evaluate(() => JSON.parse(_GemaDB.c['feedback_lu_tabelle'])[0].erledigtAm === undefined),
+    'Zurückstufen entfernt den Erledigt-Stempel wieder');
+
+  /* Nur noch laufende Punkte im Export: dann waere «In Bearbeitung» leer und
+     der Dialog erschiene frueher gar nicht — der Weg zum Abhaken fehlte. */
+  await page.evaluate(() => { refreshExportPreview(); downloadExport(); });
+  await page.waitForFunction(() => document.getElementById('exMarkModal').style.display === 'flex', null, { timeout: 5000 });
+  ok(await page.evaluate(() => window._exMarkZiel === 'erledigt'
+    && document.querySelectorAll('#exMarkList .exmark-cb').length === 1),
+    'ohne offene Punkte steht «Erledigt» vorn (statt dass der Dialog ausbleibt)');
+  await page.evaluate(() => { closeExMarkDialog(); document.getElementById('exFilterArbeit').checked = false; refreshExportPreview(); });
+
   // Kein offener Punkt mehr → Export öffnet den Dialog gar nicht
   await page.evaluate(() => {
     const fb = JSON.parse(_GemaDB.c['feedback_druckdispositiv']);

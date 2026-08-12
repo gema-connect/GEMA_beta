@@ -584,6 +584,17 @@ table.fw{border-collapse:collapse;width:100%;font-size:12.5px}
 /* Kaskaden-Auslegung: 🔥-Kennzeichnung heizungsrelevanter Werte (Koordination Heizungsplaner) */
 .hz-tag{display:inline-flex;align-items:center;gap:3px;font-size:9px;font-weight:800;color:#c2410c;background:rgba(234,88,12,.09);border:1px solid rgba(234,88,12,.28);border-radius:4px;padding:1px 6px;margin-left:6px;vertical-align:middle;cursor:help;white-space:nowrap;text-transform:none;letter-spacing:0}
 #fwkSchema svg{width:100%;height:auto;display:block}
+/* ── Mappen (Feedback 11.08.2026 #4: Nutzwarmwasserbedarf · Verlustzahl ·
+   Frischwasserstation — Muster sb_warmwasser). Im Druck zeigen ALLE Mappen
+   ihren Inhalt (ein eingeklappter Bereich fehlt sonst im Bericht). */
+.g-tabs{margin-top:14px}
+.g-tab{font-weight:800;font-size:13px;letter-spacing:.01em}
+@media print{.tab-content{display:block!important}}
+/* Katalog-Wahl als sekundäre Aktion UNTER dem freien Namensfeld
+   (Feedback 11.08.2026 #3: «Keine Auswahl vorgeben, leeres Feld») */
+.fw select.fw-katsel{display:block;margin-top:4px;width:100%;min-width:140px;font-size:11px;color:var(--muted);padding:4px 6px}
+/* Gauss-Selects breit genug für den vollen Optionstext (Feedback 11.08.2026 #2) */
+.fw-selbreit{width:270px!important;max-width:60vw}
 @media(max-width:640px){.fw-kpis{grid-template-columns:repeat(2,1fr)}}
 </style>
 
@@ -648,6 +659,29 @@ table.fw{border-collapse:collapse;width:100%;font-size:12.5px}
   <div class="pf"><label>Datum</label><input type="date" id="metaDatum"></div>
 </div>
 
+<!-- ANLAGENSCHEMA (Standard, Feedback 05.08.2026: Kaskaden-Schema ist das eine
+     Schema — ohne aktive Kaskade mit EINER Station gezeichnet). Seit dem
+     Mappen-Umbau (Feedback 11.08.2026 #4) steht es VOR der Mappen-Leiste:
+     es bleibt so IMMER sichtbar (05.08-Entscheid) und liegt im DOM weiterhin
+     vor Abschnitt 2 (Drift-Guard feedback_20260801/20260805). -->
+<div class="g-card" style="margin-top:14px" id="fwkSchemaCard">
+  <div class="g-card-hd"><h2>📊 Anlagenschema</h2><span style="font-size:11px;color:var(--muted)">Wärmeerzeuger · Pufferspeicher · Station(en) — 🔥 = Heizungsplaner</span></div>
+  <div class="g-card-bd">
+    <div id="fwkSchema" style="width:100%"></div>
+    <div id="fwkSchemaNote" class="g-hint" style="margin-top:8px"></div>
+  </div>
+</div>
+
+<!-- MAPPEN (Feedback 11.08.2026 #4: «Neu als Mappen» — Struktur wie die
+     Warmwasser-Berechnung SIA 385/2: Nutzwarmwasserbedarf · Verlustzahl ·
+     Frischwasserstation). Das Ergebnis steht IMMER sichtbar ganz unten (#7). -->
+<div class="g-tabs no-print">
+  <button class="g-tab active" data-tab="fwm1" onclick="fwMappe('fwm1')">① Nutzwarmwasserbedarf</button>
+  <button class="g-tab" data-tab="fwm2" onclick="fwMappe('fwm2')">② Verlustzahl</button>
+  <button class="g-tab" data-tab="fwm3" onclick="fwMappe('fwm3')">③ Frischwasserstation</button>
+</div>
+
+<div id="fwm1" class="tab-content active">
 <div class="g-main-grid">
   <!-- 1 · NUTZWARMWASSERBEDARF -->
   <div class="g-card">
@@ -664,16 +698,13 @@ table.fw{border-collapse:collapse;width:100%;font-size:12.5px}
       <button class="fw-add" onclick="fwAddRow('nutz')">+ Nutzungseinheit</button>
 
       <div style="height:1px;background:var(--border);margin:14px 0;"></div>
-      <!-- Grobauslegung aus der Warmwasser-Berechnung (Feedback 06.08.2026 #7) -->
+      <!-- Grobauslegung aus der Warmwasser-Berechnung (Feedback 06.08.2026 #7;
+           seit 11.08.2026 #7 KOMPLETT: Nutzungszeilen + Tagesbedarf als
+           Override + Verlustzahl mit EINEM Klick) -->
       <div class="fw-uebernahme" id="fwWwBox">
-        <div class="fw-ueb-txt"><b>Grobauslegung aus der Warmwasser-Berechnung</b><br>
-          <span id="fwWwHint">Tagesbedarf und Verlustzahl aus <a href="sb_warmwasser.html">sb_warmwasser</a> desselben Projekts übernehmen.</span></div>
+        <div class="fw-ueb-txt"><b>Komplette Grobauslegung aus der Warmwasser-Berechnung</b><br>
+          <span id="fwWwHint">Nutzungszeilen, Tagesbedarf und Verlustzahl aus <a href="sb_warmwasser.html">sb_warmwasser</a> desselben Projekts übernehmen.</span></div>
         <button type="button" class="g-btn sm" id="fwWwBtn" onclick="fwWwUebernehmen()">⇩ Übernehmen</button>
-      </div>
-      <div class="fg">
-        <div class="fg-lbl">Verlustzahl<br><span class="lbl-hint">Verteil-/Speicherverluste · aus <a href="sb_warmwasser.html" style="color:var(--accent);text-decoration:none;">→ Warmwasser SIA 385</a></span></div>
-        <input class="fg-inp" onblur="fixLeadingZero(this)" id="fw_verlust" type="text" inputmode="decimal" value="20" oninput="fwRecalc()"/>
-        <span class="fg-unit">%</span>
       </div>
       <div class="fg">
         <div class="fg-lbl">Nutzwarmwasserbedarf übersteuern<br><span class="lbl-hint">leer = Summe der Tabelle oben
@@ -683,47 +714,45 @@ table.fw{border-collapse:collapse;width:100%;font-size:12.5px}
         <span class="fg-unit">l/d</span>
       </div>
       <div class="g-result-list">
-        <div class="g-result-row"><span class="g-result-lbl">Tagesbedarf Warmwasser à 60 °C (inkl. Verluste)</span><span class="g-result-val big" id="fw_out_tagesbedarf">–</span></div>
+        <div class="g-result-row"><span class="g-result-lbl">Tagesbedarf Warmwasser à 60 °C (inkl. Verluste)<br><span class="lbl-hint" style="font-weight:400">Verlustzahl aus Mappe <a href="#" onclick="fwMappe('fwm2');return false;" style="color:var(--accent);text-decoration:none;">② Verlustzahl</a></span></span><span class="g-result-val big" id="fw_out_tagesbedarf">–</span></div>
       </div>
     </div>
   </div>
+</div><!-- /g-main-grid -->
+</div><!-- /fwm1 -->
 
-  <!-- ERGEBNIS -->
-  <div style="display:flex;flex-direction:column;gap:14px;">
-    <div class="g-card">
-      <div class="g-card-hd"><h2>Ergebnis — Frischwasserstation</h2></div>
-      <div class="g-card-bd">
-        <div class="fw-kpis">
-          <div class="fw-kpi"><div class="v" id="fw_kpi_v">–</div><div class="l">Volumenstrom WW</div><div class="s" id="fw_kpi_v_sub">l/min · l/s</div></div>
-          <div class="fw-kpi"><div class="v" id="fw_kpi_p">–</div><div class="l">Leistung FWS</div><div class="s" id="fw_kpi_p_sub">kW (netto)</div></div>
-          <div class="fw-kpi"><div class="v" id="fw_kpi_tb">–</div><div class="l">Tagesbedarf 60 °C</div><div class="s">l/d</div></div>
-          <div class="fw-kpi"><div class="v" id="fw_kpi_ww">–</div><div class="l">WW-Temperatur</div><div class="s">°C (FWS-Austritt)</div></div>
-        </div>
-        <div class="g-result-list">
-          <div class="g-result-row"><span class="g-result-lbl">Wohnungsbau (Warmwasser-Anteil)</span><span class="g-result-val" id="fw_out_zWohn">–</span></div>
-          <div class="g-result-row"><span class="g-result-lbl">Gastroanlage</span><span class="g-result-val" id="fw_out_zGastro">–</span></div>
-          <div class="g-result-row"><span class="g-result-lbl">Spezielle Anlage</span><span class="g-result-val" id="fw_out_zSpez">–</span></div>
-          <div class="g-result-row"><span class="g-result-lbl">Total Volumenstrom Warmwasser</span><span class="g-result-val big" id="fw_out_zTotal">–</span></div>
-          <div class="g-result-row"><span class="g-result-lbl">Theoretische Leistung</span><span class="g-result-val" id="fw_out_ptheor">–</span></div>
-          <div class="g-result-row"><span class="g-result-lbl">− Abzug Zirkulationsvolumenstrom</span><span class="g-result-val" id="fw_out_pzirk">–</span></div>
-          <div class="g-result-row"><span class="g-result-lbl">Leistung Frischwasserstation</span><span class="g-result-val big" id="fw_out_pfws">–</span></div>
-        </div>
-        <div class="warn-box" id="fw_msg" style="display:none"></div>
+<!-- ② VERLUSTZAHL — eigene Mappe (Feedback 11.08.2026 #4, «dito
+     WW-Berechnung SIA385/2»: dort ist die Verlustzahl ein eigener Tab mit
+     der vollen Herleitung — hier der wirksame Prozentwert mit WW-Bezug). -->
+<div id="fwm2" class="tab-content">
+  <div class="g-card">
+    <div class="g-card-hd"><h2>Verlustzahl</h2><span style="font-size:11px;color:var(--muted)">Speicher-, Leitungs- und Ausstossverluste in % des Nutzbedarfs</span></div>
+    <div class="g-card-bd">
+      <div class="g-info" style="margin-bottom:12px">
+        Die Verlustzahl ϛ<sub>IS</sub> schlägt die Wärmeverluste (Speicher, warmgehaltene Leitungen,
+        Ausstoss, Hilfsenergie) auf den Nutzwarmwasserbedarf. Die vollständige Herleitung nach
+        SIA 385/2 steht in der Warmwasser-Berechnung, Mappe «② Verlustzahl»:
+        <a href="sb_warmwasser.html" style="color:var(--accent);text-decoration:none;">→ Warmwasser SIA 385</a>.
+      </div>
+      <div class="fw-uebernahme" id="fwVzBox">
+        <div class="fw-ueb-txt"><b>Aus der Warmwasser-Berechnung</b><br>
+          <span id="fwVzHint">Verlustzahl aus <a href="sb_warmwasser.html">sb_warmwasser</a> desselben Projekts übernehmen.</span></div>
+        <button type="button" class="g-btn sm" id="fwVzBtn" onclick="fwWwUebernehmen('vz')">⇩ Verlustzahl übernehmen</button>
+      </div>
+      <div class="fg">
+        <div class="fg-lbl">Verlustzahl<br><span class="lbl-hint">Verteil-/Speicherverluste in % des Nutzbedarfs</span></div>
+        <input class="fg-inp" onblur="fixLeadingZero(this)" id="fw_verlust" type="text" inputmode="decimal" value="20" oninput="fwRecalc()"/>
+        <span class="fg-unit">%</span>
+      </div>
+      <div class="g-result-list">
+        <div class="g-result-row"><span class="g-result-lbl">Tagesbedarf Warmwasser à 60 °C (inkl. Verluste) <span class="frml" style="display:inline;margin:0;">Bedarf · (1 + ϛ<sub>IS</sub>/100)</span></span><span class="g-result-val big" id="fw_out_tagesbedarf2">–</span></div>
       </div>
     </div>
   </div>
-</div>
+</div><!-- /fwm2 -->
 
-<!-- ANLAGENSCHEMA (Standard, Feedback 05.08.2026: Kaskaden-Schema ist das eine
-     Schema — ohne aktive Kaskade mit EINER Station gezeichnet; volle Breite,
-     direkt unter dem Ergebnis) -->
-<div class="g-card" style="margin-top:14px" id="fwkSchemaCard">
-  <div class="g-card-hd"><h2>📊 Anlagenschema</h2><span style="font-size:11px;color:var(--muted)">Wärmeerzeuger · Pufferspeicher · Station(en) — 🔥 = Heizungsplaner</span></div>
-  <div class="g-card-bd">
-    <div id="fwkSchema" style="width:100%"></div>
-    <div id="fwkSchemaNote" class="g-hint" style="margin-top:8px"></div>
-  </div>
-</div>
+<!-- ③ FRISCHWASSERSTATION — Auslegung (Feedback 11.08.2026 #4) -->
+<div id="fwm3" class="tab-content">
 
 <!-- 2 · SPITZENVOLUMENSTROM WOHNUNGSBAU -->
 <div class="g-card" style="margin-top:14px">
@@ -805,19 +834,31 @@ table.fw{border-collapse:collapse;width:100%;font-size:12.5px}
         <div class="g-result-list" style="margin-bottom:10px">
           <div class="g-result-row"><span class="g-result-lbl">Volumenstrom Wohnungsbau (Mischwasser)</span><span class="g-result-val" id="fw_out_vMisch">–</span></div>
         </div>
-        <div class="fw-sec">Mischkreuz</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MISCHKREUZ — eigenes Kapitel (Feedback 11.08.2026 #5; vorher ein
+     Unterblock in Abschnitt 2). Rechnet den WW-Anteil am gezapften
+     Mischwasser; die Darstellung ist dasselbe Bild wie in sb_mischkreuz
+     (Feedback 06.08.2026 #4), gespeist aus den Feldern hier. -->
+<div class="g-card" style="margin-top:14px">
+  <div class="g-card-hd"><h2>Mischkreuz</h2><span style="font-size:11px;color:var(--muted)">WW-Anteil am gezapften Mischwasser — speist Abschnitt 2 und die Gauss-Bemessung</span></div>
+  <div class="g-card-bd">
+    <div class="g-main-grid">
+      <div>
         <div class="fg"><div class="fg-lbl">Warmwassertemperatur<br><span class="lbl-hint">FWS-Austritt</span></div><input class="fg-inp" onblur="fixLeadingZero(this)" id="fw_tww" type="text" inputmode="decimal" value="55" oninput="fwRecalc()"/><span class="fg-unit">°C</span></div>
         <div class="fg"><div class="fg-lbl">Kaltwassertemperatur<br><span class="lbl-hint">KW-Eintritt</span></div><input class="fg-inp" onblur="fixLeadingZero(this)" id="fw_tkw" type="text" inputmode="decimal" value="10" oninput="fwRecalc()"/><span class="fg-unit">°C</span></div>
         <div class="fg"><div class="fg-lbl">Mischtemperatur<br><span class="lbl-hint">an der Zapfstelle</span></div><input class="fg-inp" onblur="fixLeadingZero(this)" id="fw_tmw" type="text" inputmode="decimal" value="40" oninput="fwRecalc()"/><span class="fg-unit">°C</span></div>
+      </div>
+      <div>
         <div class="g-result-list">
           <div class="g-result-row"><span class="g-result-lbl">WW-Anteil <span class="frml" style="display:inline;margin:0;">(MW−KW)/(WW−KW)</span></span><span class="g-result-val" id="fw_out_wwAnteil">–</span></div>
           <div class="g-result-row"><span class="g-result-lbl">Volumenstrom Warmwasser Wohnungsbau</span><span class="g-result-val big" id="fw_out_vWW">–</span></div>
         </div>
       </div>
     </div>
-    <!-- Mischungskreuz-Darstellung (Feedback 06.08.2026 #4: «Darstellung vom
-         Modul Mischkreuz übernehmen») — dasselbe Bild wie in sb_mischkreuz,
-         gespeist aus den Feldern oben. Nur literale Hex-Farben (GemaPDF). -->
     <div class="fw-sec" style="margin-top:14px">Mischungskreuz</div>
     <div id="fwMkSchema"></div>
     <div class="g-hint" style="margin-top:6px">Ausführliche Einzelrechnung mit Einheiten-Wahl: <a href="sb_mischkreuz.html" style="color:var(--accent);text-decoration:none;">→ Modul Mischkreuz</a></div>
@@ -884,8 +925,8 @@ table.fw{border-collapse:collapse;width:100%;font-size:12.5px}
         <div>
           <div class="fw-sec">Nutzung</div>
           <div class="fg">
-            <div class="fg-lbl">Personen im Gebäude (Override)<br><span class="lbl-hint">0 = automatisch aus Abschnitt 2 (SIA-Normbelegung)</span></div>
-            <input class="fg-inp" onblur="fixLeadingZero(this)" id="fwg_persOverride" type="text" inputmode="decimal" value="0" oninput="fwRecalc()"/>
+            <div class="fg-lbl">Personen im Gebäude (Override)<br><span class="lbl-hint">leer = automatisch aus Abschnitt 2 (SIA-Normbelegung): <b id="fwg_persAuto">–</b> Pers.</span></div>
+            <input class="fg-inp" onblur="fixLeadingZero(this)" id="fwg_persOverride" type="text" inputmode="decimal" value="" placeholder="auto" oninput="fwRecalc()"/>
             <span class="fg-unit">Pers.</span>
           </div>
           <div class="fg">
@@ -901,7 +942,7 @@ table.fw{border-collapse:collapse;width:100%;font-size:12.5px}
           <div class="fw-sec">Bemessung</div>
           <div class="fg">
             <div class="fg-lbl">Bemessungsquantil<br><span class="lbl-hint">Wahrscheinlichkeit, dass der Bedarf abgedeckt ist</span></div>
-            <select class="fg-inp" id="fwg_quantil" style="text-align:left;width:210px" onchange="fwRecalc()">
+            <select class="fg-inp fw-selbreit" id="fwg_quantil" style="text-align:left;width:210px" onchange="fwRecalc()">
               <option value="0.99">99 % (konservativ)</option>
               <option value="0.95">95 %</option>
             </select>
@@ -909,7 +950,7 @@ table.fw{border-collapse:collapse;width:100%;font-size:12.5px}
           </div>
           <div class="fg">
             <div class="fg-lbl">Sicherheitszuschlag Duschenzahl<br><span class="lbl-hint">konservativ: eine Dusche über dem Quantil (min. 2)</span></div>
-            <select class="fg-inp" id="fwg_zuschlag" style="text-align:left;width:210px" onchange="fwRecalc()">
+            <select class="fg-inp fw-selbreit" id="fwg_zuschlag" style="text-align:left;width:210px" onchange="fwRecalc()">
               <option value="1">Quantil + 1 Dusche (konservativ)</option>
               <option value="0">exaktes Quantil</option>
             </select>
@@ -921,8 +962,8 @@ table.fw{border-collapse:collapse;width:100%;font-size:12.5px}
             <span class="fg-unit">–</span>
           </div>
           <div class="fg">
-            <div class="fg-lbl">Mindestgleichzeitigkeit Duschen<br><span class="lbl-hint">0 = automatisch Wohnungen ÷ 10 — verhindert zu kleine FWS</span></div>
-            <input class="fg-inp" onblur="fixLeadingZero(this)" id="fwg_minDuschen" type="text" inputmode="decimal" value="0" oninput="fwRecalc()"/>
+            <div class="fg-lbl">Mindestgleichzeitigkeit Duschen<br><span class="lbl-hint">leer = automatisch <span class="frml" style="display:inline;margin:0;">0.1 · Personen</span> = <b id="fwg_minAuto">–</b> Duschen — verhindert zu kleine FWS</span></div>
+            <input class="fg-inp" onblur="fixLeadingZero(this)" id="fwg_minDuschen" type="text" inputmode="decimal" value="" placeholder="auto" oninput="fwRecalc()"/>
             <span class="fg-unit">Stk</span>
           </div>
           <div class="fw-sec">Primärseite (Heizung/Puffer)</div>
@@ -1066,7 +1107,7 @@ table.fw{border-collapse:collapse;width:100%;font-size:12.5px}
           </div>
           <div class="fg">
             <div class="fg-lbl">Separate Zirkulationsstation<br><span class="lbl-hint">letzte Station (Z) hält nur die Zirkulation warm — die Zapfleistung teilen sich die übrigen</span></div>
-            <select class="fg-inp" id="fwk_sep" style="text-align:left;width:210px" onchange="fwRecalc()">
+            <select class="fg-inp fw-selbreit" id="fwk_sep" style="text-align:left;width:210px" onchange="fwRecalc()">
               <option value="nein">Nein — alle Stationen laden</option>
               <option value="ja">Ja — letzte Station nur Zirkulation</option>
             </select>
@@ -1148,6 +1189,32 @@ table.fw{border-collapse:collapse;width:100%;font-size:12.5px}
       </div>
       <div class="warn-box" id="fwk_msg" style="display:none;margin-top:12px"></div>
     </div>
+  </div>
+</div>
+
+</div><!-- /fwm3 -->
+
+<!-- ERGEBNIS — steht IMMER sichtbar GANZ UNTEN (Feedback 11.08.2026 #7,
+     «Grün: ganz nach unten»); vorher neben Abschnitt 1. -->
+<div class="g-card" style="margin-top:14px">
+  <div class="g-card-hd"><h2>Ergebnis — Frischwasserstation</h2></div>
+  <div class="g-card-bd">
+    <div class="fw-kpis">
+      <div class="fw-kpi"><div class="v" id="fw_kpi_v">–</div><div class="l">Volumenstrom WW</div><div class="s" id="fw_kpi_v_sub">l/min · l/s</div></div>
+      <div class="fw-kpi"><div class="v" id="fw_kpi_p">–</div><div class="l">Leistung FWS</div><div class="s" id="fw_kpi_p_sub">kW (netto)</div></div>
+      <div class="fw-kpi"><div class="v" id="fw_kpi_tb">–</div><div class="l">Tagesbedarf 60 °C</div><div class="s">l/d</div></div>
+      <div class="fw-kpi"><div class="v" id="fw_kpi_ww">–</div><div class="l">WW-Temperatur</div><div class="s">°C (FWS-Austritt)</div></div>
+    </div>
+    <div class="g-result-list">
+      <div class="g-result-row"><span class="g-result-lbl">Wohnungsbau (Warmwasser-Anteil)</span><span class="g-result-val" id="fw_out_zWohn">–</span></div>
+      <div class="g-result-row"><span class="g-result-lbl">Gastroanlage</span><span class="g-result-val" id="fw_out_zGastro">–</span></div>
+      <div class="g-result-row"><span class="g-result-lbl">Spezielle Anlage</span><span class="g-result-val" id="fw_out_zSpez">–</span></div>
+      <div class="g-result-row"><span class="g-result-lbl">Total Volumenstrom Warmwasser</span><span class="g-result-val big" id="fw_out_zTotal">–</span></div>
+      <div class="g-result-row"><span class="g-result-lbl">Theoretische Leistung</span><span class="g-result-val" id="fw_out_ptheor">–</span></div>
+      <div class="g-result-row"><span class="g-result-lbl">− Abzug Zirkulationsvolumenstrom</span><span class="g-result-val" id="fw_out_pzirk">–</span></div>
+      <div class="g-result-row"><span class="g-result-lbl">Leistung Frischwasserstation</span><span class="g-result-val big" id="fw_out_pfws">–</span></div>
+    </div>
+    <div class="warn-box" id="fw_msg" style="display:none"></div>
   </div>
 </div>
 
@@ -1243,7 +1310,8 @@ function fwgRollMeanMax(lam,winMin){
 // Gesamtberechnung Gauss-Bemessung
 function fwgCalc(inp){
   // inp: {rowsWhg:[{n,anf}], persOverride, duschProPd, dauerMin, qJeDusche, quantil, zuschlag,
-  //       reserve, minDuschen(0=auto Whg/10), qMix, tww, tkw, primVl, primRl, profil}
+  //       reserve, minDuschen(0=auto 10 % der Personen — Feedback 11.08.2026 #1),
+  //       qMix, tww, tkw, primVl, primRl, profil}
   var r={warn:[]};
   var pers=0,whg=0,ohneFlaeche=0;
   (inp.rowsWhg||[]).forEach(function(row){
@@ -1263,7 +1331,10 @@ function fwgCalc(inp){
   var q=parseFloat(inp.quantil)||0.99;
   r.quantil=q;
   r.kSel=q>=0.99?r.k99:r.k95;
-  r.minDuschen=(parseFloat(inp.minDuschen)||0)>0?parseFloat(inp.minDuschen):whg/10;
+  // Mindestgleichzeitigkeit: Override gewinnt, sonst 10 % der Personen
+  // (Feedback 11.08.2026 #1 — vorher Wohnungen ÷ 10)
+  r.minDuschenAuto=r.pers*0.1;
+  r.minDuschen=(parseFloat(inp.minDuschen)||0)>0?parseFloat(inp.minDuschen):r.minDuschenAuto;
   var qJe=parseFloat(inp.qJeDusche)||0;
   r.qJeDusche=qJe;
   r.qErw=r.lamMax*qJe;
@@ -1497,29 +1568,27 @@ function fwRenderTables(){
       +'<td class="fw-calc" data-c="du"></td><td class="fw-calc" data-c="wa"></td><td class="fw-calc" data-c="pers"></td>'
       +'<td><button class="fw-del" onclick="fwDelRow(\'whg\','+i+')">✕</button></td></tr>';
   }).join('');
-  /* Gastro/Spez — Feedback 06.08.2026:
-     #3 «Wenn ein Apparat gewählt, kann das Feld nicht mehr geöffnet werden»:
-        Das war ein <input list=…>. Ein gefülltes Feld filtert die datalist auf
-        Treffer — die Liste liess sich danach faktisch nicht mehr öffnen.
-        Jetzt ein echtes <select> mit dem Katalog + «✎ eigenes Gerät …»
-        (dann erscheint zusätzlich ein Freitextfeld). r.name bleibt der Name.
-     #2 «Vorschlag aus Auswahlliste soll rechts bei l/min als Vorschlag
-        eingefügt werden»: numerische Katalogwerte werden gesetzt, Bereiche
-        («8 bis 42») erscheinen als Platzhalter + Hinweis — ein Bereich wird
-        NIE zu einer erfundenen Einzelzahl gemacht. */
+  /* Gastro/Spez — Feedback 11.08.2026 #3 «Keine Auswahl vorgeben, leeres
+     Feld»: die Zeile startet mit einem LEEREN Freitext-Feld (r.name), der
+     Katalog ist eine sekundäre Aktion darunter («Katalog …»-Select) — ein
+     Pick setzt den Namen ins Feld, schlägt den l/min-Wert vor und fällt
+     selbst auf «Katalog …» zurück. Die frühere «✎ eigenes Gerät»-Mechanik
+     (r.frei) entfällt; Altdaten mit dem Feld bleiben lesbar (r.name zählt).
+     Weiterhin (Feedback 06.08.2026 #2): numerische Katalogwerte werden nur
+     in ein LEERES l/min-Feld gesetzt, Bereiche («8 bis 42») erscheinen als
+     Platzhalter + Hinweis — ein Bereich wird NIE zu einer erfundenen
+     Einzelzahl gemacht. */
   ['gastro','spez'].forEach(function(kind){
     document.getElementById(kind==='gastro'?'fwGastroBody':'fwSpezBody').innerHTML=fwState[kind].map(function(r,i){
       var kat=FW_GERAETE.find(function(g){return g.name===r.name;});
-      var frei=!!r.frei||(!!r.name&&!kat);
-      var opts='<option value=""'+((!r.name&&!frei)?' selected':'')+'>– Gerät wählen –</option>'
-        +FW_GERAETE.map(function(g){return '<option value="'+fwEsc(g.name)+'"'+((!frei&&g.name===r.name)?' selected':'')+'>'+fwEsc(g.name)+'</option>';}).join('')
-        +'<option value="__frei"'+(frei?' selected':'')+'>✎ eigenes Gerät …</option>';
+      var opts='<option value="" selected>Katalog …</option>'
+        +FW_GERAETE.map(function(g){return '<option value="'+fwEsc(g.name)+'">'+fwEsc(g.name)+'</option>';}).join('');
       var hint=(kat&&typeof kat.lmin!=='number'&&kat.lmin)?('<span class="fw-kathint">Katalog: '+fwEsc(String(kat.lmin))+' l/min</span>'):'';
       var ph=(kat&&typeof kat.lmin!=='number'&&kat.lmin)?fwEsc(String(kat.lmin)):'l/min';
       return '<tr data-kind="'+kind+'" data-i="'+i+'">'
         +'<td class="fw-nr">'+(i+1)+'</td>'
-        +'<td><select class="fw-name" data-k="geraet">'+opts+'</select>'
-          +(frei?'<input class="fw-name fw-frei" type="text" value="'+fwEsc(r.name)+'" data-k="name" placeholder="Bezeichnung eintippen"/>':'')+'</td>'
+        +'<td><input class="fw-name" type="text" value="'+fwEsc(r.name)+'" data-k="name" placeholder="Gerät / Armatur eintippen"/>'
+          +'<select class="fw-katsel" data-k="geraet" title="Gerät aus dem Katalog übernehmen">'+opts+'</select></td>'
         +'<td><input class="fw-num" type="text" inputmode="decimal" value="'+fwEsc(r.lmin)+'" data-k="lmin" placeholder="'+ph+'"/>'+hint+'</td>'
         +'<td><input class="fw-num" type="text" inputmode="decimal" value="'+fwEsc(r.n)+'" data-k="n"/></td>'
         +'<td class="fw-calc" data-c="tot"></td>'
@@ -1534,7 +1603,8 @@ function fwRenderCalc(res){
   document.querySelectorAll('#fwNutzBody tr').forEach(function(tr){
     var o=res.nutz[parseInt(tr.dataset.i,10)]||{};
     tr.querySelector('[data-c="x"]').textContent=o.x?fwFmt(o.x,2):'–';
-    tr.querySelector('[data-c="z"]').textContent=o.z?fwFmt(o.z,2):'–';
+    // Bedarf [l/d] ohne Nachkommastellen (Feedback 11.08.2026 #6)
+    tr.querySelector('[data-c="z"]').textContent=o.z?fwFmt(o.z,0):'–';
     tr.querySelector('[data-c="kwh"]').textContent=o.z?fwFmt(o.kwh,2):'–';
   });
   document.querySelectorAll('#fwWhgBody tr').forEach(function(tr){
@@ -1552,9 +1622,11 @@ function fwRenderCalc(res){
       tr.querySelector('[data-c="tot"]').textContent=tot?fwFmt(tot,2):'–';
     });
   });
-  setTxt('fw_tot_nutzL',fwFmt(res.nutzTotal,2));
+  // l/d-Werte ohne Nachkommastellen (Feedback 11.08.2026 #6) — kWh/d behält 2 NK
+  setTxt('fw_tot_nutzL',fwFmt(res.nutzTotal,0));
   setTxt('fw_tot_nutzKwh',fwFmt(res.nutzKwh,2));
-  setTxt('fw_out_tagesbedarf',res.tagesbedarf>0?fwFmt(res.tagesbedarf,2)+' l/d':'–');
+  setTxt('fw_out_tagesbedarf',res.tagesbedarf>0?fwFmt(res.tagesbedarf,0)+' l/d':'–');
+  setTxt('fw_out_tagesbedarf2',res.tagesbedarf>0?fwFmt(res.tagesbedarf,0)+' l/d':'–');
   setTxt('fw_out_duschen',fwFmt(res.duschen,0));
   setTxt('fw_out_wannen',fwFmt(res.wannen,0));
   var persTot=0;fwState.whg.forEach(function(r){var n=parseFloat(r.whg)||0,anf=parseFloat(r.anf)||0;if(n>0&&anf>0)persTot+=fwgPersProWhg(anf)*n;});
@@ -1593,7 +1665,7 @@ function fwRenderCalc(res){
   setTxt('fw_kpi_v_sub',res.total>0?fwFmt(res.total/60,2)+' l/s':'l/min · l/s');
   setTxt('fw_kpi_p',res.pFws>0?fwFmt(res.pFws,2)+' kW':'–');
   setTxt('fw_kpi_p_sub','netto (theor. '+fwFmt(res.pTheor,2)+' kW)');
-  setTxt('fw_kpi_tb',res.tagesbedarf>0?fwFmt(res.tagesbedarf,2):'–');
+  setTxt('fw_kpi_tb',res.tagesbedarf>0?fwFmt(res.tagesbedarf,0):'–');
   setTxt('fw_kpi_ww',fwFmt(fwNum('fw_tww'),2));
   var msg=document.getElementById('fw_msg');
   if(res.warn.length){msg.style.display='';msg.innerHTML='⚠ '+res.warn.map(fwEsc).join('<br>⚠ ');}
@@ -1653,6 +1725,17 @@ function fwgRecalc(res){
   });
   _fwgLast=g;
   function setTxt(id,txt){var el=document.getElementById(id);if(el)el.textContent=txt;}
+  /* Auto-Werte SICHTBAR am Feld (Feedback 11.08.2026 #1): der Wert der
+     oberen Berechnung (Personen SIA, Abschnitt 2) steht als Hint +
+     Platzhalter am Override-Feld, die 10 %-Regel als Live-Wert am
+     Mindestgleichzeitigkeits-Feld. Placeholder wird nie geparst — die
+     gruppierte fwFmt-Anzeige ist dort unkritisch. */
+  setTxt('fwg_persAuto',g.persAuto>0?fwFmt(g.persAuto,1):'–');
+  setTxt('fwg_minAuto',g.minDuschenAuto>0?fwFmt(g.minDuschenAuto,1):'–');
+  var poEl=document.getElementById('fwg_persOverride');
+  if(poEl)poEl.placeholder=g.persAuto>0?fwFmt(g.persAuto,1):'auto';
+  var mdEl=document.getElementById('fwg_minDuschen');
+  if(mdEl)mdEl.placeholder=g.minDuschenAuto>0?fwFmt(g.minDuschenAuto,1):'auto';
   setTxt('fwg_out_pers',fwFmt(g.pers,1)+' Pers.'+((parseFloat(fwNum('fwg_persOverride'))||0)>0?' (Override)':' (SIA aus Abschn. 2)'));
   setTxt('fwg_out_duschenTag',fwFmt(g.duschenTag,1)+' 1/d');
   setTxt('fwg_out_qje',fwFmt(g.qJeDusche,2)+' l/min');
@@ -1839,12 +1922,37 @@ function fwkRecalc(res){
   // Schema liegt in einem EIGENEN Script-Block (Cross-Block-Scope-Regel)
   if(window._fwKaskadeDraw)try{window._fwKaskadeDraw(res,k,true);}catch(e){}
 }
-/* ══ Grobauslegung aus der Warmwasser-Berechnung (Feedback 06.08.2026 #7) ══
-   Gelesen wird der AutoSave-Snapshot von sb_warmwasser desselben Projekts —
-   defensiv: fehlt er (anderes Projekt, offline, Modul nie geöffnet), sagt der
-   Hinweis das, statt still nichts zu tun. Übernommen werden die beiden
-   Grössen aus dem Feedback-Bild: Tagesbedarf (Total Nutzwarmwasserbedarf)
-   und Verlustzahl. Beide bleiben danach von Hand änderbar. */
+/* ══ Grobauslegung aus der Warmwasser-Berechnung ══════════════════════════
+   (Feedback 06.08.2026 #7; seit 11.08.2026 #7 KOMPLETT.) Gelesen wird der
+   AutoSave-Snapshot von sb_warmwasser desselben Projekts — defensiv: fehlt
+   er (anderes Projekt, offline, Modul nie geöffnet), sagt der Hinweis das,
+   statt still nichts zu tun. Übernommen wird die KOMPLETTE Grobauslegung:
+   die Nutzungszeilen (gemappt in den FWS-Katalog — Dokumentation), der
+   Tagesbedarf als Override (exakt das WW-Total; der Override gewinnt in
+   fwCalc über die Zeilensumme) und die Verlustzahl. Alles bleibt danach
+   von Hand änderbar. */
+/* Mapping Grobauslegungs-Katalog (WW_GROB_NUTZUNG in sb_warmwasser, 14
+   Einträge — Index = r.ne der Grob-Zeilen) → FW_NUTZUNG-Index. Die beiden
+   Kataloge sind NICHT deckungsgleich (Grobauslegung: ein l/d-Richtwert je
+   Nutzung · FWS: avg+2σ nach SIA 385/2) — die gemappten Zeilen
+   DOKUMENTIEREN die Nutzungen, das exakte Total kommt über den Override.
+   fw:-1 = keine Entsprechung (wird beim Übernehmen BENANNT, nie still). */
+var FW_WW_GROB=[
+  {n:'Einfamilienhaus, Eigentumswohnung',fw:0},
+  {n:'Mehrfamilienhaus',fw:3},
+  {n:'Büros (ohne Personalrestaurant)',fw:5},
+  {n:'Gastronomie (Kochen, Spülen, Geschirrwaschen)',fw:-1},
+  {n:'Caferteria, Tea-Room',fw:6},
+  {n:'Gasthof, Hotel, Appartmenthaus (ohne Küche und Wäscherei)',fw:8},
+  {n:'Kinderheim (Gesamtbedarf inkl. Küche und Wäscherei)',fw:12},
+  {n:'Altersheim (Gesamtbedarf inkl. Küche und Wäscherei)',fw:13},
+  {n:'Alters- und Pflegeheim (Gesamtbedarf inkl. Küche und Wäscherei)',fw:14},
+  {n:'Krankenhaus, Klinik',fw:15},
+  {n:'Restaurant',fw:18},
+  {n:'Wäscherei (pro Kg Trockenewäsche)',fw:20},
+  {n:'Duschen',fw:21},
+  {n:'Baden',fw:25}
+];
 function fwWwSnapshot(){
   var base='gema_warmwasser_sia385';
   var key=(typeof GemaObjekte!=='undefined')?GemaObjekte.storageKey(base):base;
@@ -1856,37 +1964,95 @@ function fwWwSnapshot(){
     var snap=JSON.parse(raw);
     var rows=snap&&snap.ww_rows?JSON.parse(snap.ww_rows):null;
     if(!rows||!rows.wwSummary) return null;
-    return rows.wwSummary;
+    // Kopie + Grob-ZEILEN dazu (Feedback 11.08.2026 #7 — komplette Übernahme);
+    // Alt-Snapshots ohne grob-Array liefern [] und verhalten sich wie bisher.
+    var s=Object.assign({},rows.wwSummary);
+    s.grobRows=Array.isArray(rows.grob)?rows.grob:[];
+    return s;
   }catch(e){ return null; }
 }
 function fwWwPruefen(){
   var box=document.getElementById('fwWwBox'),hint=document.getElementById('fwWwHint'),
       btn=document.getElementById('fwWwBtn');
-  if(!box||!hint||!btn) return;
   var s=fwWwSnapshot();
+  fwVzSync(s); // Verlustzahl-Hinweis in Mappe ② mit nachführen
+  if(!box||!hint||!btn) return;
   if(!s||!(s.grobTotal>0)){
     btn.disabled=true;
     hint.innerHTML='Noch nichts gefunden — die Grobauslegung in <a href="sb_warmwasser.html">Warmwasser SIA 385</a> für dieses Projekt erfassen und speichern.';
     return;
   }
   btn.disabled=false;
-  hint.innerHTML='Gefunden: Tagesbedarf <b>'+fwFmt(s.grobTotal,0)+' l/d</b>'
+  var nz=0;(s.grobRows||[]).forEach(function(r){ if((parseFloat(r.n)||0)>0)nz++; });
+  hint.innerHTML='Gefunden: '+(nz>0?('<b>'+nz+'</b> Nutzungszeile'+(nz===1?'':'n')+' · '):'')
+    +'Tagesbedarf <b>'+fwFmt(s.grobTotal,0)+' l/d</b>'
     +(s.vz>0?(' · Verlustzahl <b>'+fwFmt(s.vz,1)+' %</b>'):'')
     +(s.tww>0?(' · θ<sub>WW</sub> '+fwFmt(s.tww,0)+' °C'):'');
 }
-function fwWwUebernehmen(){
+/* Verlustzahl-Bezug in Mappe ② (Feedback 11.08.2026 #4) — gleiche Quelle,
+   kein zweiter Lesekanal. */
+function fwVzSync(s){
+  var hint=document.getElementById('fwVzHint'),btn=document.getElementById('fwVzBtn');
+  if(!hint||!btn) return;
+  if(s===undefined)s=fwWwSnapshot();
+  if(!s||!(s.vz>0)){
+    btn.disabled=true;
+    hint.innerHTML='Noch keine Verlustzahl gefunden — Mappe «② Verlustzahl» in <a href="sb_warmwasser.html">Warmwasser SIA 385</a> für dieses Projekt ausfüllen.';
+    return;
+  }
+  btn.disabled=false;
+  hint.innerHTML='Gefunden: Verlustzahl <b>'+fwFmt(s.vz,1)+' %</b> (Grobauslegung)'
+    +(s.vzFein>0?(' · Feinplanung: '+fwFmt(s.vzFein,1)+' %'):'');
+}
+function fwWwUebernehmen(nurVz){
   var s=fwWwSnapshot();
+  // Nur-Verlustzahl (Knopf in Mappe ②)
+  if(nurVz==='vz'){
+    if(!s||!(s.vz>0)){
+      if(typeof GemaDialog!=='undefined')GemaDialog.alert({title:'Keine Verlustzahl gefunden',
+        message:'Für dieses Projekt liegt keine gespeicherte Verlustzahl aus der Warmwasser-Berechnung vor.'});
+      return;
+    }
+    var vEl=document.getElementById('fw_verlust'); if(vEl) vEl.value=String(Math.round(s.vz*10)/10);
+    fwPersist();fwRecalc();fwVzSync(s);
+    return;
+  }
   if(!s||!(s.grobTotal>0)){
     if(typeof GemaDialog!=='undefined')GemaDialog.alert({title:'Nichts zu übernehmen',
       message:'Für dieses Projekt liegt keine gespeicherte Grobauslegung aus der Warmwasser-Berechnung vor.'});
     return;
   }
-  // ROHWERTE ins Eingabefeld (nie die gruppierte Anzeige — siehe fwNum)
-  var ext=document.getElementById('fw_tbExt'); if(ext) ext.value=String(Math.round(s.grobTotal*100)/100);
-  if(s.vz>0){var v=document.getElementById('fw_verlust'); if(v) v.value=String(Math.round(s.vz*10)/10);}
-  var chip=document.getElementById('fwTbSrc');
-  if(chip){chip.style.display='';chip.textContent='⇩ aus Warmwasser SIA 385';}
-  fwPersist();fwRecalc();
+  var doIt=function(){
+    // 1) Nutzungszeilen mappen (Dokumentation — das exakte Total kommt als Override)
+    var mapped=[],unmapped=[];
+    (s.grobRows||[]).forEach(function(r){
+      var n=parseFloat(r.n)||0; if(!(n>0))return;
+      var m=FW_WW_GROB[parseInt(r.ne,10)||0];
+      if(m&&m.fw>=0)mapped.push({ne:m.fw,n:String(r.n)});
+      else unmapped.push((m?m.n:('Zeile '+((parseInt(r.ne,10)||0)+1)))+' ('+fwFmt(n,0)+')');
+    });
+    if(mapped.length)fwState.nutz=mapped;
+    // 2) Tagesbedarf als Override — ROHWERT ins Eingabefeld (nie die
+    //    gruppierte Anzeige — siehe fwNum)
+    var ext=document.getElementById('fw_tbExt'); if(ext) ext.value=String(Math.round(s.grobTotal*100)/100);
+    // 3) Verlustzahl (Feld lebt in Mappe ②)
+    if(s.vz>0){var v=document.getElementById('fw_verlust'); if(v) v.value=String(Math.round(s.vz*10)/10);}
+    var chip=document.getElementById('fwTbSrc');
+    if(chip){chip.style.display='';chip.textContent='⇩ aus Warmwasser SIA 385';}
+    fwRenderTables();fwPersist();fwRecalc();fwWwPruefen();
+    if(unmapped.length&&typeof GemaDialog!=='undefined'){
+      GemaDialog.alert({title:'Ohne Entsprechung im FWS-Katalog',
+        message:'Diese Nutzungen der Grobauslegung haben keine Zeile im SIA-385/2-Katalog der Frischwasserstation und wurden nicht als Zeile übernommen: '
+          +unmapped.join(', ')+'. Ihr Bedarf steckt trotzdem im übernommenen Tagesbedarf (Override).'});
+    }
+  };
+  // Bestehende Zeilen NIE still ersetzen
+  var hatZeilen=fwState.nutz.some(function(r){return (parseFloat(r.n)||0)>0;});
+  if(hatZeilen&&typeof GemaDialog!=='undefined'){
+    GemaDialog.confirm({title:'Grobauslegung übernehmen',
+      message:'Die bestehenden Nutzungszeilen werden durch die Zeilen der Warmwasser-Grobauslegung ersetzt; Tagesbedarf (Override) und Verlustzahl werden neu gesetzt.',
+      confirmLabel:'Übernehmen'}).then(function(ok){ if(ok)doIt(); });
+  } else doIt();
 }
 function fwTbFrei(){
   var ext=document.getElementById('fw_tbExt'); if(ext) ext.value='';
@@ -1904,18 +2070,17 @@ function fwOnTableInput(e){
   if(k==='ne'){r.ne=parseInt(e.target.value,10)||0;fwRenderTables();}
   // Gebäudetyp gewechselt → erste Bemerkung dieses Typs (Feedback #8)
   if(k==='neTyp'){r.ne=fwNutzIdxFuerTyp(e.target.value);fwRenderTables();}
-  /* Geräte-Auswahl (Feedback #2/#3): Katalogwahl setzt den Namen und schlägt
-     den l/min-Wert vor, solange das Feld leer ist. Ein Katalog-BEREICH
-     («8 bis 42») wird bewusst NICHT gesetzt — er erscheint als Platzhalter
-     und Hinweis, damit niemand eine erfundene Zahl weiterrechnet. */
+  /* Katalog-Pick (Feedback 11.08.2026 #3): setzt den Namen ins Freitext-Feld
+     und schlägt den l/min-Wert vor, solange das Feld leer ist. Ein Katalog-
+     BEREICH («8 bis 42») wird bewusst NICHT gesetzt — er erscheint als
+     Platzhalter und Hinweis, damit niemand eine erfundene Zahl weiterrechnet.
+     Der Select fällt nach dem Pick auf «Katalog …» zurück (Re-Render). */
   if(k==='geraet'){
     var v=e.target.value;
-    if(v==='__frei'){r.frei=true;r.name='';}
-    else{
-      r.frei=false;r.name=v;
-      var hit=FW_GERAETE.find(function(g){return g.name===v;});
-      if(hit&&typeof hit.lmin==='number'&&!r.lmin)r.lmin=String(hit.lmin);
-    }
+    if(!v)return; // «Katalog …» — keine Aktion
+    r.name=v;
+    var hit=FW_GERAETE.find(function(g){return g.name===v;});
+    if(hit&&typeof hit.lmin==='number'&&!r.lmin)r.lmin=String(hit.lmin);
     fwRenderTables();
   }
   fwPersist();fwRecalc();
@@ -1937,6 +2102,14 @@ function fwRestoreFromTA(){
 }
 document.getElementById('fw_rows').addEventListener('input',fwRestoreFromTA);
 document.getElementById('fw_rows').addEventListener('change',fwRestoreFromTA);
+/* ── Mappen (Feedback 11.08.2026 #4) — Muster sb_warmwasser. Reiner
+   UI-Zustand (nicht persistiert); beim Umschalten wird nachgerechnet,
+   damit Canvas/SVG einer frisch sichtbaren Mappe sauber zeichnen. */
+function fwMappe(id){
+  document.querySelectorAll('.g-tab').forEach(function(b){b.classList.toggle('active',b.dataset.tab===id);});
+  document.querySelectorAll('.tab-content').forEach(function(t){t.classList.toggle('active',t.id===id);});
+  try{fwRecalc();}catch(e){}
+}
 document.addEventListener('DOMContentLoaded',function(){
   if(!fwState.nutz.length)fwState.nutz=[fwDefault('nutz')];
   if(!fwState.whg.length)fwState.whg=[fwDefault('whg')];
@@ -1958,6 +2131,9 @@ document.addEventListener('DOMContentLoaded',function(){
   <div class="g-card">
     <div class="g-card-hd"><h2>So funktioniert's</h2></div>
     <div class="g-card-bd" style="font-size:12.5px;color:var(--text2);line-height:1.6">
+      Die Berechnung ist in drei Mappen gegliedert — <b>① Nutzwarmwasserbedarf</b>,
+      <b>② Verlustzahl</b> und <b>③ Frischwasserstation</b> (wie die Warmwasser-Berechnung
+      SIA 385/2); Anlagenschema und Ergebnis stehen immer sichtbar ausserhalb der Mappen.<br>
       <b>1.</b> Nutzungseinheiten erfassen → Tagesbedarf nach SIA 385/2 (avg + 2σ).<br>
       <b>2.</b> Duschen/Badewannen je Wohnungstyp → Spitzenvolumenstrom mit Gleichzeitigkeit.<br>
       <b>3.</b> Mischkreuz rechnet den Warmwasser-Anteil (Station liefert WW, gezapft wird Mischwasser).<br>

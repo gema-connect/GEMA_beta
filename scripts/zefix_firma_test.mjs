@@ -225,6 +225,7 @@ console.log('\n═══ Teil B — Anbindung in den Modulen (statisch) ══�
 // hier eintragen — sonst faellt die Anbindung beim naechsten Umbau still weg.
 const ANBINDUNG = [
   ['sys_admin.html', ['o_name'], 'Neues Unternehmen'],
+  ['sys_unternehmen.html', ['orgName'], 'Firmendaten der eigenen Firma'],
   ['pm_objekte.html', ['betFirma'], 'Beteiligte'],
   ['sys_lieferanten.html', ['edFirma'], 'Lieferant erfassen'],
   ['sys_lieferant_dashboard.html', ['pFirma'], 'Firmenprofil'],
@@ -356,13 +357,47 @@ if (!chromium || !existsSync(CHROME)) {
     ok(/Bahnhofstrasse 1, 8001 Zürich/.test(v.such), 'Sichtbares Adressfeld gefuellt');
   }
 
-  ok(errors.length === 0, 'Keine JS-Fehler in sys_admin/pm_objekte' + (errors.length ? ' — ' + errors[0] : ''));
+  // sys_unternehmen: Strasse/PLZ/Ort sind HIDDEN — sichtbar ist nur das
+  // Adress-Suchfeld darueber. Es muss mitziehen, sonst sieht der Nutzer von
+  // der uebernommenen Adresse nichts (Feedback 11.08.2026).
+  console.log('■ sys_unternehmen — Firmendaten');
+  await page.goto(BASE + '/sys_unternehmen.html', { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => {
+    const el = document.getElementById('orgName');
+    return !!(el && el._gzAttached);
+  }, null, { timeout: 12000 });
+  ok(true, 'orgName ist angebunden');
+  await page.click('#orgName');
+  await page.evaluate(() => { document.getElementById('orgName').value = ''; });
+  await page.type('#orgName', 'Muster', { delay: 12 });
+  await page.waitForSelector('.gema-hr-drop.open .gema-hr-item', { timeout: 6000 });
+  await page.$eval('.gema-hr-drop .gema-hr-item', el => el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
+  await page.waitForFunction(() => document.getElementById('orgStrasse').value !== '', null, { timeout: 6000 });
+  {
+    const v = await page.evaluate(() => ({
+      name: document.getElementById('orgName').value,
+      str: document.getElementById('orgStrasse').value,
+      plz: document.getElementById('orgPlz').value,
+      ort: document.getElementById('orgOrt').value,
+      rf: document.getElementById('orgRechtsform').value,
+      such: document.getElementById('orgAdrSearch').value,
+      hint: (document.querySelector('.gema-hr-hint') || {}).textContent || ''
+    }));
+    ok(v.name === 'Muster AG', 'Offizieller Firmenname uebernommen');
+    ok(v.str === 'Bahnhofstrasse 1' && v.plz === '8001' && v.ort === 'Zürich', 'Adresse in die versteckten Firmenfelder uebernommen');
+    ok(/Bahnhofstrasse 1, 8001 Zürich/.test(v.such), 'Sichtbares Adress-Suchfeld zieht mit');
+    ok(v.rf === 'AG', 'Rechtsform uebernommen');
+    ok(/CHE-123\.456\.789/.test(v.hint), 'Bestaetigungszeile nennt die UID');
+  }
+
+  ok(errors.length === 0, 'Keine JS-Fehler in sys_admin/pm_objekte/sys_unternehmen' + (errors.length ? ' — ' + errors[0] : ''));
 
   // Boot jeder angebundenen Seite: die Anbindung darf keine Seite
   // zerreissen, und die im statischen Markup liegenden Firma-Felder
   // muessen nach dem Laden gebunden sein.
   console.log('■ Boot aller angebundenen Module');
   const BOOT = [
+    ['sys_unternehmen.html', ['orgName']],
     ['iv_immobilien.html', ['af_hwFirma']],
     ['pm_besprechung.html', ['f_firma', 'newTeilnFirma']],
     ['pm_schnellausschreibung.html', ['invFirma']],

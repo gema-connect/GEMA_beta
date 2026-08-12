@@ -292,6 +292,12 @@ body.beta-mine-only .fbp-input{display:none}
 @media(max-width:700px){.mod-table thead{display:none}.mod-row{display:block;padding:10px 14px}.mod-td{display:block;padding:4px 0}.fbp-row,.fbp-row>td{display:block}.fbp{padding:10px 10px 12px}}
 .gema-feedback-btn{display:inline-flex;align-items:center;gap:5px;padding:6px 13px;border-radius:8px;border:none;background:#dc2626;color:#fff;font-size:12.5px;font-weight:700;cursor:pointer;transition:.15s;white-space:nowrap;font-family:inherit}
 .gema-feedback-btn:hover{background:#b91c1c}
+
+/* Ziel-Status im Export-Dialog (🟡 In Bearbeitung ⇄ ✅ Erledigt) */
+.exm-ziel{padding:6px 13px;border-radius:8px;border:1.5px solid #cdd4e4;background:#fff;color:#475569;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:.15s}
+.exm-ziel:hover{border-color:#94a3b8}
+.exm-ziel.on{border-color:#f59e0b;background:#fffbeb;color:#b45309}
+#exMarkZielE.on{border-color:#16a34a;background:#f0fdf4;color:#15803d}
 </style>
 <link rel="stylesheet" href="gema_responsive.css"/>
 </head>
@@ -313,7 +319,10 @@ body.beta-mine-only .fbp-input{display:none}
            destruktive Knopf weg. Verstecken NUR ueber .gnav-weg — ein
            Inline-display:none schlaegt die zentrale Nav-Metrik nicht. -->
       <button id="btnFbClean" class="g-nav-btn gnav-weg" onclick="fbCleanOpen()" title="Erledigte Feedback-Punkte aelter als 3 Tage entfernen">🧹 Aufräumen</button>
-      <button class="g-nav-btn primary" onclick="speichern()">💾 Speichern</button>
+      <!-- Kein «💾 Speichern» mehr: das Board speichert jede Änderung selbst
+           (autoSave nach Status/Kommentar/Priorität) und flusht beim
+           Verlassen der Seite. Der Knopf tat nichts, was nicht ohnehin
+           passiert — siehe flushSave(). -->
       <button class="gema-feedback-btn no-print" onclick="GemaFeedback.start()">🔴 Feedback</button>
     </div>
   </div>
@@ -389,6 +398,11 @@ body.beta-mine-only .fbp-input{display:none}
   <!-- Feedback ohne Board-Zeile: siehe _fbZeilenFuerDatenErgaenzen() -->
   <div id="fbLueckeHint" style="display:none;margin:0 0 12px;padding:10px 14px;border-radius:10px;
        background:#fffbeb;border:1px solid #fde68a;color:#92400e;font-size:12.5px;font-weight:600"></div>
+
+  <!-- Automatisch aufgeräumt: siehe _fbCleanAuto(). Was von selbst gelöscht
+       wurde, MUSS sichtbar sein — nichts still entfernen. -->
+  <div id="fbCleanAutoHint" style="display:none;margin:0 0 12px;padding:10px 14px;border-radius:10px;
+       background:#f0fdf4;border:1px solid #bbf7d0;color:#15803d;font-size:12.5px;font-weight:600"></div>
 
   <!-- ═══════ MODULE CATEGORIES ═══════ -->
   <div id="catContainer"></div>
@@ -817,7 +831,6 @@ const load = () => {
 };
 
 const save = () => { if(typeof _GemaDB!=='undefined') _GemaDB.save(SK, JSON.stringify(state)); };
-const speichern = () => { save(); toast('💾 Gespeichert'); };
 
 // Get or init module state (only status/resp/prio — comments stored separately)
 const mState = (id) => {
@@ -886,12 +899,25 @@ function fbAlterTage(ts, jetzt){
   return d ? (jetzt.getTime() - d.getTime()) / 86400000 : null;
 }
 
+/* Massgebend ist das ERLEDIGEN, nicht das Melden. Das Board stempelt seit
+   08/2026 `erledigtAm` (gleiches de-CH-Format wie `ts`), sobald ein Punkt
+   auf «erledigt» wechselt; fehlt das Feld (Altbestand), gilt weiterhin
+   `ts` — sonst wäre kein einziger Altpunkt je aufräumbar.
+   Warum das nötig wurde: der Status-Dialog nach dem Markdown-Export kann
+   ganze Stapel auf einmal erledigen. Ginge die Frist allein über `ts`,
+   wäre ein eben abgehakter, drei Wochen alter Punkt beim nächsten Öffnen
+   des Boards sofort weg — man käme nicht mehr an das heran, was man
+   gerade abgearbeitet hat. */
+function fbErledigtTs(e){
+  return (e && e.erledigtAm) ? e.erledigtAm : (e ? e.ts : null);
+}
+
 /* Darf dieser Punkt weg? Nur erledigt UND nachweislich älter als N Tage.
    Ein in der Zukunft liegender Stempel (verstellte Uhr) ergibt ein
    negatives Alter und bleibt damit ebenfalls stehen. */
 function fbAufraeumbar(e, jetzt, tage){
   if(!e || (e.cStatus || 'offen') !== 'erledigt') return false;
-  var alter = fbAlterTage(e.ts, jetzt);
+  var alter = fbAlterTage(fbErledigtTs(e), jetzt);
   if(alter === null) return false;
   return alter > (tage == null ? FBCLEAN_TAGE : tage);
 }
@@ -1011,6 +1037,69 @@ async function _fbCleanApply(scan, onProgress){
   return out;
 }
 
+/* ── AUTOMATISCHER LAUF beim Öffnen des Boards ─────────────────
+   Feedback 11.08.2026: «erledigte Feedbacks sollten sich automatisch löschen
+   nach 3 Tagen». Es läuft exakt dieselbe Kette wie der 🧹-Knopf — dieselben
+   Regeln, derselbe Code: nur `erledigt`, nur nachweislich älter als
+   FBCLEAN_TAGE, unlesbare Zeilen werden übersprungen statt überschrieben,
+   zurückgeschrieben wird ein ARRAY.
+
+   Drei Leitplanken, die den Lauf harmlos halten:
+   (1) NUR GEMA-Admin (destruktiv + org-übergreifend) — fail-closed.
+   (2) HÖCHSTENS 1× pro Tag und Gerät. Der Scan liest jede Feedback-Zeile
+       einzeln; bei jedem Seitenaufruf wäre das eine Lawine. Der Merker wird
+       VOR dem Lauf gesetzt: ein Fehlschlag darf sich nicht bei jedem
+       Neuladen wiederholen (der Knopf bleibt für den Handbetrieb).
+   (3) Was entfernt wurde, wird GEMELDET (Hinweisbalken + Toast +
+       Aktivitätslog) — nie still löschen.
+   Der Lauf startet erst NACH dem ersten Zeichnen und blockiert nichts. */
+var FBCLEAN_AUTO_LOCK = 'gema_beta_fbclean_auto_v1';
+
+function _fbCleanHeuteKey(){
+  var d = new Date();
+  return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+}
+function _fbCleanAutoFaellig(){
+  // Ohne localStorage KEIN automatischer Lauf — sonst liefe er bei jedem
+  // Seitenaufruf erneut. Der 🧹-Knopf bleibt in dem Fall der Weg.
+  try{ return localStorage.getItem(FBCLEAN_AUTO_LOCK) !== _fbCleanHeuteKey(); }
+  catch(e){ return false; }
+}
+function _fbCleanAutoMerken(){
+  try{ localStorage.setItem(FBCLEAN_AUTO_LOCK, _fbCleanHeuteKey()); }catch(e){}
+}
+function _fbCleanAutoHinweis(out){
+  var el = document.getElementById('fbCleanAutoHint');
+  if(!el) return;
+  if(!out || !out.weg){ el.style.display = 'none'; return; }
+  el.textContent = '🧹 Automatisch aufgeräumt: ' + out.weg + ' erledigte' + (out.weg===1?'r':'')
+    + ' Punkt' + (out.weg===1?'':'e') + ' älter als ' + FBCLEAN_TAGE + ' Tage entfernt ('
+    + fbCleanGroesse(out.bytes) + ' aus ' + out.module + ' Modul' + (out.module===1?'':'en') + ').';
+  el.style.display = '';
+}
+
+async function _fbCleanAuto(){
+  if(!_fbCleanDarf()) return;              // fail-closed
+  if(!_fbCleanAutoFaellig()) return;       // 1×/Tag/Gerät
+  _fbCleanAutoMerken();                    // vor dem Lauf — kein Fehler-Sturm
+  try{
+    var scan = await _fbCleanScan();
+    if(!scan.weg) return;
+    var out = await _fbCleanApply(scan);
+    if(!out.weg) return;
+    _fbCleanAutoHinweis(out);
+    logActivity('comment', '<strong>Feedback automatisch aufgeräumt</strong> — ' + out.weg
+      + ' erledigte Punkte älter als ' + FBCLEAN_TAGE + ' Tage entfernt (' + fbCleanGroesse(out.bytes) + ')');
+    autoSave();
+    renderAll();
+    toast('🧹 ' + out.weg + ' erledigte Punkte automatisch aufgeräumt');
+  }catch(e){
+    // Bewusst leise: der Lauf ist Hausarbeit, kein Arbeitsschritt des
+    // Nutzers. Der 🧹-Knopf zeigt den Fehler im Klartext.
+    try{ console.warn('[beta] Auto-Aufräumen fehlgeschlagen:', e); }catch(e2){}
+  }
+}
+
 // ── «Meine Feedbacks»-Filter ──────────────────────────────────
 // Autor-Namen sind Freitext; GemaFeedback stempelt user.name||user.username vor.
 // «Mein» = Autor matcht (case-insensitive) Name ODER Benutzername des Users.
@@ -1093,6 +1182,26 @@ const logActivity = (type, text) => {
   renderActivity();
 };
 const nowStr = () => new Date().toLocaleString('de-CH',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+
+/* MIT Jahr — und genau darauf kommt es an: `nowStr()` liefert «07.08., 14:32»
+   ohne Jahr und ist damit grundsätzlich nicht datierbar (fbTsDate → null).
+   Der Erledigt-Stempel MUSS das gleiche Format tragen wie `ts` in
+   gema_feedback.js («07.08.26, 14:32»), sonst greift die Frist der
+   Bereinigung nie und ein erledigter Punkt bliebe für immer liegen. */
+const nowStrJahr = () => new Date().toLocaleString('de-CH',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
+
+/* Status EINES Punkts setzen — die eine Wahrheit für Einzel-, Bulk- und
+   Export-Dialog-Weg. Der Erledigt-Stempel entsteht hier und NUR hier:
+   beim Wechsel auf «erledigt» wird er gesetzt, beim Zurückstufen wieder
+   ENTFERNT. Bliebe er stehen, würde ein später erneut abgehakter Punkt mit
+   dem alten (längst abgelaufenen) Datum rechnen und die Bereinigung
+   entfernte ihn sofort. */
+const _fbSetStatus = (e, newStatus) => {
+  if(!e) return;
+  e.cStatus = newStatus;
+  if(newStatus === 'erledigt') e.erledigtAm = nowStrJahr();
+  else if(e.erledigtAm !== undefined) delete e.erledigtAm;
+};
 const renderActivity = () => {
   const list = document.getElementById('actList');
   if (!state.activity.length) { list.innerHTML = '<div style="padding:12px;font-size:12.5px;color:var(--mut2);text-align:center">Noch keine Aktivitäten.</div>'; return; }
@@ -1441,9 +1550,9 @@ const fbBulkStatus = (newStatus) => {
     byMod[modId].forEach(r => {
       if (r.src === 'm') {
         const ms = mState(modId);
-        if (ms.comments && ms.comments[r.idx]) { ms.comments[r.idx].cStatus = newStatus; n++; }
+        if (ms.comments && ms.comments[r.idx]) { _fbSetStatus(ms.comments[r.idx], newStatus); n++; }
       } else if (fb[r.idx]) {
-        fb[r.idx].cStatus = newStatus; fbDirty = true; n++;
+        _fbSetStatus(fb[r.idx], newStatus); fbDirty = true; n++;
       }
     });
     if (fbDirty && typeof _GemaDB !== 'undefined') _GemaDB.save('feedback_' + modId, JSON.stringify(fb));
@@ -1578,13 +1687,13 @@ const setCommentStatus = (modId, src, idx, newStatus) => {
   if (src === 'm') {
     const ms = mState(modId);
     if (ms.comments && ms.comments[idx]) {
-      ms.comments[idx].cStatus = newStatus;
+      _fbSetStatus(ms.comments[idx], newStatus);
       autoSave();
     }
   } else if (src === 'fb') {
     const fb = getFeedback(modId);
     if (fb[idx]) {
-      fb[idx].cStatus = newStatus;
+      _fbSetStatus(fb[idx], newStatus);
       if(typeof _GemaDB!=='undefined') _GemaDB.save('feedback_' + modId, JSON.stringify(fb));
     }
   }
@@ -1710,6 +1819,25 @@ const escJs   = s => (s||'').replace(/'/g,"\\'");
 let autoSaveTimer;
 const autoSave = () => { clearTimeout(autoSaveTimer); autoSaveTimer = setTimeout(save, 1500); };
 
+/* Der Knopf «💾 Speichern» ist entfallen (Feedback 11.08.2026 «für was ist
+   dieser Speichern-Button?»). Er rief nur `save()` — und genau das tut
+   `autoSave()` nach JEDER Änderung ohnehin: Status, Verantwortliche,
+   Priorität, Kommentare und das Aktivitätslog rufen es alle auf.
+   Was ihm als EINZIGES blieb, war der Fall «Seite verlassen, bevor die
+   1.5 s Debounce um sind» — dort ging die letzte Eingabe verloren. Diese
+   Lücke schliesst der Flush hier, und zwar auf beforeunload UND
+   pagehide/visibilitychange: iOS-Safari und die installierte PWA
+   überspringen beforeunload regelmässig (GEMA-Kanon). _GemaDB flusht
+   seinen eigenen 700-ms-Push mit demselben Muster. */
+const flushSave = () => {
+  if(!autoSaveTimer) return;
+  clearTimeout(autoSaveTimer); autoSaveTimer = null;
+  save();
+};
+window.addEventListener('beforeunload', flushSave);
+window.addEventListener('pagehide', flushSave);
+document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'hidden') flushSave(); });
+
 let toastTimer;
 const toast = (msg) => {
   const el = document.getElementById('toast');
@@ -1773,6 +1901,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     var bClean = document.getElementById('btnFbClean');
     if(bClean) bClean.classList.toggle('gnav-weg', !_fbCleanDarf());
   }catch(e){}
+
+  /* Automatisches Aufräumen — im HINTERGRUND und erst, wenn das Laden
+     wirklich durch ist: _fbCleanApply schreibt in den lokalen Cache, ein
+     noch laufender (älterer) Bulk-Load würde den bereinigten Stand sonst
+     wieder überschreiben. Höchstens 1×/Tag/Gerät, siehe _fbCleanAuto. */
+  _initP.then(function(){ setTimeout(function(){ _fbCleanAuto(); }, 1500); });
 
   // ── Quiz Community Review Panel ──
   // Community-Fragen liegen als per-Record-Pool (moduleKey 'quiz', prefix
@@ -1878,16 +2012,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   </div>
 </div>
 
-<!-- ─────────── STATUS-DIALOG NACH EXPORT: Punkte auf «In Bearbeitung»? ─────────── -->
+<!-- ─────────── STATUS-DIALOG NACH EXPORT: «In Bearbeitung» ODER «Erledigt» ─────────── -->
 <div id="exMarkModal" style="display:none;position:fixed;inset:0;z-index:9300;background:rgba(15,23,42,.55);backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:20px">
   <div style="background:#fff;border-radius:16px;width:100%;max-width:620px;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.25);font-family:'DM Sans',ui-sans-serif,sans-serif">
     <div style="padding:16px 22px;border-bottom:1.5px solid #e2e7f0;display:flex;align-items:center;gap:10px">
-      <div style="font-size:18px">🟡</div>
+      <div style="font-size:18px" id="exMarkIcon">🟡</div>
       <div style="flex:1">
-        <div style="font-size:15px;font-weight:800;color:#0f172a">Exportierte Punkte auf «In Bearbeitung» setzen?</div>
-        <div style="font-size:12px;color:#6b7280;margin-top:2px">Der Export wurde erstellt. Wähle, welche der exportierten offenen Punkte den Status 🟡 In Bearbeitung erhalten sollen.</div>
+        <div style="font-size:15px;font-weight:800;color:#0f172a" id="exMarkTitel">Exportierte Punkte auf «In Bearbeitung» setzen?</div>
+        <div style="font-size:12px;color:#6b7280;margin-top:2px" id="exMarkSub">Der Export wurde erstellt. Wähle, welche der exportierten Punkte den neuen Status erhalten sollen.</div>
       </div>
       <button onclick="closeExMarkDialog()" style="background:#f4f6fb;border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:#6b7280">✕</button>
+    </div>
+    <!-- Ziel-Status. «Erledigt» nimmt zusätzlich die Punkte auf, die schon in
+         Arbeit sind — von «erledigt» geht es nie zurück. -->
+    <div style="padding:10px 22px;border-bottom:1px solid #e2e7f0;background:#fff;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span style="font-size:11.5px;font-weight:800;color:#6b7280;text-transform:uppercase;letter-spacing:.04em">Neuer Status</span>
+      <button id="exMarkZielB" class="exm-ziel on" onclick="exMarkSetZiel('bearbeitung')">🟡 In Bearbeitung</button>
+      <button id="exMarkZielE" class="exm-ziel" onclick="exMarkSetZiel('erledigt')">✅ Erledigt</button>
     </div>
     <div style="padding:10px 22px;border-bottom:1px solid #e2e7f0;background:#f7f8fc;display:flex;align-items:center;gap:10px">
       <button id="exMarkToggleAll" onclick="exMarkToggleAll()" style="padding:6px 12px;border-radius:8px;border:1.5px solid #cdd4e4;background:#fff;color:#0f172a;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">☐ Alle abwählen</button>
@@ -2265,19 +2406,83 @@ document.addEventListener('DOMContentLoaded', function(){
 });
 
 // ── Status-Dialog nach Export ────────────────────────
-// Fragt pro exportiertem Punkt (nur cStatus 'offen' — 'erledigt' wird nie
-// zurueckgestuft, 'bearbeitung' ist schon gesetzt), ob er auf
-// «In Bearbeitung» wechseln soll. Checkboxen vorausgewaehlt.
-var _exMarkPending = [];
+// Fragt pro exportiertem Punkt, welchen Status er nach dem Export bekommt.
+// ZWEI Ziele (Feedback 11.08.2026 «die Punkte direkt als erledigt markieren»):
+//   🟡 In Bearbeitung — Kandidaten sind die OFFENEN Punkte (Normalfall:
+//      die Arbeitsliste ist raus, die Punkte laufen jetzt).
+//   ✅ Erledigt      — Kandidaten sind offene UND schon laufende Punkte
+//      (man exportiert die Arbeitsliste und hakt sie danach ab).
+// «Erledigt» wird NIE zurueckgestuft — solche Punkte tauchen in keinem der
+// beiden Ziele als Kandidat auf. Checkboxen sind vorausgewaehlt; angewendet
+// wird erst auf Knopfdruck.
+var _exMarkAlle = [];               // alle exportierten Eintraege
+var _exMarkPending = [];            // Kandidaten des aktuellen Ziels
+var _exMarkZiel = 'bearbeitung';
+
+// Wer darf auf das gewuenschte Ziel wechseln?
+function _exMarkKandidaten(ziel){
+  return _exMarkAlle.filter(function(e){
+    var s = (e.item.cStatus || 'offen');
+    if(s === 'erledigt') return false;                 // nie zurueckstufen
+    return ziel === 'erledigt' ? true : s === 'offen'; // → bearbeitung nur aus offen
+  });
+}
 
 function openExMarkDialog(filtered){
-  _exMarkPending = (filtered || []).filter(function(e){
-    return (e.item.cStatus || 'offen') === 'offen';
-  });
-  if(!_exMarkPending.length) return;
+  _exMarkAlle = (filtered || []).filter(function(e){ return e && e.item; });
+  // Vorwahl: solange offene Punkte dabei sind, ist «In Bearbeitung» der
+  // naechste Schritt. Sind nur noch laufende dabei (typisch beim Export der
+  // Arbeitsliste), waere dieses Ziel leer — dann steht «Erledigt» vorn,
+  // sonst erschiene gar kein Dialog und der Weg zum Abhaken fehlte.
+  _exMarkZiel = _exMarkKandidaten('bearbeitung').length ? 'bearbeitung' : 'erledigt';
+  if(!_exMarkKandidaten(_exMarkZiel).length) return;
+  _exMarkRender();
+  var m = document.getElementById('exMarkModal');
+  if(m) m.style.display = 'flex';
+}
+window.openExMarkDialog = openExMarkDialog;
+
+// Ziel umschalten — die Kandidatenliste haengt daran und wird neu gebaut
+// (alle vorausgewaehlt, wie beim Oeffnen).
+function exMarkSetZiel(ziel){
+  if(ziel !== 'erledigt' && ziel !== 'bearbeitung') return;
+  if(ziel === _exMarkZiel) return;
+  _exMarkZiel = ziel;
+  _exMarkRender();
+}
+window.exMarkSetZiel = exMarkSetZiel;
+
+function _exMarkRender(){
+  var erl = _exMarkZiel === 'erledigt';
+  _exMarkPending = _exMarkKandidaten(_exMarkZiel);
+
+  var bB = document.getElementById('exMarkZielB');
+  var bE = document.getElementById('exMarkZielE');
+  if(bB) bB.classList.toggle('on', !erl);
+  if(bE) bE.classList.toggle('on', erl);
+  var ic = document.getElementById('exMarkIcon');
+  if(ic) ic.textContent = erl ? '✅' : '🟡';
+  var ti = document.getElementById('exMarkTitel');
+  if(ti) ti.textContent = erl ? 'Exportierte Punkte als erledigt markieren?'
+                              : 'Exportierte Punkte auf «In Bearbeitung» setzen?';
+  var su = document.getElementById('exMarkSub');
+  if(su) su.textContent = erl
+    ? 'Der Export wurde erstellt. Wähle, welche der exportierten Punkte auf ✅ Erledigt gesetzt werden — offene und bereits laufende.'
+    : 'Der Export wurde erstellt. Wähle, welche der exportierten offenen Punkte den Status 🟡 In Bearbeitung erhalten sollen.';
+
   var list = document.getElementById('exMarkList');
+  if(!list) return;
+  if(!_exMarkPending.length){
+    list.innerHTML = '<div style="font-size:12.5px;color:#6b7280;padding:6px 2px">'
+      + (erl ? 'Kein exportierter Punkt ist noch offen oder in Arbeit.'
+             : 'Kein exportierter Punkt ist mehr offen — für «Erledigt» stehen die laufenden Punkte bereit.')
+      + '</div>';
+    exMarkUpdateCount();
+    return;
+  }
   var html = '';
   var lastMod = null;
+  var akzent = erl ? '#16a34a' : '#f59e0b';
   _exMarkPending.forEach(function(e, i){
     if(e.modId !== lastMod){
       lastMod = e.modId;
@@ -2286,22 +2491,25 @@ function openExMarkDialog(filtered){
     var typLabel = e.item.type==='fehler' ? '🐛' : e.item.type==='aenderung' ? '✏️' : '💬';
     var txt = (e.item.text || '').replace(/\s+/g,' ').trim();
     if(txt.length > 110) txt = txt.slice(0, 110) + '…';
+    // Beim Ziel «Erledigt» stehen offene und laufende Punkte nebeneinander —
+    // der aktuelle Status gehoert dann sichtbar an die Zeile.
+    var stJetzt = (e.item.cStatus || 'offen') === 'bearbeitung'
+      ? '<span style="color:#b45309;font-weight:700"> · 🟡 in Arbeit</span>' : '';
     html += '<label style="display:flex;align-items:flex-start;gap:9px;padding:8px 10px;border:1.5px solid #e2e7f0;border-radius:9px;margin-bottom:6px;cursor:pointer;background:#fff">'
-      + '<input type="checkbox" class="exmark-cb" data-k="' + i + '" checked onchange="exMarkUpdateCount()" style="width:15px;height:15px;accent-color:#f59e0b;margin-top:2px;flex-shrink:0">'
+      + '<input type="checkbox" class="exmark-cb" data-k="' + i + '" checked onchange="exMarkUpdateCount()" style="width:15px;height:15px;accent-color:' + akzent + ';margin-top:2px;flex-shrink:0">'
       + '<span style="font-size:12.5px;color:#0f172a;line-height:1.45"><span style="font-weight:800">' + typLabel + ' ' + escHtml(e.item.author || 'Anonym') + '</span>'
-      + '<span style="color:#94a3b8;font-weight:600"> · ' + escHtml(e.item.ts || '') + '</span><br>' + escHtml(txt || '(keine Beschreibung)') + '</span>'
+      + '<span style="color:#94a3b8;font-weight:600"> · ' + escHtml(e.item.ts || '') + '</span>' + stJetzt
+      + '<br>' + escHtml(txt || '(keine Beschreibung)') + '</span>'
       + '</label>';
   });
   list.innerHTML = html;
-  var m = document.getElementById('exMarkModal');
-  if(m) m.style.display = 'flex';
   exMarkUpdateCount();
 }
-window.openExMarkDialog = openExMarkDialog;
 
 function closeExMarkDialog(){
   var m = document.getElementById('exMarkModal');
   if(m) m.style.display = 'none';
+  _exMarkAlle = [];
   _exMarkPending = [];
 }
 window.closeExMarkDialog = closeExMarkDialog;
@@ -2315,12 +2523,14 @@ function _exMarkChecked(){
 function exMarkUpdateCount(){
   var n = _exMarkChecked().length;
   var total = _exMarkPending.length;
+  var erl = _exMarkZiel === 'erledigt';
   var btn = document.getElementById('exMarkApply');
   if(btn){
-    btn.textContent = '🟡 ' + n + ' Punkt' + (n===1?'':'e') + ' setzen';
+    btn.textContent = (erl ? '✅ ' : '🟡 ') + n + ' Punkt' + (n===1?'':'e') + ' setzen';
     btn.disabled = n === 0;
     btn.style.opacity = n === 0 ? '.5' : '1';
     btn.style.cursor = n === 0 ? 'default' : 'pointer';
+    btn.style.background = erl ? '#16a34a' : '#f59e0b';
   }
   var st = document.getElementById('exMarkStats');
   if(st) st.textContent = n + ' von ' + total + ' ausgewählt';
@@ -2339,6 +2549,7 @@ window.exMarkToggleAll = exMarkToggleAll;
 
 function exMarkApply(){
   var sel = _exMarkChecked();
+  var ziel = _exMarkZiel;
   if(!sel.length){ closeExMarkDialog(); return; }
   var byMod = {};
   sel.forEach(function(e){ (byMod[e.modId] = byMod[e.modId] || []).push(e); });
@@ -2346,9 +2557,12 @@ function exMarkApply(){
     var fb = getFeedback(modId);
     var changed = false;
     byMod[modId].forEach(function(e){
-      // Nur hochsetzen, nicht von erledigt zurueck
+      // Nur hochsetzen, nie von erledigt zurueck. _fbSetStatus stempelt
+      // beim Ziel «erledigt» das Erledigt-Datum — daran haengt die Frist
+      // der Bereinigung (sonst waere ein alter, eben abgehakter Punkt
+      // sofort weg).
       if(fb[e.idx] && fb[e.idx].cStatus !== 'erledigt'){
-        fb[e.idx].cStatus = 'bearbeitung';
+        _fbSetStatus(fb[e.idx], ziel);
         changed = true;
       }
     });
@@ -2362,7 +2576,8 @@ function exMarkApply(){
   closeExMarkDialog();
   try { countAll(); } catch(e){}
   refreshExportPreview();
-  toast('🟡 ' + sel.length + ' Punkt' + (sel.length===1?'':'e') + ' auf "In Bearbeitung" gesetzt');
+  toast((ziel === 'erledigt' ? '✅ ' : '🟡 ') + sel.length + ' Punkt' + (sel.length===1?'':'e')
+    + (ziel === 'erledigt' ? ' als erledigt markiert' : ' auf "In Bearbeitung" gesetzt'));
 }
 window.exMarkApply = exMarkApply;
 

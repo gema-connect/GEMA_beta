@@ -40,7 +40,7 @@ const blk = (beta.match(/\/\*FBCLEAN-ENGINE-START\*\/([\s\S]*?)\/\*FBCLEAN-ENGIN
 ok(!!blk, 'FBCLEAN-ENGINE-Block vorhanden (DOM-frei, Node-testbar)');
 if (!blk) { console.log('\n' + pass + ' ok, ' + fail + ' fail'); process.exit(1); }
 
-const E = new Function(blk + '; return {fbTsDate,fbAlterTage,fbAufraeumbar,fbCleanArray,fbParseRoh,fbCleanGroesse,FBCLEAN_TAGE};')();
+const E = new Function(blk + '; return {fbTsDate,fbAlterTage,fbAufraeumbar,fbCleanArray,fbParseRoh,fbCleanGroesse,fbErledigtTs,FBCLEAN_TAGE};')();
 ok(E.FBCLEAN_TAGE === 3, 'Vorgabe: 3 Tage', E.FBCLEAN_TAGE);
 ok(!/document\.|getElementById|window\./.test(blk), 'Engine ist DOM-frei');
 
@@ -106,6 +106,26 @@ ok(E.fbAufraeumbar(erl('31.12.99, 10:00'), JETZT) === false, 'erledigt mit Zukun
 ok(E.fbAufraeumbar(null, JETZT) === false && E.fbAufraeumbar(undefined, JETZT) === false, 'null/undefined → false');
 ok(E.fbAufraeumbar(erl('09.08.26, 10:00'), JETZT, 1) === true, 'Frist ist parametrierbar (1 Tag)');
 
+/* ── C2: das ERLEDIGEN zählt, nicht das Melden ────────────────
+   Seit 08/2026 läuft die Bereinigung automatisch (beim Öffnen des Boards)
+   und der Status-Dialog nach dem Export kann ganze Stapel auf einmal
+   abhaken. Ginge die Frist weiter allein über `ts` (= Meldedatum), wäre ein
+   eben abgehakter, drei Wochen alter Punkt beim nächsten Öffnen sofort weg —
+   man käme nicht mehr an das heran, was man gerade abgearbeitet hat. */
+console.log('■ C2: `erledigtAm` schlägt `ts`');
+ok(E.fbErledigtTs({ ts: 'a', erledigtAm: 'b' }) === 'b', 'erledigtAm gewinnt');
+ok(E.fbErledigtTs({ ts: 'a' }) === 'a', 'ohne erledigtAm gilt ts');
+ok(E.fbAufraeumbar({ cStatus:'erledigt', ts:'01.01.26, 08:00', erledigtAm:'10.08.26, 09:00' }, JETZT) === false,
+  'uralter Punkt, HEUTE abgehakt → BLEIBT (die Automatik frisst nichts Frisches)');
+ok(E.fbAufraeumbar({ cStatus:'erledigt', ts:'01.01.26, 08:00', erledigtAm:'06.08.26, 09:00' }, JETZT) === true,
+  'vor 4 Tagen abgehakt → weg');
+ok(E.fbAufraeumbar({ cStatus:'erledigt', ts:'10.08.26, 09:00', erledigtAm:'01.01.26, 08:00' }, JETZT) === true,
+  'frisch gemeldet, aber lange erledigt → weg (das Erledigen zählt)');
+ok(E.fbAufraeumbar({ cStatus:'erledigt', ts:'01.01.26, 08:00' }, JETZT) === true,
+  'Altbestand OHNE erledigtAm: `ts` gilt weiter — sonst wäre kein Altpunkt je aufräumbar');
+ok(E.fbAufraeumbar({ cStatus:'erledigt', ts:'01.01.26, 08:00', erledigtAm:'07.08., 09:00' }, JETZT) === false,
+  'undatierbares erledigtAm (Stempel ohne Jahr) → BLEIBT, kein stiller Rückfall auf ts');
+
 // ── D: Aufteilen + Gewicht messen ─────────────────────────────
 console.log('■ D: Aufteilen');
 {
@@ -167,6 +187,63 @@ ok(/id="btnFbClean" class="g-nav-btn gnav-weg"/.test(beta),
 ok(/bClean\.classList\.toggle\('gnav-weg', !_fbCleanDarf\(\)\)/.test(beta), 'Boot schaltet den Knopf nur für Admins frei');
 ok(/if\(_fbCleanBusy\) return;/.test(beta), 'Dialog lässt sich während des Schreibens nicht wegklicken');
 ok(/_fbCleanFehlerHtml/.test(beta) && /übersprungen/.test(beta), 'übersprungene Zeilen werden im Dialog BENANNT');
+
+// ── F2: Der Erledigt-Stempel ──────────────────────────────────
+// Er entsteht an GENAU EINER Stelle. Zwei Wege, cStatus zu setzen, hiessen
+// zwangslaeufig: einer vergisst den Stempel.
+console.log('■ F2: Erledigt-Stempel (eine Wahrheit)');
+{
+  const fn = (beta.match(/const _fbSetStatus = \(e, newStatus\) => \{[\s\S]*?\n\};/) || [''])[0];
+  ok(!!fn, '_fbSetStatus vorhanden');
+  ok(/erledigtAm = nowStrJahr\(\)/.test(fn), 'beim Wechsel auf «erledigt» wird gestempelt');
+  ok(/delete e\.erledigtAm/.test(fn),
+    'beim Zurueckstufen faellt der Stempel weg (sonst rechnet ein spaeter erneut abgehakter Punkt mit dem alten Datum und ist sofort weg)');
+  ok(!/nowStr\(\)/.test(fn),
+    'NICHT nowStr() — der Board-Stempel traegt kein Jahr und waere nie datierbar');
+}
+ok(/const nowStrJahr = \(\) =>[\s\S]{0,200}year:'2-digit'/.test(beta),
+  'nowStrJahr traegt ein Jahr — gleiches Format wie `ts` in gema_feedback.js');
+{
+  // Kein zweiter Weg: ausserhalb von _fbSetStatus darf niemand cStatus setzen.
+  const ohne = beta.replace(/const _fbSetStatus = \(e, newStatus\) => \{[\s\S]*?\n\};/, '');
+  ok(!/\.cStatus\s*=[^=]/.test(ohne), 'cStatus wird nirgends sonst zugewiesen');
+}
+
+// ── F3: Automatischer Lauf beim Oeffnen des Boards ────────────
+console.log('■ F3: Automatik');
+{
+  const fn = (beta.match(/async function _fbCleanAuto\(\)\{[\s\S]*?\n\}/) || [''])[0];
+  ok(!!fn, '_fbCleanAuto vorhanden');
+  ok(/if\(!_fbCleanDarf\(\)\) return;/.test(fn), 'fail-closed: nur GEMA-Admin');
+  ok(/if\(!_fbCleanAutoFaellig\(\)\) return;/.test(fn), 'gedrosselt: hoechstens 1x pro Tag und Geraet');
+  ok(fn.indexOf('_fbCleanAutoMerken()') > 0 && fn.indexOf('_fbCleanAutoMerken()') < fn.indexOf('_fbCleanScan'),
+    'der Merker wird VOR dem Lauf gesetzt — ein Fehlschlag wiederholt sich nicht bei jedem Neuladen');
+  ok(/_fbCleanScan\(\)/.test(fn) && /_fbCleanApply\(scan\)/.test(fn),
+    'dieselbe Kette wie der Knopf (keine zweite Loesch-Wahrheit)');
+  ok(/_fbCleanAutoHinweis\(out\)/.test(fn) && /toast\(/.test(fn) && /logActivity\(/.test(fn),
+    'was automatisch entfernt wurde, wird GEMELDET (Hinweisbalken + Toast + Aktivitaetslog)');
+  ok(/catch\(e\)\{/.test(fn), 'ein Fehler reisst das Board nicht ab');
+}
+ok(/catch\(e\)\{ return false; \}/.test((beta.match(/function _fbCleanAutoFaellig\(\)\{[\s\S]*?\n\}/) || [''])[0]),
+  'ohne localStorage laeuft die Automatik NICHT (sonst Scan-Sturm bei jedem Seitenaufruf)');
+ok(/_initP\.then\([\s\S]{0,160}_fbCleanAuto\(\)/.test(beta),
+  'Start erst nach dem Laden (der Bulk-Load wuerde den bereinigten Cache sonst ueberschreiben) und verzoegert im Hintergrund');
+ok(/id="fbCleanAutoHint"/.test(beta), 'Hinweisbalken fuer den automatischen Lauf ist im Markup');
+
+// ── F4: Der «Speichern»-Knopf ist weg — und das Debounce-Loch zu ──
+// Er rief nur save(); autoSave() tut das nach jeder Aenderung ohnehin.
+// Geblieben waere die Luecke «Seite verlassen vor Ablauf der 1.5 s».
+console.log('■ F4: kein Speichern-Knopf, dafuer Flush beim Verlassen');
+ok(!/onclick="speichern\(\)"/.test(beta) && !/const speichern/.test(beta),
+  'Knopf und Funktion sind entfernt');
+{
+  const fn = (beta.match(/const flushSave = \(\) => \{[\s\S]*?\n\};/) || [''])[0];
+  ok(/clearTimeout\(autoSaveTimer\)/.test(fn) && /save\(\)/.test(fn), 'flushSave bricht den Timer ab und speichert sofort');
+}
+ok(/addEventListener\('beforeunload', flushSave\)/.test(beta)
+  && /addEventListener\('pagehide', flushSave\)/.test(beta)
+  && /visibilitychange[\s\S]{0,120}flushSave\(\)/.test(beta),
+  'beforeunload UND pagehide/visibilitychange — iOS-Safari und die installierte PWA ueberspringen beforeunload');
 
 // ── G: Die Wipe-Falle in gema_feedback.js ─────────────────────
 console.log('■ G: gema_feedback — String-Payload darf die Historie nicht löschen');

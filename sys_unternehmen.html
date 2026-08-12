@@ -185,6 +185,7 @@ function init(){
   document.getElementById('navTitle').textContent=_org.name+' — Verwaltung';
   fillInfo();renderUsers();renderAbteilungen();renderLizenzen();renderGaeste();
   setupTabs();
+  _orgHrInit();   // Handelsregister-Vorschläge am Firmennamen
 }
 
 function setupTabs(){
@@ -664,11 +665,42 @@ document.addEventListener('DOMContentLoaded',init);
 // Adress-Autocomplete: ausgelagert in gema_adresse.js (swisstopo API).
 // Das orgAdrSearch-Input ist via data-gema-adresse markiert und wird
 // vom Helper automatisch beim DOMContentLoaded angebunden.
+
+// ── Handelsregister am Firmennamen (Feedback 11.08.2026) ────────────────
+// Tippen schlägt die Schweizer Unternehmen mit Name UND Adresse vor; die
+// Auswahl setzt den offiziellen Firmennamen, füllt Strasse/PLZ/Ort sowie
+// die Rechtsform und zeichnet darunter die grüne «✓ Handelsregister»-Zeile.
+// Wird der Name umgetippt, löst der Helper den Registerbezug wieder (die
+// bereits übernommene Adresse bleibt stehen — sie ist erfasst, nicht
+// falsch). Ohne erreichbaren Dienst passiert nichts, das Feld bleibt ganz
+// normal tippbar (siehe gema_zefix.js). Muster 1:1 wie sys_admin.html.
+var _orgHr=null;
+function _orgHrInit(){
+  if(_orgHr||typeof GemaZefix==='undefined'||!GemaZefix.firma)return;
+  _orgHr=GemaZefix.firma({
+    firma:'orgName', strasse:'orgStrasse', plz:'orgPlz', ort:'orgOrt',
+    rechtsform:'orgRechtsform',
+    onSelect:function(){
+      // Strasse/PLZ/Ort sind hier HIDDEN-Felder — sichtbar ist allein das
+      // Adress-Suchfeld darüber. Ohne dieses Nachziehen stünde dort nach der
+      // Übernahme noch die alte Adresse.
+      var s=document.getElementById('orgAdrSearch');
+      if(s&&typeof GemaAdresse!=='undefined'&&GemaAdresse.setDisplayValue){
+        GemaAdresse.setDisplayValue(s,{
+          strasse:document.getElementById('orgStrasse').value,
+          plz:document.getElementById('orgPlz').value,
+          ort:document.getElementById('orgOrt').value
+        });
+      }
+    }
+  });
+}
 </script>
 <script src="gema_feedback.js"></script>
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>
 <script src="gema_adresse.js"></script>
+<script src="gema_zefix.js"></script>
 <script src="gema_dialog.js"></script>
 <script>document.addEventListener('DOMContentLoaded',function(){if(typeof GemaFeedback!=='undefined')GemaFeedback.init('unternehmen','Unternehmen');});</script>
 </body>
