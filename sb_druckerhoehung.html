@@ -205,6 +205,32 @@ body {
 }
 .g-tab.active { background: var(--surface); color: var(--accent); box-shadow: var(--shadow-sm); }
 
+/* ── BERECHNUNGS-TABS (Varianten pro Objekt, Feedback 12.08.2026) ── */
+.de-ctabs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.de-ctab {
+  display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px;
+  border: 1.5px solid var(--border); border-radius: 10px; background: var(--surface);
+  color: var(--muted); font-size: 12.5px; font-weight: 600; font-family: var(--sans);
+  cursor: pointer; transition: .15s; max-width: 260px;
+}
+.de-ctab > span.de-ctab-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.de-ctab:hover { border-color: var(--accent); color: var(--accent); }
+.de-ctab.active { border-color: var(--accent); color: var(--accent); background: #eff6ff; box-shadow: var(--shadow-sm); }
+/* ✕ ist ein <span> IM Tab-Button — ein <button> im <button> ist ungültiges
+   Markup und wird vom Browser zerlegt (Lehre aus pm_abnahme .proto-wrap) */
+.de-ctab-x {
+  display: inline-grid; place-items: center; width: 17px; height: 17px; border-radius: 50%;
+  color: #dc2626; font-size: 11.5px; font-weight: 800; line-height: 1; cursor: pointer;
+}
+.de-ctab-x:hover { background: #fee2e2; }
+.de-ctab-add {
+  display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 10px;
+  border: 1.5px dashed var(--border); background: transparent; color: var(--accent);
+  font-size: 16px; font-weight: 800; cursor: pointer; font-family: var(--sans); transition: .15s;
+}
+.de-ctab-add:hover { border-color: var(--accent); background: #eff6ff; }
+@media print { .de-ctabs { display: none !important; } }
+
 /* ── GRID LAYOUTS ── */
 .g-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .g-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
@@ -551,6 +577,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 <script src="gema_db.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
 <script src="gema_objekte_api.js"></script>
+<script src="gema_dialog.js"></script>
 <script src="gema_pdf.js"></script>
 <script src="gema_autosave.js"></script>
 <script src="gema_lu_api.js"></script>
@@ -615,6 +642,15 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
   <div class="pf"><label>Datum</label><input type="date" id="metaDatum"></div>
 </div>
 
+<!-- BERECHNUNGS-TABS (Feedback 12.08.2026, Sandro Caso): mehrere Berechnungs-
+     varianten pro Objekt als Tabs ÜBER der Einheiten-Zeile — erstellen via ＋,
+     umbenennen per Rechtsklick, löschen via rotes ✕ mit Bestätigung (Vorauswahl
+     «Nein»). Muster: Anlagen-Verwaltung aus lt_hx_diagramm (#hx_anlagen) —
+     Zustand als JSON im hidden #de_tabs (AutoSave pro Objekt+Phase).
+     KRITISCH: eigene Klasse .de-ctab, NICHT .g-tab — der globale .g-tab-Click-
+     Listener des Hauptblocks würde sonst getElementById(undefined) werfen. -->
+<div class="de-ctabs no-print" id="deCtabs"></div>
+
 <!-- UNIT TOGGLES -->
 <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;padding:10px 16px;background:var(--surface);border:1.5px solid var(--border);border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.05);flex-wrap:wrap;">
   <div class="g-switch-wrap">
@@ -634,6 +670,9 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 <span id="globalText" style="display:none"></span><span id="modeLabel" style="display:none"></span><span id="stamp" style="display:none"></span>
 <span id="btnUnitBar" style="display:none"></span><span id="btnUnitKpa" style="display:none"></span>
 <span id="btnFlowLs" style="display:none"></span><span id="btnFlowM3h" style="display:none"></span>
+<!-- Zustand der Berechnungs-Tabs: {aktiv,list:[{id,name}],snaps:{id:{feldId:wert}}}
+     — von GemaAutoSave als textarea[id] automatisch mitgesichert (pro Objekt+Phase) -->
+<textarea id="de_tabs" style="display:none"></textarea>
 
   <!-- Tabs -->
   <div class="g-tabs" id="pdfArea">
@@ -1970,6 +2009,180 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('druc
     });
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+})();
+</script>
+
+<script>
+/* ── BERECHNUNGS-TABS (Feedback 12.08.2026, Sandro Caso) ─────────────────────
+   Mehrere Berechnungsvarianten pro Objekt — Muster «Anlagen-Verwaltung» aus
+   lt_hx_diagramm (#hx_anlagen): der AKTIVE Tab lebt in den DOM-Feldern (und
+   damit im normalen AutoSave), die INAKTIVEN liegen als Feld-Snapshots in
+   DEA.snaps im hidden #de_tabs (AutoSave pro Objekt+Phase). Beim Wechsel:
+   aktuelle Felder einfrieren → aktiv umsetzen → Ziel-Snapshot anwenden.
+   - Snapshot-Filter /^(vfd_|ves_)/ — nie meta*, nie die Einheiten-Toggles,
+     nie #de_tabs selbst (Rekursion).
+   - Die Feldwerte stehen in der ANZEIGE-Einheit (bar/kPa · l/s/m³/h): jeder
+     Snapshot merkt sich seine Einheit (_pUnit/_fUnit) und wird beim Anwenden
+     in die aktuell gewählte umgerechnet — sonst läse ein Tab, der bei «bar»
+     eingefroren wurde, nach einem Umschalten auf kPa um Faktor 100 falsch.
+   - _modus hält den aktiven Modul-Tab (Drehzahlreguliert/Windkessel) der
+     Variante; die LU-Button-Klassen folgen NICHT dem Feldwert → nach dem
+     Anwenden setVfdKat/setVesKat aufrufen (rechnet calcVFD/calcVes mit).
+   - Neue Berechnung startet leer (HTML-Defaults, hx-Muster «Neue Anlage
+     startet leer») — die Defaults werden beim DOMContentLoaded VOR dem
+     AutoSave-Restore aus dem jungfräulichen DOM gezogen (Registrier-Ordnung:
+     dieser Block steht vor der Meta/AutoSave-IIFE).
+   - Löschen: rotes ✕ im aktiven Tab, GemaDialog.confirm mit focusCancel
+     (Vorauswahl «Nein»); Umbenennen per Rechtsklick (GemaDialog.prompt). */
+(function(){
+  var DEA={aktiv:'a1',list:[{id:'a1',name:'Berechnung 1'}],snaps:{}};
+  var _deaDefaults=null;
+  var _deaInternal=false;
+  var FELD_RE=/^(vfd_|ves_)/;
+  var P_FELDER=['vfd_pv','vfd_pF','vfd_pDl','vfd_pDs','vfd_pDs2','vfd_pDs3','vfd_pDs4','vfd_pU',
+                'ves_pv','ves_pF','ves_pDl','ves_pDs','ves_pDs2','ves_pDs3','ves_pDs4','ves_pSi','ves_pS'];
+  var F_FELDER=['vfd_qdv','vfd_qdv2','vfd_qdv3','vfd_qdv4','ves_qdv','ves_qdv2','ves_qdv3','ves_qdv4','ves_VM'];
+  function deEsc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  function deaFelder(){
+    var out={};
+    document.querySelectorAll('input[id],select[id],textarea[id]').forEach(function(el){
+      if(!FELD_RE.test(el.id||''))return;
+      out[el.id]=(el.type==='checkbox')?!!el.checked:el.value;
+    });
+    try{
+      var akt=document.querySelector('.g-tab.active');
+      out._modus=(akt&&akt.dataset.tab)||'tabVFD';
+      if(typeof state!=='undefined'){out._pUnit=state.pressureUnit;out._fUnit=state.flowUnit;}
+    }catch(e){}
+    return out;
+  }
+  function deaKonvert(f){
+    // Snapshot-Einheit → aktuelle Anzeige-Einheit (Kopie, Original bleibt)
+    var out={},k;for(k in f)out[k]=f[k];
+    if(typeof state==='undefined')return out;
+    function conv(ids,fak){ids.forEach(function(id){var v=parseFloat(out[id]);if(!isFinite(v))return;out[id]=String(Math.round(v*fak*10000)/10000);});}
+    var sp=f._pUnit||'bar', sf=f._fUnit||'ls';
+    if(sp!==state.pressureUnit)conv(P_FELDER, sp==='bar'?100:1/100);
+    if(sf!==state.flowUnit)conv(F_FELDER, sf==='ls'?3.6:1/3.6);
+    return out;
+  }
+  function deaApply(f){
+    if(!f)return;
+    f=deaKonvert(f);
+    Object.keys(f).forEach(function(id){
+      if(id.charAt(0)==='_')return;
+      var el=document.getElementById(id);if(!el)return;
+      if(el.type==='checkbox')el.checked=!!f[id];
+      else el.value=(f[id]==null)?'':String(f[id]);
+    });
+    try{
+      var modus=f._modus||'tabVFD';
+      document.querySelectorAll('.g-tab').forEach(function(b){if(b.dataset.tab)b.classList.toggle('active',b.dataset.tab===modus);});
+      document.querySelectorAll('.tab-content').forEach(function(t){t.classList.toggle('active',t.id===modus);});
+    }catch(e){}
+    try{
+      if(window.setVfdKat)setVfdKat(Number((document.getElementById('vfd_kat')||{}).value)||3);
+      if(window.setVesKat)setVesKat(Number((document.getElementById('ves_kat')||{}).value)||3);
+    }catch(e){}
+    try{if(window.calcVFD)calcVFD();if(window.calcVes)calcVes();}catch(e){}
+  }
+  function deaPersist(){
+    var ta=document.getElementById('de_tabs');if(!ta)return;
+    _deaInternal=true;
+    try{ta.value=JSON.stringify(DEA);ta.dispatchEvent(new Event('change',{bubbles:true}));}catch(e){}
+    _deaInternal=false;
+  }
+  function deaRender(){
+    var host=document.getElementById('deCtabs');if(!host)return;
+    var mehrere=DEA.list.length>1;
+    host.innerHTML=DEA.list.map(function(t){
+      var akt=t.id===DEA.aktiv;
+      return '<button type="button" class="de-ctab'+(akt?' active':'')+'" data-deid="'+deEsc(t.id)+'"'
+        +' onclick="deTabSwitch(\''+deEsc(t.id)+'\')" oncontextmenu="return deTabCtx(event,\''+deEsc(t.id)+'\')"'
+        +' title="Rechtsklick: umbenennen"><span class="de-ctab-name">'+deEsc(t.name)+'</span>'
+        +(akt&&mehrere?'<span class="de-ctab-x" onclick="event.stopPropagation();deTabLoeschen()" title="Berechnung löschen">✕</span>':'')
+        +'</button>';
+    }).join('')
+    +'<button type="button" class="de-ctab-add" onclick="deTabNeu()" title="Weitere Berechnung anlegen">＋</button>';
+  }
+  window.deTabSwitch=function(id){
+    if(!id||id===DEA.aktiv)return;
+    if(!DEA.list.some(function(t){return t.id===id;}))return;
+    DEA.snaps[DEA.aktiv]=deaFelder();
+    DEA.aktiv=id;
+    deaApply(DEA.snaps[id]||null);
+    deaPersist();deaRender();
+  };
+  window.deTabNeu=function(){
+    var vorschlag='Berechnung '+(DEA.list.length+1);
+    var oeffnen=function(name){
+      if(name===null)return;
+      DEA.snaps[DEA.aktiv]=deaFelder();
+      var id='a'+Date.now().toString(36);
+      DEA.list.push({id:id,name:(name||vorschlag).trim()||vorschlag});
+      DEA.aktiv=id;
+      deaApply(_deaDefaults?JSON.parse(JSON.stringify(_deaDefaults)):null);
+      deaPersist();deaRender();
+    };
+    if(typeof GemaDialog!=='undefined')GemaDialog.prompt({title:'Neue Berechnung',message:'Bezeichnung des Tabs (z.B. «Variante Windkessel»). Die neue Berechnung startet leer.',defaultValue:vorschlag}).then(oeffnen);
+    else oeffnen(prompt('Bezeichnung der Berechnung:',vorschlag));
+  };
+  window.deTabCtx=function(ev,id){
+    try{ev.preventDefault();}catch(e){}
+    var t=DEA.list.find(function(x){return x.id===id;});
+    if(t){
+      var setzen=function(name){
+        if(name===null)return;
+        t.name=(name||'').trim()||t.name;
+        deaPersist();deaRender();
+      };
+      if(typeof GemaDialog!=='undefined')GemaDialog.prompt({title:'Berechnung umbenennen',defaultValue:t.name}).then(setzen);
+      else setzen(prompt('Neue Bezeichnung:',t.name));
+    }
+    return false;
+  };
+  window.deTabLoeschen=function(){
+    if(DEA.list.length<=1)return;
+    var t=DEA.list.find(function(x){return x.id===DEA.aktiv;});
+    var weg=function(ok){
+      if(!ok)return;
+      DEA.list=DEA.list.filter(function(x){return x.id!==DEA.aktiv;});
+      delete DEA.snaps[DEA.aktiv];
+      DEA.aktiv=DEA.list[0].id;
+      deaApply(DEA.snaps[DEA.aktiv]||null);
+      deaPersist();deaRender();
+    };
+    if(typeof GemaDialog!=='undefined')GemaDialog.confirm({
+      title:'Berechnung löschen',
+      message:'Berechnung «'+(t?t.name:'')+'» mit allen Eingaben löschen?',
+      confirmLabel:'Ja, löschen',cancelLabel:'Nein, behalten',
+      danger:true,focusCancel:true // Vorauswahl auf «Nein» (Feedback-Vorgabe)
+    }).then(weg);
+    else weg(confirm('Berechnung wirklich löschen?'));
+  };
+  document.addEventListener('DOMContentLoaded',function(){
+    _deaDefaults=deaFelder(); // HTML-Defaults VOR dem AutoSave-Restore einfrieren
+    var ta=document.getElementById('de_tabs');
+    function restore(){
+      if(_deaInternal)return;
+      try{
+        var st=JSON.parse(ta.value||'');
+        if(st&&Array.isArray(st.list)&&st.list.length){
+          DEA=st;
+          if(!DEA.snaps)DEA.snaps={};
+          if(!DEA.list.some(function(t){return t.id===DEA.aktiv;}))DEA.aktiv=DEA.list[0].id;
+        } else {
+          DEA={aktiv:'a1',list:[{id:'a1',name:'Berechnung 1'}],snaps:{}};
+        }
+      }catch(e){DEA={aktiv:'a1',list:[{id:'a1',name:'Berechnung 1'}],snaps:{}};}
+      // Nur die Leiste neu zeichnen — die Felder des aktiven Tabs kommen über
+      // den normalen AutoSave-Restore ins DOM (hx-Muster, keine Doppelarbeit).
+      deaRender();
+    }
+    if(ta){ta.addEventListener('input',restore);ta.addEventListener('change',restore);}
+    deaRender();
+  });
+  window._deTabHooks={state:function(){return DEA;},felder:deaFelder,apply:deaApply,konvert:deaKonvert,render:deaRender};
 })();
 </script>
 

@@ -3,7 +3,11 @@
  * API:
  *   GemaDialog.alert({title, message, label})         -> Promise<void>
  *   GemaDialog.confirm({title, message, confirmLabel,
- *                       cancelLabel, danger})         -> Promise<bool>
+ *                       cancelLabel, danger,
+ *                       focusCancel})                 -> Promise<bool>
+ *     focusCancel: true = der ABBRECHEN-Button ist vorausgewaehlt
+ *     (Enter loest dann Nein/Abbrechen aus, nicht Bestaetigen) — fuer
+ *     Loesch-/Wechsel-Dialoge mit «Standard-Auswahl auf Nein».
  *   GemaDialog.prompt({title, message, placeholder,
  *                      defaultValue, label})          -> Promise<string|null>
  *
@@ -66,13 +70,17 @@
     return new Promise(function(resolve){
       var bg = _build(opts, type);
       document.body.appendChild(bg);
-      // Focus management — Input bei prompt, sonst Confirm-Button
+      // Focus management — Input bei prompt, sonst Confirm-Button.
+      // opts.focusCancel: der Cancel-Button bekommt den Fokus (Vorauswahl
+      // «Nein») — Enter loest damit automatisch Abbrechen aus, weil der
+      // Enter-Handler dem nativen Verhalten des FOKUSSIERTEN Buttons folgt.
       setTimeout(function(){
         try {
           var input = bg.querySelector('#_gdInput');
           if(input){ input.focus(); input.select && input.select(); }
           else {
-            var btn = bg.querySelector('.gema-dlg-confirm') || bg.querySelector('.gema-dlg-danger');
+            var btn = (opts && opts.focusCancel && bg.querySelector('.gema-dlg-cancel'))
+                   || bg.querySelector('.gema-dlg-confirm') || bg.querySelector('.gema-dlg-danger');
             if(btn) btn.focus();
           }
         } catch(e){}
