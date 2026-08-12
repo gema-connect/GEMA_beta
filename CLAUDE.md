@@ -1174,7 +1174,9 @@ Blatt den Vorlagen-Kopf und die Fusszeile mit gerechneter Seitenzahl.
   Markenfarben aus `org.settings.pdfFarben.primary` mit dem bekannten
   Kontrastschutz (`acc` ≥ 4.5, Titel-Ton ≥ 7 gegen Weiss), sonst
   Modul-`--accent`. Der **Kicker-Chip** (Kategorie aus dem Breadcrumb
-  `a.bc-cat`) steht NUR auf Blatt 1.
+  `a.bc-cat`) steht NUR auf Blatt 1 — **und entfällt, wenn er das Projekt
+  oder den Titel nur wiederholt**: aus einem Workspace-Eimer heraus trägt
+  der Breadcrumb den EIMER-Namen (`_eimerPfad`), der bereits im Kopf steht.
 - **Das Logo ist so HOCH wie der Kopf-Text daneben** (Projektname +
   Berechnungsname): CSS-Vorgabe `--gp-kopftext:13.6mm` (10.5 pt·1.45 +
   2 mm + 16.5 pt·1.08), `gemaKopfLogo()` misst den Textblock nach und
@@ -1223,6 +1225,19 @@ Blatt den Vorlagen-Kopf und die Fusszeile mit gerechneter Seitenzahl.
   Wrapper still aufs Ganz-Verkleinern zurück (die `.g-main-grid` stand
   als EIN 52-%-Block im Blatt; der display:block-Zweig der Vorfassung
   lief nachweislich NIE).
+- **KRITISCH — unsichtbare Reste belegen kein Blatt** (Feedback 12.08.2026
+  «nur das Projekt auf Seite 1, dann ist die Seite leer»): ein leeres
+  `<span id="name">` der Modulseite machte Blatt 1 «belegt», der ganze
+  Inhalt begann auf Blatt 2. Drei Schichten: `sichtbar()` platziert nur
+  Fluss-Kinder mit gemessener Höhe (`rect.height>1||scrollHeight>1` —
+  ein `display:none`-Hinweis MIT Text zählt nicht), **`leerIst()` misst
+  die Höhen statt die Kinderzahl zu zählen**, und beim Entfernen eines
+  Einheiten-Umschalters geht seine **Beschriftungs-Zeile** mit, sofern
+  danach weder Feld noch Ziffer übrig bleibt (sb_lu_tabelle liess sonst
+  eine 38-px-Hülse «Durchfluss» stehen — mit ihr passte die erste Karte
+  nicht mehr auf Blatt 1: 3 Blätter statt 2). Der Offerten-Reiter
+  (`#gema-offerten-tab`/`-panel`) steht in WEG — er ist Bedienung, kein
+  Berichtsinhalt.
 - **KRITISCH — Teil-Wege dürfen nichts stillschweigend verwerfen** (vom
   Drift-Guard gefunden, dreimal): (1) die beim Blattwechsel NICHT mehr
   passende Tabellenzeile gehört ZURÜCK in die Quelle (appendChild hatte

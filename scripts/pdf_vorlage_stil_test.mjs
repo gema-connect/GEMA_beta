@@ -60,6 +60,19 @@ ok('Fusszeile: Firma · gema-connect.ch · Seite X / Y',
   /gema-connect\.ch/.test(P) && /gp-seite/.test(P) && /"Seite "\+\(i\+1\)\+" \/ "\+seiten\.length/.test(P));
 ok('Kicker aus dem Breadcrumb des Moduls (Kategorie-Zeile, nur erstes Blatt)',
   /a\.bc-cat/.test(P) && /gp-kicker/.test(P));
+/* Feedback 12.08.2026 «nur das Projekt auf Seite 1, dann ist die Seite leer»:
+   aus einem Eimer heraus trägt der Breadcrumb den Eimer-Namen — der steht
+   schon im Kopf; der Kicker entfällt dann. */
+ok('Kicker entfällt, wenn er Projekt oder Titel nur wiederholt',
+  /norm\(m\.kategorie\) === norm\(m\.eimer\)/.test(P) && /m\.kategorie = ''/.test(P));
+/* Unsichtbare Reste (leeres <span> der Modulseite) belegten Blatt 1 und
+   schoben den ganzen Inhalt auf Blatt 2. */
+ok('unsichtbare Hülsen werden gar nicht erst platziert',
+  /function sichtbar\(el\)/.test(P) && /\.filter\(sichtbar\)\.forEach\(platziere\)/.test(P));
+ok('«leeres Blatt» wird GEMESSEN, nicht an der Kinderzahl abgelesen',
+  /function leerIst\(\)\{/.test(P) && /getBoundingClientRect\(\)\.height>1\) return false/.test(P));
+ok('Offerten-Reiter der Modulseite steht nicht im Bericht',
+  /#gema-offerten-tab/.test(P) && /#gema-offerten-panel/.test(P));
 ok('Karten fortlaufend nummeriert (01, 02, …), Bildschirm-Nummern weichen',
   /function nummerieren\(/.test(P) && /gp-num/.test(P) && /\.gp-body \.gsek-nr\{display:none!important\}/.test(P));
 ok('Tabellen im Vorlagen-Stil: Kopf versal/klein auf sanfter Fläche, nur Zeilenlinien',
@@ -139,6 +152,16 @@ console.log('\n■ B: sb_lu_tabelle — Blätter, Kopf/Fuss überall, Kicker, Nu
       schrittNrSichtbar: [...document.querySelectorAll('.gp-body .gsek-nr')].filter(e => getComputedStyle(e).display !== 'none').length,
       ueberlauf: blaetter.map(b => { const bd = b.querySelector('.gp-body'); return bd ? Math.max(0, bd.scrollHeight - bd.clientHeight - 2) : 0; }),
       messLeer: !document.getElementById('gpMess') || !document.getElementById('gpMess').childElementCount,
+      /* Blatt 1 muss RICHTIGEN Inhalt tragen — nicht nur den Kicker */
+      blatt1: (() => {
+        const bd = document.querySelector('.gp-blatt:not(.gp-roh) .gp-body');
+        if (!bd) return null;
+        const echt = [...bd.children].filter(c => !c.classList.contains('gp-kicker')
+          && c.getBoundingClientRect().height > 1);
+        const r = bd.getBoundingClientRect();
+        let u = r.top; [...bd.children].forEach(c => { const cr = c.getBoundingClientRect(); if (cr.bottom > u) u = cr.bottom; });
+        return { inhalte: echt.length, karten: bd.querySelectorAll('.gp-num').length, fuell: Math.round((u - r.top) / r.height * 100) };
+      })(),
       /* Kopf-Geometrie je Blatt: Titel mittig, Logo (bzw. seine leere
          Spalte) genau so hoch wie der Textblock daneben */
       kopfGeo: blaetter.map(b => {
@@ -166,6 +189,10 @@ console.log('\n■ B: sb_lu_tabelle — Blätter, Kopf/Fuss überall, Kicker, Nu
     r.nums.length >= 2 && /^0\d$|^\d\d$/.test(r.nums[0]) && r.nums[0] === '01' && r.numsAufsteigend, r.nums.slice(0, 6));
   ok('Bildschirm-Schrittnummern im Bericht ausgeblendet', r.schrittNrSichtbar === 0, r.schrittNrSichtbar);
   ok('kein Blatt läuft vertikal über', r.ueberlauf.every(u => u === 0), r.ueberlauf);
+  /* Feedback 12.08.2026: Blatt 1 zeigte nur den Projekt-Chip, der ganze
+     Inhalt begann auf Blatt 2 — Ursache war eine unsichtbare Hülse. */
+  ok('Blatt 1 trägt echten Inhalt (nicht nur den Kicker)',
+    r.blatt1 && r.blatt1.inhalte >= 1 && r.blatt1.karten >= 1, r.blatt1);
   ok('Projekt + Titel stehen auf JEDEM Blatt mittig',
     r.kopfGeo.every(g => g && Math.abs(g.versatz) <= 1), r.kopfGeo);
   ok('Logo-Spalte auf JEDEM Blatt so hoch wie der Kopf-Text',
