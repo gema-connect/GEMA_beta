@@ -538,8 +538,11 @@ console.log('\n■ Lieferanten-Dashboard');
     await Promise.resolve(_liefLogoSpeichern('', 'data:image/jpeg;base64,AAA'));
     await new Promise(r => setTimeout(r, 250));
     const img = document.getElementById('pLogoImg');
-    return img.style.display === 'block' && !!document.querySelector('#welcomeCard img');
-  }), 'hochgeladenes Logo erscheint in Vorschau und Hero');
+    // Feedback 11.08.2026 (#13) übersteuert 01.08.: der Hero trägt bewusst
+    // KEIN Logo mehr (es steht bereits in der Navigation) — die Vorschau
+    // im Firmenprofil bleibt der Nachweis des Speicherpfads.
+    return img.style.display === 'block' && !document.querySelector('#welcomeCard img');
+  }), 'hochgeladenes Logo erscheint in der Vorschau — Hero bewusst ohne Logo (11.08.2026 #13)');
   ok(await page.evaluate(() => {
     // Fremde Org darf NIE durchschlagen (Muster «bwt aqua»-Bug)
     const me = GemaAuth.getCurrentUser();

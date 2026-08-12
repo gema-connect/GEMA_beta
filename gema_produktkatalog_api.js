@@ -1339,6 +1339,29 @@ KATEGORIEN.werkzeuge = {
   ]
 };
 
+// ── Additive Standard-Felder für ALLE Kategorien (Feedback 11.08.2026,
+//    Lieferanten-Dashboard #6/#9) ──────────────────────────────────────────
+// Jede Kategorie erhält — sofern die Feld-ID nicht bereits im Schema steht —
+//   bild                 Produktbild (Upload-Feldtyp wie bei werkzeuge, #9)
+//   bruttopreis          Brutto-Listenpreis CHF — Vorbefüllung der
+//                        Offert-Antwort im Lieferanten-Dashboard (#6)
+//   inbetriebnahmePreis  Inbetriebnahme CHF — in der Offert-Antwort
+//                        an-/abwählbar (#6)
+// ADDITIV: bestehende Feld-IDs werden NIE überschrieben oder umbenannt
+// (werkzeuge behält sein eigenes bild/listenpreis-Paar), die Reihenfolge
+// bestehender Felder bleibt unangetastet — neue Felder hängen am Ende.
+(function(){
+  Object.keys(KATEGORIEN).forEach(function(kid){
+    var kat = KATEGORIEN[kid];
+    if(!kat || !Array.isArray(kat.felder)) return;
+    function fehlt(id){ return !kat.felder.some(function(f){ return f && f.id===id; }); }
+    if(fehlt('bild')) kat.felder.push({ id:'bild', label:'Produktbild', typ:'bild', gruppe:'Allgemein' });
+    if(kid==='werkzeuge') return; // führt bereits Listenpreis in der Gruppe «Bestellung»
+    if(fehlt('bruttopreis')) kat.felder.push({ id:'bruttopreis', label:'Brutto-Listenpreis', einheit:'CHF', typ:'number', gruppe:'Preise & Service' });
+    if(fehlt('inbetriebnahmePreis')) kat.felder.push({ id:'inbetriebnahmePreis', label:'Inbetriebnahme (optional)', einheit:'CHF', typ:'number', gruppe:'Preise & Service' });
+  });
+})();
+
 // ── Public API ──
 function getKategorien(){ return Object.values(KATEGORIEN); }
 function getKategorie(id){ return KATEGORIEN[id] || null; }
