@@ -11,14 +11,27 @@
  * Der frühere separate «Drucken»-Knopf ist damit entfallen — es gibt nur noch
  * EINEN Weg und EIN Ergebnis.
  *
+ * LAYOUT NACH KUNDEN-VORLAGE (12.08.2026, «PDF_Export_Vorlage_Schmutz_Partner»):
+ *   Der Bericht besteht aus FESTEN A4-Blättern (210×297 mm), die per JS
+ *   paginiert werden — nicht mehr aus einem fliessenden Dokument, das erst der
+ *   Druckdialog umbricht. Nur so trägt JEDES Blatt die volle Kopfzeile
+ *   (Logo links · Projekt + Modul-Titel · Firma/Datum/Bearbeitung rechts,
+ *   darunter die Trennlinie in der Firmenfarbe) und die Fusszeile
+ *   (Firma · gema-connect.ch · «Seite X / Y») — und die Vorschau zeigt EXAKT
+ *   die Seiten, die aus dem Druckdialog kommen.
+ *   Die Sektionen erscheinen als nummerierte Karten (01, 02, …); passt eine
+ *   Karte nicht auf das Blatt, wird sie GETEILT: der erste Teil endet mit
+ *   «Fortsetzung auf der nächsten Seite», auf dem Folgeblatt wiederholt sich
+ *   der Kartenkopf (mit «Fortsetzung»-Marke), Tabellen nehmen ihre Kopfzeile
+ *   mit. Nichts wird stillschweigend abgeschnitten.
+ *
  * Was im Export NICHT erscheint (bewusst):
  *   Hero-Kopf, Norm-Untertitel, Projektleiste (Objekt/Bearbeiter/Datum/SIA),
  *   der «Zugeordnet zu»-Hinweis, sämtliche Knöpfe inkl. der ✕ zum Löschen.
- * Statt dessen steht oben der Modul-Titel und darunter der Eimer-Name.
  *
  * Sektionen: die mit Werten kommen aufgeklappt, leere erscheinen nur noch als
- * Titelzeile (nichts wird stillschweigend weggelassen — man sieht, dass es sie
- * gibt und dass sie leer sind).
+ * Titelzeile mit «— keine Angaben» (nichts wird stillschweigend weggelassen —
+ * man sieht, dass es sie gibt und dass sie leer sind).
  *
  * Die Vorschau-Leiste hat BEWUSST keinen Feedback-Knopf (User-Entscheid
  * 05.08.2026): die Druckansicht ist ein erzeugtes Dokument — Feedback gehört
@@ -65,10 +78,13 @@
       try { prim = getComputedStyle(d.documentElement).getPropertyValue('--accent').trim(); } catch (e) { }
     }
     var acc = lesbar(prim || '#2563eb', 4.5) || '#1d4ed8';
-    return { acc: acc, tint: hell(prim || '#2563eb', 0.93), org: org };
+    /* Der Titel steht in einem DUNKLEREN Ton derselben Farbe (Vorlage:
+       brand → brand-dark) — gleiche Familie, mehr Gewicht. */
+    var dunkel = lesbar(prim || '#2563eb', 7) || acc;
+    return { acc: acc, dunkel: dunkel, tint: hell(prim || '#2563eb', 0.93), org: org };
   }
 
-  /* ── Meta: Titel, Eimer, Bearbeiter, Datum, Firma ───────────────────────── */
+  /* ── Meta: Titel, Eimer, Bearbeiter, Datum, Firma, Kategorie ────────────── */
   function feld(id) { var e = d.getElementById(id); return e ? String(e.value || '').trim() : ''; }
 
   /** Eimer-Name (User-Entscheid 05.08.2026): der Workspace-Eimer, aus dem das
@@ -88,7 +104,7 @@
 
   function meta(opts) {
     opts = opts || {};
-    var m = { titel: '', eimer: '', bearbeiter: '', datum: '', firma: '', logo: '', adresse: '' };
+    var m = { titel: '', eimer: '', bearbeiter: '', datum: '', firma: '', logo: '', adresse: '', kategorie: '' };
     m.titel = opts.title || '';
     if (!m.titel) {
       var h = d.querySelector('.gema-hero-title,.hero-title,.g-hero-title');
@@ -116,6 +132,12 @@
         m.logo = org.logoVector || org.logo || '';
         m.adresse = [org.strasse, [org.plz, org.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ');
       }
+    } catch (e) { }
+    /* Kategorie-Zeile («Kicker» der Vorlage) aus dem Breadcrumb des Moduls —
+       z.B. «Sanitärberechnungen», «Heizung & Wärmeerzeugung». */
+    try {
+      var bc = d.querySelector('.g-nav-bc a.bc-cat, a.bc-cat');
+      m.kategorie = bc ? bc.textContent.trim() : '';
     } catch (e) { }
     return m;
   }
@@ -145,6 +167,10 @@
   /* Aktiv-Marker der Module: .active (Kanon) · .an (el_belastbarkeit) ·
      .act (hz_waermepumpe) · .on (sb_niederschlag) */
   var AKTIV = '.active,.sel,.is-active,.on,.an,.act,[aria-pressed="true"],[aria-selected="true"]';
+
+  /* Karten-Köpfe/-Rümpfe der vier Karten-Muster des Repos (gema_sektion-Kanon) */
+  var HD_SEL = '.gsek-hd,.g-card-hd,.el-card-hd,.g-section-hd,.card-hd';
+  var BD_SEL = '.gsek-bd,.g-card-bd,.el-card-bd,.g-section-bd,.card-bd';
 
   function stempeln() {
     /* Werte auf die LIVE-Elemente stempeln — der Klon trägt property-Werte
@@ -229,6 +255,29 @@
     });
   }
 
+  /** Karten-Nummern wie die Vorlage: ALLE Top-Level-Karten fortlaufend
+      01, 02, … — unabhängig von den Schritt-Nummern des Moduls (die zählen am
+      Bildschirm pro Arbeitsweg und starten teils mehrfach; im Bericht zählt
+      die Lesereihenfolge). Die Bildschirm-Nummern (.gsek-nr) blendet die
+      Druck-CSS aus. */
+  function nummerieren(klon) {
+    var nr = 0;
+    klon.querySelectorAll('.g-card,.el-card,.g-section,.card').forEach(function (k) {
+      /* nur Top-Level — verschachtelte Karten zählen nicht mit */
+      if (k.parentElement && k.parentElement.closest('.g-card,.el-card,.g-section,.card')) return;
+      var kopf = null;
+      for (var i = 0; i < k.children.length; i++) {
+        if (k.children[i].matches(HD_SEL)) { kopf = k.children[i]; break; }
+      }
+      if (!kopf) return;
+      nr++;
+      var sp = d.createElement('span');
+      sp.className = 'gp-num';
+      sp.textContent = (nr < 10 ? '0' : '') + nr;
+      kopf.insertBefore(sp, kopf.firstChild);
+    });
+  }
+
   function aufbereiten(klon) {
     /* Eltern entfernter Bedienelemente — nur DIESE Hülsen werden am Schluss
        aufgeräumt (siehe leereHuelsenWeg). */
@@ -297,6 +346,8 @@
     });
     /* 8) Was durch das Entfernen eines Bedienelements leer wurde */
     leereHuelsenWeg(beruehrt);
+    /* 9) Karten-Nummern der Vorlage (01, 02, …) */
+    nummerieren(klon);
     return klon;
   }
 
@@ -322,60 +373,96 @@
     return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
-  /** Für CSS-content: Anführungszeichen und Backslash escapen */
-  function cssStr(s) { return String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/"/g, '\\"'); }
 
-  /* ── Druck-Stylesheet ───────────────────────────────────────────────────── */
+  /* ── Druck-Stylesheet (Layout nach Kunden-Vorlage) ──────────────────────── */
   function druckCss(m, b) {
-    var laufzeile = cssStr(m.titel + (m.eimer ? ' · ' + m.eimer : ''));
-    var fussLinks = cssStr(m.firma || 'GEMA');
     return [
-      '@page{size:A4 portrait;margin:16mm 13mm 15mm;',
-      '  @top-right{content:"' + laufzeile + '";font-family:"DM Sans",sans-serif;font-size:7.5pt;color:#94a3b8}',
-      '  @bottom-left{content:"' + fussLinks + '";font-family:"DM Sans",sans-serif;font-size:7.5pt;color:#94a3b8}',
-      '  @bottom-right{content:"Seite " counter(page) " / " counter(pages);font-family:"DM Sans",sans-serif;font-size:7.5pt;color:#94a3b8}}',
-      '@page:first{@top-right{content:none}}',
+      '@page{size:A4 portrait;margin:0}',
       /* Grundschrift — opsz-Kanon gegen das «zu dicke l» (CLAUDE.md) */
       'body{font-family:"DM Sans",ui-sans-serif,system-ui,sans-serif;font-optical-sizing:auto;',
-      '  font-variation-settings:"opsz" 14;font-size:9.5pt;line-height:1.45;color:#000;background:#fff;margin:0}',
+      '  font-variation-settings:"opsz" 14;font-size:9.5pt;line-height:1.45;color:#1d2633;background:#fff;margin:0}',
       '*{box-sizing:border-box}',
-      /* Kopf des Berichts — Logo IMMER links oben und IMMER gleich gross:
-         feste Box + object-fit:contain, damit ein breites und ein hohes Logo
-         denselben Platz einnehmen und jeder Bericht gleich beginnt. */
-      '.gp-kopf{display:flex;align-items:flex-start;gap:10px;border-bottom:2px solid ' + b.acc + ';padding-bottom:9px;margin-bottom:14px}',
-      '.gp-kopf-l{flex:1;min-width:0}',
-      '.gp-logo{flex:0 0 auto;width:34mm;height:13mm;object-fit:contain;object-position:left center}',
-      '.gp-titel{font-size:17pt;font-weight:800;color:' + b.acc + ';line-height:1.15;margin:0}',
-      '.gp-eimer{font-size:11pt;font-weight:600;color:#0f172a;margin-top:3px}',
-      '.gp-meta{text-align:right;font-size:8pt;color:#475569;flex:0 0 auto;line-height:1.5}',
-      /* Sektionen */
-      '.gp-body .g-card,.gp-body .el-card,.gp-body .g-section{break-inside:auto;page-break-inside:auto;',
-      '  border:1px solid #e2e8f0!important;border-radius:6px!important;box-shadow:none!important;margin:0 0 9px!important;background:#fff!important}',
-      '.gp-body .g-card-hd,.gp-body .el-card-hd,.gp-body .g-section-hd{background:' + b.tint + '!important;',
-      '  border-bottom:1px solid #e2e8f0!important;padding:6px 10px!important;break-after:avoid;page-break-after:avoid}',
-      '.gp-body .g-card-hd h2,.gp-body .g-card-hd h3,.gp-body .el-card-tt{font-size:10.5pt!important;font-weight:800!important;color:#0f172a!important;margin:0!important}',
-      '.gp-body .g-card-bd,.gp-body .el-card-bd,.gp-body .g-section-bd{padding:9px 10px!important}',
-      '.gp-body .gsek-nr{background:' + b.acc + '!important}',
+
+      /* ── Das A4-Blatt: feste Grösse, Kopf/Inhalt/Fuss absolut positioniert ── */
+      '.gp-blatt{width:210mm;height:297mm;position:relative;overflow:hidden;background:#fff}',
+      /* Kopfzeile auf JEDEM Blatt: Logo links in fester Box (object-fit:contain
+         hält das Seitenverhältnis — breite und hohe Logos nehmen denselben
+         Platz ein, jeder Bericht beginnt gleich), Mitte Projekt + Titel,
+         rechts Firma/Datum/Bearbeitung. */
+      '.gp-kopf{position:absolute;top:12mm;left:14mm;right:14mm;height:26mm;',
+      '  display:flex;align-items:center;gap:6mm}',
+      '.gp-logo{flex:0 0 auto;width:26mm;height:18mm;object-fit:contain;object-position:left center}',
+      '.gp-kopf-l{flex:1 1 auto;min-width:0}',
+      '.gp-eimer{color:' + b.acc + ';font-weight:700;font-size:10.5pt;letter-spacing:.01em;margin:0 0 2mm}',
+      '.gp-titel{font-size:16.5pt;font-weight:800;line-height:1.08;color:' + b.dunkel + ';margin:0}',
+      '.gp-meta{flex:0 0 auto;max-width:55mm;text-align:right;font-size:8.4pt;line-height:1.45;color:#667085}',
+      '.gp-meta strong{color:#1d2633;font-weight:700}',
+      '.gp-linie{position:absolute;top:40mm;left:14mm;right:14mm;height:.55mm;background:' + b.acc + ';border-radius:2mm}',
+      /* Inhaltsbereich mit fester Höhe — die Paginierung füllt ihn blattweise */
+      '.gp-body{position:absolute;top:46mm;left:14mm;right:14mm;bottom:20mm;overflow:hidden}',
+      /* Fusszeile auf JEDEM Blatt */
+      '.gp-fusslinie{position:absolute;left:14mm;right:14mm;bottom:15mm;height:.25mm;background:#cbd5df}',
+      '.gp-fuss{position:absolute;left:14mm;right:14mm;bottom:8mm;display:grid;',
+      '  grid-template-columns:1fr 1fr 1fr;align-items:center;font-size:7.7pt;color:#667085}',
+      '.gp-fuss strong{color:#475467}',
+      '.gp-fuss-c{text-align:center;color:#98a2b3}',
+      '.gp-fuss-r{text-align:right}',
+
+      /* Kategorie-Zeile («Kicker») auf dem ersten Blatt */
+      '.gp-kicker{min-height:11.5mm;border:1px solid #dce3ea;background:#fbfcfd;border-radius:3mm;',
+      '  display:flex;align-items:center;padding:2mm 5mm;font-size:9.2pt;font-weight:700;',
+      '  letter-spacing:.03em;text-transform:uppercase;margin:0 0 5mm;color:#1d2633}',
+
+      /* ── Sektionen als Karten der Vorlage ── */
+      '.gp-body .g-card,.gp-body .el-card,.gp-body .g-section,.gp-body .card{',
+      '  border:1px solid #dce3ea!important;border-radius:3mm!important;box-shadow:none!important;',
+      '  margin:0 0 4.5mm!important;background:#fff!important;overflow:hidden}',
+      '.gp-body .gsek-hd,.gp-body .g-card-hd,.gp-body .el-card-hd,.gp-body .g-section-hd,.gp-body .card-hd{',
+      '  display:flex!important;align-items:center;gap:3mm;min-height:9mm;padding:2mm 4mm!important;',
+      '  border-bottom:1px solid #dce3ea!important;background:#fcfdfe!important;break-after:avoid;page-break-after:avoid}',
+      '.gp-body .gsek-hd h2,.gp-body .gsek-hd h3,.gp-body .g-card-hd h2,.gp-body .g-card-hd h3,',
+      '.gp-body .el-card-tt,.gp-body .g-section-title{font-size:10.5pt!important;font-weight:700!important;',
+      '  color:#1d2633!important;margin:0!important;flex:1 1 auto;min-width:0}',
+      '.gp-body .gsek-bd,.gp-body .g-card-bd,.gp-body .el-card-bd,.gp-body .g-section-bd,.gp-body .card-bd{',
+      '  padding:3.5mm 4mm 4mm!important}',
+      /* Karten-Nummer der Vorlage; die Bildschirm-Schrittnummern weichen ihr */
+      '.gp-num{flex:0 0 auto;min-width:5mm;color:#98a2b3;font-size:8.8pt;font-weight:700}',
+      '.gp-body .gsek-nr{display:none!important}',
+      /* Fortsetzungs-Mechanik */
+      /* absolut am Blatt (nicht im Fluss) — siehe weiterHinweis() */
+      '.gp-weiter{position:absolute;left:14mm;right:14mm;bottom:16mm;font-size:7.5pt;color:#98a2b3;text-align:right}',
+      '.gp-fortpill{flex:0 0 auto;border:1px solid #cbd5df;border-radius:999px;padding:1mm 3mm;',
+      '  font-size:8pt;color:#475467;background:#fff;font-weight:700}',
+      /* Leere Sektion: Titelzeile bleibt, Status sagt es (Vorlage: «- keine Angaben») */
       '.gp-zu{opacity:.62}',
-      '.gp-zu .g-card-hd::after{content:" — keine Angaben";font-size:8pt;font-weight:600;color:#94a3b8}',
+      '.gp-zu .gsek-hd::after,.gp-zu .g-card-hd::after,.gp-zu .el-card-hd::after,.gp-zu .g-section-hd::after{',
+      '  content:"— keine Angaben";margin-left:auto;font-size:8pt;font-weight:600;color:#98a2b3}',
+
       /* Werte statt Eingabefeldern — der Span trägt die Klassen des Feldes:
          Breite, Rahmen und Ausrichtung kommen von der Seite (WYSIWYG), hier
          nur noch die Optik. Keine erzwungene Ausrichtung — der Wert steht,
          wo er am Bildschirm steht. */
-      '.gp-val{display:inline-block;font-weight:700;color:#0f172a;',
+      '.gp-val{display:inline-block;font-weight:700;color:#1d2633;',
       '  background:#fff!important;box-shadow:none!important;overflow-wrap:break-word}',
       '.gp-val.leer{color:#cbd5e1;font-weight:400}',
       /* Im Raster/Feldverbund die volle Slot-Breite einnehmen — sonst klebt der
          Wert links an der Einheiten-Box und das Feld wirkt abgeschnitten. */
       '.gp-body .g-inp-group>.gp-val,.gp-body td>.gp-val,.gp-body th>.gp-val{width:100%;flex:1 1 auto}',
       /* Feld ohne eigene Klassen: dezente Linie, damit man den Wert als Angabe erkennt */
-      '.gp-val.gp-solo{border-bottom:1px solid #cbd5e1;min-width:10mm}',
+      '.gp-val.gp-solo{border-bottom:1px solid #cbd5df;min-width:10mm}',
       '.gp-val.gp-solo.leer{border-bottom-style:dotted}',
       '.gp-chk{font-size:11pt;line-height:1}',
-      /* Tabellen + Schemata */
-      '.gp-body table{width:100%!important;border-collapse:collapse!important;font-size:8.5pt!important;',
+
+      /* ── Tabellen im Vorlagen-Stil: Kopf klein + versal auf sanfter Fläche,
+            danach nur feine Zeilenlinien (keine Gitter-Rahmen) ── */
+      '.gp-body table{width:100%!important;border-collapse:collapse!important;font-size:8.2pt!important;',
       '  table-layout:auto!important}',
-      '.gp-body table th,.gp-body table td{border:1px solid #e2e8f0!important;padding:3px 5px!important}',
+      '.gp-body table th{text-transform:uppercase;letter-spacing:.02em;color:#475467!important;',
+      '  font-size:7pt!important;font-weight:700!important;background:#f5f7f9!important;',
+      '  border:none!important;border-bottom:1px solid #dce3ea!important;padding:2.2mm 2mm!important}',
+      '.gp-body table td{border:none!important;border-bottom:1px solid #edf1f4!important;',
+      '  padding:2mm!important;vertical-align:middle;background:transparent!important}',
+      '.gp-body table tr:last-child td{border-bottom:none!important}',
       '.gp-body thead{display:table-header-group}',
       '.gp-body tr{break-inside:avoid;page-break-inside:avoid}',
       '.gp-body svg,.gp-body img{max-width:100%!important;height:auto!important}',
@@ -396,10 +483,38 @@
          auf EIN Zeichen — die Tabelle verteilt dann so eng, dass «120» als
          1/2/0 untereinander steht. */
       '.gp-body table .gp-val{padding:0 2px;white-space:normal;word-break:normal;overflow-wrap:normal}',
-      /* Einpassen: was breiter ist als das Blatt, wird als Ganzes verkleinert.
-         Der Rahmen behält die verkleinerte Höhe, damit nichts überlappt. */
+      /* Einpassen: was breiter/höher ist als das Blatt, wird als Ganzes
+         verkleinert. Der Rahmen behält die verkleinerte Höhe, damit nichts
+         überlappt. */
       '.gp-fit{overflow:visible!important}',
       '.gp-fit>*{transform-origin:left top}',
+
+      /* ── Mess-Container der Paginierung: trägt die .gp-body-Klasse, damit
+            alle Inhalts-Regeln beim Messen exakt gelten — liegt aber
+            unsichtbar ausserhalb des Blatts. ── */
+      '.gp-mess{position:absolute!important;left:-9999px!important;top:0!important;',
+      '  right:auto!important;bottom:auto!important;width:182mm!important;height:auto!important;',
+      '  overflow:visible!important;visibility:hidden;pointer-events:none}',
+
+      /* ── Bühne (nur Bildschirm): graue Fläche, Blätter mit Schatten ── */
+      '@media screen{',
+      'body{background:#e9edf1;padding:58px 10px 70px}',
+      '.gp-stage{transform-origin:top center}',
+      '.gp-blatt{margin:0 auto 10mm;box-shadow:0 3px 24px rgba(15,23,42,.22);border-radius:2px}',
+      '}',
+      '@media print{',
+      'body{background:#fff;padding:0;margin:0}',
+      '.gp-stage{transform:none!important}',
+      '.gp-blatt{margin:0;box-shadow:none;border-radius:0;page-break-after:always}',
+      '.gp-blatt:last-child{page-break-after:auto}',
+      '.gp-mess{display:none!important}',
+      '.gp-bar{display:none!important}',
+      '}',
+      /* Roh-Blatt (Fallback, bevor das Paginier-Script gelaufen ist): fliesst */
+      '.gp-roh{height:auto;min-height:297mm}',
+      '.gp-roh .gp-body{position:static;margin:46mm 14mm 20mm;overflow:visible}',
+      '.gp-roh .gp-fusslinie,.gp-roh .gp-fuss{display:none}',
+
       /* Bedienleiste der Vorschau (nur Bildschirm) */
       '.gp-bar{position:fixed;top:0;left:0;right:0;z-index:50;display:flex;align-items:center;gap:8px;',
       '  padding:8px 12px;background:#0f172a;color:#fff;font-size:12.5px;font-weight:600;',
@@ -407,44 +522,29 @@
       '.gp-bar .sp{flex:1}',
       '.gp-bar button{font:inherit;font-weight:700;padding:7px 14px;border-radius:8px;border:none;cursor:pointer}',
       '.gp-bar .prim{background:' + b.acc + ';color:#fff}',
-      '.gp-bar .sec{background:#334155;color:#fff}',
-      '.gp-bar .fb{background:#dc2626;color:#fff}',
-      '@media print{.gp-bar{display:none!important}}'
+      '.gp-bar .sec{background:#334155;color:#fff}'
     ].join('');
   }
 
-  /** A4-Blatt-Bühne (Muster gema_print_a4.js, hier bewusst INLINE):
-      die Berechnungsmodule laden gema_print_a4.js nicht, und der Aufbau des
-      Fensters liegt ohnehin komplett in unserer Hand — Bedienleiste ausserhalb
-      des Blatts, Kopf und Inhalt darauf. Im Druck fällt die Bühne weg, es
-      gelten allein die @page-Regeln. */
-  function blattCss() {
-    return '@media screen{' +
-      'body{background:#e4e8ee;margin:0;padding:58px 10px 70px}' +
-      '.gp-blatt{width:210mm;max-width:calc(100vw - 20px);min-height:297mm;margin:0 auto;' +
-      '  background:#fff;box-shadow:0 3px 24px rgba(15,23,42,.22);border-radius:2px;' +
-      '  padding:16mm 13mm;box-sizing:border-box}' +
-      '}' +
-      '@media print{body{background:none;margin:0;padding:0}' +
-      '.gp-blatt{width:auto;max-width:none;min-height:0;margin:0;background:none;' +
-      '  box-shadow:none;border-radius:0;padding:0}}';
-  }
-
-  /** Script im Druckfenster: Einpassen.
+  /** Script im Druckfenster: Breiten-Einpassung + Paginierung in A4-Blätter.
       Auf Papier lässt sich nicht scrollen — eine breite Tabelle wäre sonst
-      rechts abgeschnitten (gemeldet 05.08.2026). Erst nimmt die Druck-CSS den
-      Inhalten ihre Mindestbreiten, was den meisten Tabellen schon genügt; was
-      danach immer noch über das Blatt hinausragt, wird als Ganzes proportional
-      verkleinert — nichts wird weggelassen, nur kleiner gesetzt.
+      rechts abgeschnitten; erst nimmt die Druck-CSS den Inhalten ihre
+      Mindestbreiten, was danach noch über das Blatt hinausragt, wird als
+      Ganzes proportional verkleinert. Anschliessend verteilt gemaPaginate den
+      Inhalt auf feste Blätter: Karten, die nicht auf das Blatt passen, werden
+      geteilt (Kartenkopf wiederholt sich, Tabellen nehmen ihre Kopfzeile mit),
+      und jedes Blatt bekommt «Seite X / Y».
       Läuft bei load, kurz danach (Bilder/Schriften) und vor jedem Druck. */
-  function fitScript() {
+  function paginierScript() {
     return [
-      'function gemaFit(){',
-      ' var body=document.querySelector(".gp-body"); if(!body) return;',
+      /* ── Breiten-Einpassung (unverändertes Verfahren, jetzt parametrisiert) ── */
+      'function gemaFit(wurzel){',
+      ' var body=wurzel||document.querySelector(".gp-mess")||document.querySelector(".gp-body"); if(!body) return;',
       ' var max=body.clientWidth; if(!(max>0)) return;',
       /* Zuerst alle früheren Anpassungen zurücknehmen — sonst misst der zweite
          Lauf die bereits verkleinerte Breite und schrumpft weiter. */
       ' body.querySelectorAll(".gp-fit").forEach(function(w){',
+      '  if(w.getAttribute("data-gp-hoch")) return;',              /* Höhen-Fit der Paginierung — bleibt */
       '  w.classList.remove("gp-fit"); w.style.height=""; w.firstElementChild&&(w.firstElementChild.style.transform="");});',
       /* Von INNEN nach AUSSEN: zuerst den engsten Block einpassen (die breite
          Tabelle), dann erst grössere. Andersherum würde eine ganze Sektion
@@ -473,15 +573,315 @@
       '  e.style.height=Math.ceil(k.getBoundingClientRect().height)+"px";',
       ' });',
       '}',
-      /* Mehrfach nachfassen: Bilder und Schriften ändern die Breiten noch.
+
+      /* ── Paginierung in feste A4-Blätter (Layout der Kunden-Vorlage) ── */
+      'var GP={flow:null,sig:"",teil:false};',
+      'var GP_HD=".gsek-hd,.g-card-hd,.el-card-hd,.g-section-hd,.card-hd";',
+      'var GP_BD=".gsek-bd,.g-card-bd,.el-card-bd,.g-section-bd,.card-bd";',
+      'function gpKind(el,sel){for(var i=0;i<el.children.length;i++){if(el.children[i].matches(sel))return el.children[i];}return null;}',
+      'function gemaPaginate(){',
+      ' var stage=document.querySelector(".gp-stage");',
+      ' var tplEl=document.getElementById("gpBlattTpl");',
+      ' if(!stage||!tplEl) return;',
+      /* Der Fluss-Inhalt kommt EINMAL aus dem Roh-Blatt (Fallback-Ansicht) —
+         jeder weitere Lauf baut aus dieser unveränderten Quelle neu auf
+         (idempotent; Teilungen des Vorlaufs sammeln sich nie an). */
+      ' if(GP.flow==null){var roh=stage.querySelector(".gp-roh .gp-body");GP.flow=roh?roh.innerHTML:"";}',
+      ' var mess=document.getElementById("gpMess");',
+      ' if(!mess){mess=document.createElement("div");mess.id="gpMess";mess.className="gp-body gp-mess";document.body.appendChild(mess);}',
+      ' mess.style.display="";',
+      ' mess.innerHTML=GP.flow;',
+      ' gemaFit(mess);',
+      /* Unverändert? Dann steht die Ansicht schon richtig — kein Neuaufbau
+         (die Nachfass-Läufe wegen Schriften/Bildern wären sonst Flackern). */
+      ' var sig=mess.scrollHeight+"/"+mess.childElementCount+"/"+GP.flow.length;',
+      ' if(sig===GP.sig&&stage.querySelector(".gp-blatt:not(.gp-roh)")){mess.innerHTML="";mess.style.display="none";return;}',
+      ' GP.sig=sig;',
+      ' var tpl=tplEl.innerHTML;',
+      ' stage.innerHTML="";',
+      ' var body=null;',
+      ' function neuesBlatt(){stage.insertAdjacentHTML("beforeend",tpl);body=stage.lastElementChild.querySelector(".gp-body");}',
+      ' function passt(){return body.scrollHeight<=body.clientHeight+2;}',
+      ' function leerIst(){',
+      '  if(!body.childElementCount) return true;',
+      '  return body.childElementCount===1&&body.firstElementChild.classList.contains("gp-kicker");',
+      ' }',
+      /* Der Hinweis sitzt ABSOLUT in der Zone zwischen Inhalt und Fusslinie —
+         im Fluss wäre nach dem randvollen Füllen fast nie mehr Platz für ihn
+         (die Lücke ist kleiner als eine Tabellenzeile), er fiele still weg. */
+      ' function weiterHinweis(){',
+      '  var blatt=body.parentNode;',
+      '  if(blatt.querySelector(".gp-weiter")) return;',
+      '  var h=document.createElement("div");h.className="gp-weiter";h.textContent="Fortsetzung auf der nächsten Seite";',
+      '  blatt.appendChild(h);',
+      ' }',
+      /* Fortsetzungs-Karte: gleicher Rahmen, gleicher Kopf (samt Nummer),
+         dazu die «Fortsetzung»-Marke — wie in der Vorlage wiederholt sich der
+         Kartenkopf auf dem Folgeblatt. */
+      ' function fortsetzung(karte){',
+      '  var f=karte.cloneNode(false);',
+      '  var kopf=gpKind(karte,GP_HD);',
+      '  if(kopf){var kk=kopf.cloneNode(true);',
+      /* Läuft die Karte über 3+ Blätter, trägt der geklonte Kopf die Marke
+         der Vorrunde bereits — erst entfernen, sonst steht sie doppelt. */
+      '   var alt=kk.querySelector(".gp-fortpill");if(alt)alt.parentNode.removeChild(alt);',
+      '   var pill=document.createElement("span");pill.className="gp-fortpill";pill.textContent="Fortsetzung";',
+      '   kk.appendChild(pill);f.appendChild(kk);}',
+      '  var bd=gpKind(karte,GP_BD);',
+      '  f.appendChild(bd?bd.cloneNode(false):document.createElement("div"));',
+      '  return f;',
+      ' }',
+      /* Monolithischer, zu hoher Block (grosses Schema): auf den freien Platz
+         einpassen statt abschneiden — kleiner gesetzt ist er noch lesbar,
+         abgeschnitten wäre stiller Datenverlust. */
+      ' function skaliere(el,container){',
+      '  var w=document.createElement("div");w.className="gp-fit";w.setAttribute("data-gp-hoch","1");',
+      '  container.appendChild(w);w.appendChild(el);',
+      '  var h=el.offsetHeight||1;',
+      '  var ueber=body.scrollHeight-body.clientHeight;',
+      '  var ziel=h-ueber-6;',
+      '  var f=ziel/h;',
+      '  if(!(f<1)) return;',
+      '  if(f<0.2){f=0.2;try{console.warn("GemaPrint: Block höher als das Blatt — auf 20 % verkleinert");}catch(e){}}',
+      '  el.style.transform="scale("+f.toFixed(4)+")";',
+      '  w.style.height=Math.ceil(h*f)+"px";w.style.overflow="hidden";',
+      ' }',
+      /* Liefert die grosse Tabelle NUR, wenn sie im Kind praktisch allein
+         steht: das Kind IST die Tabelle, oder eine Ein-Kind-Kette
+         (Scroll-Hülle) führt direkt zu ihr. Ein blosses «enthält eine
+         Tabelle» reichte nicht — tabelleTeilen klont die Hülle LEER, alles
+         NEBEN der Tabelle (die Karten davor im selben Wrapper) verschwand
+         stillschweigend aus dem Bericht (vom Drift-Guard gefunden). */
+      ' function alsTabelle(k){',
+      '  if(k.tagName==="TABLE") return k;',
+      '  var n=k;',
+      '  while(n.tagName!=="TABLE"&&n.childElementCount===1)n=n.firstElementChild;',
+      '  if(n.tagName==="TABLE"&&n.querySelectorAll("tr").length>4) return n;',
+      '  return null;',
+      ' }',
+      /* Tabelle blattweise: der erste Teil bekommt geklonte colgroup + thead
+         und so viele Zeilen, wie passen; der REST bleibt im Original (behält
+         damit auch eine allfällige Fusszeile/tfoot GENAU EINMAL, am Schluss). */
+      ' function tabelleTeilen(container,huelle,tab){',
+      '  var zeilen=Array.prototype.slice.call(tab.querySelectorAll("tr")).filter(function(r){return !r.closest("thead")&&!r.closest("tfoot");});',
+      '  if(!zeilen.length){skaliere(huelle,container);return null;}',
+      /* Trägt die Hülle einen Breiten-Fit aus der Vorlauf-Messung, wird er
+         ABGELÖST: die geklonte fixe Höhe + der Transform würden jede
+         Teil-Messung verfälschen. Die Teile stehen dann unskaliert — der
+         Blatt-Nachlauf (gemaFit je Blatt) passt zu breite Teile wieder ein. */
+      '  if(huelle.classList&&huelle.classList.contains("gp-fit")){huelle.classList.remove("gp-fit");huelle.style.height="";}',
+      '  if(tab.style&&tab.style.transform)tab.style.transform="";',
+      '  var shellTab=tab.cloneNode(false);',
+      '  Array.prototype.forEach.call(tab.children,function(c){',
+      '   if(c.tagName==="COLGROUP"||c.tagName==="THEAD"||c.tagName==="CAPTION") shellTab.appendChild(c.cloneNode(true));',
+      '  });',
+      '  var tb=document.createElement("tbody");',
+      '  var quelleTb=tab.querySelector("tbody");',
+      '  if(quelleTb&&quelleTb.className) tb.className=quelleTb.className;',
+      '  shellTab.appendChild(tb);',
+      '  var mount=shellTab;',
+      '  if(huelle!==tab){mount=huelle.cloneNode(false);mount.appendChild(shellTab);}',
+      '  container.appendChild(mount);',
+      '  if(!passt()){container.removeChild(mount);skaliere(huelle,container);return null;}',
+      '  var i=0;',
+      '  for(;i<zeilen.length;i++){',
+      '   tb.appendChild(zeilen[i]);',
+      /* KRITISCH — die nicht passende Zeile gehört ZURÜCK in die Quelle:
+         appendChild hat sie aus dem Original bewegt, ein blosses removeChild
+         liesse sie im Nichts hängen — eine verlorene Zeile pro Blattgrenze
+         (stiller Datenverlust, vom Drift-Guard gefunden). */
+      '   if(!passt()){tb.removeChild(zeilen[i]);',
+      '    if(i+1<zeilen.length)zeilen[i+1].parentNode.insertBefore(zeilen[i],zeilen[i+1]);',
+      '    else (tab.querySelector("tbody")||tab).appendChild(zeilen[i]);',
+      '    break;}',
+      '  }',
+      '  if(i===0){tb.appendChild(zeilen[0]);i=1;try{console.warn("GemaPrint: Tabellenzeile höher als das Blatt");}catch(e){}}',
+      '  if(i>=zeilen.length){',
+      /* alle Zeilen umgezogen — nur noch tfoot im Original? Dann mitnehmen.
+         Passt sie nicht, geht sie ZURÜCK ins Original (gleiche Falle). */
+      '   var tf=tab.querySelector("tfoot");',
+      '   if(tf&&passt()){shellTab.appendChild(tf);if(!passt()){shellTab.removeChild(tf);tab.appendChild(tf);}else return null;}',
+      '   else if(!tf) return null;',
+      '  }',
+      '  return huelle;',                                       /* Original = Rest (thead klont der nächste Lauf neu) */
+      ' }',
+      /* Rumpf-Kinder in einen Karten-Rumpf füllen; liefert die übrigen zurück */
+      /* GP.teil sagt dem Aufrufer, ob die Grenze MITTEN in einem Element
+         liegt (Tabelle/Karte geteilt → Fortsetzungs-Hinweis) oder sauber
+         ZWISCHEN zwei Elementen (kein Hinweis — dort geht nichts weiter). */
+      ' function rumpfFuellen(rumpf,kinder){',
+      '  GP.teil=false;',
+      '  while(kinder.length){',
+      '   var k=kinder[0];',
+      '   rumpf.appendChild(k);',
+      '   if(passt()){kinder.shift();continue;}',
+      /* Stil-Messung VOR dem Aushängen — dieselbe Falle wie in platziere */
+      '   var kst=stapelt(k);',
+      '   rumpf.removeChild(k);',
+      '   if(!rumpf.childElementCount){',
+      /* Verschachtelte KARTE (Karte in einem Wrapper wie .g-main-grid): mit
+         eigenem Kopf teilen — der Tabellen-Weg würde ihr den Kopf nehmen
+         (mount klont die Hülle ohne Kinder). Rekursion: derselbe Füll-Weg,
+         eine Ebene tiefer. */
+      '    var kkopf=gpKind(k,GP_HD),krumpf=gpKind(k,GP_BD);',
+      '    if(kkopf&&krumpf&&krumpf.childElementCount){',
+      '     rumpf.appendChild(k);',
+      '     var kk=Array.prototype.slice.call(krumpf.children);',
+      '     kk.forEach(function(c){krumpf.removeChild(c);});',
+      '     kk=rumpfFuellen(krumpf,kk);',
+      '     if(!kk.length){GP.teil=false;kinder.shift();continue;}',
+      '     var fk=fortsetzung(k),fb=gpKind(fk,GP_BD)||fk.lastElementChild;',
+      '     kk.forEach(function(c){fb.appendChild(c);});',
+      '     kinder[0]=fk;GP.teil=true;return kinder;',
+      '    }',
+      /* Verschachtelter WRAPPER ohne Kartenkopf (der innere Spalten-Block
+         der .g-main-grid): an den Kindergrenzen aufteilen — sonst nähme
+         der Tabellen-Weg unten den Wrapper und würfe alles neben der
+         Tabelle weg. Fortsetzung = nackte Hülle (kein Kopf, keine Marke);
+         GP.teil trägt den Zustand der INNEREN Teilung an den Aufrufer
+         weiter (Hinweis nur, wenn wirklich MITTEN in einem Element). */
+      '    if(kst&&(k.tagName==="DIV"||k.tagName==="SECTION"||k.tagName==="MAIN")&&k.childElementCount>1){',
+      '     rumpf.appendChild(k);',
+      '     var wk=Array.prototype.slice.call(k.children);',
+      '     wk.forEach(function(c){k.removeChild(c);});',
+      '     wk=rumpfFuellen(k,wk);',
+      '     if(!wk.length){GP.teil=false;kinder.shift();continue;}',
+      '     var wf=k.cloneNode(false);',
+      '     wk.forEach(function(c){wf.appendChild(c);});',
+      '     kinder[0]=wf;return kinder;',
+      '    }',
+      '    var tab=alsTabelle(k);',
+      '    if(tab){var rest=tabelleTeilen(rumpf,k,tab);',
+      '     if(rest){kinder[0]=rest;GP.teil=true;return kinder;}',
+      '     kinder.shift();continue;}',
+      '    skaliere(k,rumpf);kinder.shift();continue;',
+      '   }',
+      '   GP.teil=false;return kinder;',
+      '  }',
+      '  return kinder;',
+      ' }',
+      /* Karte über mehrere Blätter */
+      ' function karteFuellen(karte,rumpf){',
+      '  var kinder=Array.prototype.slice.call(rumpf.children);',
+      '  kinder.forEach(function(k){rumpf.removeChild(k);});',
+      '  body.appendChild(karte);',
+      '  if(!passt()){body.removeChild(karte);if(!leerIst())neuesBlatt();body.appendChild(karte);}',
+      '  for(;;){',
+      '   kinder=rumpfFuellen(rumpf,kinder);',
+      '   if(!kinder.length) return;',
+      '   weiterHinweis();',
+      '   var f=fortsetzung(karte);',
+      '   neuesBlatt();body.appendChild(f);',
+      '   karte=f;rumpf=gpKind(f,GP_BD)||f.lastElementChild;',
+      '  }',
+      ' }',
+      /* Loser Block-Container (ohne Kartenkopf) über mehrere Blätter */
+      ' function containerFuellen(bl){',
+      '  var kinder=Array.prototype.slice.call(bl.children);',
+      '  kinder.forEach(function(k){bl.removeChild(k);});',
+      '  body.appendChild(bl);',
+      '  if(!passt()){body.removeChild(bl);if(!leerIst())neuesBlatt();body.appendChild(bl);}',
+      '  for(;;){',
+      '   kinder=rumpfFuellen(bl,kinder);',
+      '   if(!kinder.length) return;',
+      /* Grenze ZWISCHEN zwei Karten des Wrappers = kein «Fortsetzung»-Hinweis
+         (nichts wird fortgeführt — die nächste Karte beginnt neu). */
+      '   if(GP.teil)weiterHinweis();',
+      '   var f=bl.cloneNode(false);',
+      '   neuesBlatt();body.appendChild(f);',
+      '   bl=f;',
+      '  }',
+      ' }',
+      ' function nackteTabelle(tab){',
+      '  var offen=tab;',
+      '  for(var s=0;s<60&&offen;s++){',
+      '   var t=alsTabelle(offen)||offen;',
+      '   offen=tabelleTeilen(body,offen,t);',
+      '   if(offen){weiterHinweis();neuesBlatt();}',
+      '  }',
+      ' }',
+      /* Stapelt der Container seine Kinder VERTIKAL? Dann lässt er sich an
+         den Kindergrenzen aufteilen. Deckt auch .g-main-grid ab (die
+         Flex-SPALTE, die in ~30 Modulen ALLE Karten hält) — ohne diesen
+         Zweig würde der ganze Modul-Inhalt als EIN Block aufs Blatt
+         geschrumpft (vom Drift-Guard gefunden: 52 %). Mehrspaltige
+         Grids/Flex-Zeilen bleiben beim Einpassen — sie lassen sich nicht
+         eindeutig teilen. */
+      ' function stapelt(bl){',
+      '  var cs;try{cs=getComputedStyle(bl);}catch(e){return false;}',
+      '  if(cs.display==="block") return true;',
+      '  if(cs.display==="flex") return cs.flexDirection==="column"&&cs.flexWrap!=="wrap";',
+      '  if(cs.display==="grid"){var t=String(cs.gridTemplateColumns||"");return !t||t==="none"||t.indexOf(" ")<0;}',
+      '  return false;',
+      ' }',
+      ' function teile(bl,st){',
+      '  var kopf=gpKind(bl,GP_HD),rumpf=gpKind(bl,GP_BD);',
+      '  if(kopf&&rumpf){karteFuellen(bl,rumpf);return;}',
+      '  if(bl.tagName==="TABLE"){nackteTabelle(bl);return;}',
+      '  if((bl.tagName==="DIV"||bl.tagName==="SECTION"||bl.tagName==="MAIN")&&bl.childElementCount>1&&st){',
+      '   containerFuellen(bl);return;',
+      '  }',
+      '  body.appendChild(bl);skaliere2(bl);',
+      ' }',
+      /* skaliere() erwartet das Element noch NICHT im Ziel — hier ist es schon
+         platziert: Wrapper darum herum bauen. */
+      ' function skaliere2(bl){',
+      '  var p=bl.parentNode;var w=document.createElement("div");w.className="gp-fit";w.setAttribute("data-gp-hoch","1");',
+      '  p.replaceChild(w,bl);w.appendChild(bl);',
+      '  var h=bl.offsetHeight||1;',
+      '  var ueber=body.scrollHeight-body.clientHeight;',
+      '  var f=(h-ueber-6)/h;',
+      '  if(!(f<1)) return;',
+      '  if(f<0.2)f=0.2;',
+      '  bl.style.transform="scale("+f.toFixed(4)+")";',
+      '  w.style.height=Math.ceil(h*f)+"px";w.style.overflow="hidden";',
+      ' }',
+      ' function platziere(bl){',
+      '  body.appendChild(bl);',
+      '  if(passt()) return;',
+      /* KRITISCH — Stil-Messung VOR dem Aushängen: getComputedStyle liefert
+         an losgelösten Elementen leere Werte, stapelt() wäre immer false und
+         jeder Wrapper fiele aufs Ganz-Verkleinern zurück (genau so lief der
+         display:block-Zweig der Vorfassung nachweislich NIE). */
+      '  var st=stapelt(bl);',
+      '  body.removeChild(bl);',
+      '  if(!leerIst()){neuesBlatt();return platziere(bl);}',
+      '  teile(bl,st);',
+      ' }',
+      ' neuesBlatt();',
+      ' Array.prototype.slice.call(mess.children).forEach(platziere);',
+      /* leeres Schluss-Blatt (Randfall nach einer Teilung) entfernen */
+      ' var seiten=stage.querySelectorAll(".gp-blatt");',
+      ' if(seiten.length>1){var l=seiten[seiten.length-1],lb=l.querySelector(".gp-body");',
+      '  if(lb&&!lb.childElementCount){l.parentNode.removeChild(l);seiten=stage.querySelectorAll(".gp-blatt");}}',
+      /* Breiten-Nachlauf je Blatt: beim Teilen abgelöste Fits neu anwenden —
+         nur Verkleinern, kann nie einen Überlauf ERZEUGEN. */
+      ' Array.prototype.forEach.call(seiten,function(s){var bd=s.querySelector(".gp-body");if(bd)gemaFit(bd);});',
+      /* Seitenzahlen «Seite X / Y» in die Fusszeile jedes Blatts */
+      ' Array.prototype.forEach.call(seiten,function(s,i){',
+      '  var z=s.querySelector(".gp-seite");if(z)z.textContent="Seite "+(i+1)+" / "+seiten.length;});',
+      ' mess.innerHTML="";mess.style.display="none";',
+      ' gemaStageFit();',
+      '}',
+      /* Bühne auf schmale Fenster einpassen (nur Anzeige — die Blätter behalten
+         ihre exakte Geometrie; transform ändert keine Layout-Masse). */
+      'function gemaStageFit(){',
+      ' var st=document.querySelector(".gp-stage");if(!st)return;',
+      ' var vb=document.documentElement.clientWidth||window.innerWidth;',
+      ' var f=Math.min(1,(vb-16)/794);',                        /* 794 px = 210 mm */
+      ' st.style.transform=f<1?"scale("+f.toFixed(4)+")":"";',
+      '}',
+      /* Mehrfach nachfassen: Bilder und Schriften ändern die Höhen noch.
          Bewusst NICHT nur am load-Ereignis — hängt ein Stylesheet, kommt es
-         nie, und der Bericht bliebe ungepasst. */
-      'window.addEventListener("load",gemaFit);',
-      'window.addEventListener("resize",gemaFit);',
-      'window.addEventListener("beforeprint",gemaFit);',
-      '[60,300,900,2000].forEach(function(t){setTimeout(gemaFit,t);});',
-      'gemaFit();'
-    ].join('');
+         nie, und der Bericht bliebe unpaginiert. Dank Signatur-Vergleich sind
+         Nachfass-Läufe ohne Änderung No-Ops (kein Flackern). */
+      'window.addEventListener("load",function(){gemaPaginate();gemaStageFit();});',
+      'window.addEventListener("resize",gemaStageFit);',
+      'window.addEventListener("beforeprint",gemaPaginate);',
+      'if(document.fonts&&document.fonts.ready){document.fonts.ready.then(function(){gemaPaginate();});}',
+      '[80,400,1200,2600].forEach(function(t){setTimeout(gemaPaginate,t);});',
+      'gemaPaginate();gemaStageFit();'
+    ].join('\n');
   }
 
   /* ── Öffnen ─────────────────────────────────────────────────────────────── */
@@ -502,20 +902,35 @@
       entstempeln();
     }
 
-    /* Logo ZUERST → immer links oben, in jedem Bericht an derselben Stelle */
+    /* Blatt-Kopf (auf JEDEM Blatt): Logo ZUERST → immer links oben, in jedem
+       Bericht an derselben Stelle; Mitte Projekt (Eimer) + Modul-Titel;
+       rechts Firma / Datum / Bearbeitung. */
     var kopf = ''
-      + '<div class="gp-kopf">'
-      + (m.logo ? '<img class="gp-logo" src="' + esc(m.logo) + '" alt="">' : '')
+      + '<header class="gp-kopf">' + (m.logo ? '<img class="gp-logo" src="' + esc(m.logo) + '" alt="">' : '')
       + '<div class="gp-kopf-l">'
-      + '<div class="gp-titel">' + esc(m.titel) + '</div>'
       + (m.eimer ? '<div class="gp-eimer">' + esc(m.eimer) + '</div>' : '')
+      + '<div class="gp-titel">' + esc(m.titel) + '</div>'
       + '</div>'
       + '<div class="gp-meta">'
-      + (m.bearbeiter ? esc(m.bearbeiter) + '<br>' : '')
+      + (m.firma ? '<strong>' + esc(m.firma) + '</strong><br>' : '')
       + esc(m.datum)
-      + (m.firma ? '<br>' + esc(m.firma) : '')
+      + (m.bearbeiter ? '<br>Bearbeitung: ' + esc(m.bearbeiter) : '')
       + '</div>'
-      + '</div>';
+      + '</header>'
+      + '<div class="gp-linie"></div>';
+
+    /* Blatt-Fuss (auf JEDEM Blatt): Firma · gema-connect.ch · Seite X / Y */
+    var fuss = ''
+      + '<div class="gp-fusslinie"></div>'
+      + '<footer class="gp-fuss">'
+      + '<div><strong>' + esc(m.firma || 'GEMA') + '</strong></div>'
+      + '<div class="gp-fuss-c">gema-connect.ch</div>'
+      + '<div class="gp-fuss-r gp-seite"></div>'
+      + '</footer>';
+
+    /* Kategorie-Zeile («Kicker») nur auf dem ersten Blatt — sie ist Teil des
+       Inhaltsflusses und wandert mit der Paginierung nie auf ein Folgeblatt. */
+    var kicker = m.kategorie ? '<div class="gp-kicker">' + esc(m.kategorie) + '</div>' : '';
 
     /* BEWUSST KEIN Feedback-Knopf (User-Entscheid 05.08.2026): die Druckansicht
        ist ein erzeugtes Dokument — Feedback gehört aufs Modul selbst. */
@@ -526,17 +941,35 @@
       + '<button class="prim" onclick="window.print()">🖨 Drucken / Als PDF speichern</button>'
       + '</div>';
 
+    /* Blatt-Vorlage für die Paginierung (inert im <template>) + Roh-Blatt als
+       Fallback: läuft das nachgelegte Script nicht (sehr alter Browser),
+       bleibt ein fliessendes, vollständiges Dokument stehen. */
+    var blattTpl = '<template id="gpBlattTpl">'
+      + '<section class="gp-blatt">' + kopf + '<div class="gp-body"></div>' + fuss + '</section>'
+      + '</template>';
+
     var html = '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">'
       + '<title>' + esc(m.titel + (m.eimer ? ' – ' + m.eimer : '')) + '</title>'
       + '<link rel="preconnect" href="https://fonts.googleapis.com">'
       + '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
       + '<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,600;9..40,700;9..40,800&display=swap" rel="stylesheet">'
+      /* opsz-Kanon direkt am Fonts-Link (druckCss trägt ihn ebenfalls im
+         body-Grundstil): DM Sans ist eine Variable Font — ohne die Text-
+         Optische-Grösse wirken schmale Glyphen fett («ll zu dick»); hier
+         zusätzlich, damit Link und Kanon beieinanderstehen (Sichtfenster
+         des Drift-Guards pdf_opsz_test). */
+      + '<style>body{font-optical-sizing:auto;font-variation-settings:"opsz" 14}</style>'
       + stylesheetLinks()
       + '<style>' + seitenStile() + '</style>'
-      + '<style>' + druckCss(m, b) + blattCss() + '</style>'
+      + '<style>' + druckCss(m, b) + '</style>'
       + '</head><body>'
       + bar
-      + '<div class="gp-blatt">' + kopf + '<div class="gp-body">' + klon.innerHTML + '</div></div>'
+      + blattTpl
+      + '<div class="gp-stage">'
+      + '<section class="gp-blatt gp-roh">' + kopf
+      + '<div class="gp-body">' + kicker + klon.innerHTML + '</div>'
+      + fuss + '</section>'
+      + '</div>'
       + '</body></html>';
 
     win.document.open();
@@ -551,7 +984,7 @@
        Script mehr, das etwas Nachfolgendes verschlucken könnte (CLAUDE.md). */
     try {
       var sc = win.document.createElement('script');
-      sc.textContent = fitScript();
+      sc.textContent = paginierScript();
       (win.document.body || win.document.documentElement).appendChild(sc);
     } catch (e) { }
 
