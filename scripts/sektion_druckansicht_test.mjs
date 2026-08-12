@@ -73,7 +73,7 @@ ok('Druckansicht: Kopf = Modul-Titel + Eimer-Name',
    erhält das Seitenverhältnis, die Box macht jeden Bericht gleich. */
 ok('Logo links oben in fester Box, unverzerrt (object-fit:contain)',
   /gp-kopf">'\s*\+\s*\(m\.logo \?/.test(PR) &&
-  /\.gp-logo\{[^}]*width:34mm[^}]*height:13mm[^}]*object-fit:contain/.test(PR));
+  /\.gp-logo\{[^}]*width:26mm[^}]*height:18mm[^}]*object-fit:contain/.test(PR));
 ok('opsz-Kanon gegen das «zu dicke l»',
   /font-optical-sizing:auto/.test(PR) && /"opsz" 14/.test(PR));
 /* Feedback 05.08.2026: das Script wird NACHGELEGT statt mitgeschrieben — ein

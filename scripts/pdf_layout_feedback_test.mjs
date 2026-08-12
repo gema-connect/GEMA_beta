@@ -34,7 +34,7 @@ const P = readFileSync('gema_print.js', 'utf8');
 ok('Logo steht als ERSTES im Kopf (links oben)',
   /gp-kopf">'\s*\+\s*\(m\.logo \?/.test(P));
 ok('Logo-Box ist fest (immer gleich, unabhängig vom Seitenverhältnis)',
-  /\.gp-logo\{[^}]*width:34mm[^}]*height:13mm[^}]*object-fit:contain/.test(P));
+  /\.gp-logo\{[^}]*width:26mm[^}]*height:18mm[^}]*object-fit:contain/.test(P));
 ok('Einheiten-Umschalter werden erkannt und entfernt',
   /istEinheitenSchalter/.test(P) && /querySelectorAll\('\.g-switch-wrap'\)/.test(P));
 ok('Segmentierte Umschalter werden VOR dem Knopf-Kahlschlag zu Text',
@@ -115,7 +115,8 @@ console.log('\n■ B: Punkt 1 — Logo immer links oben, immer gleich gross');
   });
   ok('Logo ist das erste Element im Kopf', r.erstesKind === true, r);
   ok('Logo sitzt bündig links (0 px Versatz)', r.links === 0, r.links);
-  ok('Logo-Box trotz 7.5:1-Logo auf feste Grösse begrenzt', r.box === '129x49', r.box);
+  /* 26 mm × 18 mm bei 96 dpi (Vorlagen-Layout 12.08.2026) */
+  ok('Logo-Box trotz 7.5:1-Logo auf feste Grösse begrenzt', r.box === '98x68', r.box);
   ok('Titel steht rechts neben dem Logo', r.titelRechtsVomLogo === true);
   await pop.close(); await page.close();
 }
