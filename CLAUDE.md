@@ -1545,15 +1545,75 @@ welchem anderen Modul vorgeschlagen werden soll — die Erfassungsstelle für da
 Kernprinzip «Daten einmal erfassen, überall verknüpfen». Der Knopf **«🔗 Verknüpfung»**
 steht in der Navigation JEDER Berechnung, wie der Feedback-Knopf, aber **nur für
 `role_admin`** (User-Entscheid 08/2026). Drift-Guard: `scripts/verknuepfung_test.mjs`
-(72 Checks, Node + Browser).
+(124 Checks, Node + Browser).
 
 **Ablauf — bewusst im ZIELMODUL, nicht im Quellmodul:** Knopf drücken → «＋ Wert hier
-vorschlagen lassen» → **das Zielfeld direkt anklicken** → Quelle aus dem Katalog
-wählen → speichern. **Mehrere Quellen sind der Normalfall**: eine Druckerhöhung wird
+vorschlagen lassen» → **die Zielfelder anklicken** → «✓ Weiter» → Quelle wählen →
+speichern. **Mehrere Quellen sind der Normalfall**: eine Druckerhöhung wird
 für Kaltwasser ODER für Regenwasser ausgelegt; jede Quelle trägt ein Feld «Gilt wenn»,
 der Planer entscheidet später. Dazu je Quelle eine optionale Umrechnung
 («l/s → m³/h (×3.6)»), pro Verknüpfung das Verhalten (Vorschlag/fest), ein Hinweis
 und ein Status (offen/umgesetzt/verworfen).
+
+**Objektbezug — die Antwort auf «kommt der Wert immer aus demselben Eimer?» (12.08.2026):**
+Ja, und zwar von der Mechanik her: JEDER Lesekanal im Katalog ist objekt-gebunden
+(`gema_<modul>__<objektId>` bzw. `…(objektId)`), es gibt keinen projektfreien Kanal.
+Der Wert kommt damit immer aus dem Projekt, auf dem das Zielmodul gerade rechnet — im
+Workspace also aus demselben Eimer (ein Eimer hat genau EIN Objekt, die Kachel öffnet
+das Modul mit `?objekt=<id>`). Liefert das Quellmodul für dieses Objekt nichts, erscheint
+**kein** Vorschlag — nie ein Wert aus einem anderen Projekt, nie ein Standardwert. Das
+war bisher nur implizit; Dialog und Markdown-Export **sagen es jetzt ausdrücklich**,
+damit die Umsetzung es nicht raten muss.
+**Die Auswahl ist bewusst NICHT auf die Module des Eimers eingeschränkt**: eine
+Verknüpfung beschreibt das Modul-PAAR und gilt für alle Projekte. Welche Module in
+einem Eimer liegen, ist die Arbeitsanordnung EINES Projekts — daran die Dokumentation
+zu binden hiesse, dieselbe Verknüpfung für jedes Projekt neu zu erfassen. Zur Laufzeit
+begrenzt sich das ohnehin selbst (kein Quellwert für dieses Objekt = kein Vorschlag).
+
+**Quellenwahl in ZWEI Schritten (User-Entscheid 12.08.2026):** erst die **Berechnung**,
+dann der **Wert** daraus (`modulWahlHtml` → `wertWahlHtml`). Eine flache Liste über
+~1450 Werte zwang zum Raten des richtigen Suchworts; wer verknüpft, weiss zuerst,
+welche Berechnung den Wert liefert. Schritt 1 ist nach Gewerk-Kategorie gruppiert und
+zeigt je Berechnung die Zahl ihrer Werte; die **Suche greift auf beides** — Modulname
+UND Werte darin («Permeat» findet die Osmose, ohne dass man das Modul kennt), der
+Suchtext wandert in Schritt 2 mit. Schritt 2 zeigt alle Werte der Berechnung
+(Ergebnisse zuoberst), «‹ andere Berechnung» geht zurück; «ändern» an einer erfassten
+Quelle startet direkt in deren Berechnung. **Keine stille Deckelung** — die frühere
+Liste schnitt nach 60 Treffern ab, jetzt steht «N von M».
+
+**Vorerst nur Sanitär (User-Entscheid 12.08.2026):** `ERLAUBTE_KATEGORIEN =
+['Sanitär','Sanitäranlagen']` in gema_verknuepfung.js — gewerkübergreifende
+Verknüpfungen kommen später, für ein weiteres Gewerk genügt der Eintrag dort. Die
+Kategorien vergibt der Generator aus dem Datei-Präfix (`sb_`/`sa_`); der Drift-Guard
+prüft, dass beide Namen im Katalog wirklich vorkommen — **eine umbenannte Kategorie
+liesse die Auswahlliste sonst STILL leer**. Die Beschränkung gilt nur für die AUSWAHL
+(`modulWaehlbar`, fail-closed auch bei Direktaufruf von `_qModul`/`_qNimm`): eine früher
+erfasste Quelle aus einem anderen Gewerk bleibt erhalten und wird in Karte, Dialog und
+Export mit **⚠ Gewerk …** markiert (kein stiller Verlust — Muster der ⚠-Optionen in
+sys_admin/pm_objekte). Der Fusstext der Liste nennt die Einschränkung, statt die
+fehlenden Module unerklärt wegzulassen.
+
+**Mehrere Zielfelder auf einmal (User-Entscheid 12.08.2026):** In der Feldwahl nimmt
+jeder Klick ein Feld dazu bzw. wieder heraus (`.gvk-ziel-aktiv`), die Leiste zählt mit,
+«✓ Weiter» (oder Enter) öffnet den Dialog für ALLE gewählten Felder — dasselbe
+Vorschlags-Set gilt oft für mehrere Felder. **Gespeichert wird weiterhin EINE
+Verknüpfung pro Feld** mit eigener Nummer: das Schema bleibt einfeldrig, Export, Karten
+und Altbestand ändern sich dadurch nicht. Jede bekommt eine **eigene Kopie** der Quellen
+(ein geteiltes Array hiesse: ein späteres Bearbeiten ändert alle mit). Im Dialog lässt
+sich ein Feld vor dem Speichern noch herausnehmen (✕, mindestens eines bleibt).
+
+**Feedback aus dem Werkzeug (User-Entscheid 12.08.2026):** Panel und Dialog tragen einen
+eigenen 🔴-Knopf — der Dialog liegt über der Navigation, der Nav-Knopf wäre von dort
+nicht erreichbar (GEMA-Regel «Feedback aus JEDER Ansicht», Muster pm_pruefliste).
+**KRITISCH — Ebenen:** `gema_feedback.js` setzt seine z-index **inline** (Snip 9000,
+Annotation 9050, Formular 9100) und läge damit UNTER Panel (11700) und Dialog (11900);
+der Ausschnitt wäre nicht aufziehbar. `html.gvk-auf` hebt die drei Ebenen auf
+12100/12150/12200 — **mit `!important`, weil Inline sonst gewinnt**, und nur solange
+das Werkzeug offen ist, damit Feedback anderswo unverändert bleibt (unter GemaDialog
+12800). `feedback()` beendet vorher die Feldwahl: deren Klick-Fang (capture +
+preventDefault) würde das Aufziehen sonst verschlucken. Aus demselben Grund lässt der
+Klick-Fang jetzt `.gema-dlg-bg` durch — der Hinweis «Feld ohne feste ID» war bis dahin
+nicht wegklickbar.
 
 **Es dokumentiert nur und exportiert Markdown für Claude Code (User-Entscheid 08/2026)** —
 es schlägt selbst keine Werte vor. So kann das Erfassen nie eine laufende Berechnung
@@ -1567,7 +1627,7 @@ genügt damit als Ansage, und Claude Code sieht am Wert-Namen ohne Nachschlagen,
 es geht.
 
 **Werte-Katalog** (`gema_werte_katalog.js`, **AUTOMATISCH ERZEUGT** von
-`scripts/werte_katalog_gen.mjs` — nie von Hand bearbeiten): 48 Module, ~1440 Werte.
+`scripts/werte_katalog_gen.mjs` — nie von Hand bearbeiten): 48 Module, ~1460 Werte.
 Der Generator scannt **nur statisches Markup ausserhalb von `<script>`-Blöcken** —
 Felder, die ein Modul zur Laufzeit in JS-Strings baut (Teilstrecken-Zeilen), haben
 keine stabile ID und taugen nicht als Verknüpfungsziel. Ergebniswerte kommen aus
@@ -4144,7 +4204,7 @@ UI-Anbindung:
 | `gema_scroll.js` | Scroll-Position-Restore + globaler Body-Scroll-Lock fuer Modals (`GemaScroll.lock/unlock`, Auto-Hook auf `.modal-bg`). **Zwei Sperr-Verfahren (KRITISCH, Drift-Guard `scripts/scroll_stabilitaet_test.mjs`)**: ausserhalb von iOS `overflow-y:hidden` auf **`<html>`** (Klasse `gema-modal-soft`) — die Scroll-Position wird gar nicht angefasst, beim Oeffnen UND Schliessen bewegt sich nichts; die Klasse MUSS auf `<html>` liegen, weil html/body `overflow-x:clip` tragen und body-overflow damit nicht mehr auf den Viewport propagiert. Nur auf **iOS** (dort ignoriert die Engine overflow auf dem Scroll-Container) weiterhin `position:fixed` + negativer `top` — der noetige Ruecksprung laeuft ueber `_instantScrollTo()`, das `scroll-behavior` kurz auf `auto` setzt: mehrere Module haben `html{scroll-behavior:smooth}` (if_werkzeug, if_fahrzeug, ab_*, …), ein blosses `scrollTo()` wurde dadurch ANIMIERT und man sah die Seite nach dem Schliessen sichtbar von oben zurueckfahren. Im sanften Modus wird zusaetzlich die Scrollbalken-Breite als `padding-right` ausgeglichen (sonst rutscht der Inhalt beim Sperren seitlich). **Neue Modals brauchen nichts zu tun** — der Auto-Hook greift. |
 | `gema_storage.js` | **Bild-Upload in Supabase Storage** (Bucket `gema-fotos`). `GemaStorage.uploadDataUrl(dataUrl, pathHint)` laedt ein Base64-Bild als Datei hoch, verifiziert die oeffentliche Erreichbarkeit (Image-Load) und liefert `{url, path}`; im Record steht dann nur die URL statt Base64 → kleine Records, keine Request-Groessen-/localStorage-Quota-Probleme. Reject bei fehlendem/falsch konfiguriertem Bucket → Aufrufer faellt auf Base64 zurueck. **Loeschen: `pathFromUrl`/`collectFiles`/`confirmDelete`/`deleteFiles`/`zipDownload`** — siehe «Storage-Aufraeumen beim Loeschen». **Setup (Dashboard, einmalig):** Bucket `gema-fotos` als Public anlegen + INSERT-Policy fuer Rolle `anon`. **Akzeptiert `data:image/*` UND `data:application/pdf`** (PDF-Verifikation via HEAD/Range-fetch statt Image-Load; genutzt fuer Lieferanten-Offerten-PDFs, Pfad `offerten/<lieferantId>`). Eingesetzt in `sp_dachbericht.html`, `sd_schadensbericht.html`, `sys_lieferant_dashboard.html` (Offerten-PDF) und `pm_abnahme.html` (Mangel-Fotos + Plan-Pin-Fotos via `_abUploadFotosToStorage`; Plan-Dateien/PDFs werden NICHT ausgelagert — Helper akzeptiert nur Bilder + Canvas/pdf.js-Kopplung). Bilder werden beim Save nach Storage ausgelagert; Bild-Quelle via `url || dataUrl`, jsPDF-Export rehydriert `url`→DataURL. **`GemaStorage.uploadFile(file, pathHint, opts)` (08/2026) laedt eine File/Blob DIREKT hoch — ohne den Base64-Umweg** und ist der Weg fuer alles ab ein paar MB: `uploadDataUrl` liest erst eine Data-URL ein (+33 %), dekodiert sie mit `atob` in einen String und kopiert sie Byte fuer Byte in ein Uint8Array — ein 7-MB-PDF belegt so kurzzeitig gegen 30 MB. **`opts.onProgress(pct, geladen, total)` gibt es nur hier**: beide Wege laufen seither ueber `_uploadBlob` mit **XHR statt fetch**, weil fetch keinen Upload-Fortschritt kennt (`opts.maxMb` Default 12, `opts.onXhr` fuer Abbruch; HTTP 413 wird als Bucket-Limit im Klartext gemeldet statt als nackter Code). |
 | `gema_undo.js` | Undo/Redo |
-| `gema_verknuepfung.js` | **Werte-Verknüpfungen erfassen** — Knopf «🔗 Verknüpfung» in jeder Berechnung (nur `role_admin`): Zielfeld anklicken, Quellwert aus einer anderen Berechnung wählen (mehrere Varianten mit Bedingung), Markdown-Export für Claude Code. Dokumentiert nur, schlägt selbst nichts vor. Siehe «Werte-Verknüpfungen erfassen» |
+| `gema_verknuepfung.js` | **Werte-Verknüpfungen erfassen** — Knopf «🔗 Verknüpfung» in jeder Berechnung (nur `role_admin`): Zielfelder anklicken (mehrere möglich → je eine Verknüpfung), Quelle in zwei Schritten wählen (erst die Berechnung, dann der Wert; vorerst nur Sanitär, `ERLAUBTE_KATEGORIEN`), mehrere Quellen-Varianten mit Bedingung, Markdown-Export für Claude Code. Dokumentiert nur, schlägt selbst nichts vor. Eigener Feedback-Knopf (hebt dafür die Feedback-Ebenen an). Siehe «Werte-Verknüpfungen erfassen» |
 | `gema_werte_katalog.js` | **AUTOMATISCH ERZEUGT** (`node scripts/werte_katalog_gen.mjs`) — Katalog aller ~1440 erfassbaren Werte in 48 Berechnungsmodulen mit stabiler ID (`modul.feldId`), Beschriftung, Einheit und Lesekanal. `byId/label/suche/werte/modulListe`. Wird nur bei Bedarf geladen (zu gross für jede Seite) |
 | `gema_vergleich.js` | Produkt-/Offert-Vergleich |
 | `gema_wasserdaten.js` | Wasserhärte/Trinkwasserdaten |
