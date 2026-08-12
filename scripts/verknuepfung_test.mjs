@@ -121,6 +121,71 @@ pruef(/replace\(\/\[&<>"'\]\/g/.test(helper.replace(/\\/g, '')) || helper.includ
 pruef(/createElement\('script'\)[\s\S]{0,200}KATALOG_DATEI|s\.src = KATALOG_DATEI/.test(helper),
   'Katalog wird erst bei Bedarf nachgeladen (lazy)');
 
+abschnitt('A3b · Gewerk-Beschraenkung (vorerst nur Sanitaer)');
+
+/* Die Whitelist steht als benannte Konstante im Helper — sie ist der eine
+   Ort, an dem ein weiteres Gewerk freigegeben wird. */
+const wl = /var ERLAUBTE_KATEGORIEN = \[([^\]]+)\]/.exec(helper);
+pruef(wl, 'ERLAUBTE_KATEGORIEN steht als benannte Konstante im Helper');
+const erlaubt = wl ? wl[1].split(',').map(s => s.trim().replace(/^'|'$/g, '')) : [];
+pruef(erlaubt.length === 2 && erlaubt.includes('Sanitär') && erlaubt.includes('Sanitäranlagen'),
+  'Freigegeben sind genau «Sanitär» und «Sanitäranlagen»', erlaubt.join(' / '));
+
+/* KRITISCH: die Kategorie-Namen vergibt der Generator aus dem Datei-Praefix.
+   Wuerde dort umbenannt, bliebe die Auswahlliste STILL leer — darum hier
+   gegen den echten Katalog pruefen. */
+const katImKatalog = new Set(Object.keys(KAT.module).map(k => KAT.module[k].kategorie));
+erlaubt.forEach(k => pruef(katImKatalog.has(k),
+  'Kategorie «' + k + '» gibt es wirklich im Katalog (sonst waere die Liste leer)',
+  'vorhanden: ' + [...katImKatalog].join(', ')));
+
+/* Es MUSS gesperrte Gewerke geben — sonst prueft der Filter nichts */
+const gesperrt = [...katImKatalog].filter(k => !erlaubt.includes(k));
+pruef(gesperrt.length >= 3, 'Andere Gewerke sind vorerst gesperrt (' + gesperrt.join(', ') + ')');
+
+/* Auswahl in zwei Schritten */
+pruef(/function modulWahlHtml/.test(helper) && /function wertWahlHtml/.test(helper),
+  'Auswahl laeuft in zwei Schritten (erst Berechnung, dann Wert)');
+pruef(/Schritt 1 von 2/.test(helper) && /Schritt 2 von 2/.test(helper),
+  'Beide Schritte sind fuer den Nutzer benannt');
+/* fail-closed: auch ein Direktaufruf darf kein fremdes Gewerk uebernehmen */
+pruef(/_qModul: function \(mk\) \{\s*if \(!modulWaehlbar\(mk\)\) return;/.test(helper),
+  'Modulwahl ist fail-closed (auch bei Direktaufruf)');
+pruef(/if \(!t \|\| !modulWaehlbar\(t\.modul\)\) return;/.test(helper),
+  'Wertuebernahme ist fail-closed');
+/* Kein stiller Verlust: Altbestand aus einem gesperrten Gewerk bleibt */
+pruef(/function fremdesGewerk/.test(helper) && /gvk-warn/.test(helper),
+  'Altbestand aus einem gesperrten Gewerk bleibt sichtbar und wird markiert');
+/* Keine stille Deckelung mehr — die alte flache Liste schnitt bei 60 ab */
+pruef(!/\.slice\(0, 60\)/.test(helper),
+  'Keine stille Deckelung der Trefferliste');
+
+abschnitt('A3c · Mehrfachauswahl + Feedback aus dem Werkzeug');
+
+pruef(/var _zielFelder = \[\]/.test(helper), 'Mehrere Zielfelder werden gesammelt');
+pruef(/function zielUmschalten/.test(helper), 'Klick nimmt ein Feld dazu bzw. wieder heraus');
+pruef(/e\.ziele\.forEach\(function \(z, i\) \{[\s\S]{0,900}sichern\(/.test(helper),
+  'Speichern legt PRO Zielfeld eine eigene Verknuepfung an');
+pruef(/JSON\.parse\(JSON\.stringify\(quellen\)\)/.test(helper),
+  'Jede Verknuepfung bekommt eine eigene Kopie der Quellen (kein geteiltes Array)');
+pruef(/\.gema-dlg-bg/.test(helper),
+  'Der Klick-Fang der Feldwahl laesst GemaDialog durch (Hinweis bleibt bedienbar)');
+
+pruef(/feedback: feedback/.test(helper) && /GemaFeedback\.start/.test(helper),
+  'Werkzeug hat einen eigenen Feedback-Knopf');
+/* Der Dialog liegt bei 11900, die Feedback-Ebenen inline bei 9000/9050/9100.
+   Ohne Anhebung liesse sich der Ausschnitt nicht aufziehen. Inline schlaegt
+   Stylesheet — die Anhebung MUSS !important tragen. */
+['#gfb-overlay', '#gfb-annot', '#gfb-modal'].forEach(sel => {
+  const re = new RegExp('html\\.gvk-auf ' + sel + '\\{z-index:(\\d+)!important\\}');
+  const m = re.exec(helper);
+  pruef(m && Number(m[1]) > 11900 && Number(m[1]) < 12800,
+    'Feedback-Ebene ' + sel + ' liegt ueber dem Werkzeug, unter GemaDialog',
+    m ? m[1] : 'keine Anhebung gefunden');
+});
+pruef(/if \(_zielModus\) zielModusAus\(\);/.test(helper),
+  'Feedback beendet zuerst die Feldwahl (ihr Klick-Fang wuerde den Snip verschlucken)');
+
 abschnitt('A4 · Markdown-Export');
 
 /* Den Helper in einem Mini-DOM laden, damit die Export-Logik echt laeuft */
@@ -179,12 +244,40 @@ pruef(mdText.includes('×3.6'), 'Export nennt die Umrechnung');
 pruef(/Datei: `sb_druckerhoehung\.html`/.test(mdText), 'Export nennt die Zieldatei');
 pruef(mdText.includes('gema_druckerhoehung__<objektId>'), 'Export nennt den AutoSave-Snapshot des Zielmoduls');
 pruef(mdText.includes('Beide Netze möglich.'), 'Export traegt den Hinweis');
+/* Der Objektbezug ist die Regel «Daten fliessen nur innerhalb desselben
+   Projekts». Er steckt implizit im Lesekanal — der Export MUSS ihn
+   ausdruecklich nennen, sonst raet die Umsetzung. */
+pruef(/Objektbezug/.test(mdText) && /objektId/.test(mdText),
+  'Export nennt den Objektbezug ausdruecklich');
+pruef(/Eimer/.test(mdText), 'Export nennt den Eimer-Bezug (Workspace)');
+pruef(/kein\*{0,2} Vorschlag|\*\*kein\*\* Vorschlag/.test(mdText),
+  'Export sagt, was bei fehlenden Quelldaten passiert (kein Vorschlag)');
 /* Ein Pipe im Freitext wuerde die Markdown-Tabelle zerreissen — er MUSS
    als \| ankommen, sonst entsteht mitten in der Zeile eine neue Spalte. */
 const pipeZeile = mdText.split('\n').find(l => l.includes('Nutzwasser')) || '';
 pruef(pipeZeile.includes('Regenwasser \\| Nutzwasser'),
   'Pipe im Freitext ist maskiert (Tabelle bleibt heil)', pipeZeile.slice(0, 120));
 pruef(/^\| 1 \|/m.test(mdText) && /^\| 2 \|/m.test(mdText), 'Quellen sind nummeriert');
+
+/* Bestandsschutz: eine frueher erfasste Quelle aus einem inzwischen
+   gesperrten Gewerk MUSS erhalten bleiben und im Export markiert sein —
+   stilles Verschlucken waere der schlimmere Fehler. */
+const altGewerk = KAT.suche('', { modul: 'waermepumpe' })[0];
+pruef(altGewerk, 'Testwert aus einem gesperrten Gewerk gefunden');
+if (altGewerk) {
+  const VK2 = helperLaden([{
+    id: 'vk_2', nr: 'VK-0009', orgId: 'o1',
+    zielModul: 'druckerhoehung', zielFeld: 'vfd_pv', zielWertId: 'druckerhoehung.vfd_pv',
+    zielLabel: 'Versorgungsdruck', zielEinheit: 'bar',
+    quellen: [{ wertId: altGewerk.wert.id, bedingung: '', umrechnung: '' }],
+    modus: 'vorschlag', hinweis: '', status: 'offen',
+    erstelltAm: '2026-08-01T10:00:00.000Z'
+  }]);
+  const mdAlt = VK2.markdown();
+  pruef(mdAlt.includes(altGewerk.wert.id), 'Alte Quelle aus gesperrtem Gewerk bleibt im Export');
+  pruef(/⚠ _Gewerk Heizung_/.test(mdAlt), 'Export markiert sie als anderes Gewerk',
+    (mdAlt.split('\n').find(l => l.includes(altGewerk.wert.id)) || '').slice(0, 140));
+}
 
 /* Nummernvergabe */
 pruef(VK.naechsteNummer() === 'VK-0002', 'Naechste Nummer zaehlt fortlaufend weiter',
@@ -342,6 +435,12 @@ if (!chromium) {
     pruef((await p.locator('#gvkPanel').textContent() || '').includes('Druckerhöhung'),
       'Panel nennt das aktuelle Modul');
     pruef(await p.evaluate(() => !!window.GemaWerteKatalog), 'Werte-Katalog wurde nachgeladen');
+    pruef(await p.locator('#gvkPanel .gvk-x[onclick*="feedback"]').count() === 1,
+      'Panel hat einen Feedback-Knopf');
+    /* Die Anhebung der Feedback-Ebenen greift nur, solange das Werkzeug offen
+       ist — sonst waere das Verhalten von GemaFeedback global veraendert. */
+    pruef(await p.evaluate(() => document.documentElement.classList.contains('gvk-auf')),
+      'Werkzeug meldet sich als offen (hebt die Feedback-Ebenen an)');
 
     /* ── Zielwahl: Feld im Modul anklicken ── */
     await p.click('#gvkPanel .gvk-b.prim');
@@ -361,12 +460,37 @@ if (!chromium) {
       return !!(oben && (oben === f || f.contains(oben)));
     }), 'Zielfeld ist wirklich anklickbar (nichts liegt darueber)');
 
+    /* Mehrfachauswahl: zwei Felder anklicken, dann «Weiter» */
     await p.click('#vfd_LU');
+    await p.waitForTimeout(250);
+    pruef(await p.locator('#gvkDlg').count() === 0,
+      'Ein Klick oeffnet den Dialog NICHT mehr sofort — es koennen weitere Felder dazu');
+    pruef(await p.evaluate(() => document.getElementById('vfd_LU').classList.contains('gvk-ziel-aktiv')),
+      'Gewaehltes Feld ist markiert');
+    pruef((await p.locator('#gvkZielBar').textContent() || '').includes('1 Feld'),
+      'Leiste zaehlt die Auswahl');
+    await p.click('#vfd_qdv');
+    await p.waitForTimeout(250);
+    pruef((await p.locator('#gvkZielBar').textContent() || '').includes('2 Felder'),
+      'Zweites Feld kommt dazu');
+    /* Erneuter Klick nimmt wieder heraus — und wieder hinein */
+    await p.click('#vfd_qdv');
+    await p.waitForTimeout(200);
+    pruef((await p.locator('#gvkZielBar').textContent() || '').includes('1 Feld'),
+      'Erneuter Klick nimmt das Feld wieder heraus');
+    await p.click('#vfd_qdv');
+    await p.waitForTimeout(200);
+
+    await p.click('#gvkZielOk');
     await p.waitForTimeout(350);
-    pruef(await p.locator('#gvkDlg').count() === 1, 'Klick aufs Feld oeffnet den Dialog');
+    pruef(await p.locator('#gvkDlg').count() === 1, '«Weiter» oeffnet den Dialog');
     const dlgText = await p.locator('#gvkDlg').textContent();
-    pruef(dlgText.includes('druckerhoehung.vfd_LU'), 'Dialog kennt die Ziel-Wert-ID');
-    pruef(/VK-\d{4}/.test(dlgText), 'Dialog vergibt eine Verknuepfungs-Nummer');
+    pruef(dlgText.includes('druckerhoehung.vfd_LU') && dlgText.includes('druckerhoehung.vfd_qdv'),
+      'Dialog kennt BEIDE Ziel-Wert-IDs');
+    pruef(/2 Verknüpfungen/.test(dlgText),
+      'Dialog sagt, dass zwei Verknuepfungen entstehen');
+    pruef(await p.locator('#gvkDlg .gvk-kopf .gvk-x[onclick*="feedback"]').count() === 1,
+      'Dialog hat einen eigenen Feedback-Knopf (er liegt ueber der Navigation)');
     /* Die Beschriftung wird LIVE aus dem DOM gelesen. Herkunfts-Tags stehen
        dort versteckt im Label («LU ↗», display:none) und duerfen nicht
        mitkommen — sonst steht im Export «Total LULU ↗Summe aller …». */
@@ -379,14 +503,43 @@ if (!chromium) {
     pruef(!await p.evaluate(() => document.documentElement.classList.contains('gvk-zielmodus')),
       'Zielmodus endet nach der Wahl');
 
-    /* ── Quelle 1: Kaltwasser ── */
+    /* ── Quelle 1: Kaltwasser — Schritt 1 Berechnung, Schritt 2 Wert ── */
     await p.click('#gvkDlg .gvk-qbox .gvk-b');
     await p.waitForTimeout(250);
-    pruef(await p.locator('#gvkSuche').count() === 1, 'Quellen-Suche erscheint');
+    pruef(await p.locator('#gvkSuche').count() === 1, 'Quellen-Auswahl erscheint');
+    const s1 = await p.locator('#gvkDlg .gvk-qbox').textContent();
+    pruef(s1.includes('Schritt 1 von 2'), 'Erster Schritt ist die Berechnung');
+    pruef(await p.locator('#gvkDlg .gvk-gruppe').count() >= 2,
+      'Berechnungen sind nach Gewerk-Kategorie gruppiert');
+
+    /* Gewerk-Filter: nur Sanitaer steht zur Wahl */
+    const modListe = await p.locator('#gvkDlg .gvk-treffer').textContent();
+    pruef(modListe.includes('LU-Tabelle') && modListe.includes('Enthärtungsanlage'),
+      'Schritt 1 listet die Sanitaer-Berechnungen (sb_ und sa_)');
+    pruef(!/Wärmepumpe|Spannungsfall|h,x-Diagramm|Brandlast/.test(modListe),
+      'Kein anderes Gewerk waehlbar (Heizung/Elektro/Lüftung/Brandschutz)');
+    /* Das eigene Modul ist als Quelle sinnlos */
+    pruef(!/Druckerhöhungsanlage/.test(modListe), 'Das eigene Modul steht nicht zur Wahl');
+    /* Gegenprobe: die gesperrten Module SIND im Katalog — der Filter wirkt,
+       nicht ein leerer Katalog. */
+    pruef(await p.evaluate(() => !!(window.GemaWerteKatalog && window.GemaWerteKatalog.module.waermepumpe)),
+      'Die gesperrten Module gibt es (der Filter blendet sie aus, sie fehlen nicht)');
+
+    /* Die Suche in Schritt 1 findet die Berechnung auch ueber ihre WERTE */
     await p.fill('#gvkSuche', 'Spitzenvolumenstrom Kaltwasser');
     await p.waitForTimeout(300);
-    const trefferZahl = await p.locator('#gvkDlg .gvk-tr').count();
-    pruef(trefferZahl > 0, 'Suche liefert Treffer (' + trefferZahl + ')');
+    const luZeile = await p.locator('#gvkDlg .gvk-tr:has-text("LU-Tabelle")').first().textContent();
+    pruef(/passend/.test(luZeile), 'Wert-Suche in Schritt 1 weist die passenden Werte aus', luZeile);
+
+    await p.click('#gvkDlg .gvk-tr:has-text("LU-Tabelle") >> nth=0');
+    await p.waitForTimeout(300);
+    pruef((await p.locator('#gvkDlg .gvk-qbox').textContent()).includes('Schritt 2 von 2'),
+      'Zweiter Schritt ist der Wert');
+    pruef(await p.inputValue('#gvkSuche') === 'Spitzenvolumenstrom Kaltwasser',
+      'Suchtext wandert in Schritt 2 mit');
+    const wertListe = await p.locator('#gvkDlg .gvk-treffer').textContent();
+    pruef(!/Enthärtung|Osmose/.test(wertListe), 'Schritt 2 zeigt nur Werte DIESER Berechnung');
+
     await p.click('#gvkDlg .gvk-tr:has-text("Kaltwasser (KW)") >> nth=0');
     await p.waitForTimeout(250);
     pruef((await p.locator('#gvkDlg').textContent()).includes('lu_tabelle.q_kw_api'),
@@ -400,11 +553,27 @@ if (!chromium) {
     await p.waitForTimeout(300);
     await p.fill('#gvkSuche', 'Spitzenvolumenstrom Regenwasser');
     await p.waitForTimeout(300);
+    await p.click('#gvkDlg .gvk-tr:has-text("LU-Tabelle") >> nth=0');
+    await p.waitForTimeout(300);
     await p.click('#gvkDlg .gvk-tr:has-text("Regenwasser (RW)") >> nth=0');
     await p.waitForTimeout(250);
     const dlg2 = await p.locator('#gvkDlg').textContent();
     pruef(dlg2.includes('lu_tabelle.q_gw_api'), 'Zweite Quelle (Regenwasser) uebernommen');
     pruef(dlg2.includes('Quelle 1 von 2'), 'Dialog zeigt die Auswahl-Variante an');
+
+    /* «ändern» beginnt in der bisherigen Berechnung (Schritt 2) */
+    await p.click('#gvkDlg .gvk-qbox:has-text("Quelle 1") .gvk-b:has-text("ändern")');
+    await p.waitForTimeout(300);
+    pruef((await p.locator('#gvkDlg .gvk-qbox').first().textContent()).includes('Schritt 2 von 2'),
+      '«ändern» startet in der bisherigen Berechnung');
+    await p.click('#gvkDlg .gvk-qbox .gvk-b:has-text("andere Berechnung")');
+    await p.waitForTimeout(250);
+    pruef((await p.locator('#gvkDlg .gvk-qbox').first().textContent()).includes('Schritt 1 von 2'),
+      '«‹ andere Berechnung» geht zurueck zu Schritt 1');
+    await p.click('#gvkDlg .gvk-tr:has-text("LU-Tabelle") >> nth=0');
+    await p.waitForTimeout(250);
+    await p.click('#gvkDlg .gvk-tr:has-text("Kaltwasser (KW)") >> nth=0');
+    await p.waitForTimeout(250);
 
     /* ── Speichern ── */
     await p.click('#gvkDlg .gvk-fuss .gvk-b.prim');
@@ -415,13 +584,27 @@ if (!chromium) {
     pruef(panelText.includes('2 Quellen zur Auswahl'), 'Karte weist die Auswahl aus');
     pruef(panelText.includes('Anzahl LU') || panelText.includes('vfd_LU'), 'Karte nennt das Zielfeld');
 
-    /* Gespeichert? */
+    /* Gespeichert? — zwei Zielfelder ergeben ZWEI Verknuepfungen mit
+       eigener Nummer, aber denselben Quellen. */
     const gespeichert = await p.evaluate(() => JSON.parse(localStorage.getItem('gema_vk_pool_v1') || '[]'));
-    pruef(gespeichert.length === 1, 'Verknuepfung liegt im Pool');
-    pruef(gespeichert[0] && gespeichert[0].quellen.length === 2, 'Beide Quellen gespeichert');
-    pruef(gespeichert[0] && gespeichert[0].quellen[0].bedingung === 'Anlage für Kaltwasser',
+    pruef(gespeichert.length === 2, 'Zwei Zielfelder → zwei Verknuepfungen im Pool',
+      'gefunden: ' + gespeichert.length);
+    const felder = gespeichert.map(v => v.zielFeld).sort();
+    pruef(felder.join(',') === 'vfd_LU,vfd_qdv', 'Beide Zielfelder erfasst', felder.join(','));
+    const nrn = new Set(gespeichert.map(v => v.nr));
+    pruef(nrn.size === 2, 'Jede Verknuepfung hat ihre eigene Nummer', [...nrn].join(' / '));
+    pruef(gespeichert.every(v => /^VK-\d{4}$/.test(v.nr)), 'Nummern folgen dem Schema VK-0000');
+    pruef(gespeichert.every(v => v.quellen.length === 2), 'Beide Quellen bei beiden Verknuepfungen');
+    pruef(gespeichert.every(v => v.quellen[0].bedingung === 'Anlage für Kaltwasser'),
       'Bedingung gespeichert');
-    pruef(gespeichert[0] && gespeichert[0].orgId === 'org_test', 'Org ist gestempelt (RLS-Regel)');
+    pruef(gespeichert.every(v => v.orgId === 'org_test'), 'Org ist gestempelt (RLS-Regel)');
+    /* Eigene Kopie je Verknuepfung — sonst aendert ein spaeteres Bearbeiten beide */
+    const geaendert = await p.evaluate(() => {
+      const pool = JSON.parse(localStorage.getItem('gema_vk_pool_v1') || '[]');
+      pool[0].quellen[0].bedingung = 'NUR HIER';
+      return pool[1].quellen[0].bedingung;
+    });
+    pruef(geaendert === 'Anlage für Kaltwasser', 'Die Quellen sind je Verknuepfung eigene Kopien');
 
     /* ── Export ── */
     const mdBrowser = await p.evaluate(() => window.GemaVerknuepfung.markdown());

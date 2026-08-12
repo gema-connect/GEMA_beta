@@ -15,7 +15,7 @@
  * wenn der Admin das Werkzeug oeffnet) — sie ist zu gross, um auf jeder
  * Berechnungsseite mitzulaufen.
  *
- * Stand: 1442 Werte in 48 Modulen.
+ * Stand: 1457 Werte in 48 Modulen.
  */
 (function (w) {
   'use strict';
@@ -4059,21 +4059,21 @@
   "autosave": "frischwasserstation",
   "werte": [
    {
-    "id": "frischwasserstation.fw_verlust",
-    "feld": "fw_verlust",
-    "label": "Verteil-/Speicherverluste · aus → Warmwasser SIA 385",
-    "art": "eingabe",
-    "typ": "zahl",
-    "einheit": "%",
-    "quelle": "gema_frischwasserstation__<objektId>"
-   },
-   {
     "id": "frischwasserstation.fw_tbExt",
     "feld": "fw_tbExt",
     "label": "leer = Summe der Tabelle oben",
     "art": "eingabe",
     "typ": "zahl",
     "einheit": "l/d",
+    "quelle": "gema_frischwasserstation__<objektId>"
+   },
+   {
+    "id": "frischwasserstation.fw_verlust",
+    "feld": "fw_verlust",
+    "label": "Verteil-/Speicherverluste in % des Nutzbedarfs",
+    "art": "eingabe",
+    "typ": "zahl",
+    "einheit": "%",
     "quelle": "gema_frischwasserstation__<objektId>"
    },
    {
@@ -4197,7 +4197,7 @@
    {
     "id": "frischwasserstation.fwg_persOverride",
     "feld": "fwg_persOverride",
-    "label": "0 = automatisch aus Abschnitt 2 (SIA-Normbelegung)",
+    "label": "leer = automatisch aus Abschnitt 2 (SIA-Normbelegung): – Pers.",
     "art": "eingabe",
     "typ": "zahl",
     "einheit": "Pers.",
@@ -4251,7 +4251,7 @@
    {
     "id": "frischwasserstation.fwg_minDuschen",
     "feld": "fwg_minDuschen",
-    "label": "0 = automatisch Wohnungen ÷ 10 — verhindert zu kleine FWS",
+    "label": "leer = automatisch 0.1 · Personen",
     "art": "eingabe",
     "typ": "zahl",
     "einheit": "Stk",
@@ -4520,7 +4520,7 @@
    {
     "id": "frischwasserstation.fw_rows",
     "feld": "fw_rows",
-    "label": "Pufferspeicher (Vorschlag, min.)",
+    "label": "Leistung Frischwasserstation",
     "art": "eingabe",
     "typ": "zahl",
     "quelle": "gema_frischwasserstation__<objektId>"
@@ -4549,56 +4549,14 @@
    {
     "id": "frischwasserstation.fw_out_tagesbedarf",
     "feld": "fw_out_tagesbedarf",
-    "label": "Tagesbedarf Warmwasser à 60 °C (inkl. Verluste)",
+    "label": "Verlustzahl aus Mappe ② Verlustzahl",
     "art": "ergebnis",
     "typ": "zahl"
    },
    {
-    "id": "frischwasserstation.fw_out_zWohn",
-    "feld": "fw_out_zWohn",
-    "label": "Wohnungsbau (Warmwasser-Anteil)",
-    "art": "ergebnis",
-    "typ": "zahl"
-   },
-   {
-    "id": "frischwasserstation.fw_out_zGastro",
-    "feld": "fw_out_zGastro",
-    "label": "Gastroanlage",
-    "art": "ergebnis",
-    "typ": "zahl"
-   },
-   {
-    "id": "frischwasserstation.fw_out_zSpez",
-    "feld": "fw_out_zSpez",
-    "label": "Spezielle Anlage",
-    "art": "ergebnis",
-    "typ": "zahl"
-   },
-   {
-    "id": "frischwasserstation.fw_out_zTotal",
-    "feld": "fw_out_zTotal",
-    "label": "Total Volumenstrom Warmwasser",
-    "art": "ergebnis",
-    "typ": "zahl"
-   },
-   {
-    "id": "frischwasserstation.fw_out_ptheor",
-    "feld": "fw_out_ptheor",
-    "label": "Theoretische Leistung",
-    "art": "ergebnis",
-    "typ": "zahl"
-   },
-   {
-    "id": "frischwasserstation.fw_out_pzirk",
-    "feld": "fw_out_pzirk",
-    "label": "− Abzug Zirkulationsvolumenstrom",
-    "art": "ergebnis",
-    "typ": "zahl"
-   },
-   {
-    "id": "frischwasserstation.fw_out_pfws",
-    "feld": "fw_out_pfws",
-    "label": "Leistung Frischwasserstation",
+    "id": "frischwasserstation.fw_out_tagesbedarf2",
+    "feld": "fw_out_tagesbedarf2",
+    "label": "Tagesbedarf Warmwasser à 60 °C (inkl. Verluste) Bedarf · (1 + ϛIS/100)",
     "art": "ergebnis",
     "typ": "zahl"
    },
@@ -4978,6 +4936,55 @@
     "id": "frischwasserstation.fwk_out_vspeicher",
     "feld": "fwk_out_vspeicher",
     "label": "Pufferspeicher (Vorschlag, min.)",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "frischwasserstation.fw_out_zWohn",
+    "feld": "fw_out_zWohn",
+    "label": "Wohnungsbau (Warmwasser-Anteil)",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "frischwasserstation.fw_out_zGastro",
+    "feld": "fw_out_zGastro",
+    "label": "Gastroanlage",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "frischwasserstation.fw_out_zSpez",
+    "feld": "fw_out_zSpez",
+    "label": "Spezielle Anlage",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "frischwasserstation.fw_out_zTotal",
+    "feld": "fw_out_zTotal",
+    "label": "Total Volumenstrom Warmwasser",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "frischwasserstation.fw_out_ptheor",
+    "feld": "fw_out_ptheor",
+    "label": "Theoretische Leistung",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "frischwasserstation.fw_out_pzirk",
+    "feld": "fw_out_pzirk",
+    "label": "− Abzug Zirkulationsvolumenstrom",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "frischwasserstation.fw_out_pfws",
+    "feld": "fw_out_pfws",
+    "label": "Leistung Frischwasserstation",
     "art": "ergebnis",
     "typ": "zahl"
    }
@@ -11156,6 +11163,24 @@
   "autosave": "warmwasser_sia385",
   "werte": [
    {
+    "id": "warmwasser_sia385.ww_bueroFlaeche",
+    "feld": "ww_bueroFlaeche",
+    "label": "Bürofläche [A]",
+    "art": "eingabe",
+    "typ": "zahl",
+    "einheit": "m²",
+    "quelle": "gema_warmwasser_sia385__<objektId>"
+   },
+   {
+    "id": "warmwasser_sia385.ww_bueroM2P",
+    "feld": "ww_bueroM2P",
+    "label": "üblich 15–20 m² pro Person",
+    "art": "eingabe",
+    "typ": "zahl",
+    "einheit": "m²/P",
+    "quelle": "gema_warmwasser_sia385__<objektId>"
+   },
+   {
     "id": "warmwasser_sia385.ww_tKw",
     "feld": "ww_tKw",
     "label": "Kaltwasser-Temperatur [θKW]",
@@ -11171,6 +11196,32 @@
     "art": "eingabe",
     "typ": "zahl",
     "einheit": "°C",
+    "quelle": "gema_warmwasser_sia385__<objektId>"
+   },
+   {
+    "id": "warmwasser_sia385.ww_wrgAnzahl",
+    "feld": "ww_wrgAnzahl",
+    "label": "Anzahl Duschen",
+    "art": "eingabe",
+    "typ": "zahl",
+    "einheit": "Stk",
+    "quelle": "gema_warmwasser_sia385__<objektId>"
+   },
+   {
+    "id": "warmwasser_sia385.ww_wrgStd",
+    "feld": "ww_wrgStd",
+    "label": "Normliter pro Duschvorgang [VW,u,sho,i]",
+    "art": "eingabe",
+    "typ": "auswahl",
+    "quelle": "gema_warmwasser_sia385__<objektId>"
+   },
+   {
+    "id": "warmwasser_sia385.ww_wrgEta",
+    "feld": "ww_wrgEta",
+    "label": "Energetischer Wirkungsgrad Wärmeübertrager [ηhr]",
+    "art": "eingabe",
+    "typ": "zahl",
+    "einheit": "%",
     "quelle": "gema_warmwasser_sia385__<objektId>"
    },
    {
@@ -11378,7 +11429,7 @@
    {
     "id": "warmwasser_sia385.ww_fsto",
     "feld": "ww_fsto",
-    "label": "Bauart Speicher — Kachel wählen oder Wert anpassen",
+    "label": "Bauart unten wählen — die Auswahl setzt den Wert",
     "art": "eingabe",
     "typ": "zahl",
     "einheit": "–",
@@ -11418,6 +11469,15 @@
     "art": "eingabe",
     "typ": "zahl",
     "einheit": "l",
+    "quelle": "gema_warmwasser_sia385__<objektId>"
+   },
+   {
+    "id": "warmwasser_sia385.ww_soLadezeit",
+    "feld": "ww_soLadezeit",
+    "label": "bestimmt die Menge WW pro Ladung",
+    "art": "eingabe",
+    "typ": "zahl",
+    "einheit": "h",
     "quelle": "gema_warmwasser_sia385__<objektId>"
    },
    {
@@ -11571,25 +11631,16 @@
     "unsicher": true
    },
    {
-    "id": "warmwasser_sia385.ww_out_grobPersonen",
-    "feld": "ww_out_grobPersonen",
-    "label": "Ww grob Personen",
+    "id": "warmwasser_sia385.ww_out_bueroPers",
+    "feld": "ww_out_bueroPers",
+    "label": "Personen Büro",
     "art": "ergebnis",
-    "typ": "zahl",
-    "unsicher": true
-   },
-   {
-    "id": "warmwasser_sia385.ww_out_grobTotal",
-    "feld": "ww_out_grobTotal",
-    "label": "Ww grob Total",
-    "art": "ergebnis",
-    "typ": "zahl",
-    "unsicher": true
+    "typ": "zahl"
    },
    {
     "id": "warmwasser_sia385.ww_out_dtgen",
     "feld": "ww_out_dtgen",
-    "label": "Temperaturerhöhung [∆θgen] ∆θ = θWW − θKW",
+    "label": "Temperaturerhöhung [∆θgen]",
     "art": "ergebnis",
     "typ": "zahl"
    },
@@ -11601,39 +11652,92 @@
     "typ": "zahl"
    },
    {
-    "id": "warmwasser_sia385.ww_out_r_pk",
-    "feld": "ww_out_r_pk",
-    "label": "Spitzendeckungsvolumen [VW,sto,pk]",
+    "id": "warmwasser_sia385.ww_out_einheiten",
+    "feld": "ww_out_einheiten",
+    "label": "Ww einheiten",
+    "art": "ergebnis",
+    "typ": "zahl",
+    "unsicher": true
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_wrgNl",
+    "feld": "ww_out_wrgNl",
+    "label": "Pro Duschvorgang kWh = Normliter · 0.058",
     "art": "ergebnis",
     "typ": "zahl"
    },
    {
-    "id": "warmwasser_sia385.ww_out_r_ctrl",
-    "feld": "ww_out_r_ctrl",
-    "label": "Effektives Steuervolumen [VW,sto,ctrl]",
+    "id": "warmwasser_sia385.ww_out_wrgTot",
+    "feld": "ww_out_wrgTot",
+    "label": "Total Wärmebedarf Duschvorgänge (ohne WRG) [QW,u,sho,i]",
     "art": "ergebnis",
     "typ": "zahl"
    },
    {
-    "id": "warmwasser_sia385.ww_out_r_leistung",
-    "feld": "ww_out_r_leistung",
-    "label": "Leistung Wärmeerzeugung",
+    "id": "warmwasser_sia385.ww_out_wrgRedE",
+    "feld": "ww_out_wrgRedE",
+    "label": "Reduktion pro Duschvorgang ηhr · kWh ÷ 100",
     "art": "ergebnis",
     "typ": "zahl"
    },
    {
-    "id": "warmwasser_sia385.ww_out_r_status",
-    "feld": "ww_out_r_status",
-    "label": "Verlustzahl-Status",
+    "id": "warmwasser_sia385.ww_out_wrgRed",
+    "feld": "ww_out_wrgRed",
+    "label": "Reduktion des Wärmebedarfs [fWhr,PWC]",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_vzBedarf",
+    "feld": "ww_out_vzBedarf",
+    "label": "Nutzwarmwasserbedarf (aus ①) [V'W,u]",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_vwstoAnnahme",
+    "feld": "ww_out_vwstoAnnahme",
+    "label": "Schätzung Speichervolumen [VW,sto]",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_qStutzen",
+    "feld": "ww_out_qStutzen",
+    "label": "Stutzenverluste",
     "art": "ergebnis",
     "typ": "zahl"
    },
    {
     "id": "warmwasser_sia385.ww_out_qsto",
     "feld": "ww_out_qsto",
-    "label": "Speicherverluste [Q'W,sto,Is] 0.11·√V + Stutzen",
+    "label": "Speicherverluste [Q'W,sto,Is]",
     "art": "ergebnis",
     "typ": "zahl"
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_qKonv",
+    "feld": "ww_out_qKonv",
+    "label": "Ww q Konv",
+    "art": "ergebnis",
+    "typ": "zahl",
+    "unsicher": true
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_qRar",
+    "feld": "ww_out_qRar",
+    "label": "Ww q Rar",
+    "art": "ergebnis",
+    "typ": "zahl",
+    "unsicher": true
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_qWhb",
+    "feld": "ww_out_qWhb",
+    "label": "Ww q Whb",
+    "art": "ergebnis",
+    "typ": "zahl",
+    "unsicher": true
    },
    {
     "id": "warmwasser_sia385.ww_out_qleit",
@@ -11645,21 +11749,21 @@
    {
     "id": "warmwasser_sia385.ww_out_pumpe",
     "feld": "ww_out_pumpe",
-    "label": "Hilfsenergie Umwälzpumpe (Zielwert) (5+0.16·L)·24·10⁻³",
+    "label": "L = Länge Zirkulation (konventionell + RaR)",
     "art": "ergebnis",
     "typ": "zahl"
    },
    {
     "id": "warmwasser_sia385.ww_out_pumpeGrenz",
     "feld": "ww_out_pumpeGrenz",
-    "label": "Grenzwert Umwälzpumpe (8+0.2·L)·24·10⁻³",
+    "label": "Grenzwert Umwälzpumpe",
     "art": "ergebnis",
     "typ": "zahl"
    },
    {
     "id": "warmwasser_sia385.ww_out_eauxWhb",
     "feld": "ww_out_eauxWhb",
-    "label": "Hilfsenergie Warmhalteband ⅔·Q'WHB",
+    "label": "Hilfsenergie Warmhalteband",
     "art": "ergebnis",
     "typ": "zahl"
    },
@@ -11690,46 +11794,6 @@
     "label": "Grenzwert (50 %)",
     "art": "ergebnis",
     "typ": "zahl"
-   },
-   {
-    "id": "warmwasser_sia385.ww_out_feinTotal",
-    "feld": "ww_out_feinTotal",
-    "label": "Ww fein Total",
-    "art": "ergebnis",
-    "typ": "zahl",
-    "unsicher": true
-   },
-   {
-    "id": "warmwasser_sia385.ww_out_feinKwh",
-    "feld": "ww_out_feinKwh",
-    "label": "Ww fein Kwh",
-    "art": "ergebnis",
-    "typ": "zahl",
-    "unsicher": true
-   },
-   {
-    "id": "warmwasser_sia385.ww_out_spitze",
-    "feld": "ww_out_spitze",
-    "label": "Ww spitze",
-    "art": "ergebnis",
-    "typ": "zahl",
-    "unsicher": true
-   },
-   {
-    "id": "warmwasser_sia385.ww_out_personen",
-    "feld": "ww_out_personen",
-    "label": "Ww personen",
-    "art": "ergebnis",
-    "typ": "zahl",
-    "unsicher": true
-   },
-   {
-    "id": "warmwasser_sia385.ww_out_flaeche",
-    "feld": "ww_out_flaeche",
-    "label": "Ww flaeche",
-    "art": "ergebnis",
-    "typ": "zahl",
-    "unsicher": true
    },
    {
     "id": "warmwasser_sia385.ww_out_heizWspez",
@@ -11824,6 +11888,13 @@
     "typ": "zahl"
    },
    {
+    "id": "warmwasser_sia385.ww_out_ladezeitTotal",
+    "feld": "ww_out_ladezeitTotal",
+    "label": "Totale Ladezeit pro Tag Ladezeit · Ladungen",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
     "id": "warmwasser_sia385.ww_out_pk",
     "feld": "ww_out_pk",
     "label": "Spitzendeckungsvolumen [VW,sto,pk]",
@@ -11876,6 +11947,48 @@
     "id": "warmwasser_sia385.ww_out_umsatz",
     "feld": "ww_out_umsatz",
     "label": "Umsatz Speicherinhalt pro Tag",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_soMenge",
+    "feld": "ww_out_soMenge",
+    "label": "Menge WW pro Ladung P·t·3600 ÷ (4.187·50)",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_soProdH",
+    "feld": "ww_out_soProdH",
+    "label": "gedeckelt aufs effektive Steuervolumen",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_soStart",
+    "feld": "ww_out_soStart",
+    "label": "Spitzendeckung + effektives Steuervolumen",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_soMin",
+    "feld": "ww_out_soMin",
+    "label": "Minimaler Speicherinhalt",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_soOpt",
+    "feld": "ww_out_soOpt",
+    "label": "Optimierung min. Inhalt − Spitzendeckung",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_soStatus",
+    "feld": "ww_out_soStatus",
+    "label": "Beurteilung",
     "art": "ergebnis",
     "typ": "zahl"
    },
