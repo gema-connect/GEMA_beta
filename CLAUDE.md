@@ -625,7 +625,9 @@ Live-SVG-Szene «Versorgung → Wasserzähler → Installation» (Karte 📊 vor
 
 Live-SVG «Zulauf → DEA → Gebäude» pro Tab (Feedback 16.07.: «grafische Darstellung mit den Werten») — Muster `_ddSchemaDraw` aus sb_druckdispositiv: eigener Script-Block, `window._deSchemaDraw(mode, payload)` geguardet am Ende von `paintVFD`/`paintVes` aufgerufen, NUR literale Hex-Farben. Szene: Zulauf mit Vordruck-Box + Absperrventil → Grundrahmen mit Pumpensymbolen (VFD: Pumpen mit «FU»-Kästchen + Drucksensor «P», siehe Feedback 03.08.2026; Windkessel: 1–4 Pumpen nach `np` + **Druckwindkessel** mit Luft-/Wasser-Zonen, Membranlinie, VN/VB-Chips) → Druckboxen (VFD: Nachdruck pN + Sollwertdruck pE + pU-Chip; Vessel: Einschalt-/Ausschaltdruck + pSi/pS-Chips) → Gebäude mit Geschossraster aus `h` (`n = round(h/2.8)` geklemmt 1..8, Etagen-Höhenlabels), Δh-Massband, Steigleitung, Fliessdruck-Box über dem Dach; Δp-Leitungen/Sonstige-Chips an der Verteilleitung; Förderhöhe-H₁-Box + K-Chip in Statusfarbe (`p.status` ok/warn/bad). **Chips sind klickbar** (`data-deziel` → Scroll+Fokus+`.de-puls` aufs Eingabefeld); Einheiten folgen der bar/kPa- und l/s-/m³/h-Umschaltung (Schema nutzt die globalen `fmt/toDispP/toDispQ/state` — top-level im Haupt-Script = global). Initialzeichnung mit Platzhalter-Payload beim Block-Load.
 
-**Feedback 12.08.2026 (Sandro, Berechnungs-Tabs — Drift-Guard `scripts/feedback_20260812_test.mjs`):** Mehrere Berechnungsvarianten pro Objekt als **Tab-Leiste ÜBER den Einheiten-Umschaltern** (`#deCtabs`, eigene Klasse **`.de-ctab` — NIE `.g-tab`**: der globale g-tab-Klick-Listener der Seite liest `dataset.tab` und würfe auf Tabs ohne data-tab). Muster = Anlagen-Verwaltung aus lt_hx_diagramm: der AKTIVE Tab lebt in den DOM-Feldern (normaler AutoSave), die inaktiven als Feld-Snapshots (`/^(vfd_|ves_)/`) in `DEA.snaps` im hidden `#de_tabs`-Textarea (AutoSave pro Objekt+Phase; Restore-Listener baut NUR die Leiste neu — die Felder des aktiven Tabs kommen über den normalen AutoSave-Restore, `_deaInternal`-Guard gegen Rekursion). **＋** legt eine LEERE Berechnung an (GemaDialog.prompt; HTML-Defaults werden beim DOMContentLoaded VOR dem AutoSave-Restore eingefroren — Registrier-Ordnung: der Tabs-Block steht vor der Meta/AutoSave-IIFE), **Rechtsklick benennt um**, **rotes ✕** (nur am aktiven Tab, nie am letzten) löscht mit `GemaDialog.confirm({danger:true, focusCancel:true})` — **Vorauswahl «Nein»** (Feedback-Vorgabe; Enter löst Abbrechen aus, siehe gema_dialog.js). **KRITISCH beim Snapshot**: (a) die Feldwerte stehen in der ANZEIGE-Einheit — jeder Snapshot merkt sich `_pUnit`/`_fUnit` und wird beim Anwenden umgerechnet (bar⇄kPa ×100, l/s⇄m³/h ×3.6), sonst läse ein bei «bar» eingefrorener Tab nach kPa-Umschaltung um Faktor 100 falsch; (b) `_modus` hält den Modul-Tab (Drehzahlreguliert/Windkessel); (c) die LU-Button-Klassen folgen NICHT dem Feldwert → nach dem Anwenden `setVfdKat`/`setVesKat` + `calcVFD`/`calcVes`; (d) das ✕ ist ein `<span>` im Tab-Button (Button-in-Button ist ungültiges Markup). Leiste `@media print` ausgeblendet.
+**Feedback 12.08.2026 (Sandro, Berechnungs-Tabs):** Mehrere Berechnungsvarianten pro Objekt. Gefordert für die Druckerhöhung, auf Folge-Auftrag («Die tabs für druckerhöhung soll bei allen berechnungen sein») als **geteilter Helfer `gema_berechnungs_tabs.js` in ALLE Berechnungsmodule** ausgerollt — siehe den eigenen Abschnitt «Berechnungs-Tabs». Die frühere modul-eigene Fassung (`#deCtabs`/`.de-ctab`/`#de_tabs`/`deTab*`) ist restlos ENTFERNT; der Drift-Guard prüft, dass keine zweite Leiste zurückkommt.
+
+**Einheiten-Umschalter mit isTrusted-Guard (dabei behobener Bestandsfehler):** `togglePressure`/`toggleFlow` rechneten bei JEDEM `change` um — auch bei dem, das der AutoSave-Restore selbst auslöst. Ein in kPa gespeicherter Wert wurde damit bei jedem Neuladen nochmals mal 100 genommen (3 bar → 300 → 30'000 kPa; empirisch reproduziert). `setPressureUnit(next, umrechnen)`/`setFlowUnit(next, umrechnen)` nehmen den Schalter jetzt entgegen, `echt(ev)` = `!ev || ev.isTrusted !== false`, und die Inline-Handler reichen das Event durch (`onchange="togglePressure(this.checked, event)"`). Gleiches Muster wie `ehSetUnit` (sa_enthaertung) / `setSchUnit` (sa_abwasserhebeanlage) — **jeder neue Einheiten-Umschalter MUSS diesen Guard tragen**, sonst zerstören AutoSave-Restore und Tab-Wechsel die Werte.
 
 **Feedback 03.08.2026 (Sandro, 6 Punkte — Drift-Guard `scripts/feedback_20260731_test.mjs` Teil 1):** (1) **Δh-Chip rechts im Gebäude** (`dhChipX` 742 statt am Massband bei 664): er lag auf der Steigleitung samt Entnahmestelle; eine **waagrechte** gestrichelte Leaderlinie hält die Zuordnung zum Massband — der Guard «keine schrägen Bezugslinien» erlaubt seither senkrecht ODER waagrecht, verboten bleibt allein die Schräge. (2) **Nutzvolumen V_N als Inline-Zwischenergebnis** direkt über der Behälterwahl (`data-demirror="ves_out_VN"`) — dort wird es zum Wählen des nächstgrösseren Handelsprodukts gebraucht. (3) **Membranvolumen V_M in l/s statt l/min**: das Feld IST ein Volumenstrom (Fallback = Spitzenvolumenstrom, gelesen über `fromDispQ`) und trägt jetzt `data-unit-label="flow"`, folgt also der l/s ⇄ m³/h-Umschaltung. (4) **Anzahl Pumpen als Auswahl mit Standard 1** (`#ves_np` ist ein `<select>` 1–4 statt Freitext; `_clear()` setzt Selects auf `selectedIndex 0` = 1, ein AutoSave-Altwert ausserhalb der Liste fällt via `selectedIndex < 0`-Guard auf 1 zurück). Die Pflicht-Fehlermeldung «Bitte Anzahl Pumpen > 0 eingeben» ist damit entfallen; `npDisp`-Fallback im Schema ebenfalls 1. (5) **Druckmessung + FU-Steuerung im VFD-Schema**: Manometer «P» auf der Sammelleitung hinter der Pumpengruppe (`sensX = max(cxs)+58`), FU-Kästchen «FU» (vorher «~f») an jeder Pumpe, **orange gestrichelte Steuerleitung** auf y = 306 (Mittelachse der Kästchen) — sie wird VOR den Pumpen gezeichnet, die Kästchen decken sie ab und sie wirkt dadurch als durchgehende Verbindung. Nur drehzahlgeregelt (der Windkessel ist druckschaltergesteuert). (6) **Beschriftungsfeld bei «Druckverlust Sonstiges pΔ1»** (`#vfd_pDsN1`/`#ves_pDsN1`, Klasse `.fg-lbl-name`) — die Zusatzzeilen hatten längst eines, die Basiszeile trug nur den festen Hinweis «Filter, Enthärtung etc.».
 
@@ -1072,6 +1074,66 @@ Framework-freie **iOS/iPadOS-Komponentenschicht** (Variante 1c «Command-first»
 - Registriert: sw.js (gema-native.css/js + gema_native_mobil.js), `<link gema-native.css>` in den 6 Modul-Heads **und in index.html**; die Einstellung liegt in `sys_profil.html`. Zusätzliche Kategorie-Verläufe im Kit: `--gn-c-brand/-infra/-schaden/-immo/-spengler/-ausb/-admin/-fav` (Töne wie index.html) — bei einer NEUEN index-Kategorie hier UND in der `GRAD`-Map des Home-Blocks ergänzen, sonst fällt die Kachel auf den Sanitär-Verlauf zurück. Tests: `scripts/native_home_smoke_test.mjs` (76 Checks — Aufbau nach Spezifikation, Kacheln 1:1 aus der Übersicht, Palette/Suche/Treffer-Navigation, Favoriten-Chips + Stern + Long-Press-Umschalten, rote Mitteilungs-Zahl [Link- und modul-Zuordnung, gelesen zählt nicht, Stern/Zahl kollisionsfrei, Live-Update ohne Re-Render], Pill-Aktionen inkl. Panel-z-index, Rollen-Filterung [Monteur], Einstellung «klassisch» + Desktop-Gegenprobe) und `scripts/native_screens_smoke_test.mjs` (100 Checks — Phone-Viewport 390×844 mit PostgREST-Row-Mock, alle 6 Screens mit echten Daten; native Roundtrips für pm_stunden/pm_einsatzplan [Zeit/Termin erfassen] UND if_werkzeug/if_fahrzeug [Detail-Sheet → Bearbeiten vorbefüllt → submitForm-Kette, Neues Gerät, Defekt-Bericht, km-Update inkl. Zwei-Tap-Bestätigung, Fahrzeug-Defekt-Event], Zurück-Taste [Injektion + Navigation zu index.html ohne Verlauf], Autocomplete in den Sheets [Bezeichnung→Kategorie-Autofill, Hersteller-Kreuzfilterung, Fahrzeug-Modell/Fahrer], Kategorie-/Typ-Chips, Filter-Sheets [13 Werkzeug-Kriterien via _wzAdvFilter + Fahrzeug-Zuteilung, Badge + Zurücksetzen], Einstellungs-Toggle klassisch/native, Desktop-Gegenprobe).
 - **Feedback-Button-Regel (KRITISCH):** der `🔴 Feedback`-Button (`onclick="GemaFeedback.start()"`) tut NICHTS ohne vorheriges `GemaFeedback.init('<modul>','<Titel>')` — init injiziert erst das Overlay-DOM (`gfb-root`). Jede Seite mit Feedback-Button MUSS `GemaFeedback.init(...)` im DOMContentLoaded aufrufen (pm_behoerden_formulare hatte es vergessen → Button tot, 07/2026 behoben).
 - **Phone ≤640px: Kacheln werden ZEILEN (User-Vorgabe 07/2026, zentral in gema_responsive.css — kein per-Seite-Markup)**: eine schlanke Zeile pro Modul (Icon + Titel + Fav-Stern/Pfeil, ~54px statt ~180px); `.mod-desc`/`.mod-pts`, Badges und Norm-Chips sind per CSS ausgeblendet, bleiben aber im DOM (Suche filtert weiter). Technik: `display:contents` auf den Wrappern (`.mod-card-top`/`.mod-footer` bzw. `.mod-top`), `order` stellt Icon → Titel → Stern → Pfeil sicher; deckt BEIDE Markup-Varianten ab (`.mod-card` auf index/ab_index/pm_ausschreibung, `.mod` + `h3` auf sb_index). Nur der Fav-Stern (`.fav-btn` in `.mod-badges`) und bei `.disabled`-Kacheln der «Bald»-Badge bleiben sichtbar. Drift-Guard: `scripts/mobile_kompakt_test.mjs` (26 Checks inkl. Desktop-Gegenprobe).
+
+---
+
+### Berechnungs-Tabs — mehrere Berechnungen pro Objekt (gema_berechnungs_tabs.js)
+
+Feedback 12.08.2026 (Sandro) für die Druckerhöhung, auf Folge-Auftrag («Die tabs
+für druckerhöhung soll bei allen berechnungen sein») als **EIN geteilter Helfer**
+in **alle 44 Berechnungsmodule** ausgerollt. Drift-Guard
+`scripts/feedback_20260812_test.mjs` (119 Checks).
+
+- **Null Konfiguration, selbst-einhängend.** Ein `<script src>` direkt NACH
+  `gema_autosave.js` genügt — der Helfer legt Leiste (`#gbtLeiste`) und
+  Zustands-Textarea (`#gbt_tabs`) zur Laufzeit selbst an. Es gibt **kein Markup
+  und keinen Code pro Modul**, und der Helfer kennt den Modulnamen nie: die
+  Textarea hat eine feste id, also sichert `GemaAutoSave` sie automatisch unter
+  dem Schlüssel, den das Modul ohnehin verwendet (pro Objekt + Phase).
+- **Warum das ohne Modul-Wissen funktioniert** — zwei Beobachtungen: (1) Eine
+  «Berechnung» ist **exakt das, was GemaAutoSave speichert**, minus der
+  Projekt-Leiste (`metaProjekt`/`metaBearbeiter`/`metaDatum`/Objekt-Auswahl —
+  die gehören zum Projekt, nicht zur Variante). (2) Angewendet wird wie
+  `GemaAutoSave._restore`: erst ALLE Werte setzen, DANN `input`+`change` feuern.
+  Damit laufen die modul-eigenen Restore-Handler von selbst — JSON-Zeilen-
+  Textareas (`#zk_rows`, `#gl_rows`, …), Einheiten-Beschriftungen, Neuberechnung.
+- **Der aktive Tab lebt im DOM** (normaler AutoSave), die inaktiven als
+  Feld-Schnappschüsse in `#gbt_tabs` (`{aktiv, list:[{id,name}], snaps:{}}`).
+  Muster = Anlagen-Verwaltung aus lt_hx_diagramm.
+- **＋ legt eine LEERE Berechnung an**: `_vorgabe` friert den unberührten
+  DOM-Zustand ein — der Helfer registriert im `<head>` und läuft damit VOR dem
+  Modul-Boot und vor dem AutoSave-Restore. **Rechtsklick** (Touch: langes
+  Drücken) benennt um, **rotes ✕** (nur am aktiven Tab, nie am letzten) löscht
+  mit `GemaDialog.confirm({danger:true, focusCancel:true})` — Vorauswahl «Nein».
+  Leiste `@media print` ausgeblendet; im eingefrorenen Phasen-Stand
+  (`?eingefroren=1`) entfallen ＋/✕/Umbenennen samt Hinweis.
+- **Tab-Buttons heissen `.gbt-tab` — NIE `.g-tab`**: der globale
+  g-tab-Klick-Listener vieler Module liest `dataset.tab` und würfe auf Tabs ohne
+  `data-tab`. Das ✕ ist ein `<span>` IM Button (Button-in-Button ist ungültiges
+  Markup).
+- **Module mit eigenem `_GemaDB`-Blob** (Zustand NICHT im AutoSave-Schnappschuss)
+  nimmt der Helfer über `blobLesen`/`blobSetzen` mit (Schnappschuss-Feld `_db`)
+  und zeichnet über die GEMA-Konvention **`window._objReload`** neu. **KRITISCH:**
+  wo der Loader bei fehlendem Stand aussteigt (`if(!d) return;`), braucht
+  `_objReload` einen **Grundzustands-Zweig** (`resetSaved()`) — sonst erbt die
+  neue Berechnung die Zeilen der vorherigen. Betroffen und behoben:
+  `sb_du_zusammenstellung` und `sa_fettabscheider` (das behebt zugleich den
+  Bestandsfehler, dass ein Wechsel auf ein leeres Projekt die alten Werte
+  stehenliess). Rein anhängende Loader brauchen ihn nicht.
+- **Einheiten-Umschalter MÜSSEN `isTrusted` prüfen** (`ev.isTrusted !== false` =
+  programmatisch): Tab-Wechsel und AutoSave-Restore feuern synthetische Events;
+  ohne den Guard rechnen sie die Werte bei jedem Anwenden erneut um. Kanon:
+  `ehSetUnit` (sa_enthaertung), `setSchUnit` (sa_abwasserhebeanlage), `kpGefUnit`
+  (sb_kreisprofil), seit 12.08.2026 auch sb_druckerhoehung.
+- **Bewusst OHNE Tabs** (der Drift-Guard hält es fest): `lt_hx_diagramm` und
+  `sb_druckverlust` haben ihre eigene Varianten-Verwaltung · `br_vkf_formular`
+  (AutoSave-Key wechselt zur Laufzeit) · `sb_vonroll` (kein GemaAutoSave — der
+  Helfer hängt sich ohne Speicherkanal gar nicht erst ein) · `sa_oelabscheider`
+  (kein `#metaObjektDropdown`).
+- **Ein NEUES Berechnungsmodul failt den Drift-Guard automatisch**, solange der
+  Script-Tag fehlt — der Sweep liest das Repo, statt eine Handliste zu pflegen.
+- API (nur für Tests/Sonderfälle): `GemaBerechnungsTabs.vorgabe()/zustand()/
+  neu()/wechseln(id)/zeichnen()`. Registriert in sw.js (v476).
 
 ---
 
@@ -4170,6 +4232,7 @@ UI-Anbindung:
 | `gema_autosave.js` | Auto-Save in Berechnungsmodulen |
 | `gema_card.js` | **GEMA Card — geteilter Client** (`window.GemaCard`). Function-Aufrufe (`api`/`call` mit Token, `apiPublic` ohne — beide mit `/api/`→`/.netlify/functions/`-Fallback), URLs (`kartenUrl`/`vcardUrl`/`fotoUrl`), QR-Code (`qr(el, karte, px, {logo})`, `qrDataUrl(karte, px)` — EIN Modus: die URL, Korrekturstufe H, Marke in der Mitte; siehe «Ein QR-Modus»), **`slugAusScan(text)`** (findet die Kartenadresse irgendwo im gescannten Text — der einzige erlaubte Scan-Parser, keine eigenen Regexe in den Modulen), `bildVerkleinern` (Canvas → `{gross, klein}`, zwei Grössen weil es serverseitig keine Bildbibliothek gibt), `nfcSchreiben`/`nfcMoeglich`, `teilen`/`kopieren`, `merkeSlug`/`meinSlug`. `basis()` liest bewusst `w.location.origin` (nicht global `location`) — nur so lässt sich die Datei im Node-Test mit einem Mini-`window` laden. |
 | `gema_chat.js` | **GEMA-weiter Kontext-Chat** (`window.GemaChat`, WhatsApp-Layout). `start({userId?|email?|lieferantId?, kontext:{typ,refId,label,url,urlExtern?}, text?})` startet einen Chat mit klickbarem Bezug-Chip (Ausschreibung/Offertanfrage/Bestellung/Objekt); Threads per-Record cross-org (`chat:`/`chatread:`, Nachrichten `chatmsg:<threadId>_` via Prefix-loadCollection — NIE persistCollection), Anzeigebild aus dem Profil, Notify `chat_nachricht` (30-min-Throttle) mit `?chat=`-Deep-Link. **`ensureGruppe({gruppeId,titel,userIds,kontext})`** = Gruppen-Thread mit STABILER deterministischer ID `chtgrp_<gruppeId>` (Key `grp\|<gruppeId>`) — NICHT `start()`: dessen Key hängt an den sortierten userIds, ein Beitritt erzeugte einen NEUEN Thread und verwaiste alle Nachrichten; ensureGruppe synct Mitglieder/Titel dirty-only in den BESTEHENDEN Thread (updatedAt bleibt unangetastet), läuft im Hintergrund und öffnet nie das Panel (Konsument: Klassen-Chat ab_klassen/sys_workspace). Gruppen-Threads tragen `gruppe:true`+`titel` (fester Titel + Kontext-Icon-Avatar). Siehe Abschnitt «Kontext-Chat». |
+| `gema_berechnungs_tabs.js` | **Berechnungs-Tabs — mehrere Berechnungen pro Objekt** (`window.GemaBerechnungsTabs`). **Null Konfiguration**: ein `<script src>` nach `gema_autosave.js` genügt, Leiste (`#gbtLeiste`) und Zustands-Textarea (`#gbt_tabs`) entstehen zur Laufzeit — kein Markup, kein Code, kein Modulname im Helfer. Der aktive Tab lebt im DOM (normaler AutoSave), die inaktiven als Feld-Schnappschüsse; angewendet wird wie `_restore` (Werte setzen, dann `input`+`change`), damit die Modul-Handler selbst laufen. Module mit eigenem `_GemaDB`-Blob werden über `blobLesen`/`blobSetzen` + `window._objReload` mitgenommen. Hängt sich NICHT ein ohne `GemaAutoSave` bzw. ohne `#metaObjektDropdown`. Siehe Abschnitt «Berechnungs-Tabs». |
 | `gema_bestellungen_api.js` | **Bestellprozess für Anlagen** (`window.GemaBest`): per-Record-Pool `best:`, Nummernkreis `BST-JJJJ-NNN` pro Org, Status-Übergänge `create/bestaetigen/ablehnen/geliefertMelden/empfangBestaetigen/stornieren` (je mit Verlauf + Notifikation), `bind()`/`getForOrg()`/`getForLieferant()`, `badgeHtml`/`fmtChf`. Konsumenten: pm_bestellungen, pm_ausschreibungsunterlagen (Gewinner-Sektion), sys_lieferant_dashboard (🛒-Tab). |
 | `gema_bkp_katalog.js` | **Standard-BKP-Katalog (CRB Baukostenplan)** als geteilte Referenz: `window.GemaBKP = {KOMPLETT, flat(), level(id), byId(id)}` — 349 Einträge, 1:1 aus `BKP_KOMPLETT` (pm_ausschreibungsunterlagen) generiert, reduziert auf `{id,titel,kinder}` (die Ausschreibungs-Metadaten modulKey/istLieferung/lizenz bleiben dort). Ebene aus der Nummer: 1-stellig=0 · 2-stellig=1 · 3-stellig=2 · mit Punkt (254.0)=3. Konsument: pm_erp (BKP-Titel in Offerten). |
 | `gema_revision_pdf.js` | **Revisionsunterlagen HTML/Print-Export** für das Übergabedossier. `GemaRevisionPDF.exportPrint(dossier, {org,user,objektName,objektAdresse,shareUrl})` — Muster gema_schaden_pdf: Branding `org.settings.pdfFarben` + `org.logoVector||org.logo` (Fallback GEMA-SVG), Kontrastschutz-Helfer dupliziert, @page-Margin-Boxen, Cover/TOC/Kapitel, Dokument-Anhänge als klickbare Beilagen, optionaler Cover-QR (qrcodejs im Print-Fenster). Konsument: pm_revisionsunterlagen. |
@@ -4273,3 +4336,5 @@ Wenn Änderungen über mehrere Module ausgerollt werden:
 19. ☐ Freistehende Zahlen-Inputs mit angeschlossener Einheits-Box (`.g-inp-group`/`.fg-unit`)?
 20. ☐ Zentrale Resultate mit `.frml`-Formel-Chips / Tabellen mit `.frml-block`-Legende?
 21. ☐ Keine sichtbaren Excel-/Vorlage-Verweise oder Zellbezüge im UI-Text?
+22. ☐ Neues Berechnungsmodul: `gema_berechnungs_tabs.js` NACH `gema_autosave.js` eingebunden?
+23. ☐ Neuer Einheiten-Umschalter: rechnet er NUR bei `ev.isTrusted` um (AutoSave-Restore + Tab-Wechsel feuern synthetisch)?

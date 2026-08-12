@@ -1,8 +1,11 @@
 /* Drift-Guard: Feedback 12.08.2026 (Sandro Caso, 3 Punkte)
  *
- *  1. sb_druckerhoehung — Berechnungs-Tabs: erstellen (＋), umbenennen
- *     (Rechtsklick), löschen (rotes ✕ mit Bestätigung, Vorauswahl «Nein»);
- *     jeder Tab hält seine eigene Berechnung (hx_anlagen-Muster).
+ *  1. Berechnungs-Tabs: erstellen (＋), umbenennen (Rechtsklick), löschen
+ *     (rotes ✕ mit Bestätigung, Vorauswahl «Nein»); jeder Tab hält seine
+ *     eigene Berechnung (hx_anlagen-Muster). Gefordert war es für die
+ *     Druckerhöhung — umgesetzt als geteilter Helfer
+ *     `gema_berechnungs_tabs.js` in ALLEN Berechnungsmodulen (Folge-Auftrag
+ *     «Die tabs für druckerhöhung soll bei allen berechnungen sein»).
  *  2. sys_workspace — Kachel-Text überlappte die 📄/✕-Knöpfe (lange
  *     Modulnamen liefen ÜBER die Buttons statt umzubrechen).
  *  3. sys_workspace — SIA-Phasen-Wechsel: Bestätigung (Standard «Nein»),
@@ -17,7 +20,7 @@
  *
  * Ausführen:  CHROME=<chromium> node scripts/feedback_20260812_test.mjs
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
 
@@ -97,31 +100,96 @@ ok(/b\.phasen=b\.phasen\.filter\(function\(p\)\{return \(p\.phase\|\|''\)!==neu;
   'Ordner der ZIEL-Phase wird entfernt (deren Stand ist wieder der lebende)');
 ok(ws.includes('ws-mod-tile--frozen'), 'eingefrorene Kacheln eigener Stil (gedimmt, Schloss)');
 
-console.log('— A5: sb_druckerhoehung.html (Berechnungs-Tabs) —');
-const de = lese('sb_druckerhoehung.html');
-ok(de.includes('<textarea id="de_tabs"'), 'Tab-Zustand im hidden #de_tabs (AutoSave pro Objekt+Phase)');
-ok(de.includes('<script src="gema_dialog.js"></script>'), 'gema_dialog.js eingebunden');
-ok(de.includes('<div class="de-ctabs no-print" id="deCtabs">'), 'Tab-Leiste über den Einheiten-Toggles');
-ok(/window\.deTabNeu=function/.test(de) && /window\.deTabSwitch=function/.test(de)
-  && /window\.deTabLoeschen=function/.test(de) && /window\.deTabCtx=function/.test(de),
-  'deTabNeu/Switch/Loeschen/Ctx window-exponiert (Inline-Handler)');
-ok(de.includes("class=\"de-ctab'") && !/deaRender[\s\S]{0,600}class="g-tab/.test(de),
-  'Tab-Buttons als .de-ctab — NICHT .g-tab (globaler g-tab-Listener würfe auf data-tab-lose Tabs)');
-ok(de.includes('<span class="de-ctab-x"'), '✕ als SPAN im Button (Button-in-Button ist ungültiges Markup)');
-ok(de.includes('focusCancel:true') && de.includes("cancelLabel:'Nein, behalten'"),
-  'Lösch-Confirm mit Vorauswahl «Nein»');
-ok(/danger:true,focusCancel:true/.test(de), 'Lösch-Confirm ist danger (roter Bestätigen-Button)');
-ok(de.includes('@media print') && /\.de-ctabs\s*\{\s*display:\s*none/.test(de),
+console.log('— A5: gema_berechnungs_tabs.js (geteilter Helfer) —');
+const gbt = lese('gema_berechnungs_tabs.js');
+ok(/var LEISTE_ID = 'gbtLeiste'/.test(gbt) && /var TA_ID\s+= 'gbt_tabs'/.test(gbt),
+  'feste ids gbtLeiste/gbt_tabs — die Textarea sichert GemaAutoSave als textarea[id]');
+ok(/ta\.id = TA_ID/.test(gbt) && /leiste\.id = LEISTE_ID/.test(gbt),
+  'Leiste UND Zustands-Textarea werden zur Laufzeit injiziert (kein Markup pro Modul)');
+ok(/if \(!w\.GemaAutoSave \|\| !GemaAutoSave\.save\) return false;/.test(gbt),
+  'ohne GemaAutoSave kein Einhängen (Tabs ohne Speicherkanal wären ein halbes Feature)');
+ok(/if \(!document\.getElementById\('metaObjektDropdown'\)\) return false;/.test(gbt),
+  'nur mit Projekt-Auswahl — dort IST der Schnappschuss die Berechnung eines Projekts');
+ok(/class="gbt-tab/.test(gbt) && !/class="g-tab/.test(gbt),
+  'Tab-Buttons als .gbt-tab — NICHT .g-tab (globaler g-tab-Listener würfe auf data-tab-lose Tabs)');
+ok(/<span class="gbt-x"/.test(gbt), '✕ als SPAN im Button (Button-in-Button ist ungültiges Markup)');
+ok(/danger: true, focusCancel: true/.test(gbt), 'Lösch-Confirm danger + Vorauswahl «Nein»');
+ok(/@media print\{#' \+ LEISTE_ID \+ '\{display:none!important\}\}/.test(gbt),
   'Tab-Leiste nicht im Ausdruck');
-ok(de.includes('_pUnit') && de.includes('_fUnit') && /sp==='bar'\?100:1\/100/.test(de),
-  'Snapshot merkt sich seine Einheit — Anwenden rechnet bar/kPa + l/s·m³/h um');
-ok(de.includes('setVfdKat') && de.includes('setVesKat') && /deaApply/.test(de),
-  'LU-Buttons folgen NICHT dem Feldwert → nach dem Anwenden setVfdKat/setVesKat');
-ok(de.indexOf('window.deTabSwitch=function') < de.indexOf("GemaAutoSave.init('druckerhoehung')"),
-  'Tabs-Block VOR der AutoSave-Init (Defaults werden vor dem Restore eingefroren)');
-// Löschen räumt den Snapshot des gelöschten Tabs ab, BEVOR aktiv umgesetzt wird
-ok(/DEA\.list=DEA\.list\.filter\(function\(x\)\{return x\.id!==DEA\.aktiv;\}\);\s*delete DEA\.snaps\[DEA\.aktiv\];/.test(de),
-  'Löschen entfernt den Snapshot des gelöschten Tabs');
+ok(/akt && mehrere && !frozen/.test(gbt), '✕ nur am aktiven Tab und nie am letzten (nie alle löschen)');
+ok(/delete S\.snaps\[S\.aktiv\];/.test(gbt), 'Löschen entfernt den Snapshot des gelöschten Tabs');
+ok(/_vorgabe = felderLesen\(\)/.test(gbt),
+  'Boot-Defaults werden VOR dem AutoSave-Restore eingefroren (neue Berechnung startet leer)');
+ok(/function blobLesen\(/.test(gbt) && /function blobSetzen\(/.test(gbt)
+  && /w\._objReload === 'function'/.test(gbt),
+  'Module mit eigenem _GemaDB-Blob: Blob wandert mit + Neuzeichnen über window._objReload');
+ok(/eingefroren\(\)/.test(gbt) && /nur Lesen — eingefrorener Stand/.test(gbt),
+  'eingefrorener Phasen-Stand: keine ＋/✕/Umbenennen, sichtbarer Hinweis');
+ok(/dispatchEvent\(new Event\('input'/.test(gbt) && /dispatchEvent\(new Event\('change'/.test(gbt),
+  'Anwenden feuert input+change (Muster GemaAutoSave._restore — Modul-Handler laufen selbst)');
+
+console.log('— A6: Verteilung in ALLE Berechnungsmodule —');
+/* Der Sweep liest das Repo — ein NEUES Berechnungsmodul failt damit
+   automatisch, statt still ohne Tabs zu bleiben. */
+const AUSNAHMEN = {
+  'lt_hx_diagramm.html':    'hat die eigene Anlagen-Verwaltung (#hx_anlagen)',
+  'sb_druckverlust.html':   'hat die eigene Berechnungs-Verwaltung (#calcTabBar/switchCalc)',
+  'br_vkf_formular.html':   'Formular-Renderer, AutoSave-Key wechselt zur Laufzeit (vkf_<formKey>)',
+  'sb_vonroll.html':        'kein GemaAutoSave (reines _GemaDB) — der Helfer hängt sich dort nicht ein',
+  'sa_oelabscheider.html':  'kein #metaObjektDropdown (eigene Legacy-Speicherung)'
+};
+const alleHtml = readdirSync(ROOT).filter(f => /\.html$/.test(f));
+const kandidaten = alleHtml.filter(f => {
+  if (!/^(sb_|sa_|hz_|lt_|el_|br_)/.test(f) && f !== 'pm_wirtschaftlichkeit.html') return false;
+  const t = lese(f);
+  return t.includes('gema_autosave.js') && t.includes('id="metaObjektDropdown"');
+});
+ok(kandidaten.length >= 45, 'Sweep findet die Berechnungsmodule (' + kandidaten.length + ')');
+const ohne = kandidaten.filter(f => !lese(f).includes('gema_berechnungs_tabs.js') && !AUSNAHMEN[f]);
+ok(ohne.length === 0, 'jedes Berechnungsmodul bindet den Helfer ein'
+  + (ohne.length ? ' — FEHLT in: ' + ohne.join(', ') : ''));
+Object.keys(AUSNAHMEN).forEach(f => {
+  if (alleHtml.indexOf(f) < 0) return;
+  ok(!lese(f).includes('gema_berechnungs_tabs.js'), 'bewusst ohne Tabs: ' + f + ' (' + AUSNAHMEN[f] + ')');
+});
+/* Module mit eigenem _GemaDB-Blob brauchen window._objReload — und wo ihr
+   Loader bei fehlendem Stand aussteigt (`if(!d) return;`) zusätzlich einen
+   Grundzustands-Zweig, sonst erbt die neue Berechnung (bzw. ein leeres
+   Projekt) die Zeilen der vorherigen. */
+['sb_du_zusammenstellung.html', 'sa_fettabscheider.html'].forEach(f => {
+  const t = lese(f);
+  ok(/function resetSaved\(/.test(t) && /if\(_leer\) resetSaved\(\)/.test(t),
+    f + ': _objReload stellt bei leerem Blob den Grundzustand her');
+});
+['sa_abwasserhebeanlage.html', 'sa_solaranlage.html', 'sb_laengenausdehnung.html',
+ 'sb_apparateliste.html', 'sb_lu_tabelle.html', 'sb_niederschlag.html'].forEach(f => {
+  ok(/window\._objReload\s*=/.test(lese(f)), f + ': window._objReload vorhanden (Blob folgt dem Tab)');
+});
+
+/* Reihenfolge: der Helfer registriert beim DOMContentLoaded und muss VOR dem
+   Modul-Boot laufen, damit er die unberührten Defaults sieht. */
+const falscheReihenfolge = kandidaten.filter(f => {
+  const t = lese(f);
+  const i = t.indexOf('gema_berechnungs_tabs.js');
+  return i >= 0 && i < t.indexOf('gema_autosave.js');
+});
+ok(falscheReihenfolge.length === 0,
+  'Helfer NACH gema_autosave.js eingebunden' + (falscheReihenfolge.length ? ' — falsch: ' + falscheReihenfolge.join(', ') : ''));
+
+console.log('— A7: sb_druckerhoehung.html (Eigenbau entfernt, Einheiten-Fix) —');
+const de = lese('sb_druckerhoehung.html');
+ok(de.includes('<script src="gema_berechnungs_tabs.js"></script>'), 'nutzt den geteilten Helfer');
+ok(!/de-ctab|deCtabs|de_tabs|deTabNeu|deTabSwitch/.test(de),
+  'Eigenbau-Tabs restlos entfernt (keine Doppel-Leiste)');
+/* Einheiten-Umschalter dürfen NUR bei echter Benutzer-Wahl umrechnen — der
+   AutoSave-/Tab-Restore feuert synthetische Events (isTrusted false) und
+   multiplizierte die Werte sonst bei jedem Laden erneut. */
+ok(/function echt\(ev\)\{\s*return !ev \|\| ev\.isTrusted !== false; \}/.test(de),
+  'echt(ev) prüft isTrusted (GEMA-Kanon für Einheiten-Umschalter)');
+ok(/function setPressureUnit\(next, umrechnen\)/.test(de) && /function setFlowUnit\(next, umrechnen\)/.test(de),
+  'setPressureUnit/setFlowUnit nehmen den Umrechnen-Schalter entgegen');
+ok(/togglePressure\(this\.checked, event\)/.test(de) && /toggleFlow\(this\.checked, event\)/.test(de),
+  'Inline-Handler reichen das Event durch');
 
 /* ════════ Teil B — Browser ════════ */
 let chromium = null;
@@ -206,46 +274,46 @@ async function browserTeil() {
   p1.on('pageerror', e => fehler.push('druckerhoehung: ' + e.message));
   await p1.goto(BASE + '/sb_druckerhoehung.html?objekt=obj_t1', { waitUntil: 'domcontentloaded' });
   await p1.waitForTimeout(2200);
-  ok(await p1.locator('#deCtabs .de-ctab').count() === 1, 'Start: eine Berechnung («Berechnung 1»)');
+  ok(await p1.locator('#gbtLeiste .gbt-tab').count() === 1, 'Start: eine Berechnung («Berechnung 1»)');
   await p1.fill('#vfd_pv', '7.77');
-  await p1.click('#deCtabs .de-ctab-add');
+  await p1.click('#gbtLeiste .gbt-add');
   await p1.waitForSelector('.gema-dlg-bg', { timeout: 4000 });
   await p1.fill('#_gdInput', 'Variante B');
   await p1.click('.gema-dlg-bg .gema-dlg-confirm');
   await p1.waitForTimeout(400);
-  ok(await p1.locator('#deCtabs .de-ctab').count() === 2, '＋ legt zweiten Tab an');
-  ok((await p1.locator('#deCtabs .de-ctab.active .de-ctab-name').innerText()) === 'Variante B', 'neuer Tab aktiv + benannt');
+  ok(await p1.locator('#gbtLeiste .gbt-tab').count() === 2, '＋ legt zweiten Tab an');
+  ok((await p1.locator('#gbtLeiste .gbt-tab.active .gbt-name').innerText()) === 'Variante B', 'neuer Tab aktiv + benannt');
   ok((await p1.inputValue('#vfd_pv')) !== '7.77', 'neue Berechnung startet leer (übernimmt NICHT die Werte)');
-  await p1.click('#deCtabs .de-ctab >> nth=0');
+  await p1.click('#gbtLeiste .gbt-tab >> nth=0');
   await p1.waitForTimeout(300);
   ok((await p1.inputValue('#vfd_pv')) === '7.77', 'Zurückwechseln stellt die Werte des ersten Tabs wieder her');
   // Umbenennen per Rechtsklick
-  await p1.click('#deCtabs .de-ctab >> nth=1', { button: 'right' });
+  await p1.click('#gbtLeiste .gbt-tab >> nth=1', { button: 'right' });
   await p1.waitForSelector('.gema-dlg-bg', { timeout: 4000 });
   await p1.fill('#_gdInput', 'Windkessel-Variante');
   await p1.click('.gema-dlg-bg .gema-dlg-confirm');
   await p1.waitForTimeout(300);
-  ok((await p1.locator('#deCtabs .de-ctab >> nth=1').innerText()).includes('Windkessel-Variante'), 'Rechtsklick benennt um');
+  ok((await p1.locator('#gbtLeiste .gbt-tab >> nth=1').innerText()).includes('Windkessel-Variante'), 'Rechtsklick benennt um');
   // Löschen: Vorauswahl «Nein» — Enter darf NICHT löschen
-  await p1.click('#deCtabs .de-ctab >> nth=1');
+  await p1.click('#gbtLeiste .gbt-tab >> nth=1');
   await p1.waitForTimeout(250);
-  await p1.click('#deCtabs .de-ctab.active .de-ctab-x');
+  await p1.click('#gbtLeiste .gbt-tab.active .gbt-x');
   await p1.waitForSelector('.gema-dlg-bg', { timeout: 4000 });
   await p1.waitForTimeout(200);
   ok(await p1.evaluate(() => (document.activeElement && document.activeElement.className || '').includes('gema-dlg-cancel')),
     'Lösch-Dialog: Abbrechen-Button vorausgewählt (Standard «Nein»)');
   await p1.keyboard.press('Enter');
   await p1.waitForTimeout(300);
-  ok(await p1.locator('.gema-dlg-bg').count() === 0 && await p1.locator('#deCtabs .de-ctab').count() === 2,
+  ok(await p1.locator('.gema-dlg-bg').count() === 0 && await p1.locator('#gbtLeiste .gbt-tab').count() === 2,
     'Enter = Nein — Tab bleibt bestehen');
-  await p1.click('#deCtabs .de-ctab.active .de-ctab-x');
+  await p1.click('#gbtLeiste .gbt-tab.active .gbt-x');
   await p1.waitForSelector('.gema-dlg-bg', { timeout: 4000 });
   await p1.click('.gema-dlg-bg .gema-dlg-danger');
   await p1.waitForTimeout(300);
-  ok(await p1.locator('#deCtabs .de-ctab').count() === 1, 'Ja, löschen entfernt den Tab');
-  ok(await p1.locator('#deCtabs .de-ctab .de-ctab-x').count() === 0, 'letzter Tab hat kein ✕ (nie alle löschen)');
-  // Persistenz über Reload (AutoSave → de_tabs + aktive Felder)
-  await p1.click('#deCtabs .de-ctab-add');
+  ok(await p1.locator('#gbtLeiste .gbt-tab').count() === 1, 'Ja, löschen entfernt den Tab');
+  ok(await p1.locator('#gbtLeiste .gbt-tab .gbt-x').count() === 0, 'letzter Tab hat kein ✕ (nie alle löschen)');
+  // Persistenz über Reload (AutoSave → gbt_tabs + aktive Felder)
+  await p1.click('#gbtLeiste .gbt-add');
   await p1.waitForSelector('.gema-dlg-bg', { timeout: 4000 });
   await p1.fill('#_gdInput', 'Variante C');
   await p1.click('.gema-dlg-bg .gema-dlg-confirm');
@@ -255,13 +323,90 @@ async function browserTeil() {
   await p1.waitForTimeout(500);
   await p1.reload({ waitUntil: 'domcontentloaded' });
   await p1.waitForTimeout(2400);
-  ok(await p1.locator('#deCtabs .de-ctab').count() === 2, 'Reload: beide Tabs wiederhergestellt');
-  ok((await p1.locator('#deCtabs .de-ctab.active .de-ctab-name').innerText()) === 'Variante C', 'Reload: aktiver Tab bleibt aktiv');
+  ok(await p1.locator('#gbtLeiste .gbt-tab').count() === 2, 'Reload: beide Tabs wiederhergestellt');
+  ok((await p1.locator('#gbtLeiste .gbt-tab.active .gbt-name').innerText()) === 'Variante C', 'Reload: aktiver Tab bleibt aktiv');
   ok((await p1.inputValue('#vfd_pv')) === '4.44', 'Reload: Werte des aktiven Tabs da (AutoSave)');
-  await p1.click('#deCtabs .de-ctab >> nth=0');
+  await p1.click('#gbtLeiste .gbt-tab >> nth=0');
   await p1.waitForTimeout(300);
-  ok((await p1.inputValue('#vfd_pv')) === '7.77', 'Reload: Snapshot des ersten Tabs übersteht (de_tabs)');
+  ok((await p1.inputValue('#vfd_pv')) === '7.77', 'Reload: Snapshot des ersten Tabs übersteht (gbt_tabs)');
+  /* Einheiten-Umschalter: ECHTER Klick rechnet um, ein programmatisches
+     change (AutoSave-Restore, Tab-Wechsel) NICHT — ohne diesen Guard wurde
+     der Wert bei jedem Neuladen erneut mal 100 genommen (3 bar → 30'000). */
+  const schalter = 'label.g-switch:has(#unitPressureToggle) .g-switch-slider';
+  await p1.click(schalter);                       // Playwright klickt trusted
+  await p1.waitForTimeout(250);
+  const kpa = await p1.inputValue('#vfd_pv');
+  ok(Math.abs(parseFloat(kpa) - 777) < 0.5,
+    'echter Klick rechnet um (7.77 bar → 777 kPa), war ' + kpa);
+  await p1.evaluate(() => GemaAutoSave.save());
+  await p1.waitForTimeout(400);
+  await p1.reload({ waitUntil: 'domcontentloaded' });
+  await p1.waitForTimeout(2400);
+  const nachReload = await p1.inputValue('#vfd_pv');
+  ok(Math.abs(parseFloat(nachReload) - 777) < 0.5,
+    'Reload rechnet NICHT nochmals um (isTrusted-Regel), war ' + nachReload);
+  ok(await p1.isChecked('#unitPressureToggle'), 'Reload: Einheit bleibt kPa');
+  /* Und die Gegenprobe im Tab-Wechsel: der Snapshot merkt sich seine Einheit,
+     der zweite Tab steht noch auf bar. */
+  await p1.click('#gbtLeiste .gbt-tab >> nth=0');
+  await p1.waitForTimeout(500);
+  const tab1 = await p1.inputValue('#vfd_pv');
+  ok(Math.abs(parseFloat(tab1) - 777) < 0.5 || Math.abs(parseFloat(tab1) - 7.77) < 0.01,
+    'Tab-Wechsel liefert den Wert in einer der beiden Einheiten, nicht mal 100 (war ' + tab1 + ')');
   await p1.close();
+
+  /* ── B1b: derselbe Helfer in einem strukturell anderen Modul ── */
+  console.log('— B1b: gleicher Helfer in sb_grundleitungen (Zeilen in JSON-Textarea) —');
+  const p1b = await ctx.newPage();
+  p1b.on('pageerror', e => fehler.push('grundleitungen: ' + e.message));
+  await p1b.goto(BASE + '/sb_grundleitungen.html?objekt=obj_t1', { waitUntil: 'domcontentloaded' });
+  await p1b.waitForTimeout(2600);
+  ok(await p1b.locator('#gbtLeiste .gbt-tab').count() === 1, 'Leiste hängt sich selbst ein (kein Modul-Markup)');
+  await p1b.evaluate(() => { if (window.glQAdd) glQAdd('fallstrang', 'a1'); });
+  await p1b.waitForTimeout(600);
+  const zeilenA = await p1b.evaluate(() => (document.getElementById('gl_rows') || {}).value || '');
+  await p1b.click('#gbtLeiste .gbt-add');
+  await p1b.waitForSelector('.gema-dlg-bg', { timeout: 4000 });
+  await p1b.click('.gema-dlg-bg .gema-dlg-confirm');
+  await p1b.waitForTimeout(900);
+  const zeilenNeu = await p1b.evaluate(() => (document.getElementById('gl_rows') || {}).value || '');
+  ok(zeilenNeu !== zeilenA && zeilenNeu.length < zeilenA.length,
+    'neue Berechnung startet mit dem Grundzustand (dynamische Zeilen weg)');
+  await p1b.click('#gbtLeiste .gbt-tab >> nth=0');
+  await p1b.waitForTimeout(900);
+  ok((await p1b.evaluate(() => (document.getElementById('gl_rows') || {}).value || '')) === zeilenA,
+    'Zurückwechseln stellt die Zeilen wieder her (Modul-Restore läuft über input/change selbst)');
+  await p1b.close();
+
+  /* ── B1c: Modul mit eigenem _GemaDB-Blob (Zustand NICHT im AutoSave) ── */
+  console.log('— B1c: gleicher Helfer in sb_du_zusammenstellung (_GemaDB-Blob) —');
+  const p1c = await ctx.newPage();
+  p1c.on('pageerror', e => fehler.push('du_zusammenstellung: ' + e.message));
+  await p1c.goto(BASE + '/sb_du_zusammenstellung.html?objekt=obj_t1', { waitUntil: 'domcontentloaded' });
+  await p1c.waitForTimeout(2600);
+  const setzeDu = (v) => p1c.evaluate(val => {
+    const el = document.getElementById('qty_URW');
+    el.value = val;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }, v);
+  await setzeDu('5');
+  await p1c.waitForTimeout(700);
+  await p1c.click('#gbtLeiste .gbt-add');
+  await p1c.waitForSelector('.gema-dlg-bg', { timeout: 4000 });
+  await p1c.click('.gema-dlg-bg .gema-dlg-confirm');
+  await p1c.waitForTimeout(1100);
+  ok((await p1c.inputValue('#qty_URW')) === '',
+    'neue Berechnung startet leer — auch wenn der Zustand im Blob liegt (resetSaved)');
+  await setzeDu('12');
+  await p1c.waitForTimeout(700);
+  await p1c.click('#gbtLeiste .gbt-tab >> nth=0');
+  await p1c.waitForTimeout(1200);
+  ok((await p1c.inputValue('#qty_URW')) === '5', 'Zurückwechseln holt den Blob des ersten Tabs');
+  await p1c.click('#gbtLeiste .gbt-tab >> nth=1');
+  await p1c.waitForTimeout(1200);
+  ok((await p1c.inputValue('#qty_URW')) === '12', 'und wieder den des zweiten (Blob wandert mit)');
+  await p1c.close();
 
   /* ── B2: Workspace — Kachel-Text überlappt die Buttons nicht ── */
   console.log('— B2: Workspace — Kachel-Layout (Titel vs. 📄/✕) —');
