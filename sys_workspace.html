@@ -150,6 +150,8 @@ input::placeholder{color:#cbd5e1}
 
 /* ── Content Scroll ── */
 .ws-content-scroll{flex:1;overflow-y:auto;padding:0 28px 32px;display:flex;flex-direction:column;gap:24px}
+/* Ohne Eimer-Kopf (Direkt-Modul-Eimer) klebt der Inhalt sonst an der Tab-Leiste */
+.ws-content-scroll--nohead{padding-top:10px}
 .ws-section-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:var(--ink-3)}
 .ws-section-head-content{display:flex;align-items:center;gap:10px;margin:8px 0 -8px;padding:10px 4px 0}
 .ws-section-count{font-size:11px;color:var(--ink-3);background:var(--line-2);padding:1px 7px;border-radius:999px}
@@ -1040,6 +1042,20 @@ input::placeholder{color:#cbd5e1}
     });
     _snap={};
     buckets.forEach(function(b){ _snap[b.id]=JSON.stringify(b); });
+    /* Rollen-/Direkt-Modul-Eimer tragen NIE ein Objekt (Feedback 11.08.2026).
+       Die Normalisierung sitzt bewusst HIER, im einen Punkt, durch den jeder
+       Lesepfad läuft: `_poolRead` bevorzugt den In-Memory-Spiegel von
+       gema_sync, der den lokalen Pool-Write von save() nicht mitbekommt — ein
+       einmaliges Bereinigen beim Provisionieren würde davon wieder
+       überschrieben. `_snap` steht vorher: die Bereinigung zählt damit als
+       Änderung und wird beim nächsten save() von selbst nachgezogen.
+       KEIN save() von hier aus: das setzt `_saveT`, und der Boot wertet genau
+       das als «lokale Änderung unterwegs» und überspringt dann load()+render()
+       nach dem Cloud-Pull. Der Speicher-Zustand ist die Wahrheit, der Rest
+       zieht beim nächsten ohnehin fälligen save() nach.
+       Das ausgelagerte Objekt selbst wird NIE gelöscht — hier fällt nur die
+       Referenz weg (siehe _wsEnsureObjekt / _wsAutoRollenEimer). */
+    buckets.forEach(function(b){ if(_wsOhneObjekt(b)&&b.objektId) b.objektId=null; });
   }
   function save(){
     // Lokal SOFORT durable (Pool-Cache — auch Quelle für index.html-Chips
@@ -2124,7 +2140,20 @@ input::placeholder{color:#cbd5e1}
   };
 
   // ── Auto-Objekt: Jeder Eimer bekommt automatisch ein Objekt ──
+  // AUSSER dem Rollen-/Direkt-Modul-Eimer (Feedback 11.08.2026 — «Lieferanten
+  // Dashboard soll nicht zur Auswahl stehen»): dessen Auto-Objekt landete als
+  // ganz normales Projekt in JEDER Objekt-Auswahl der Berechnungen, obwohl
+  // «Lieferanten-Dashboard» kein Bauprojekt ist. Der Eimer bettet nur eine
+  // Seite ein und braucht gar kein Objekt.
+  // Der Übungs-Eimer der Klassen (autoTyp 'uebung') ist bewusst NICHT
+  // betroffen — dort laufen echte Berechnungen auf dem Auto-Objekt.
+  function _wsOhneObjekt(b){ return !!(b && (b.direktModul || b.autoTyp==='rolle')); }
   function _wsEnsureObjekt(b){
+    // Kein Auto-Objekt für Rollen-/Direkt-Modul-Eimer. Wichtig ist auch der
+    // ZWEITE Effekt: die Wiederbelebung weiter unten (objektId gesetzt, Objekt
+    // fehlt → neu anlegen) greift damit nicht mehr — ein in pm_objekte
+    // gelöschtes «Lieferanten-Dashboard»-Objekt kommt nicht zurück.
+    if(_wsOhneObjekt(b))return null;
     // Wenn der Eimer bereits eine objektId hat: pruefen, ob das Objekt
     // noch im pm_objekte-Bestand existiert. Wenn nicht (geloescht,
     // archiviert, Org-Wechsel), legen wir es neu unter derselben ID an —
@@ -2485,7 +2514,9 @@ input::placeholder{color:#cbd5e1}
       modsHtml='<div class="ws-mod-hero-row">'+_wsHeroAdd()+_wsHeroVorlagen(b)+_wsHeroZuletzt(b)+'</div>';
     }else{
       var objId=_wsEnsureObjekt(b);
-      try{
+      // objId kann null sein (Eimer ohne Auto-Objekt) — dann NICHT das aktive
+      // Objekt leeren, sonst verliert der Nutzer seine Projektwahl.
+      if(objId)try{
         if(typeof GemaObjekte!=='undefined')GemaObjekte.setActiveId(objId);
         else{var d=JSON.parse(localStorage.getItem('gema_objekte_v1')||'{}');d.activeObjektId=objId;localStorage.setItem('gema_objekte_v1',JSON.stringify(d));}
       }catch(e){}
@@ -2547,7 +2578,14 @@ input::placeholder{color:#cbd5e1}
         }).join('')+'</ul></div>';
     }
 
-    document.getElementById('wsContentArea').innerHTML=
+    /* Direkt-Modul-Eimer: KEIN Eimer-Kopf (Feedback 11.08.2026 — «wenn man
+       im Dashboard im Workspace ist, soll dieser Teil ausgeblendet sein,
+       aber nur im Dashboard»). Der Eimer ist hier bloss der Rahmen um eine
+       eingebettete Seite; Titel, Typ-Pille, «N Mitglieder · erstellt …» und
+       die Knöpfe (Objekt verknüpfen / Einladen) beschreiben ein Bauprojekt
+       und sind an einem Dashboard irreführend. Tab-Leiste und eingebetteter
+       Inhalt bleiben; bei JEDEM normalen Eimer bleibt der Kopf unverändert. */
+    var headHtml = direktMod ? '' :
       '<div class="ws-bucket-header"><div class="ws-bucket-header-left">'
       +'<div class="ws-bucket-type-icon">'+icon(t.icon,18)+'</div>'
       +'<div style="min-width:0"><h1 class="ws-bucket-title" contenteditable="true" spellcheck="false"'
@@ -2567,8 +2605,11 @@ input::placeholder{color:#cbd5e1}
       +'<div class="ws-bucket-actions">'
       +'<button class="ws-btn ws-btn-ghost" onclick="_wsLinkObjekt()">'+icon('building',14)+' '+(b.objektId?'Objekt ändern':'Objekt verknüpfen')+'</button>'
       +(_wsDozKandidaten().length?'<button class="ws-btn ws-btn-ghost" onclick="_wsDozentEinladen()" title="Dozent in diesen Eimer einladen">'+icon('grad',14)+' Dozent einladen</button>':'')
-      +'<button class="ws-btn ws-btn-ghost" id="wsInviteBtn" onclick="_wsInvite()">'+icon('plus',14)+' Einladen</button></div></div>'
-      +'<div class="ws-content-scroll">'
+      +'<button class="ws-btn ws-btn-ghost" id="wsInviteBtn" onclick="_wsInvite()">'+icon('plus',14)+' Einladen</button></div></div>';
+
+    document.getElementById('wsContentArea').innerHTML=
+      headHtml
+      +'<div class="ws-content-scroll'+(direktMod?' ws-content-scroll--nohead':'')+'">'
       +(direktMod
         ?'<div class="ws-section-head-content"><span class="ws-section-title">'+esc(direktMod.name)+'</span></div>'
         :'<div class="ws-section-head-content"><span class="ws-section-title">Module</span><span class="ws-section-count">'+b.modules.length+'</span></div>')
@@ -3879,6 +3920,14 @@ input::placeholder{color:#cbd5e1}
         buckets.push(b);changed=true;
       }
       if(b.pinned!==true){b.pinned=true;changed=true;}
+      /* Altbestand: eine frühere Instanz lief als Modul-KACHEL und hat sich
+         dabei ein Auto-Objekt angelegt («Lieferanten-Dashboard» stand danach
+         in jeder Objekt-Auswahl). Der Eimer lässt die Referenz hier LOS —
+         das Objekt selbst wird bewusst NICHT gelöscht (an einem Objekt können
+         Daten hängen); es lässt sich in pm_objekte → «🧹 Aufräumen» entfernen
+         und kommt danach nicht mehr zurück, weil _wsEnsureObjekt für diesen
+         Eimer nichts mehr anlegt. */
+      if(b.objektId){b.objektId=null;changed=true;}
       if(def.direkt){
         if(b.direktModul!==def.direkt){b.direktModul=def.direkt;changed=true;}
         var vorher=(b.modules||[]).length;
