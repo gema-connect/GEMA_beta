@@ -653,6 +653,71 @@ function erkenneMapping(headers,sekId){
   return map;
 }
 
+/* Güte einer Zuordnung: reicht sie zum Importieren, und wie viel wurde erkannt? */
+function mappingGuete(map,sekId){
+  var sek=sektion(sekId);
+  if(!sek)return {pflichtOk:false,fehlendePflicht:[],erkannt:0,gesamt:0};
+  var fehlt=sek.felder.filter(function(f){return f.pflicht&&map[f.id]==null;});
+  var erkannt=sek.felder.filter(function(f){return map[f.id]!=null;}).length;
+  return {pflichtOk:fehlt.length===0, fehlendePflicht:fehlt.map(function(f){return f.label;}),
+          erkannt:erkannt, gesamt:sek.felder.length};
+}
+
+/* Alias → Sektion, aber NUR für Aliasse, die genau EINE Sektion führt.
+   Diese eindeutigen Spaltennamen sind die verlässlichen Erkennungsmerkmale
+   («esr_ref» gibt es nur im Rechnungs-Export, «astatustext» nur bei den
+   Aufträgen). Der Index wird aus den Alias-Listen GERECHNET statt von Hand
+   gepflegt — so bleibt er richtig, wenn jemand die Aliasse ergänzt. */
+var _uniqCache=null;
+function _uniqAlias(){
+  if(_uniqCache)return _uniqCache;
+  var zaehler={};
+  SEKTIONEN.forEach(function(sek){
+    var gesehen={};
+    (sek.felder||[]).forEach(function(f){
+      (f.alias||[]).forEach(function(a){
+        if(gesehen[a])return;gesehen[a]=1;
+        (zaehler[a]=zaehler[a]||[]).push(sek.id);
+      });
+    });
+  });
+  _uniqCache={};
+  Object.keys(zaehler).forEach(function(a){if(zaehler[a].length===1)_uniqCache[a]=zaehler[a][0];});
+  return _uniqCache;
+}
+
+/* Welcher Abschnitt steckt in dieser Datei? Bewertet JEDE Sektion gegen die
+   Kopfzeile und liefert die Rangliste. «sicher» heisst: Pflichtfelder da,
+   mindestens zwei eindeutige Merkmale, und deutlicher Abstand zur Zweiten —
+   sonst entscheidet der Mensch. Es wird nie geraten und nie stillschweigend
+   importiert; die Oberfläche zeigt das Ergebnis immer an. */
+function erkenneSektion(headers){
+  var uniq=_uniqAlias();
+  var hs=(headers||[]).map(function(h){return norm(h);}).filter(Boolean);
+  var liste=SEKTIONEN.filter(function(sek){return sek.bereit;}).map(function(sek){
+    var map=erkenneMapping(headers,sek.id);
+    var g=mappingGuete(map,sek.id);
+    var marker=0,gez={};
+    hs.forEach(function(h){if(uniq[h]===sek.id&&!gez[h]){gez[h]=1;marker++;}});
+    return {sekId:sek.id, label:sek.label, ic:sek.ic, mapping:map, marker:marker,
+            erkannt:g.erkannt, gesamt:g.gesamt, pflichtOk:g.pflichtOk,
+            fehlendePflicht:g.fehlendePflicht,
+            punkte:marker*5+g.erkannt+(g.pflichtOk?3:0)};
+  }).sort(function(a,b){return b.punkte-a.punkte;});
+  var b=liste[0]||null, z=liste[1]||null;
+  var sicher=!!(b&&b.pflichtOk&&b.marker>=2&&(!z||b.punkte>=z.punkte+3));
+  return {beste:b, sicher:sicher, liste:liste};
+}
+
+/* Reihenfolge, in der die Abschnitte importiert werden MÜSSEN: jeder hängt
+   sich an das an, was schon da ist (Rechnung → Auftrag → Offerte → Objekt).
+   Wer die Rechnungen zuerst einliest, bekommt Belege ohne Verknüpfung. */
+var IMPORT_REIHENFOLGE=['objekte','adressen','offerten','auftraege','rechnungen'];
+function sektionRang(sekId){
+  var i=IMPORT_REIHENFOLGE.indexOf(sekId);
+  return i<0?99:i;
+}
+
 function zelle(row,map,feld){
   var i=map[feld];
   return (i==null||i<0)?'':s(row[i]);
@@ -1536,6 +1601,8 @@ window.GemaErpImport={
   SEKTIONEN:SEKTIONEN, sektion:sektion,
   leseDatei:leseDatei, leseXlsx:leseXlsx, parseCsv:parseCsv,
   erkenneMapping:erkenneMapping, normalisiereZeile:normalisiereZeile,
+  erkenneSektion:erkenneSektion, mappingGuete:mappingGuete,
+  IMPORT_REIHENFOLGE:IMPORT_REIHENFOLGE, sektionRang:sektionRang,
   pruefe:pruefe, findeKopfzeile:findeKopfzeile,
   parseAnschrift:parseAnschrift, parseAdressBlock:parseAdressBlock,
   vorbereiten:vorbereiten, ausfuehren:ausfuehren,

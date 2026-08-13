@@ -455,6 +455,19 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px}
 .mig-map select{flex:1;min-width:0;max-width:170px}
 .mig-step{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--mut);margin-bottom:13px;flex-wrap:wrap}
 .mig-step b{color:var(--acc)}
+/* Ein Einstieg für alles: Dateien hier ablegen, GEMA erkennt den Abschnitt */
+.mig-drop{border:2px dashed var(--brd2);border-radius:14px;padding:22px 18px;text-align:center;background:var(--sur);
+  cursor:pointer;transition:.12s;margin-bottom:18px}
+.mig-drop:hover,.mig-drop.ueber{border-color:var(--acc);background:var(--tint)}
+.mig-drop .t{font-weight:800;font-size:15px;margin-bottom:5px}
+.mig-drop .s{font-size:12.5px;color:var(--mut);line-height:1.55}
+.mig-datei{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--brd);border-radius:10px;
+  padding:9px 12px;margin-bottom:8px;background:var(--sur)}
+.mig-datei .ic{font-size:20px;line-height:1.2}
+.mig-datei .nm{font-weight:700;font-size:13px;word-break:break-all}
+.mig-datei .de{font-size:11.5px;color:var(--mut);line-height:1.5;margin-top:2px}
+.mig-datei.warn{border-color:#fde68a;background:#fffbeb}
+.mig-datei.err{border-color:var(--red-bd);background:var(--red-bg)}
 @media print{.g-nav,.no-print{display:none!important}}
 </style>
 <script src="gema_db.js"></script>
@@ -1843,7 +1856,7 @@ function erpColRsUp(){
 }
 function erpSetDocView(v){_erpDocView=(v==='karten'?'karten':'liste');try{localStorage.setItem('gema_erp_docview_v1',_erpDocView);}catch(e){}erpRenderToolbar();erpRenderList();}
 function toast(m){var el=document.getElementById('toast');el.textContent=m;el.classList.add('show');clearTimeout(_tT);_tT=setTimeout(function(){el.classList.remove('show');},2400);}
-function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 function chf(v){return (Math.round(v*100)/100).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function today(){return new Date().toISOString().slice(0,10);}
 function dfmt(d){if(!d)return '—';var p=String(d).slice(0,10).split('-');return p.length===3?(p[2]+'.'+p[1]+'.'+p[0]):d;}
@@ -2761,6 +2774,13 @@ function erpUpdateUndoBtns(){
 function erpFlushSave(){
   if(_erpSaveTimer){clearTimeout(_erpSaveTimer);_erpSaveTimer=null;}
   if(_erpSavePending&&cur){_erpSavePending=false;_erpTrack(erpPersistCur());}
+}
+// Ausstehenden Save VERWERFEN (nicht nachholen) — nötig vor dem Löschen:
+// ein offener Debounce würde den gelöschten Beleg wieder in den Pool schreiben.
+function erpSaveAbbrechen(){
+  if(_erpSaveTimer){clearTimeout(_erpSaveTimer);_erpSaveTimer=null;}
+  _erpSavePending=false;
+  var el=document.getElementById('saveStatus');if(el)el.classList.add('hidden');
 }
 function erpSaveSetStatus(state){
   if(_erpSaveHide){clearTimeout(_erpSaveHide);_erpSaveHide=null;}
@@ -3884,7 +3904,7 @@ function erpDocCtx(e,id){
     }
   }
   items.push({ic:'📄',t:'PDF',fn:function(){erpOpen(id);erpPdf();}});
-  if(canEdit&&d.status==='entwurf'){
+  if(canEdit){   // immer löschbar — der Dialog listet die Verknüpfungen auf
     items.push('-');
     items.push({ic:'🗑',t:'Löschen',danger:true,fn:function(){erpOpen(id);erpLoeschen();}});
   }
@@ -5034,7 +5054,10 @@ function erpRenderFooter(){
   }
   ft+='<button class="btn" onclick="erpVorlOpen()">📑 Vorlagen</button>';
   ft+='<button class="btn" onclick="erpPdf()">📄 PDF</button>';
-  if(editable&&d.status==='entwurf'||d.typ==='offerte'&&d.status==='entwurf')ft+='<button class="btn red" onclick="erpLoeschen()">🗑</button>';
+  // Löschen ist IMMER möglich (nicht nur im Entwurf) — eine Fehlerfassung muss
+  // auch nach dem Versenden korrigierbar sein; der Dialog zeigt vorher, was
+  // daran hängt. Gate ist allein das Schreibrecht.
+  if(erpCanEdit())ft+='<button class="btn red" onclick="erpLoeschen()">🗑</button>';
   // Feedback auch im Editor erreichbar: der Vollbild-Editor legt sich über die
   // Nav, der 🔴-Knopf oben wäre sonst nicht klickbar (Muster pm_pruefliste).
   ft+='<button class="gema-feedback-btn no-print" style="margin-left:auto" onclick="GemaFeedback.start()">🔴 Feedback</button>';
@@ -5067,11 +5090,270 @@ function erpGrunddatenToggle(){
   if(sec){sec.style.display=_erpGrunddatenOffen?'':'none';if(_erpGrunddatenOffen)try{sec.scrollIntoView({behavior:'smooth',block:'start'});}catch(_){}}
   erpRenderFooter();   // Button-Label aktualisieren (anpassen ⇄ ausblenden)
 }
+// ═══════════════════════════════════════════════════════════
+// LÖSCHEN — immer möglich, mit Auflistung aller Verknüpfungen
+// ═══════════════════════════════════════════════════════════
+// Ein Beleg lässt sich IMMER löschen (früher nur im Entwurf). Eine
+// Fehlerfassung muss auch nach dem Versenden korrigierbar sein — statt
+// den Knopf zu verstecken, zeigt der Dialog VORHER, was daran hängt.
+//
+// REGEL (steht auch so in der Auflistung): Mitgelöscht wird nur, was
+// ohne diesen Beleg gegenstandslos ist — nachgelagerte Belege der Kette,
+// Kreditoren, reine Plan-Termine. Was eigenständig Bestand hat, wird NIE
+// gelöscht, sondern nur entkoppelt: erfasste Arbeitszeit (lohnrelevant),
+// Regierapporte, Serviceaufträge, Abschlussmeldungen der Monteure.
+// Vorgelagerte Belege gehen nie mit — eine Offerte, die der Kunde
+// erhalten hat, verschwindet nicht, weil ihr Auftrag gelöscht wird.
+
+// Fremde Pools, an denen ein ERP-Beleg hängen kann. Einzel-Writes über
+// GemaSync.saveRecord/deleteRecord (Pools sind cross-org — NIE persistCollection).
+var ERP_FREMD={
+  einsatz:{key:'gema_einsatz_pool_v1',      modul:'einsatzplan',      prefix:'einsatz:'},
+  std    :{key:'gema_std_pool_v1',          modul:'stundenerfassung', prefix:'std:'},
+  regie  :{key:'gema_regie_pool_v1',        modul:'regierapport',     prefix:'regie:'},
+  svauf  :{key:'gema_sv_auftraege_pool_v1', modul:'service',          prefix:'svauf:'}
+};
+function erpFremdSave(p,rec){
+  var pool=poolRead(p.key).slice();
+  var i=pool.findIndex(function(x){return x&&x.id===rec.id;});
+  if(i>=0)pool[i]=rec;else pool.push(rec);
+  _memStore[p.key]=pool;
+  try{localStorage.setItem(p.key,JSON.stringify(pool));}catch(e){}
+  if(typeof GemaSync!=='undefined'&&GemaSync.saveRecord)GemaSync.saveRecord(p.modul,p.prefix+rec.id,rec).catch(function(){});
+}
+function erpFremdDel(p,id){
+  var pool=poolRead(p.key).filter(function(x){return !x||x.id!==id;});
+  _memStore[p.key]=pool;
+  try{localStorage.setItem(p.key,JSON.stringify(pool));}catch(e){}
+  if(typeof GemaSync!=='undefined'&&GemaSync.deleteRecord)GemaSync.deleteRecord(p.modul,p.prefix+id).catch(function(){});
+}
+
+// Sucht ALLES, was am Beleg hängt. Liefert die Rohdaten fürs Ausführen und
+// die fertigen Gruppen für die Auflistung im Dialog.
+//
+// KRITISCH — der Scan hängt am Haken: OHNE ihn wird NUR der Primärbeleg
+// gelöscht, die nachgelagerten Belege bleiben stehen. Was an DENEN hängt
+// (Regierapport «verrechnet in RE-…», Serviceauftrag, Abschlussmeldung),
+// darf dann auch nicht entkoppelt werden — sonst löst der Löschvorgang
+// Verknüpfungen zu Belegen, die es weiterhin gibt.
+function erpLoeschScan(d,mit){
+  if(mit===undefined)mit=true;
+  var u=erpUser(), oid=u?u.orgId:'';
+  var alle=erpDocs();
+  var rechnungenVon=function(aufId){
+    return alle.filter(function(x){return x.typ==='rechnung'&&x.verknuepfung&&x.verknuepfung.auftragId===aufId;});
+  };
+  // ── Nachgelagerte Belege der Kette
+  var folge=[], gesehen={};gesehen[d.id]=1;
+  var nimm=function(x){if(!x||gesehen[x.id])return;gesehen[x.id]=1;folge.push(x);};
+  if(d.typ==='offerte'){
+    alle.filter(function(x){return x.typ==='auftrag'&&x.verknuepfung&&x.verknuepfung.offerteId===d.id;})
+        .forEach(function(a){nimm(a);rechnungenVon(a.id).forEach(nimm);});
+  }
+  if(d.typ==='auftrag')rechnungenVon(d.id).forEach(nimm);
+  // Wirklich gelöscht wird: der Primärbeleg immer, die Kette nur mit Haken.
+  var weg={};(mit?[d].concat(folge):[d]).forEach(function(x){weg[x.id]=x;});
+  var wegNr={};Object.keys(weg).forEach(function(k){if(weg[k].nr)wegNr[weg[k].nr]=1;});
+
+  // ── Vorgelagerte Offerte: verliert nur den Verweis auf ihren Auftrag
+  var vor=[];
+  Object.keys(weg).forEach(function(k){
+    var x=weg[k];if(x.typ!=='auftrag')return;
+    var ofid=x.verknuepfung&&x.verknuepfung.offerteId;
+    if(!ofid||weg[ofid])return;
+    var o=alle.find(function(y){return y.id===ofid;});
+    if(o&&vor.indexOf(o)<0)vor.push(o);
+  });
+
+  // ── Kreditoren (Lieferantenrechnungen) am Auftrag
+  var kreds=erpKreditoren().filter(function(k){return k.auftragId&&weg[k.auftragId];});
+
+  // ── Termine: mit erfasster Arbeitszeit nur entkoppeln, sonst löschbar
+  var tage=poolRead(ERP_FREMD.std.key).filter(function(t){return t&&t.orgId===oid;});
+  var stdIds={};
+  tage.forEach(function(t){
+    if(t.typ||!Array.isArray(t.eintraege))return;   // typ-Records = Anträge/Auszahlungen
+    t.eintraege.forEach(function(en){if(en&&en.einsatzId)stdIds[en.einsatzId]=1;});
+  });
+  var termine=poolRead(ERP_FREMD.einsatz.key).filter(function(e){return e&&e.orgId===oid&&e.auftragId&&weg[e.auftragId];});
+  var terminePlan=termine.filter(function(e){return !stdIds[e.id];});
+  var termineZeit=termine.filter(function(e){return !!stdIds[e.id];});
+
+  // ── Abschlussmeldungen der Monteure, die auf eine gelöschte Offerte zeigen
+  var stdTage=tage.filter(function(t){
+    var m=t&&t.terminAbschluss;if(!m)return false;
+    return Object.keys(m).some(function(k){return m[k]&&m[k].offerteId&&weg[m[k].offerteId];});
+  });
+
+  // ── Regierapporte: als «verrechnet in RE-…» markiert (Verweis über die NUMMER)
+  var regie=poolRead(ERP_FREMD.regie.key).filter(function(r){return r&&r.orgId===oid&&r.verrechnetIn&&wegNr[r.verrechnetIn];});
+
+  // ── Serviceaufträge, die auf eine gelöschte Rechnung zeigen
+  var svauf=poolRead(ERP_FREMD.svauf.key).filter(function(a){return a&&a.orgId===oid&&a.rechnungId&&weg[a.rechnungId];});
+
+  var g=[];
+  var zeile=function(ic,txt,zusatz){return {ic:ic,txt:txt,zusatz:zusatz||''};};
+  if(folge.length)g.push({art:'loeschen',ic:'📑',titel:'Belege der Kette',
+    hinweis:'hängen an diesem Beleg',
+    zeilen:folge.map(function(x){return zeile(TYP[x.typ].ic,(x.nr||'—')+' · '+TYP[x.typ].n,(ST[erpStatusOf(x)]||{}).n||'');})});
+  if(kreds.length)g.push({art:'loeschen',ic:'💳',titel:'Kreditoren',
+    hinweis:'Lieferantenrechnungen zum Auftrag',
+    zeilen:kreds.map(function(k){return zeile('💳',(k.lieferant||'—')+(k.rechnungsNr?' · '+k.rechnungsNr:''),k.betrag?('CHF '+chf(erpNum(k.betrag))):'');})});
+  if(terminePlan.length)g.push({art:'loeschen',ic:'📅',titel:'Termine ohne erfasste Zeit',
+    hinweis:'reine Planung für diesen Auftrag',
+    zeilen:terminePlan.map(function(e){return zeile('📅',dfmt(e.datum)+' · '+(e.monteurName||e.titel||'—'),e.titel&&e.monteurName?e.titel:'');})});
+  if(termineZeit.length)g.push({art:'entkoppeln',ic:'⏱',titel:'Termine mit erfasster Arbeitszeit',
+    hinweis:'bleiben bestehen — die Zeit ist lohnrelevant; nur der Auftrags-Bezug wird entfernt',
+    zeilen:termineZeit.map(function(e){return zeile('⏱',dfmt(e.datum)+' · '+(e.monteurName||e.titel||'—'),e.titel&&e.monteurName?e.titel:'');})});
+  if(regie.length)g.push({art:'entkoppeln',ic:'📝',titel:'Regierapporte',
+    hinweis:'bleiben bestehen und sind danach wieder verrechenbar',
+    zeilen:regie.map(function(r){return zeile('📝',(r.nr||'—')+(r.beschrieb?' · '+String(r.beschrieb).slice(0,60):''),'verrechnet in '+r.verrechnetIn);})});
+  if(svauf.length)g.push({art:'entkoppeln',ic:'🛠',titel:'Serviceaufträge',
+    hinweis:'bleiben bestehen und gehen zurück auf «erledigt»',
+    zeilen:svauf.map(function(a){return zeile('🛠',(a.anlageName||'—')+(a.objektName?' · '+a.objektName:''),dfmt(a.faelligAm));})});
+  if(stdTage.length)g.push({art:'entkoppeln',ic:'✅',titel:'Abschlussmeldungen',
+    hinweis:'bleiben bestehen — nur der Verweis auf die Offerte wird entfernt',
+    zeilen:stdTage.map(function(t){return zeile('✅',dfmt(t.datum)+' · '+(t.userName||'—'),'');})});
+  if(vor.length)g.push({art:'entkoppeln',ic:'🔗',titel:'Vorgelagerte Offerte',
+    hinweis:'bleibt bestehen — verliert nur den Verweis auf den Auftrag',
+    zeilen:vor.map(function(o){return zeile(TYP[o.typ].ic,(o.nr||'—')+' · '+TYP[o.typ].n,(ST[erpStatusOf(o)]||{}).n||'');})});
+
+  var anzL=folge.length+kreds.length+terminePlan.length;
+  var anzE=termineZeit.length+regie.length+svauf.length+stdTage.length+vor.length;
+  return {doc:d,mit:mit,folge:folge,vor:vor,kreds:kreds,terminePlan:terminePlan,termineZeit:termineZeit,
+          regie:regie,svauf:svauf,stdTage:stdTage,weg:weg,wegNr:wegNr,
+          gruppen:g,anzLoeschbar:anzL,anzEntkoppeln:anzE};
+}
+
+// Auflistung fürs Dialog-HTML (Muster GemaStorage.confirmDelete: benennen
+// statt verschweigen, lange Listen mit «… und N weitere» kappen)
+function erpLoeschHtml(sc){
+  var h='', mit=sc.mit;
+  sc.gruppen.forEach(function(gr){
+    var loesch=gr.art==='loeschen';
+    var farbe=loesch?(mit?'var(--red)':'var(--mut)'):'var(--mut)';
+    h+='<div style="margin-top:10px;border:1px solid var(--bd);border-radius:8px;overflow:hidden">'
+      +'<div style="padding:6px 9px;background:var(--bg2);font-weight:800;font-size:12px;display:flex;gap:6px;align-items:baseline;flex-wrap:wrap">'
+      +'<span>'+gr.ic+' '+esc(gr.titel)+' ('+gr.zeilen.length+')</span>'
+      +'<span style="font-weight:500;font-size:11px;color:'+farbe+'">'
+      +(loesch?(mit?'werden mitgelöscht':'bleiben bestehen, Bezug wird entfernt'):esc(gr.hinweis))+'</span></div>'
+      +'<div style="padding:5px 9px;font-size:11.5px;line-height:1.55">';
+    gr.zeilen.slice(0,8).forEach(function(z){
+      h+='<div>'+z.ic+' '+esc(z.txt)+(z.zusatz?' <span style="color:var(--mut2)">· '+esc(z.zusatz)+'</span>':'')+'</div>';
+    });
+    if(gr.zeilen.length>8)h+='<div style="color:var(--mut2)">… und '+(gr.zeilen.length-8)+' weitere</div>';
+    h+='</div></div>';
+  });
+  return h;
+}
+// Der Haken ändert nicht nur die Ausführung, sondern auch die Auflistung:
+// ohne ihn bleiben die nachgelagerten Belege stehen, und was an DENEN hängt,
+// taucht gar nicht mehr auf. Darum wird der Scan bei jedem Umschalten neu
+// gerechnet — die Vorschau zeigt immer genau das, was passieren wird.
+var _erpLoeschMit=true, _erpLoeschDoc=null, _erpLoeschScanAkt=null;
+function _erpLoeschMitSet(v){
+  _erpLoeschMit=!!v;
+  if(!_erpLoeschDoc)return;
+  _erpLoeschScanAkt=erpLoeschScan(_erpLoeschDoc,_erpLoeschMit);
+  var box=document.getElementById('erpLoeschListe');
+  if(box)box.innerHTML=erpLoeschHtml(_erpLoeschScanAkt);
+  var btn=document.querySelector('.gema-dlg-bg [data-act="ok"]');
+  if(btn)btn.textContent=erpLoeschLabel(_erpLoeschScanAkt);
+}
+function erpLoeschLabel(sc){
+  var n=1+(sc.mit?sc.anzLoeschbar:0);
+  return 'Löschen'+(n>1?' ('+n+' Datensätze)':'');
+}
+
 function erpLoeschen(){
-  GemaDialog.confirm({title:TYP[cur.typ].n+' löschen',message:(cur.nr||'')+' wirklich löschen?',confirmLabel:'Löschen',danger:true}).then(function(ok){
-    if(!ok)return;
-    poolDelete(DOK_POOL,DOK_PREFIX,cur.id);
-    erpCloseEditor();toast('Gelöscht');
+  if(!cur)return;
+  var d=cur;
+  _erpLoeschDoc=d;_erpLoeschMit=true;
+  var sc=erpLoeschScan(d,true);
+  _erpLoeschScanAkt=sc;
+  var msg='<div><b>'+esc(d.nr||'—')+'</b> · '+esc(TYP[d.typ].n)
+    +' <span style="color:var(--mut)">('+esc((ST[erpStatusOf(d)]||{}).n||'')+')</span> wird gelöscht.</div>';
+  if(sc.gruppen.length){
+    msg+='<div style="margin-top:6px;color:var(--mut);font-size:12px">Daran hängen noch Daten:</div>'
+      +'<div id="erpLoeschListe">'+erpLoeschHtml(sc)+'</div>';
+    if(sc.anzLoeschbar){
+      msg+='<label style="display:flex;gap:8px;align-items:flex-start;margin-top:11px;padding:8px 10px;'
+        +'border:1px solid var(--bd);border-radius:8px;background:var(--bg2);cursor:pointer;font-size:12.5px">'
+        +'<input type="checkbox" checked onchange="_erpLoeschMitSet(this.checked)" style="margin-top:2px">'
+        +'<span><b>Verknüpfte Daten mitlöschen</b> ('+sc.anzLoeschbar+')'
+        +'<br><span style="color:var(--mut);font-size:11.5px">Ohne Haken bleiben sie bestehen und verlieren nur den Bezug zu diesem Beleg.</span></span></label>';
+    }
+  } else {
+    msg+='<div style="margin-top:6px;color:var(--mut);font-size:12px">Es hängen keine weiteren Daten daran.</div>';
+  }
+  return GemaDialog.confirm({
+    title:TYP[d.typ].n+' löschen',message:msg,html:true,danger:true,focusCancel:true,
+    confirmLabel:erpLoeschLabel(sc)
+  }).then(function(ok){
+    var akt=_erpLoeschScanAkt||sc, mit=akt.mit;
+    _erpLoeschScanAkt=null;_erpLoeschDoc=null;
+    sc=akt;
+    if(!ok)return false;
+    // KRITISCH: den ausstehenden Auto-Save VORHER abbrechen. erpCloseEditor()
+    // ruft erpFlushSave() — ein noch offener Debounce würde den eben gelöschten
+    // Beleg direkt wieder in den Pool schreiben (Geister-Datensatz).
+    erpSaveAbbrechen();
+    erpLoeschAusfuehren(sc);
+    erpCloseEditor();
+    toast('Gelöscht'+(mit&&sc.anzLoeschbar?' · '+sc.anzLoeschbar+' verknüpfte Datensätze':''));
+    return true;
+  });
+}
+
+function erpLoeschAusfuehren(sc){
+  var mit=sc.mit;   // eine Wahrheit — der Scan ist bereits auf den Haken gerechnet
+  // 1) Belege — Primärbeleg immer, nachgelagerte nur mit Haken
+  poolDelete(DOK_POOL,DOK_PREFIX,sc.doc.id);
+  if(mit)sc.folge.forEach(function(x){poolDelete(DOK_POOL,DOK_PREFIX,x.id);});
+  else sc.folge.forEach(function(x){
+    // Ohne Haken bleiben sie stehen — der tote Verweis muss trotzdem weg,
+    // sonst zeigt die Ketten-Zeile auf einen Beleg, den es nicht mehr gibt.
+    var vk=x.verknuepfung||{};var ge=false;
+    if(vk.offerteId&&sc.weg[vk.offerteId]){delete vk.offerteId;ge=true;}
+    if(vk.auftragId&&sc.weg[vk.auftragId]){delete vk.auftragId;ge=true;}
+    if(ge){x.verknuepfung=vk;erpVerlauf(x,'Verknüpfter Beleg '+(sc.doc.nr||'')+' gelöscht — Bezug entfernt');poolSave(DOK_POOL,DOK_PREFIX,x);}
+  });
+  // 2) Vorgelagerte Offerte: Verweis auf den gelöschten Auftrag lösen
+  sc.vor.forEach(function(o){
+    if(!o.verknuepfung||!sc.weg[o.verknuepfung.auftragId])return;
+    delete o.verknuepfung.auftragId;
+    erpVerlauf(o,'Auftrag gelöscht — Bezug entfernt');
+    poolSave(DOK_POOL,DOK_PREFIX,o);
+  });
+  // 3) Kreditoren
+  sc.kreds.forEach(function(k){
+    if(mit){poolDelete(KRED_POOL,KRED_PREFIX,k.id);return;}
+    k.auftragId='';k.auftragNr='';
+    erpKredLog(k,'Auftrag '+(sc.doc.nr||'')+' gelöscht — Zuteilung entfernt');
+    poolSave(KRED_POOL,KRED_PREFIX,k);
+  });
+  // 4) Termine
+  sc.terminePlan.forEach(function(e){
+    if(mit){erpFremdDel(ERP_FREMD.einsatz,e.id);return;}
+    e.auftragId='';e.auftragNr='';
+    erpFremdSave(ERP_FREMD.einsatz,e);
+  });
+  // 5) Nur entkoppeln — diese Datensätze haben eigenständig Bestand
+  sc.termineZeit.forEach(function(e){e.auftragId='';e.auftragNr='';erpFremdSave(ERP_FREMD.einsatz,e);});
+  sc.regie.forEach(function(r){delete r.verrechnetIn;erpFremdSave(ERP_FREMD.regie,r);});
+  sc.svauf.forEach(function(a){
+    delete a.rechnungId;
+    // Der Serviceauftrag führt keinen Verlauf — der Status IST die Aussage:
+    // ohne Rechnung ist er wieder «erledigt» und damit erneut verrechenbar.
+    if(a.status==='verrechnet')a.status='erledigt';
+    erpFremdSave(ERP_FREMD.svauf,a);
+  });
+  sc.stdTage.forEach(function(t){
+    var m=t.terminAbschluss||{};
+    Object.keys(m).forEach(function(k){
+      if(m[k]&&m[k].offerteId&&sc.weg[m[k].offerteId]){delete m[k].offerteId;delete m[k].offerteNr;}
+    });
+    erpFremdSave(ERP_FREMD.std,t);
   });
 }
 
@@ -5751,11 +6033,23 @@ function erpRenderMigration(el){
   var anz=erpKunden().length, objAnz=0;
   try{objAnz=(GemaObjekte.getAllUnfiltered?GemaObjekte.getAllUnfiltered():GemaObjekte.getAll()||[]).filter(function(o){return o&&o.quelle&&o.quelle.typ==='import';}).length;}catch(e){}
   var h='<div style="font-size:13px;color:var(--mut);line-height:1.6;margin-bottom:16px">'
-    +'Übernimm deine Daten aus dem bisherigen ERP — <b>pro Abschnitt ein eigener Import</b>. '
-    +'Unterstützt werden <b>.xlsx</b> und <b>CSV</b>. Jeder Import ist wiederholbar: bereits übernommene Datensätze werden '
-    +'erkannt und nur <b>ergänzt</b>, nie überschrieben. Von Hand gepflegte Werte bleiben also erhalten.'
+    +'Übernimm deine Daten aus dem bisherigen ERP. Unterstützt werden <b>.xlsx</b> und <b>CSV</b>. '
+    +'Jeder Import ist wiederholbar: bereits übernommene Datensätze werden erkannt und nur <b>ergänzt</b>, '
+    +'nie überschrieben. Von Hand gepflegte Werte bleiben also erhalten.'
     +(objAnz?'<br><br>Bereits übernommen: <b>'+objAnz+'</b> Objekte · <b>'+anz+'</b> Adressen.':'')
-    +'</div><div class="mig-sek">';
+    +'</div>'
+    // Der Normalfall: die Export-Dateien haben eine feste Struktur — GEMA
+    // erkennt an der Kopfzeile selbst, was drin ist, und ordnet die Spalten
+    // zu. Es muss nichts mehr von Hand zugewiesen werden.
+    +'<div class="mig-drop" id="migDrop" onclick="document.getElementById(\'migAutoFile\').click()">'
+    +'<div class="t">📥 Export-Dateien hierher ziehen oder auswählen</div>'
+    +'<div class="s">Mehrere Dateien auf einmal möglich — GEMA erkennt selbst, welcher Abschnitt darin steckt '
+    +'(Objekte, Adressen, Offerten, Aufträge, Rechnungen) und ordnet die Spalten automatisch zu. '
+    +'Die Reihenfolge stellt GEMA richtig, damit sich die Belege verknüpfen können.</div>'
+    +'<input type="file" id="migAutoFile" multiple accept=".xlsx,.xlsm,.csv,.tsv,.txt" style="display:none" onchange="erpMigAutoDateien(this.files)"/>'
+    +'</div><div id="migAutoListe"></div>'
+    +'<div style="font-size:12px;color:var(--mut);margin:20px 0 9px;font-weight:700">Oder einzeln, Abschnitt für Abschnitt:</div>'
+    +'<div class="mig-sek">';
   GemaErpImport.SEKTIONEN.forEach(function(sek){
     h+='<div class="mig-card'+(sek.bereit?'':' aus')+'"'+(sek.bereit?' onclick="erpMigOpen(\''+sek.id+'\')"':'')+'>'
       +'<div class="mig-ic">'+sek.ic+'</div>'
@@ -5768,6 +6062,189 @@ function erpRenderMigration(el){
   h+='</div>';
   el.className='';
   el.innerHTML=h;
+  _migDropBinden();
+  if(_migAuto&&_migAuto.length)_migAutoRender();
+}
+
+// ═══════════════════════════════════════════════════════════
+// AUTOMATISCHER IMPORT — Struktur der Export-Dateien erkennen
+// ═══════════════════════════════════════════════════════════
+// Die Exporte des Altsystems haben je Abschnitt eine feste Kopfzeile. Statt
+// den Abschnitt wählen und die Spalten von Hand zuweisen zu lassen, erkennt
+// GEMA beides selbst — der Zuordnungs-Schritt entfällt. Er bleibt aber
+// erreichbar («Spalten prüfen»): erkannt heisst nicht ungeprüft.
+var _migAuto=null;      // [{name, sekId, mapping, rows, kopfIdx, blatt, sheets, erkennung, status}]
+
+function _migDropBinden(){
+  var z=document.getElementById('migDrop');if(!z||z._geb)return;z._geb=1;
+  ['dragenter','dragover'].forEach(function(ev){
+    z.addEventListener(ev,function(e){e.preventDefault();z.classList.add('ueber');});
+  });
+  ['dragleave','drop'].forEach(function(ev){
+    z.addEventListener(ev,function(e){e.preventDefault();z.classList.remove('ueber');});
+  });
+  z.addEventListener('drop',function(e){
+    var f=e.dataTransfer&&e.dataTransfer.files;
+    if(f&&f.length)erpMigAutoDateien(f);
+  });
+}
+
+function erpMigAutoDateien(files){
+  var liste=[].slice.call(files||[]);
+  if(!liste.length)return;
+  _migAuto=liste.map(function(f){return {name:f.name,status:'liest'};});
+  _migAutoRender();
+  Promise.all(liste.map(function(f,i){
+    return GemaErpImport.leseDatei(f).then(function(res){
+      var sheets=(res.sheets||[]).filter(function(s){return s.rows&&s.rows.length;});
+      if(!sheets.length)return {name:f.name,status:'fehler',grund:'Die Datei enthält keine Daten.'};
+      // Das Blatt mit den meisten Datenzeilen nehmen (Exporte haben oft ein
+      // leeres Deckblatt); die Kopfzeile über die bestehende Heuristik.
+      var bl=0,best=-1;
+      sheets.forEach(function(s,k){if(s.rows.length>best){best=s.rows.length;bl=k;}});
+      var kopfIdx=GemaErpImport.findeKopfzeile(sheets[bl].rows);
+      var kopf=sheets[bl].rows[kopfIdx]||[];
+      var erk=GemaErpImport.erkenneSektion(kopf);
+      var rows=sheets[bl].rows.slice(kopfIdx+1).filter(function(r){
+        return r.some(function(c){return String(c==null?'':c).trim();});
+      });
+      if(!erk.beste||!erk.beste.pflichtOk){
+        return {name:f.name,status:'unbekannt',sheets:sheets,blatt:bl,kopfIdx:kopfIdx,
+                erkennung:erk,rows:rows,
+                grund:erk.beste?('Pflichtfeld ohne Spalte: '+erk.beste.fehlendePflicht.join(', ')):'Kopfzeile passt zu keinem Abschnitt.'};
+      }
+      return {name:f.name,status:erk.sicher?'ok':'unsicher',sheets:sheets,blatt:bl,kopfIdx:kopfIdx,
+              sekId:erk.beste.sekId,mapping:erk.beste.mapping,erkennung:erk,rows:rows};
+    },function(e){
+      return {name:f.name,status:'fehler',grund:(e&&e.message)||'Datei konnte nicht gelesen werden.'};
+    });
+  })).then(function(res){
+    // In die Import-Reihenfolge bringen: jeder Abschnitt hängt sich an das an,
+    // was schon da ist (Rechnung → Auftrag → Offerte → Objekt).
+    res.sort(function(a,b){
+      return GemaErpImport.sektionRang(a.sekId)-GemaErpImport.sektionRang(b.sekId);
+    });
+    _migAuto=res;_migAutoRender();
+  });
+}
+
+// Eine Datei ist importierbar, sobald ein Abschnitt erkannt ist und die
+// Pflichtfelder eine Spalte haben — ob die Erkennung eindeutig war (ok) oder
+// nur wahrscheinlich (unsicher) bzw. von Hand nachgeprüft (geprueft).
+function _migAutoBereit(d){return !!d&&(d.status==='ok'||d.status==='unsicher'||d.status==='geprueft');}
+
+function _migAutoRender(){
+  var el=document.getElementById('migAutoListe');if(!el)return;
+  if(!_migAuto||!_migAuto.length){el.innerHTML='';return;}
+  var bereit=_migAuto.filter(_migAutoBereit);
+  var h='<div style="font-weight:800;font-size:13px;margin:4px 0 9px">'+_migAuto.length+' Datei'+(_migAuto.length>1?'en':'')+'</div>';
+  _migAuto.forEach(function(d,i){
+    var kl=d.status==='fehler'?' err':(d.status==='unbekannt'||d.status==='unsicher'?' warn':'');
+    var sek=d.sekId?GemaErpImport.sektion(d.sekId):null;
+    var ic=d.status==='liest'?'⏳':(d.status==='fehler'?'⚠':(d.status==='fertig'?'✓':(sek?sek.ic:'❓')));
+    var de='';
+    if(d.status==='liest')de='wird gelesen …';
+    else if(d.status==='fehler')de='<span style="color:var(--red)">'+esc(d.grund||'')+'</span>';
+    else if(d.status==='unbekannt')de='<b>Abschnitt nicht erkannt</b> — '+esc(d.grund||'')
+      +'<br>Bitte über die Karten unten einzeln importieren, dort lassen sich die Spalten von Hand zuordnen.';
+    else if(d.status==='fertig')de='<span style="color:var(--grn);font-weight:700">✓ übernommen</span>'
+      +(sek?' · '+esc(sek.label):'');
+    else{
+      var e=d.erkennung.beste;
+      de='<b>'+esc(sek.label)+'</b> · '+d.rows.length+' Zeilen · '
+        +e.erkannt+' von '+e.gesamt+' Feldern automatisch zugeordnet'
+        +(d.status==='unsicher'?' <span style="color:#92400e">· Abschnitt nicht eindeutig — bitte kontrollieren</span>':'')
+        +(d.status==='geprueft'?' <span style="color:var(--grn)">· von Hand geprüft</span>':'')
+        +' <a href="javascript:void(0)" onclick="erpMigAutoPruefen('+i+')">Spalten prüfen</a>';
+    }
+    h+='<div class="mig-datei'+kl+'"><div class="ic">'+ic+'</div>'
+      +'<div style="flex:1;min-width:0"><div class="nm">'+esc(d.name)+'</div><div class="de">'+de+'</div></div></div>';
+  });
+  if(bereit.length){
+    h+='<div style="font-size:12px;color:var(--mut);margin:10px 0 9px">Reihenfolge: '
+      +bereit.map(function(d){return GemaErpImport.sektion(d.sekId).ic+' '+esc(GemaErpImport.sektion(d.sekId).label);}).join(' → ')
+      +' — so bauen die Belege aufeinander auf.</div>'
+      +'<div style="display:flex;gap:9px;flex-wrap:wrap;align-items:center">'
+      +'<button class="btn pri" onclick="erpMigAutoStart()">Vorschau &amp; übernehmen →</button>'
+      +'<button class="btn" onclick="_migAuto=null;_migAutoRender()">Verwerfen</button>'
+      +'<span id="migAutoProg" style="font-size:12px;color:var(--mut)"></span></div>';
+  } else if(_migAuto.every(function(d){return d.status!=='liest';})){
+    h+='<div style="display:flex;gap:9px;margin-top:8px"><button class="btn" onclick="_migAuto=null;_migAutoRender()">Verwerfen</button></div>';
+  }
+  el.innerHTML=h;
+}
+
+// «Spalten prüfen» — öffnet den bekannten Assistenten mit der erkannten
+// Zuordnung. Erkannt heisst nicht ungeprüft: der Weg zurück bleibt offen.
+function erpMigAutoPruefen(i){
+  var d=_migAuto&&_migAuto[i];if(!d||!d.sekId)return;
+  var sek=GemaErpImport.sektion(d.sekId);if(!sek)return;
+  _mig={sekId:d.sekId,schritt:2,sheets:d.sheets,blatt:d.blatt,kopfIdx:d.kopfIdx,
+        mapping:JSON.parse(JSON.stringify(d.mapping)),plan:null,autoIdx:i};
+  document.getElementById('migTitle').textContent=sek.ic+' Import: '+sek.label;
+  document.getElementById('migModal').classList.add('open');
+  erpMigRender();
+}
+
+// Alle erkannten Dateien nacheinander in der richtigen Reihenfolge importieren.
+// Die Optionen sind DIESELBEN wie im Assistenten (dort die Vorgaben): fehlende
+// Objekte anlegen, Positionen aus der verknüpften Offerte übernehmen, leere
+// Aufträge mit dem verrechneten Betrag ergänzen. Zahlungen bringt der Export
+// nicht mit — Rechnungen entstehen als «gestellt» (bezahltVor bleibt leer;
+// als bezahlt übernehmen ist eine bewusste Entscheidung und läuft nur über
+// den Assistenten).
+function erpMigAutoStart(){
+  var offen=(_migAuto||[]).filter(_migAutoBereit);
+  if(!offen.length)return;
+  var prog=document.getElementById('migAutoProg');
+  var bericht=[];
+  function naechste(k){
+    if(k>=offen.length){
+      if(prog)prog.innerHTML='<b style="color:var(--grn)">✓ Fertig</b>';
+      _migAutoRender();
+      erpRenderAll();
+      GemaDialog.alert({title:'📥 Migration abgeschlossen',html:true,
+        message:'<div style="font-size:13px;line-height:1.75">'+bericht.join('<br>')+'</div>'});
+      return;
+    }
+    var d=offen[k], sek=GemaErpImport.sektion(d.sekId);
+    var plan;
+    try{ plan=GemaErpImport.vorbereiten({sektion:d.sekId,rows:d.rows,mapping:d.mapping}); }
+    catch(e){
+      bericht.push(sek.ic+' <b>'+esc(sek.label)+'</b>: <span style="color:var(--red)">Fehler — '+esc((e&&e.message)||'')+'</span>');
+      naechste(k+1);return;
+    }
+    var anz=plan.zeilen.filter(function(z){return z.aktion!=='fehler';}).length;
+    GemaErpImport.ausfuehren(plan,{
+      quelleName:'ERP-Migration',
+      objekteAnlegen:true,
+      posAusOfferte:true,
+      auftragErgaenzen:true,
+      bezahltVor:'',
+      onFortschritt:function(i,n){
+        if(prog)prog.textContent=sek.ic+' '+sek.label+' ('+(k+1)+'/'+offen.length+') — '+i+' von '+n+' …';
+      }
+    }).then(function(rep){
+      d.status='fertig';
+      var t=sek.ic+' <b>'+esc(sek.label)+'</b>: <b>'+rep.neu+'</b> neu, <b>'+rep.aktualisiert+'</b> ergänzt';
+      if(rep.adressen)t+=', '+rep.adressen+' Adressen';
+      if(rep.objekteNeu)t+=', '+rep.objekteNeu+' Objekte angelegt';
+      if(rep.posUebernommen)t+=', '+rep.posUebernommen+' × Positionen aus der Offerte';
+      if(rep.auftragBetrag)t+=', '+rep.auftragBetrag+' leere Aufträge ergänzt';
+      if(rep.uebersprungen)t+=', '+rep.uebersprungen+' übersprungen';
+      if(rep.offerteFehlt)t+='<br><span style="color:var(--amber)">'+rep.offerteFehlt+' × die angegebene Offerte war nicht gefunden.</span>';
+      if(rep.auftragFehlt)t+='<br><span style="color:var(--amber)">'+rep.auftragFehlt+' × der angegebene Auftrag war nicht gefunden.</span>';
+      if(rep.fehler&&rep.fehler.length)t+='<br><span style="color:var(--red)">'+rep.fehler.length+' Zeilen mit Fehler: '
+        +esc(rep.fehler.slice(0,3).map(function(f){return 'Zeile '+f.zeile+' — '+f.text;}).join(' · '))+'</span>';
+      bericht.push(t);
+      naechste(k+1);
+    },function(e){
+      bericht.push(sek.ic+' <b>'+esc(sek.label)+'</b>: <span style="color:var(--red)">Fehler — '+esc((e&&e.message)||'')+'</span>'
+        +(anz?'<br><span style="color:var(--mut)">'+anz+' Zeilen waren vorbereitet.</span>':''));
+      naechste(k+1);
+    });
+  }
+  naechste(0);
 }
 
 function erpMigOpen(sekId){
@@ -5777,7 +6254,35 @@ function erpMigOpen(sekId){
   document.getElementById('migModal').classList.add('open');
   erpMigRender();
 }
-function erpMigClose(){document.getElementById('migModal').classList.remove('open');_mig=null;erpRenderAll();}
+// Zurück aus «Spalten prüfen»: die im Assistenten geprüfte Zuordnung ist ab
+// jetzt die massgebende für den Auto-Lauf — sonst wäre die Kontrolle wirkungslos.
+function _migAutoUebernehmen(){
+  if(!_mig||_mig.autoIdx==null)return;
+  var d=_migAuto&&_migAuto[_mig.autoIdx];if(!d)return;
+  if(_mig.autoFertig){d.status='fertig';return;}   // im Assistenten bereits importiert
+  d.blatt=_mig.blatt;d.kopfIdx=_mig.kopfIdx;
+  d.mapping=JSON.parse(JSON.stringify(_mig.mapping||{}));
+  var bl=(_mig.sheets||[])[_mig.blatt];
+  if(bl&&bl.rows){
+    d.rows=bl.rows.slice(_mig.kopfIdx+1).filter(function(r){
+      return r.some(function(c){return String(c==null?'':c).trim();});
+    });
+  }
+  var g=GemaErpImport.mappingGuete(d.mapping,d.sekId);
+  if(d.erkennung&&d.erkennung.beste){
+    var b=d.erkennung.beste;
+    b.mapping=d.mapping;b.erkannt=g.erkannt;b.gesamt=g.gesamt;
+    b.pflichtOk=g.pflichtOk;b.fehlendePflicht=g.fehlendePflicht;
+  }
+  // Ein Pflichtfeld ohne Spalte wird NICHT stillschweigend übergangen — die
+  // Datei fällt aus dem Auto-Lauf und sagt warum.
+  d.status=g.pflichtOk?'geprueft':'unbekannt';
+  d.grund=g.pflichtOk?'':('Pflichtfeld ohne Spalte: '+g.fehlendePflicht.join(', '));
+}
+function erpMigClose(){
+  _migAutoUebernehmen();
+  document.getElementById('migModal').classList.remove('open');_mig=null;erpRenderAll();
+}
 
 function _migSchritte(){
   var n=_mig.schritt;
@@ -6043,6 +6548,7 @@ function erpMigStart(){
     if(rep.fehler.length)txt+='<br><span style="color:var(--red)">'+rep.fehler.length+' Zeilen mit Fehler: '
       +esc(rep.fehler.slice(0,3).map(function(f){return 'Zeile '+f.zeile+' — '+f.text;}).join(' · '))+'</span>';
     GemaDialog.alert({title:'📥 Import abgeschlossen',html:true,message:txt});
+    if(_mig)_mig.autoFertig=true;   // aus dem Auto-Lauf geprüft und hier importiert → nicht doppelt
     erpMigClose();
   },function(e){
     if(go)go.disabled=false;
