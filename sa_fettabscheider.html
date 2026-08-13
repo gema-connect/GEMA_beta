@@ -331,6 +331,8 @@ function fixLeadingZero(el){
 <script src="gema_offerten_tab.js"></script>
 <script src="gema_pdf.js"></script>
 <script src="gema_autosave.js"></script>
+<!-- Berechnungs-Tabs: mehrere Berechnungen pro Objekt (haengt sich selbst ein) -->
+<script src="gema_berechnungs_tabs.js"></script>
 <link rel="stylesheet" href="gema_responsive.css"/>
 </head>
 <body>
@@ -1153,6 +1155,42 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('fett
     if(_prevObjektId&&objs.find(function(o){return o.id===_prevObjektId;})){sel.value=_prevObjektId;}
     else if(activeId&&!document.getElementById('metaProjekt').value){sel.value=activeId;_prevObjektId=activeId;onObjektSelect();}
   }
+
+/* Grundzustand herstellen. Nötig, weil load() bei fehlendem Stand AUSSTEIGT
+   (`if (!d) return;`) — ohne diesen Zweig erbt ein leeres Projekt bzw. eine
+   neue Berechnung die Küchen/Geräte der vorherigen. */
+function resetSaved(){
+  method='betrieb'; kitchenN={}; kitchenT={}; meatKg={}; eqQty={};
+  ft=1.0; fd=1.0; fr=1.0; sfType='kueche';
+  [[1.0,['ft_opt1','ft_opt2']],[1.0,['fd_opt1','fd_opt2']],[1.0,['fr_opt1','fr_opt2','fr_opt3']]]
+    .forEach(function(g){
+      g[1].forEach(function(id){
+        var el=document.getElementById(id); if(!el) return;
+        var r=el.querySelector('input[type=radio]');
+        var an=!!r&&parseFloat(r.value)===g[0];
+        if(r) r.checked=an;
+        el.classList.toggle('selected',an);
+      });
+    });
+  try{setSF(sfType);}catch(e){}
+  try{switchMethod(method);}catch(e){}
+  try{renderAll();}catch(e){}
+  try{calcEqSubtotals();}catch(e){}
+}
+
+/* Per-Objekt-Blob neu einlesen (Objektwechsel, Berechnungs-Tabs).
+   GEMA-Konvention `window._objReload` — der Zustand dieses Moduls liegt
+   NICHT im AutoSave-Schnappschuss, sondern als JSON-Blob in _GemaDB;
+   wer den Blob austauscht, braucht diesen Haken zum Neuzeichnen. */
+window._objReload=function(){
+  try{
+    /* dieselbe Kette wie load(): per-Objekt-Key, sonst Basis-Key */
+    var c=(typeof _GemaDB!=='undefined'&&_GemaDB.c)?_GemaDB.c:null;
+    var _leer=!c||(!(c[_faKey()]??null)&&!(c[_FA_BASE]??null));
+    if(_leer) resetSaved(); else load();
+  }catch(e){}
+  try{calc();}catch(e){}
+};
   function onObjektSelect(){
     var sel=document.getElementById('metaObjektDropdown'),inp=document.getElementById('metaProjekt');if(!sel||!inp)return;
     if(_prevObjektId&&_prevObjektId!==sel.value){try{var _nv=sel.value;sel.value=_prevObjektId;save();sel.value=_nv;}catch(e){}}

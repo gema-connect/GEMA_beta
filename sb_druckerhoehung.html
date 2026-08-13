@@ -205,6 +205,7 @@ body {
 }
 .g-tab.active { background: var(--surface); color: var(--accent); box-shadow: var(--shadow-sm); }
 
+
 /* ── GRID LAYOUTS ── */
 .g-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .g-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
@@ -551,8 +552,11 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 <script src="gema_db.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
 <script src="gema_objekte_api.js"></script>
+<script src="gema_dialog.js"></script>
 <script src="gema_pdf.js"></script>
 <script src="gema_autosave.js"></script>
+<!-- Berechnungs-Tabs: mehrere Berechnungen pro Objekt (haengt sich selbst ein) -->
+<script src="gema_berechnungs_tabs.js"></script>
 <script src="gema_lu_api.js"></script>
 <script>window.GemaDataflowConfig={sources:['lu'],modul:'druckerhoehung'};</script>
 <script src="gema_dataflow.js"></script>
@@ -615,16 +619,17 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
   <div class="pf"><label>Datum</label><input type="date" id="metaDatum"></div>
 </div>
 
+
 <!-- UNIT TOGGLES -->
 <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;padding:10px 16px;background:var(--surface);border:1.5px solid var(--border);border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.05);flex-wrap:wrap;">
   <div class="g-switch-wrap">
     <span>bar</span>
-    <label class="g-switch"><input id="unitPressureToggle" type="checkbox" onchange="togglePressure(this.checked)"/><span class="g-switch-slider"></span></label>
+    <label class="g-switch"><input id="unitPressureToggle" type="checkbox" onchange="togglePressure(this.checked, event)"/><span class="g-switch-slider"></span></label>
     <span>kPa</span>
   </div>
   <div class="g-switch-wrap">
     <span>l/s</span>
-    <label class="g-switch"><input id="unitFlowToggle" type="checkbox" onchange="toggleFlow(this.checked)"/><span class="g-switch-slider"></span></label>
+    <label class="g-switch"><input id="unitFlowToggle" type="checkbox" onchange="toggleFlow(this.checked, event)"/><span class="g-switch-slider"></span></label>
     <span>m³/h</span>
   </div>
 </div>
@@ -1069,27 +1074,41 @@ document.querySelectorAll('.g-tab').forEach(btn => {
     });
   }
 
-  function setPressureUnit(next){
+  // KRITISCH — umgerechnet wird NUR bei einer echten Benutzer-Aktion.
+  // Die Feldwerte stehen in der ANZEIGE-Einheit, und der Umschalter selbst
+  // ist ein gespeichertes Feld (#unitPressureToggle). Beim Wiederherstellen
+  // setzt GemaAutoSave beides passend zueinander und feuert dabei `change` —
+  // ohne diesen Guard rechnete das Modul den bereits in kPa gespeicherten
+  // Wert bei JEDEM Neuladen nochmals mal 100 (3 bar → 300 → 30'000 kPa).
+  // Gleiches Muster wie ehSetUnit (sa_enthaertung) / setSchUnit (Hebeanlage).
+  function setPressureUnit(next, umrechnen){
     if (state.pressureUnit===next) return;
-    if (next==="kpa") convertVisibleInputs(PRESSURE_INPUTS, BAR_TO_KPA);
-    else convertVisibleInputs(PRESSURE_INPUTS, 1/BAR_TO_KPA);
+    if (umrechnen !== false) {
+      if (next==="kpa") convertVisibleInputs(PRESSURE_INPUTS, BAR_TO_KPA);
+      else convertVisibleInputs(PRESSURE_INPUTS, 1/BAR_TO_KPA);
+    }
     state.pressureUnit = next;
     updateUnitLabels(); setToggleStyles();
     repaint();
   }
 
-  function setFlowUnit(next){
+  function setFlowUnit(next, umrechnen){
     if (state.flowUnit===next) return;
-    if (next==="m3h") convertVisibleInputs(FLOW_INPUTS, LS_TO_M3H);
-    else convertVisibleInputs(FLOW_INPUTS, 1/LS_TO_M3H);
+    if (umrechnen !== false) {
+      if (next==="m3h") convertVisibleInputs(FLOW_INPUTS, LS_TO_M3H);
+      else convertVisibleInputs(FLOW_INPUTS, 1/LS_TO_M3H);
+    }
     state.flowUnit = next;
     updateUnitLabels(); setToggleStyles();
     repaint();
   }
 
-  // Toggle wrappers for inline onclick
-  window.togglePressure = function(checked){ setPressureUnit(checked ? "kpa" : "bar"); };
-  window.toggleFlow = function(checked){ setFlowUnit(checked ? "m3h" : "ls"); };
+  // Toggle wrappers for inline onclick — `ev.isTrusted === false` heisst
+  // «programmatisch gesetzt» (AutoSave-Restore, Berechnungs-Tabs): dann nur
+  // die Einheit uebernehmen, die Werte stehen bereits richtig da.
+  function echt(ev){ return !ev || ev.isTrusted !== false; }
+  window.togglePressure = function(checked, ev){ setPressureUnit(checked ? "kpa" : "bar", echt(ev)); };
+  window.toggleFlow = function(checked, ev){ setFlowUnit(checked ? "m3h" : "ls", echt(ev)); };
 
   // Ampel chips
   function chip(elId, level, text){
@@ -1972,6 +1991,7 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('druc
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 })();
 </script>
+
 
 <!-- Anlagen-Wahl (Produktkatalog) — rendert Lieferanten-Pills + Typen-
      Grid + Offertanfrage-Dialog fuer die Kategorie "druckerhoehung".

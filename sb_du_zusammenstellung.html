@@ -400,6 +400,8 @@ function fixLeadingZero(el){
 <script src="gema_objekte_api.js"></script>
 <script src="gema_pdf.js"></script>
 <script src="gema_autosave.js"></script>
+<!-- Berechnungs-Tabs: mehrere Berechnungen pro Objekt (haengt sich selbst ein) -->
+<script src="gema_berechnungs_tabs.js"></script>
 <link rel="stylesheet" href="gema_responsive.css"/>
 </head>
 <body>
@@ -1450,6 +1452,32 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('du_z
     if(_prevObjektId&&objs.find(function(o){return o.id===_prevObjektId;})){sel.value=_prevObjektId;}
     else if(activeId&&!document.getElementById('metaProjekt').value){sel.value=activeId;_prevObjektId=activeId;onObjektSelect();}
   }
+
+/* Grundzustand herstellen. Nötig, weil loadSaved() bei fehlendem Stand
+   AUSSTEIGT (`if(!d) return;`) — ohne diesen Zweig erbt ein leeres Projekt
+   bzw. eine neue Berechnung die Apparate der vorherigen. */
+function resetSaved(){
+  qty={}; varDU={}; varName={}; varRows=[]; varSeq=0; K=0.5;
+  document.querySelectorAll('input[name=kval]').forEach(r=>{r.checked=(parseFloat(r.value)===0.5);});
+  kMarkiere('kOpt05');
+  ['kFrei','qc1','qc2','qc3','qcn1','qcn2','qcn3'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.value='';
+  });
+  varRowsInit();
+  renderGroups();   /* die Apparate-Zeilen tragen ihre Werte im Markup */
+}
+
+/* Per-Objekt-Blob neu einlesen (Objektwechsel, Berechnungs-Tabs).
+   GEMA-Konvention `window._objReload` — der Zustand dieses Moduls liegt
+   NICHT im AutoSave-Schnappschuss, sondern als JSON-Blob in _GemaDB;
+   wer den Blob austauscht, braucht diesen Haken zum Neuzeichnen. */
+window._objReload=function(){
+  try{
+    var _leer=(typeof _GemaDB==='undefined')||!((_GemaDB.c||{})[_sk]??null);
+    if(_leer) resetSaved(); else loadSaved();
+  }catch(e){}
+  try{calc();}catch(e){}
+};
   function onObjektSelect(){
     var sel=document.getElementById('metaObjektDropdown'),inp=document.getElementById('metaProjekt');if(!sel||!inp)return;
     if(sel.value&&typeof GemaObjekte!=='undefined'){var o=GemaObjekte.getAll().find(function(x){return x.id===sel.value;});if(o){var p=[o.name];if(o.strasse)p.push(o.strasse);if(o.plz||o.ort)p.push([o.plz,o.ort].filter(Boolean).join(' '));inp.value=p.join(', ');}}else{inp.value='';}

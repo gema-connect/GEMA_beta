@@ -669,15 +669,43 @@
   // Phasen: '' (keine), 'vorprojekt', 'bauprojekt', 'ausschreibung', 'ausfuehrung'
   // Wird per-Objekt gespeichert (objekt.aktivePhase) ODER global im sessionStorage
   // (falls kein Objekt aktiv).
+  // KRITISCH: die ids stehen in den Storage-Keys (base__oid@vorprojekt) und
+  // bleiben STABIL — korrigiert wurden 08/2026 nur die LABELS auf die echten
+  // SIA-112-Nummern (31 Vorprojekt, 32 Bauprojekt; vorher fälschlich 32/33 —
+  // Feedback 12.08.2026, Sandro Caso).
   var PHASES = [
     { id: '',             label: '— Keine Phase —',        kurz: '' },
-    { id: 'vorprojekt',   label: 'SIA 32 · Vorprojekt',    kurz: 'VP' },
-    { id: 'bauprojekt',   label: 'SIA 33 · Bauprojekt',    kurz: 'BP' },
+    { id: 'vorprojekt',   label: 'SIA 31 · Vorprojekt',    kurz: 'VP' },
+    { id: 'bauprojekt',   label: 'SIA 32 · Bauprojekt',    kurz: 'BP' },
     { id: 'ausschreibung',label: 'SIA 41 · Ausschreibung', kurz: 'AS' },
     { id: 'ausfuehrung',  label: 'SIA 51-53 · Ausführung', kurz: 'AF' }
   ];
   function getPhases() { return PHASES.slice(); }
+  function phaseLabel(id) {
+    var p = PHASES.find(function(x){ return x.id === (id || ''); });
+    return p ? p.label : (id || '');
+  }
+  // ── Eingefrorene Phasen-Ansicht (?phase=…&eingefroren=1, 08/2026) ──
+  // Der Workspace legt beim Phasen-Wechsel eingefrorene Ordner an; deren
+  // Kacheln öffnen das Modul mit ?phase=<alt>&eingefroren=1. Der ?phase=-
+  // Parameter ist ein SEITENLOKALER Override: getActivePhase() liefert ihn,
+  // ohne je etwas an Objekt/sessionStorage zu schreiben — andere Tabs/Seiten
+  // bleiben auf ihrer echten Phase. ?eingefroren=1 schaltet zusätzlich in den
+  // Nur-Lesen-Modus (Eingaben gesperrt, GemaAutoSave speichert nicht, Export
+  // bleibt möglich — der Datums-Stempel bleibt damit auf dem eingefrorenen
+  // Stand). has('phase') statt get: auch ?phase= (leer) ist ein gültiger
+  // Override auf «Keine Phase».
+  var _urlPhase = null, _eingefroren = false;
+  try {
+    if (typeof location !== 'undefined' && location.search) {
+      var _pp = new URLSearchParams(location.search);
+      if (_pp.has('phase')) _urlPhase = _pp.get('phase') || '';
+      _eingefroren = _pp.get('eingefroren') === '1';
+    }
+  } catch(e) {}
+  function isEingefroren() { return _eingefroren; }
   function getActivePhase() {
+    if (_urlPhase !== null) return _urlPhase;
     var obj = getActive();
     if (obj && obj.aktivePhase) return obj.aktivePhase;
     try { return sessionStorage.getItem('gema_active_phase') || ''; } catch(e) { return ''; }
@@ -862,6 +890,7 @@
     storageKey: storageKey, savePerObjekt: savePerObjekt, loadPerObjekt: loadPerObjekt,
     // SIA-Phase
     getPhases: getPhases, getActivePhase: getActivePhase, setActivePhase: setActivePhase,
+    phaseLabel: phaseLabel, isEingefroren: isEingefroren,
     // Berechnungs-Index (P04)
     registerBerechnung: registerBerechnung,
     getBerechnungenForObjekt: getBerechnungenForObjekt,
@@ -997,6 +1026,56 @@
     } catch(e){}
   }
   _initPhaseInjector();
+
+  // ── Freeze-UI der eingefrorenen Phasen-Ansicht (?eingefroren=1) ──────────
+  // Läuft ZENTRAL hier (gema_objekte_api ist auf jeder Modulseite VOR dem
+  // Modul-Script geladen — kein Eingriff in die einzelnen Module): Banner
+  // «Eingefrorener Stand», alle Eingabefelder gesperrt (grau), Buttons wie
+  // PDF/Drucken/Fold bleiben bedienbar. Weil viele Module ihre Zeilen zur
+  // Laufzeit neu bauen, zieht ein Intervall die Sperre nach (1.5 s — Muster
+  // MutationObserver-lite). GemaAutoSave blockt Writes zusätzlich selbst
+  // (isEingefroren-Guard) — die Sperre hier ist die sichtbare Schicht,
+  // der AutoSave-Guard die harte.
+  function _frozenUiApply() {
+    try {
+      document.body.classList.add('gema-eingefroren');
+      if (!document.getElementById('_gemaFrozenStyle')) {
+        var st = document.createElement('style');
+        st.id = '_gemaFrozenStyle';
+        st.textContent =
+          '.gema-frozen-banner{position:sticky;top:calc(72px + env(safe-area-inset-top,0px));z-index:800;margin:10px auto;max-width:1100px;background:#eff6ff;border:1.5px solid #bfdbfe;color:#1e40af;border-radius:12px;padding:10px 16px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px;box-shadow:0 2px 8px rgba(30,64,175,.08)}' +
+          'body.gema-eingefroren input:disabled,body.gema-eingefroren select:disabled,body.gema-eingefroren textarea:disabled{background:#f1f5f9!important;color:#64748b!important;opacity:1;-webkit-text-fill-color:#64748b}' +
+          '@media print{.gema-frozen-banner{display:none!important}}';
+        document.head.appendChild(st);
+      }
+      if (!document.getElementById('_gemaFrozenBanner')) {
+        var b = document.createElement('div');
+        b.id = '_gemaFrozenBanner';
+        b.className = 'gema-frozen-banner no-print';
+        var lbl = phaseLabel(_urlPhase === null ? '' : _urlPhase) || 'Ohne Phase';
+        b.innerHTML = '🔒 <span>Eingefrorener Stand — <b></b> · nur Lesen und Export. Die Werte und der Datums-Stempel bleiben auf dem Stand des Phasen-Wechsels.</span>';
+        b.querySelector('b').textContent = lbl;
+        var page = document.querySelector('.g-page');
+        if (page && page.parentNode) page.parentNode.insertBefore(b, page);
+        else if (document.body.firstChild) document.body.insertBefore(b, document.body.firstChild);
+        else document.body.appendChild(b);
+      }
+      document.querySelectorAll('input,select,textarea').forEach(function(el){
+        // Feedback-Overlay, Dialoge, Chat und Notify-Panel bleiben bedienbar —
+        // eingefroren sind die BERECHNUNGS-Felder, nicht die App-Bedienung.
+        if (el.closest('#gfb-root,.gema-dlg-bg,.gc-panel,#gvkPanel,#gvkDlg,.gn-panel,.gema-menu-panel')) return;
+        el.disabled = true;
+      });
+      document.querySelectorAll('[contenteditable="true"]').forEach(function(el){
+        el.setAttribute('contenteditable', 'false');
+      });
+    } catch(e) {}
+  }
+  if (_eingefroren) {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _frozenUiApply);
+    else _frozenUiApply();
+    setInterval(_frozenUiApply, 1500);
+  }
 
   // ── Bearbeiter gehört zur PERSON, nicht zum Gerät ───────────
   // (Feedback 04.08.2026: «komisch dass hier Admin steht, obwohl ich als

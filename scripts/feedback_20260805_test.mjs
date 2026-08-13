@@ -222,7 +222,11 @@ try {
     const zeiten = await page.$$eval('.ws-activity-time', n => n.map(x => x.textContent.trim()));
     ok(zeiten.some(t => /vor 30 Min\..*heute \d\d:\d\d/.test(t)), 'heute mit Minuten + Uhrzeit', zeiten);
     ok(zeiten.some(t => /gestern, \d\d:\d\d/.test(t)), 'gestern mit Uhrzeit', zeiten);
-    ok(zeiten.filter(t => /gerade eben/.test(t)).length === 1, 'Alt-Eintrag ohne ts behält seinen Text', zeiten);
+    // Runde 2 (05.08.2026 Teil 2) übersteuert den früheren Check bewusst:
+    // ein Alt-Eintrag ohne ts mit RELATIV-Text («gerade eben») ist eine
+    // eingefrorene Lüge und wird UNTERDRÜCKT (_wsWannAlt) — nur absolute
+    // Alt-Texte bleiben stehen. Der alte Check verlangte hier length === 1.
+    ok(zeiten.filter(t => /gerade eben/.test(t)).length === 0, 'Alt-Eintrag mit Relativ-Text («gerade eben») wird unterdrückt (Runde 2)', zeiten);
     const chip = await page.$('.ws-meta-chip--btn');
     ok(!!chip, 'Mitglieder-Chip ist ein Button');
     await chip.click(); await page.waitForTimeout(350);

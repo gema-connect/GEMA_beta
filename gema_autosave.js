@@ -134,9 +134,20 @@
     } catch(e) {}
   }
 
+  // ── Eingefrorene Phasen-Ansicht (?eingefroren=1, 08/2026) ──
+  // In der eingefrorenen Ansicht eines Phasen-Ordners (Workspace) darf
+  // AutoSave NIE schreiben — sonst würde der eingefrorene Stand (inkl.
+  // Datums-Stempel) beim blossen Anschauen überschrieben. Lazy geprüft
+  // (kein Init-Reihenfolge-Problem), fail-open bei fehlendem GemaObjekte.
+  function _isFrozen() {
+    try {
+      return typeof GemaObjekte !== 'undefined' && GemaObjekte.isEingefroren && GemaObjekte.isEingefroren();
+    } catch(e) { return false; }
+  }
+
   // ── Save to Supabase + localStorage ──
   function _save(silent) {
-    if (_loading || !_initialized) return;
+    if (_isFrozen() || _loading || !_initialized) return;
     _syncObjFromDropdown();
     var key = _key();
     var json = JSON.stringify(_collect());
@@ -228,7 +239,7 @@
 
   // ── Debounce ──
   function _onChange(ev) {
-    if (_loading) return;
+    if (_loading || _isFrozen()) return;
     // Erste ECHTE Eingabe → ab jetzt bearbeitet diese Person den Datensatz
     if (ev && ev.isTrusted) _lockArm();
     clearTimeout(_timer);
@@ -400,8 +411,9 @@
     var _prevKey = _key();
     w.addEventListener('gema-objekt-changed', function(ev) {
       if (!ev || !ev.detail || !ev.detail.phaseChange) return;
-      // Speichere unter altem Key
-      try {
+      // Speichere unter altem Key — NICHT in der eingefrorenen Ansicht
+      // (dieser Pfad schreibt am _save()-Guard vorbei direkt in localStorage)
+      if (!_isFrozen()) try {
         var json = JSON.stringify(_collect());
         try { localStorage.setItem(_prevKey, json); } catch(e){}
       } catch(e){}
