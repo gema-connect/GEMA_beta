@@ -2,7 +2,9 @@
 //   - Karten (Liste + Erfolg-Tab): statusabhängige Aktionen mit wenig Klicks —
 //     Offerte: versendet/angenommen/abgelehnt, Auftrag erstellen, Duplizieren;
 //     Auftrag: Akonto-/Teil-/Schlussrechnung erstellen, in Arbeit, abschliessen;
-//     Rechnung: stellen, Zahlung, stornieren; immer: Öffnen + PDF; Entwurf: Löschen
+//     Rechnung: stellen, Zahlung, stornieren; immer: Öffnen + PDF + Löschen
+//     (seit 13.08.2026 unabhängig vom Status — der Dialog listet die
+//      Verknüpfungen auf, siehe scripts/erp_loeschen_test.mjs)
 //   - Positions-Editor: Kopieren/Ausschneiden/Einfügen (Session-Clipboard, auch
 //     dokumentübergreifend; Regie-/OA-Verknüpfung wird beim Einfügen gekappt),
 //     Duplizieren, Hoch/Runter, Löschen; read-only nur Kopieren
@@ -81,7 +83,11 @@ await docCtx(await page.evaluate(() => window._offId));
   // «Angenommen» ist raus — aus einer versendeten Offerte direkt der Auftrag
   ok(!items.some(t => t.indexOf('angenommen') >= 0), 'Versendet: kein «Angenommen»-Schritt mehr');
   ok(items.some(t => t.indexOf('Auftrag erstellen') >= 0) && items.some(t => t.indexOf('Als abgelehnt markieren') >= 0), 'Versendet: «Auftrag erstellen» + «abgelehnt» im Menü');
-  ok(!items.some(t => t.indexOf('Löschen') >= 0), 'Versendet: kein Löschen mehr (nur Entwurf)');
+  // Feedback 13.08.2026: Löschen ist IMMER möglich, nicht nur im Entwurf —
+  // die Kontrolle leistet der Bestätigungs-Dialog mit der Auflistung der
+  // Verknüpfungen (scripts/erp_loeschen_test.mjs), nicht eine Status-Sperre.
+  // Dieser Check ist bewusst umgekehrt zum früheren Kanon.
+  ok(items.some(t => t.indexOf('Löschen') >= 0), 'Versendet: Löschen ebenfalls möglich (Dialog kontrolliert, nicht der Status)');
 }
 
 console.log('■ Karten-Menü: Auftrag erstellen → Akonto/Teil/Schluss per Rechtsklick');
