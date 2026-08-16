@@ -110,6 +110,11 @@
       '  border-radius:7px!important;background:var(--accent,var(--el,#2563eb))!important;',
       '  color:#fff!important;font-family:inherit!important;font-size:11.5px!important;',
       '  font-weight:900!important;line-height:1!important;vertical-align:middle;letter-spacing:0}',
+      /* Mehrstellige Kapitel-Nummern («3.1» — sb_warmwasser-Muster, Feedback
+         15.08.2026 #20/#32): der Chip wächst mit dem Inhalt, bleibt sonst
+         formgleich. Eigene Modifier-Klasse, damit einstellige Chips exakt
+         wie bisher aussehen. */
+      '.gsek-nr--lang{width:auto!important;padding:0 6px!important}',
       /* Im Ausdruck: alles offen, Pfeil und Kopf-Knöpfe weg */
       '@media print{.gsek-zu > .gsek-bd{display:block!important}',
       '  .gsek-cx{display:none!important}',
@@ -145,6 +150,18 @@
         sp.textContent = String(KREIS.indexOf(m[1]) + 1);
         kn.nodeValue = kn.nodeValue.slice(m[0].length);
         titel.insertBefore(sp, titel.firstChild);
+        return true;
+      }
+      /* «1.1» / «4.3» als Klartext am Titelanfang (sb_warmwasser-Kapitel,
+         Feedback 15.08.2026 #20/#32) — VOR dem Einzel-Nummern-Muster prüfen,
+         der Chip trägt die volle Kapitel-Nummer. */
+      var mK = /^\s*(\d{1,2}\.\d{1,2})\s+/.exec(kn.nodeValue);
+      if (mK) {
+        var spK = d.createElement('span');
+        spK.className = 'gsek-nr gsek-nr--lang';
+        spK.textContent = mK[1];
+        kn.nodeValue = kn.nodeValue.slice(mK[0].length);
+        titel.insertBefore(spK, titel.firstChild);
         return true;
       }
       /* «1.» / «2.» als Klartext am Titelanfang (sb_druckerhoehung-Muster) */
