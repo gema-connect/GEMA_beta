@@ -740,9 +740,25 @@ function _fbBoardIds(){
   return da;
 }
 
+// Ist eine ID KEIN gema_auth-Modul (Systemseite, Hub, entferntes Modul,
+// Sammel-ID)? Solche Bereiche bekommen seit Feedback 12.08.2026 eine EIGENE
+// Kategorie statt unter «Weitere Module» eingehaengt zu werden.
+function _fbIstSystemId(id){
+  if(FB_ZUSATZ[id]) return true;                 // explizit als Systemseite/Hub gefuehrt
+  try{
+    if(typeof GemaAuth!=='undefined'&&GemaAuth.getModules){
+      if((GemaAuth.getModules()||[]).some(function(m){ return m.key===id; })) return false;
+    }
+  }catch(e){}
+  return true;                                   // unbekannt = kein Modul der Liste
+}
+
 // Haengt eine Board-Zeile fuer eine ID an, die in keinem Kategorie-Block
 // steht. Name/Link aus FB_ZUSATZ, sonst aus gema_auth (Label + FILE_MAP),
 // sonst die lesbar gemachte ID — geraten wird kein Link.
+// Feedback 12.08.2026 (beta_pruefungen): Systemseiten/Hubs landen SEPARAT in
+// «📌 Systemseiten & weitere Bereiche» — nur echte gema_auth-Module (Cloud-
+// Discovery) weiterhin in «🆕 Weitere Module».
 function _fbZeileAnhaengen(id){
   var z = FB_ZUSATZ[id] || {};
   var href = z.href;
@@ -753,13 +769,16 @@ function _fbZeileAnhaengen(id){
       if(fm) Object.keys(fm).forEach(function(d){ if(!href && fm[d]===id) href = d + '.html'; });
     }catch(e){}
   }
-  var auto = MODULES.find(function(c){ return c.catId === 'auto'; });
-  if(!auto){ auto = { cat:'🆕 Weitere Module', catId:'auto', items:[] }; MODULES.push(auto); }
-  auto.items.push({
+  var istSys = _fbIstSystemId(id);
+  var catId = istSys ? 'systemfb' : 'auto';
+  var catName = istSys ? '📌 Systemseiten & weitere Bereiche' : '🆕 Weitere Module';
+  var kat = MODULES.find(function(c){ return c.catId === catId; });
+  if(!kat){ kat = { cat:catName, catId:catId, items:[] }; MODULES.push(kat); }
+  kat.items.push({
     id:id, name:z.name || _modLabelFallback(id), href:href,
     defaultStatus:'open', _autoDiscovered:true
   });
-  return auto;
+  return kat;
 }
 
 // KRITISCH — jeder Feedback-Punkt MUSS im Board erreichbar sein.
@@ -778,7 +797,7 @@ function _fbZeilenFuerDatenErgaenzen(){
     try{ n = (getFeedback(id)||[]).length; }catch(e){}
     if(!n) return;                       // ohne Daten keine Karteileiche
     _fbZeileAnhaengen(id); da[id] = true;
-    ergaenzt.push({ id:id, anzahl:n });
+    ergaenzt.push({ id:id, anzahl:n, sys:_fbIstSystemId(id) });
   });
   if(ergaenzt.length){
     try{ console.info('[sys_beta] Zeilen fuer Feedback ohne Modul ergaenzt:',
@@ -802,10 +821,14 @@ function _fbLueckeHinweis(ergaenzt){
   if(!el) return;
   if(!ergaenzt || !ergaenzt.length){ el.style.display = 'none'; return; }
   var summe = ergaenzt.reduce(function(s,e){ return s + e.anzahl; }, 0);
-  el.innerHTML = '⚠ ' + summe + ' Feedback-Punkt' + (summe===1?'':'e') + ' aus '
+  var zielSys = ergaenzt.some(function(e){ return e.sys !== false; });
+  el.innerHTML = 'ℹ ' + summe + ' Feedback-Punkt' + (summe===1?'':'e') + ' aus '
     + ergaenzt.length + ' Bereich' + (ergaenzt.length===1?'':'en')
-    + ' gehören zu keinem Modul der Liste (' + ergaenzt.map(function(e){ return escHtml(e.id); }).join(', ')
-    + '). Sie sind unten unter «Weitere Module» eingehängt.';
+    + ' gehör' + (summe===1?'t':'en') + ' zu keinem Modul der Liste (' + ergaenzt.map(function(e){ return escHtml(e.id); }).join(', ')
+    + '). Sie sind unten '
+    + (zielSys ? 'unter «📌 Systemseiten &amp; weitere Bereiche» separat aufgeführt'
+               : 'unter «Weitere Module» eingehängt')
+    + ' und im Markdown-Export als eigener Block enthalten.';
   el.style.display = '';
 }
 // Anzeigename fuer eine ID, die das Board nicht kennt: erst gema_auth
@@ -2166,15 +2189,20 @@ function _exGenerate(filtered, withScreenshots){
   if(document.getElementById('exFilterArbeit').checked)   statusFilter.push('in bearbeitung');
   if(document.getElementById('exFilterErledigt').checked) statusFilter.push('erledigt');
 
-  // Gruppieren nach modId
+  // Gruppieren nach modId — Systemseiten/Hubs (keine gema_auth-Module) werden
+  // SEPARAT ausgewiesen (Feedback 12.08.2026 beta_pruefungen: «separat
+  // auslisten und ebenfalls exportieren»): erst alle Module, dann ein eigener
+  // Block «Systemseiten & weitere Bereiche».
   var byMod = {};
   filtered.forEach(function(e){
     if(!byMod[e.modId]) byMod[e.modId] = { name: e.modName, items: [] };
     byMod[e.modId].items.push(e);
   });
-  var modIds = Object.keys(byMod).sort(function(a,b){
+  var alleIds = Object.keys(byMod).sort(function(a,b){
     return byMod[a].name.localeCompare(byMod[b].name, 'de');
   });
+  var modIds = alleIds.filter(function(id){ return !_fbIstSystemId(id); });
+  var sysIds = alleIds.filter(function(id){ return  _fbIstSystemId(id); });
 
   var lines = [];
   lines.push('# GEMA Feedback Export');
@@ -2182,7 +2210,9 @@ function _exGenerate(filtered, withScreenshots){
   lines.push('> **Generiert:** ' + ts);
   lines.push('> **Filter:** ' + (statusFilter.join(' + ') || '(nichts)') + (withScreenshots ? ' · mit Screenshots' : ' · ohne Screenshots'));
   lines.push('> **Auswahl:** nur Punkte mit «Feedback umsetzen» (bei Admin-Feedback automatisch gesetzt)');
-  lines.push('> **Total:** ' + filtered.length + ' Eintr' + (filtered.length===1?'ag':'äge') + ' aus ' + modIds.length + ' Modul' + (modIds.length===1?'':'en'));
+  lines.push('> **Total:** ' + filtered.length + ' Eintr' + (filtered.length===1?'ag':'äge') + ' aus '
+    + modIds.length + ' Modul' + (modIds.length===1?'':'en')
+    + (sysIds.length ? ' + ' + sysIds.length + ' weiteren Bereich' + (sysIds.length===1?'':'en') + ' (Systemseiten)' : ''));
   lines.push('');
   lines.push('---');
   lines.push('');
@@ -2197,7 +2227,7 @@ function _exGenerate(filtered, withScreenshots){
     return lines.join('\n');
   }
 
-  modIds.forEach(function(modId){
+  function grpEmit(modId){
     var grp = byMod[modId];
     lines.push('## ' + modId + ' — ' + grp.name);
     lines.push('');
@@ -2230,7 +2260,18 @@ function _exGenerate(filtered, withScreenshots){
       lines.push('---');
       lines.push('');
     });
-  });
+  }
+
+  modIds.forEach(grpEmit);
+
+  // Separater Block fuer alles ohne Modul-Kachel (Feedback 12.08.2026):
+  // dieselbe Gruppen-Struktur, aber unter einer eigenen Ueberschrift — so ist
+  // im Export sofort erkennbar, was KEIN Modul der Liste ist.
+  if(sysIds.length){
+    lines.push('# 📌 Systemseiten & weitere Bereiche (ohne Modul-Kachel)');
+    lines.push('');
+    sysIds.forEach(grpEmit);
+  }
 
   return lines.join('\n');
 }

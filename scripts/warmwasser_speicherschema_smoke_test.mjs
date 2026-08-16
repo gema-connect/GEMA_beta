@@ -62,7 +62,8 @@ console.log('■ Schema mit 1 Speicher — Beschriftungen + Grössenverhältnis'
   ['Warmwasserausgang', 'Kaltwassereingang', 'Fühler', 'Fühler Ein', 'Bereitschaftsvolumen', 'Wärmeerzeuger', 'Totales Speichervolumen'].forEach(t => {
     ok(z.txt.includes(t), 'Beschriftung «' + t + '» vorhanden');
   });
-  ok(z.txt.includes('Misch- & Reservevolumen') && z.txt.includes('fsto-Zuschlag'), 'unbenannte Vorlage-Zone ergänzt: «Misch- & Reservevolumen (fsto-Zuschlag)»');
+  // Feedback 15.08.2026 #6: «&» durch «+» ersetzt — der Check folgt bewusst
+  ok(z.txt.includes('Misch- + Reservevolumen') && z.txt.includes('fsto-Zuschlag'), 'unbenannte Vorlage-Zone ergänzt: «Misch- + Reservevolumen (fsto-Zuschlag)»');
   ok(z.txt.includes('Spitzendeckungsvolumen') && z.txt.includes('Steuervolumen'), 'Zonen-Beschriftungen vorhanden');
   ok(z.txt.includes('%'), '%-Anteile ausgewiesen');
   ok(z.txt.includes('50') && z.txt.includes('kW'), 'Wärmeerzeuger zeigt die gewählte Leistung (50 kW)');
