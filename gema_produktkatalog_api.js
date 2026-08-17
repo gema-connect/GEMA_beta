@@ -1868,6 +1868,12 @@ function createOffertanfrage(opts){
     berechnungswerte: opts.berechnungswerte || {},
     projekt: projekt,
     nachricht: opts.nachricht || '',
+    // ADDITIV (Skizzen-Umsetzung 08/2026): BKP-Position der Anfrage +
+    // Datei-Anhänge (Pläne/Datenblätter) als {name,url,size} — url zeigt
+    // auf GemaStorage (Pfad oa/<orgId>), dataUrl nur als kleiner Fallback.
+    // Alt-Leser ignorieren beide Felder gefahrlos.
+    bkp: opts.bkp || '',
+    anhaenge: Array.isArray(opts.anhaenge) ? opts.anhaenge : [],
     status: 'offen',
     frist: _addDays(new Date(), fristTage).toISOString().split('T')[0],
     erstelltAm: new Date().toISOString(),
@@ -2244,6 +2250,7 @@ window.GemaProdukte = {
   deleteOffertanfrage,
   getOffertanfragenCount,
   OA_STATUS,
+  OA_BKP_MAP,
   // Persistence
   loadFromSupabase,
   get ready(){ return _pkReady || Promise.resolve(); },

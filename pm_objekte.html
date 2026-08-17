@@ -510,7 +510,12 @@ table.tbl .cellcap{display:block;max-width:260px;overflow:hidden;text-overflow:e
       <select class="g-nav-btn" id="offObjFilter" onchange="renderOfferten()" style="min-width:180px;padding:6px 10px;">
         <option value="">Alle Objekte</option>
       </select>
+      <button class="btn btn-primary" id="offNeuBtn" onclick="offNeueAnfrage('')" style="padding:7px 14px;font-size:12.5px">＋ Offertanfrage</button>
     </div>
+    <!-- BKP-Hauptgruppen-Übersicht (Skizze Ausschreibungs-Workflow): pro
+         BKP-Position eine Karte mit Stand der Anfragen + ⊕ für eine neue
+         Anfrage direkt in dieser Position. -->
+    <div id="offBkpCards" style="display:none;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;margin-bottom:14px"></div>
     <div class="tbl-wrap" id="offTableWrap" style="display:none">
       <table class="tbl">
         <thead>
@@ -717,6 +722,8 @@ function fixLeadingZero(el){var v=el.value.trim();if(!v)return;if(v.charAt(0)===
 <script src="gema_db.js"></script>
 <script src="gema_objekte_api.js"></script>
 <script src="gema_produktkatalog_api.js"></script>
+<script src="gema_storage.js"></script>
+<script src="gema_offer_request.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
 <script src="gema_autosave.js"></script>
 <script src="gema_adresse.js"></script>
@@ -963,8 +970,91 @@ var OA_KAT_MAP = {
   'waermeerzeuger':         {html:'hz_waermegruppen.html',      label:'Wärmeerzeuger',       icon:'🔥'},
   'lueftungsgeraet':        {html:'lt_hx_diagramm.html',        label:'Lüftungsgerät',      icon:'💨'},
   'fluessiggasanlage':      {html:'sb_fluessiggas.html',        label:'Flüssiggasanlage',    icon:'🛢️'},
-  'gasloeschanlage':        {html:'br_gasloeschung.html',       label:'Gaslöschanlage',      icon:'🧯'}
+  'gasloeschanlage':        {html:'br_gasloeschung.html',       label:'Gaslöschanlage',      icon:'🧯'},
+  'allgemein':              {html:null,                          label:'Freie Anfrage',        icon:'📨'}
 };
+
+// ── BKP-Hauptgruppen-Übersicht (Skizze Ausschreibungs-Workflow) ──
+// Jede OA hat entweder ein eigenes bkp-Feld (seit 08/2026) oder die
+// kanonische Kategorie-Zuordnung aus GemaProdukte.OA_BKP_MAP.
+var OFF_BKP_NAMEN = {
+  '211':'Baumeisterarbeiten','230':'Elektroanlagen','242':'Wärmeerzeugung',
+  '243':'Wärmeverteilung','244':'Lüftungsanlagen','246':'Kälteanlagen',
+  '250':'Sanitäranlagen','251':'Sanitärapparate','252':'Apparate/Abscheider',
+  '253':'Sanitäranlagen (Aufbereitung/Pumpen)','254':'Sanitärleitungen',
+  '255':'Dämmungen','256':'Brandschutz Sanitär','257':'Löschanlagen'
+};
+function _offBkp(oa){
+  var b = (oa.bkp||'').trim();
+  if(!b){
+    try{ b = (typeof GemaProdukte!=='undefined' && GemaProdukte.OA_BKP_MAP && GemaProdukte.OA_BKP_MAP[oa.kategorie]) || ''; }catch(e){}
+  }
+  return b;
+}
+function renderOffBkpCards(list){
+  var host = $('offBkpCards');
+  if(!host) return;
+  var grp = {};
+  list.forEach(function(oa){
+    var b = _offBkp(oa);
+    var key = 'ohne';
+    var m = b.match(/^(\d{3})/);
+    if(m) key = m[1];
+    if(!grp[key]) grp[key] = { code:(key==='ohne'?'':key), voll:{}, n:0, offen:0, beantwortet:0 };
+    grp[key].n++;
+    if(b) grp[key].voll[b] = true;
+    if(oa.status==='offen') grp[key].offen++;
+    if(oa.status==='beantwortet') grp[key].beantwortet++;
+  });
+  var keys = Object.keys(grp).sort(function(a,b){
+    if(a==='ohne') return 1; if(b==='ohne') return -1;
+    return a.localeCompare(b);
+  });
+  if(!keys.length){ host.style.display='none'; host.innerHTML=''; return; }
+  host.style.display='grid';
+  host.innerHTML = keys.map(function(k){
+    var g = grp[k];
+    var titel = g.code ? ('BKP ' + g.code) : 'Ohne BKP';
+    var name = g.code ? (OFF_BKP_NAMEN[g.code] || '') : 'nicht zugeordnet';
+    // ⊕ startet eine neue Anfrage in der HÄUFIGSTEN vollen Position der Gruppe
+    var vollste = Object.keys(g.voll)[0] || g.code || '';
+    return '<div style="background:#fff;border:1.5px solid #e2e7f0;border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:6px">'
+      + '<div style="display:flex;align-items:center;gap:8px">'
+      +   '<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:800;color:#111827">'+esc(titel)+'</div>'
+      +     (name?'<div style="font-size:10.5px;color:#6b7280;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(name)+'</div>':'')+'</div>'
+      +   '<button class="btn btn-ghost" title="Neue Offertanfrage in dieser BKP-Position" onclick="offNeueAnfrage(\''+esc(vollste)+'\')" style="padding:4px 10px;font-size:15px;font-weight:800;line-height:1">⊕</button>'
+      + '</div>'
+      + '<div style="display:flex;gap:6px;flex-wrap:wrap;font-size:10.5px;font-weight:700">'
+      +   '<span style="padding:2px 8px;border-radius:6px;background:#f4f6fb;color:#374151">'+g.n+' Anfrage'+(g.n===1?'':'n')+'</span>'
+      +   (g.offen?'<span style="padding:2px 8px;border-radius:6px;background:#fffbeb;color:#d97706">⟳ '+g.offen+' offen</span>':'')
+      +   (g.beantwortet?'<span style="padding:2px 8px;border-radius:6px;background:#f0fdf4;color:#16a34a">✓ '+g.beantwortet+' beantwortet</span>':'')
+      + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+// «＋ Offertanfrage» — freie Anfrage ohne Berechnung (GemaOfferRequest im
+// freien Modus), Objekt-Vorbelegung aus dem Filter bzw. dem aktiven Objekt.
+function offNeueAnfrage(bkp){
+  if(typeof GemaOfferRequest === 'undefined'){ toast('Offertanfrage-Modul nicht geladen'); return; }
+  var objId = ($('offObjFilter') && $('offObjFilter').value) || '';
+  if(!objId){ try{ objId = GemaObjekte.getActiveId() || ''; }catch(e){} }
+  var o = null;
+  try{ if(objId && GemaObjekte.getById) o = GemaObjekte.getById(objId); }catch(e){}
+  GemaOfferRequest.open({
+    kategorie: 'allgemein',
+    titel: 'Offertanfrage',
+    freierModus: true,
+    bkp: bkp || '',
+    projekt: {
+      name: o ? (GemaObjekte.displayName ? GemaObjekte.displayName(o) : (o.name||'')) : '',
+      ort:  o ? (o.ort||'') : '',
+      objektId: objId
+    },
+    onSuccess: function(){ try{ renderOfferten(); }catch(e){} }
+  });
+}
+window.offNeueAnfrage = offNeueAnfrage;
 
 function _offVisible(){
   if(typeof GemaProdukte==='undefined') return [];
@@ -1003,6 +1093,7 @@ function renderOfferten(){
   if(fObj) list = list.filter(function(oa){ return oa.projekt && oa.projekt.objektId === fObj; });
   list.sort(function(a,b){ return (b.erstelltAm||'').localeCompare(a.erstelltAm||''); });
   _offUpdateBadge();
+  try{ renderOffBkpCards(list); }catch(e){}
 
   var wrap = $('offTableWrap'), empty = $('offEmpty'), tbody = $('offTbody');
   if(!list.length){
@@ -1046,7 +1137,9 @@ function renderOfferten(){
     return '<tr>'
       + '<td class="nowrap"><span style="font-size:12px;font-variant-numeric:tabular-nums">'+datum+'</span>'+(oa.frist?'<div style="font-size:10px;color:#9ca3af">Frist: '+esc(oa.frist)+'</div>':'')+'</td>'
       + '<td><span style="font-size:14px;margin-right:6px">'+info.icon+'</span>'+esc(info.label)
-        + (oa.produktName?'<div style="font-size:11px;color:#6b7280">'+esc(oa.produktName)+'</div>':'')+'</td>'
+        + (oa.produktName?'<div style="font-size:11px;color:#6b7280">'+esc(oa.produktName)+'</div>':'')
+        + (_offBkp(oa)?'<div style="font-size:10px;color:#9ca3af">BKP '+esc(_offBkp(oa))+'</div>':'')
+        + (oa.anhaenge&&oa.anhaenge.length?'<div style="font-size:10px;color:#9ca3af">📎 '+oa.anhaenge.length+' Anhang'+(oa.anhaenge.length===1?'':'/Anhänge')+'</div>':'')+'</td>'
       + '<td><span class="cellcap">'+esc(oa.lieferantFirma||'—')+'</span></td>'
       + '<td><span class="cellcap" title="'+esc(objTxt)+'">'+esc(objTxt)+'</span></td>'
       + '<td class="nowrap"><span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;background:'+st.bg+';color:'+st.fg+'">'+st.label+'</span></td>'

@@ -1858,6 +1858,20 @@ function _oaAnlageSpecsHtml(a){
   }).join('');
 }
 
+// Anhänge des Planers (Skizzen-Umsetzung 08/2026): {name,url,size} bzw.
+// kleiner Base64-Fallback {name,dataUrl}. Alt-OAs ohne Feld → ''.
+function _oaAnhaengeHtml(a){
+  var list = Array.isArray(a.anhaenge) ? a.anhaenge : [];
+  if(!list.length) return '';
+  var links = list.map(function(f){
+    var n = E(f.name||'Datei');
+    if(f.url) return '<a href="'+E(f.url)+'" target="_blank" rel="noopener" style="color:var(--acc,#2563eb)">📎 '+n+'</a>';
+    if(f.dataUrl) return '<a href="'+f.dataUrl+'" download="'+n+'" style="color:var(--acc,#2563eb)">📎 '+n+'</a>';
+    return '📎 '+n;
+  }).join(' · ');
+  return '<div style="font-size:12px;margin-bottom:8px"><strong>📎 Anhänge:</strong> '+links+'</div>';
+}
+
 function renderOaCard(a){
   var stCls = 'oa-'+a.status;
   var badgeCls = a.status==='offen'?'b-offen':a.status==='beantwortet'?'b-beantwortet':a.status==='abgelehnt'?'b-abgelehnt':'b-abgelaufen';
@@ -1876,7 +1890,9 @@ function renderOaCard(a){
     (projektText?'<div style="font-size:12px;color:var(--txt2);margin-bottom:6px"><strong>📋 Projekt:</strong> '+E(projektText)+'</div>':'')+
     (bwText?'<div style="font-size:11px;color:var(--mut);margin-bottom:6px"><strong>🧮 Berechneter Bedarf:</strong> '+E(bwText)+'</div>':'')+
     (a.produktName?'<div style="font-size:11px;color:var(--mut);margin-bottom:6px"><strong>🏭 Gewählte Anlage:</strong> '+E(a.produktName)+'</div>':'')+
+    (a.bkp?'<div style="font-size:11px;color:var(--mut);margin-bottom:6px"><strong>🧱 BKP:</strong> '+E(a.bkp)+'</div>':'')+
     (a.nachricht?'<div style="font-size:12px;color:var(--txt2);font-style:italic;margin-bottom:8px">«'+E(a.nachricht.substring(0,200))+(a.nachricht.length>200?'…':'')+'»</div>':'')+
+    _oaAnhaengeHtml(a)+
     (a.antwort?'<div style="font-size:12px;color:var(--grn);font-weight:600;margin-bottom:8px">✉ Beantwortet: '+E((a.antwort.nachricht||'').substring(0,100))+_oaPdfLinkHtml(a.antwort)+'</div>':'')+
     (a.status==='offen'&&_liefCanOfferten()?'<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="btn btn-p btn-sm" onclick="openOaAnswer(\''+E(a.id)+'\')">✉ Beantworten</button><button class="btn btn-d btn-sm" onclick="quickReject(\''+E(a.id)+'\')">✕ Ablehnen</button>'+_oaChatBtn(a)+'</div>':(a.status==='offen'?'<div style="font-size:11px;color:var(--mut);margin-top:8px">Beantworten nur durch die Rolle «Offerten» (oder Lieferant-Admin).</div>':(_oaChatBtn(a)?'<div style="margin-top:8px">'+_oaChatBtn(a)+'</div>':'')))+
   '</div>';
@@ -2184,7 +2200,9 @@ function openOaAnswer(oaId){
       '<div style="font-weight:800;margin-bottom:2px">📋 Projekt</div>'+
       '<div>'+(projektText?E(projektText):'—')+'</div>'+
       '<div style="color:var(--mut);margin-top:2px">Anfrage von '+E(oa.absenderName||'—')+' ('+E(oa.absenderRolle||'')+') · '+E(oa.absenderFirma||'')+' · Frist: '+E(oa.frist||'—')+'</div>'+
+      (oa.bkp?'<div style="color:var(--mut);margin-top:2px">🧱 BKP: '+E(oa.bkp)+'</div>':'')+
       (oa.nachricht?'<div style="font-style:italic;margin-top:4px">«'+E(oa.nachricht)+'»</div>':'')+
+      (_oaAnhaengeHtml(oa)?'<div style="margin-top:6px">'+_oaAnhaengeHtml(oa)+'</div>':'')+
     '</div>'+
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:10px">'+
       '<div style="background:var(--bg);border-radius:8px;padding:12px;font-size:12px;line-height:1.7">'+
