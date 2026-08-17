@@ -92,8 +92,9 @@ console.log('■ A — WW_TYP_PROFILE: 11 Profile, Σ = 100, Basis-Spitzen konsi
 console.log('■ B — wwTypProfilEff: Spitzenstunden-Ersatz + Skalierung (Excel-Mechanik)');
 {
   // Hotel: Spitze 20 % statt 12.5 % → C9 = (100−20)/87.5 · B9
+  // (Spitzenstunde 18–19 Uhr — VSSH-Rotation, siehe Foto-Referenz 16.08.2026)
   const eff = wwTypProfilEff('hotel', 20);
-  eq(eff[17], 20, 'Spitzenstunde trägt die effektive Spitze');
+  eq(eff[18], 20, 'Spitzenstunde trägt die effektive Spitze');
   eq(eff.reduce((a, v) => a + v, 0), 100, 'Σ bleibt exakt 100');
   eq(eff[0], 0.5 * (100 - 20) / 87.5, 'übrige Stunden skalieren mit (100−sp)/(100−Basis)');
   // Basis-Durchreichung: sp == Basis → Faktor 1 (Profil unverändert)

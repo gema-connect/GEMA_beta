@@ -181,16 +181,81 @@ t(!!fein.f1 && !!fein.f2 && fein.f1 !== fein.f2, 'Zeilen-Selects in Diagramm-Far
 t(fein.nrChips === 2, 'fortlaufende Zeilen-Nummern');
 t(fein.foot, 'statischer Total-Footer (keine Duplikat-ids)');
 
-console.log('■ Stunden-Tabelle unter Feinplanungs-Summenlinien (#17)');
+console.log('■ Stunden-Tabelle der Feinplanungs-Summenlinien (#17 + Foto-Referenz 16.08.2026)');
 const slh = await page.evaluate(() => {
   const tb = document.querySelector('#wwFeinSlTable table.ww-slh');
   if (!tb) return { da: false };
-  const rows = [...tb.querySelectorAll('tr')].map(r => r.cells[0] ? r.cells[0].textContent : '');
-  return { da: true, koepfe: tb.rows[0].cells.length, zeilen: rows };
+  const rows = [...tb.querySelectorAll('tbody tr')].map(r => r.cells[0] ? r.cells[0].textContent.trim() : '');
+  // Foto-Layout: die Tabelle steht ÜBER dem Diagramm (VSSH-Blatt: Stundenzeile
+  // + %-Zeile + Σ%-Zeile, darunter das Summenliniendiagramm)
+  const host = document.getElementById('wwFeinSlTable');
+  const canvas = document.getElementById('wwFeinSlCanvas');
+  const vorCanvas = !!(host && canvas &&
+    (host.compareDocumentPosition(canvas) & Node.DOCUMENT_POSITION_FOLLOWING));
+  return { da: true, koepfe: tb.rows[0].cells.length, zeilen: rows, vorCanvas };
 });
 t(slh.da, 'Stunden-Tabelle gerendert');
 t(slh.da && slh.koepfe === 25, '25 Spalten (Stunde + 24), ist ' + (slh.da ? slh.koepfe : 0));
-t(slh.da && slh.zeilen.some(z => /kumuliert/.test(z)), 'kumulierte Zeilen vorhanden');
+t(slh.da && slh.vorCanvas, 'Tabelle steht ÜBER dem Diagramm (Foto-Layout)');
+t(slh.da && slh.zeilen.join('|') === '%|l|Σ %|Σ l',
+  'kompakte Referenz-Labels % / l / Σ % / Σ l (ist ' + (slh.da ? slh.zeilen.join('|') : '—') + ')');
+
+// Rotation der SI-1991-Profile: WW_TYP_PROFILE (mitternachtsbasiert) MUSS exakt
+// das 05:00-basierte VSSH-Original aus WW_SL_PROFILE sein — pct[h] = SL[(h+19)%24].
+// Bis 16.08.2026 sass jede Spitze eine Stunde zu früh (04:00-Rotation).
+const rot = await page.evaluate(() => {
+  const map = { hotel: 'stadthotel', hotel_tourist: 'touristenhotel', altersheim: 'altersheim', spital: 'spital', restaurant: 'cafe_restaurant' };
+  const fails = [];
+  Object.keys(map).forEach(typKey => {
+    const typ = window.WW_TYP_PROFILE ? WW_TYP_PROFILE[typKey] : null;
+    const sl = window.WW_SL_PROFILE ? WW_SL_PROFILE[map[typKey]] : null;
+    if (!typ || !sl) { fails.push(typKey + ': Profil fehlt'); return; }
+    for (let h = 0; h < 24; h++) {
+      if (Math.abs(typ.pct[h] - sl.pct[(h + 19) % 24]) > 1e-9) { fails.push(typKey + ' @h' + h); return; }
+    }
+    if (typ.pct[typ.peakIdx] !== Math.max(...typ.pct)) fails.push(typKey + ': peakIdx');
+  });
+  return fails;
+});
+t(rot.length === 0, 'SI-1991-Profile = VSSH-Rotation (05:00 → Mitternacht): ' + (rot.length ? rot.join(', ') : 'alle 5 exakt'));
+
+// Foto-Werte (VSSH-Blatt Touristenhotel): eine reine hotel_tourist-Zeile →
+// %-Zeile = Originalprofil (Spitze 20.5 % in der Stunde 18–19, 00–01 = 1 %),
+// Σ%-Zeile endet exakt bei 100.
+await page.evaluate(() => {
+  window.wwState.fein = [{ ne: 7, n: '20', profil: 'hotel_tourist' }];
+  wwRenderTables(); wwRecalc();
+});
+await page.waitForTimeout(300);
+const foto = await page.evaluate(() => {
+  const tb = document.querySelector('#wwFeinSlTable table.ww-slh');
+  if (!tb) return { da: false };
+  const num = s => parseFloat(String(s).replace(/’|'/g, '').replace(',', '.'));
+  const koepfe = [...tb.rows[0].cells].map(c => c.textContent.trim());
+  const zeilen = [...tb.querySelectorAll('tbody tr')];
+  const pz = zeilen.find(r => r.cells[0].textContent.trim() === '%');
+  const sz = zeilen.find(r => r.cells[0].textContent.trim() === 'Σ %');
+  if (!pz || !sz) return { da: false };
+  return {
+    da: true,
+    kopf19: koepfe[19],
+    spitze: num(pz.cells[19].textContent),
+    h0: num(pz.cells[1].textContent),
+    sumEnde: num(sz.cells[24].textContent)
+  };
+});
+t(foto.da, 'Tabelle mit reiner hotel_tourist-Zeile gerendert');
+t(foto.da && foto.kopf19 === '18–19', 'Spalte 19 = Stunde 18–19 (ist ' + (foto.da ? foto.kopf19 : '—') + ')');
+t(foto.da && Math.abs(foto.spitze - 20.5) < 0.05, 'Spitze 20.5 % in der Stunde 18–19 wie im VSSH-Blatt (ist ' + (foto.da ? foto.spitze : '—') + ')');
+t(foto.da && Math.abs(foto.h0 - 1) < 0.05, '00–01 Uhr = 1 % (ist ' + (foto.da ? foto.h0 : '—') + ')');
+t(foto.da && Math.abs(foto.sumEnde - 100) < 0.05, 'Σ%-Zeile endet bei 100 (ist ' + (foto.da ? foto.sumEnde : '—') + ')');
+
+// Seed für die Folge-Sektionen wiederherstellen
+await page.evaluate(() => {
+  window.wwState.fein = [{ ne: 3, n: '50', profil: 'wohnbau' }, { ne: 7, n: '20', profil: 'hotel' }];
+  wwRenderTables(); wwRecalc();
+});
+await page.waitForTimeout(300);
 
 console.log('■ Wohnungen aus Grobauslegung (#14) → Zeit-Selects (#10)');
 await page.evaluate(() => {
