@@ -235,13 +235,17 @@ console.log('— B) Bereichs-UI: Referenz-Karte + Add-Buttons + Gesamtübersicht
     const el = document.querySelector('#acc_trocknung .acc-body');
     return {
       firstPill: el.querySelectorAll('.sd-first-pill').length,
-      scanBtn: /sdScanDevForArea\('sd_ana',\d+\)/.test(el.innerHTML),
+      // Der Bereichs-Knopf gibt den Modus IMMER mit — er darf nie wieder
+      // auf mode:'auto' zurückfallen (sonst startet Android zwingend NFC).
+      scanBtn: /sdScanDevForArea\('sd_ana',\d+,'qr'\)/.test(el.innerHTML),
+      nfcBtn: /sdScanDevForArea\('sd_ana',\d+,'nfc'\)/.test(el.innerHTML),
       gesamt: el.textContent.indexOf('Gesamtübersicht') >= 0,
       gestartet: window.schaeden.find(x => x.id === 'sd_ana').trocknung.gestartetAm
     };
   });
   ok(tro.firstPill === 1, '«Erste Messung ausstehend»-Pill am Bad-Messpunkt (nur Referenz)');
-  ok(tro.scanBtn, '«Gerät scannen & zuweisen»-Button je Bereich');
+  ok(tro.scanBtn, '«QR scannen & zuweisen»-Button je Bereich (Modus explizit)');
+  ok(!tro.nfcBtn, 'ohne Web-NFC (Desktop/Chromium) kein NFC-Knopf — QR bleibt der Weg');
   ok(tro.gestartet === HEUTE, 'gestartetAm beim Phasenwechsel gesetzt (' + tro.gestartet + ')');
 }
 
@@ -279,6 +283,104 @@ console.log('— D) Geräte-QR-Zuweisung je Bereich (gemockter Scan + Zählersta
   ok(added.raum === 'Bad' && added.name === 'Bautrockner X' && added.tg === 'tg_77', 'Gerät dem Bereich «Bad» zugewiesen (QR-verknüpft)');
   ok(added.start === 42, 'gegengeprüfter Zählerstand (42) übernommen');
   await page.evaluate(() => document.getElementById('devAddModal').classList.add('hidden'));
+}
+
+console.log('— D2) Android: QR bleibt wählbar, obwohl Web-NFC vorhanden ist —');
+{
+  // Android Chrome simulieren: NDEFReader existiert → 'auto' hätte früher
+  // IMMER NFC gestartet, ein Gerät mit blosser QR-Etikette war unscanbar.
+  const und = await page.evaluate(() => {
+    window.__scanModi = [];
+    window.GemaNFC = {
+      isAvailable: () => true, isIos: () => false,
+      parseTgUrl: () => 'tg_78',
+      scan: (opts) => { window.__scanModi.push(opts.mode); }
+    };
+    sdOpenDetail('sd_ana');
+    return true;
+  });
+  await page.waitForTimeout(250);
+  const btns = await page.evaluate(() => {
+    const el = document.querySelector('#acc_trocknung .acc-body');
+    return {
+      qr: /sdScanDevForArea\('sd_ana',\d+,'qr'\)/.test(el.innerHTML),
+      nfc: /sdScanDevForArea\('sd_ana',\d+,'nfc'\)/.test(el.innerHTML)
+    };
+  });
+  ok(und.true !== false && btns.qr, 'Android: «QR scannen»-Knopf je Bereich vorhanden');
+  ok(btns.nfc, 'Android: «NFC scannen» steht als ZWEITER Knopf daneben (Wahl statt Automatik)');
+
+  // Beide Knöpfe reichen ihren Modus durch — kein 'auto' mehr
+  const modi = await page.evaluate(() => {
+    var idx = _sdAreaNames(window.schaeden.find(x => x.id === 'sd_ana')).indexOf('Bad');
+    window.__scanModi = [];
+    sdScanDevForArea('sd_ana', idx, 'qr');
+    document.getElementById('devAddModal').classList.add('hidden');
+    sdScanDevForArea('sd_ana', idx, 'nfc');
+    document.getElementById('devAddModal').classList.add('hidden');
+    var modalBtns = {
+      qrSichtbar: document.getElementById('devQrScanBtn').style.display !== 'none',
+      nfcSichtbar: document.getElementById('devNfcScanBtn').style.display !== 'none'
+    };
+    return { modi: window.__scanModi, modalBtns: modalBtns };
+  });
+  ok(modi.modi[0] === 'qr', 'QR-Knopf startet den Kamera-Scan (mode qr, nicht auto)');
+  ok(modi.modi[1] === 'nfc', 'NFC-Knopf startet den NFC-Scan (mode nfc)');
+  ok(modi.modalBtns.qrSichtbar && modi.modalBtns.nfcSichtbar, 'Android: im Geräte-Dialog stehen BEIDE Scan-Knöpfe');
+
+  // Gegenprobe iPhone/Desktop: kein Web-NFC → nur QR, NFC-Knopf weg
+  const ios = await page.evaluate(() => {
+    window.GemaNFC.isAvailable = () => false;
+    window.GemaNFC.isIos = () => true;
+    var idx = _sdAreaNames(window.schaeden.find(x => x.id === 'sd_ana')).indexOf('Bad');
+    window.__scanModi = [];
+    sdScanDevForArea('sd_ana', idx, 'nfc');   // NFC angefragt, aber unmöglich
+    var r = {
+      nfcSichtbar: document.getElementById('devNfcScanBtn').style.display !== 'none',
+      hinweis: document.getElementById('devScanStatus').textContent,
+      modus: window.__scanModi[0]
+    };
+    document.getElementById('devAddModal').classList.add('hidden');
+    return r;
+  });
+  ok(!ios.nfcSichtbar, 'iPhone/Desktop: NFC-Knopf im Dialog ausgeblendet');
+  ok(ios.modus === 'qr', 'NFC-Anfrage ohne Web-NFC fällt auf QR zurück (statt ins Leere zu laufen)');
+  ok(/iPhone/.test(ios.hinweis), 'iPhone-Hinweis (Tag ans Gerät halten / sonst QR) steht im Dialog');
+}
+
+console.log('— D3) Zentraler Helper: NFC-Overlay hat den Umschalter auf QR —');
+{
+  // Betrifft ALLE mode:'auto'-Aufrufer. Echtes gema_nfc_scanner.js gegen
+  // einen NDEFReader-Stub, der nie auflöst (Tag wird nie aufgelegt).
+  const sw = await page.evaluate(() => {
+    delete window.GemaNFC;                       // Mock aus D2 entfernen
+    window.NDEFReader = function(){ this.scan = function(){ return new Promise(function(){}); };
+                                    this.addEventListener = function(){}; };
+    window.__qrGestartet = 0;
+    window.GemaQR = { scan: function(){ window.__qrGestartet++; }, stop: function(){} };
+    return new Promise(function(res){
+      var s = document.createElement('script');
+      s.src = 'gema_nfc_scanner.js?t=' + Date.now();   // Helper frisch laden
+      s.onload = function(){
+        GemaNFC.scan({ mode: 'auto', onScan: function(){} });
+        var btn = document.getElementById('gemaNfcToQr');
+        var vorher = { nfcModus: !!document.getElementById('gemaNfcStatus'), knopf: !!btn };
+        if (btn) btn.click();
+        res({
+          vorher: vorher,
+          qrGestartet: window.__qrGestartet,
+          bannerWeg: !document.getElementById('gemaNfcStatus'),
+          knopfWeg: !document.getElementById('gemaNfcToQr')
+        });
+      };
+      document.head.appendChild(s);
+    });
+  });
+  ok(sw.vorher.nfcModus, 'auto wählt bei vorhandenem NDEFReader weiterhin NFC (Banner steht)');
+  ok(sw.vorher.knopf, 'NFC-Overlay bietet «📷 Stattdessen QR-Code scannen»');
+  ok(sw.qrGestartet === 1, 'Klick startet den Kamera-Scanner');
+  ok(sw.bannerWeg && sw.knopfWeg, 'NFC-Overlay wird beim Umschalten restlos abgeräumt (keine Geister-Knöpfe)');
+  await page.evaluate(() => { delete window.NDEFReader; });
 }
 
 console.log('— E) Massnahmen: Button unter der Liste + synchron angehängt + fokussiert —');

@@ -12,9 +12,17 @@
  * automatisch. Im Browser-Kontext (Modal) ist die direkte NFC-Lese-API
  * aber nicht verfuegbar — dort steht der QR-Fallback bereit.
  *
+ * QR IST AUF ANDROID IMMER ERREICHBAR (KRITISCH): 'auto' waehlt dort
+ * zwangslaeufig NFC, weil NDEFReader vorhanden ist. Nicht jedes Geraet
+ * traegt aber einen NFC-Tag — viele haben nur die gedruckte QR-Etikette.
+ * Darum blendet der NFC-Modus IMMER den Umschalter «📷 Stattdessen
+ * QR-Code scannen» ein (siehe _startNfc). Wer die Wahl schon in der
+ * Oberflaeche anbietet, ruft direkt mit mode:'qr' bzw. mode:'nfc' auf.
+ *
  * Verwendung:
  *   GemaNFC.scan({
- *     mode: 'auto'|'nfc'|'qr',   // default 'auto'
+ *     mode: 'auto'|'nfc'|'qr',   // default 'auto' (NFC wenn moeglich,
+ *                                //  mit Umschalter auf QR im Overlay)
  *     statusEl: HTMLElement,     // optional: Element fuer Status-Text
  *     onScan: function(payload),  // bekommt String (URL oder QR-Inhalt)
  *     onError: function(err)
@@ -33,7 +41,12 @@
   // NICHT existierende API (NDEFReader hat kein .stop()) — die Reader
   // lauschten ewig weiter, stapelten sich und wedgten den Chrome-NFC-Stack
   // auf Android (Haenger). Handler weg = Session zu; der Reader bleibt.
-  var _state = { overlay: null, closeBtn: null, statusEl: null, handler: null, scanPromise: null };
+  var _state = { nodes: [], statusEl: null, handler: null, scanPromise: null };
+
+  // Eingehaengte Overlay-Knoten merken, damit stop() ALLE wieder abraeumt
+  // (Banner, «NFC beenden», «Stattdessen QR» — frueher nur die ersten zwei;
+  // ein vergessener Knopf blieb als Geist auf der Seite stehen).
+  function _addNode(el){ document.body.appendChild(el); _state.nodes.push(el); return el; }
 
   function _ensureReader(){
     if(!_state.scanPromise){
@@ -98,8 +111,8 @@
   // persistente Reader bleibt bewusst bestehen — kein abort-Churn)
   function stop(){
     _state.handler = null;
-    if(_state.overlay){ try{ _state.overlay.remove(); }catch(e){} _state.overlay = null; }
-    if(_state.closeBtn){ try{ _state.closeBtn.remove(); }catch(e){} _state.closeBtn = null; }
+    _state.nodes.forEach(function(el){ try{ el.remove(); }catch(e){} });
+    _state.nodes = [];
     // Auch GemaQR sicher stoppen (falls aktiv)
     try{ if(w.GemaQR && w.GemaQR.stop) w.GemaQR.stop(); }catch(e){}
   }
@@ -115,17 +128,37 @@
       + 'background:#1d4ed8;color:#fff;padding:12px 24px;border-radius:12px;font-size:14px;'
       + 'font-weight:700;z-index:11000;box-shadow:0 4px 16px rgba(0,0,0,.2);font-family:DM Sans,system-ui,sans-serif';
     overlay.textContent = '📡 NFC-Tag jetzt scannen …';
-    document.body.appendChild(overlay);
-    _state.overlay = overlay;
+    _addNode(overlay);
+
+    // Umschalter auf die Kamera — der WICHTIGE Ausweg auf Android:
+    // dort existiert NDEFReader immer, 'auto' entscheidet sich also IMMER
+    // fuer NFC. Ohne diesen Knopf kaeme man an einem Geraet, das nur eine
+    // gedruckte QR-Etikette traegt (kein NFC-Tag), gar nicht mehr zum
+    // Scanner. Steht VOR «NFC beenden», weil er die haeufigere Absicht ist.
+    if(w.GemaQR && w.GemaQR.scan){
+      var qrBtn = document.createElement('button');
+      qrBtn.id = 'gemaNfcToQr';
+      qrBtn.textContent = '📷 Stattdessen QR-Code scannen';
+      qrBtn.style.cssText = 'position:fixed;bottom:176px;left:50%;transform:translateX(-50%);'
+        + 'background:#1e3a5f;color:#fff;border:2px solid #1e3a5f;padding:9px 20px;border-radius:10px;'
+        + 'font-size:13px;font-weight:800;z-index:11000;cursor:pointer;min-height:44px;'
+        + 'font-family:DM Sans,system-ui,sans-serif';
+      qrBtn.onclick = function(){
+        var o = opts;            // stop() raeumt die Knoten ab, opts bleibt
+        stop();
+        _startQr(o);
+      };
+      _addNode(qrBtn);
+    }
 
     var closeBtn = document.createElement('button');
     closeBtn.textContent = 'NFC beenden';
     closeBtn.style.cssText = 'position:fixed;bottom:130px;left:50%;transform:translateX(-50%);'
       + 'background:#fff;color:#1d4ed8;border:2px solid #1d4ed8;padding:8px 20px;border-radius:10px;'
-      + 'font-size:13px;font-weight:700;z-index:11000;cursor:pointer;font-family:DM Sans,system-ui,sans-serif';
+      + 'font-size:13px;font-weight:700;z-index:11000;cursor:pointer;min-height:40px;'
+      + 'font-family:DM Sans,system-ui,sans-serif';
     closeBtn.onclick = function(){ stop(); };
-    document.body.appendChild(closeBtn);
-    _state.closeBtn = closeBtn;
+    _addNode(closeBtn);
 
     try{
       // Session-Handler setzen — die erste gueltige Lesung beendet die
