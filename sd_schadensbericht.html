@@ -906,10 +906,14 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
     <!-- Auswahl aus Geraeteverwaltung: zeigt verfuegbare Geraete der
          eigenen Org. Klick fuellt Name/kW/Typ aus + setzt im Geraete-
          Modul den Status auf 'im_einsatz' (mit Verknuepfung zum Schaden). -->
-    <!-- NFC / QR Scan-Aktion — Monteur scannt Tag, passendes Geraet wird ausgewaehlt -->
+    <!-- QR / NFC Scan-Aktion — Monteur scannt Tag, passendes Geraet wird
+         ausgewaehlt. ZWEI Knoepfe: QR geht auf JEDEM Geraet, NFC nur auf
+         Android Chrome (wird in sdOpenDevAdd eingeblendet). Ein einzelner
+         Auto-Knopf haette auf Android immer NFC gestartet. -->
     <div id="devAddOnlyWrap">
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
-      <button type="button" class="nbtn" id="devNfcScanBtn" onclick="_sdScanForDev()" style="font-weight:700">📡 NFC-Tag scannen</button>
+      <button type="button" class="nbtn" id="devQrScanBtn" onclick="_sdScanForDev('qr')" style="font-weight:700">📷 QR-Code scannen</button>
+      <button type="button" class="nbtn" id="devNfcScanBtn" onclick="_sdScanForDev('nfc')" style="font-weight:700;display:none">📡 NFC-Tag scannen</button>
       <span id="devScanStatus" style="font-size:11.5px;color:var(--mut);flex:1;min-width:0"></span>
     </div>
     <div id="devPickerWrap" style="margin-bottom:14px"></div>
@@ -2735,8 +2739,15 @@ function _sdDevBlock(s, area, areaIdx, editable, canEdit){
   });
   if(!any) h += '<div style="font-size:11.5px;color:var(--mut);padding:6px 0">Noch kein Gerät in diesem Bereich.</div>';
   if(editable){
+    // QR und NFC sind ZWEI Knoepfe (Muster if_werkzeug «QR-/NFC-Sammelscan»).
+    // Ein einzelner Knopf mit mode:'auto' waehlt auf Android IMMER NFC —
+    // ein Geraet mit blosser QR-Etikette waere dort nicht mehr scanbar.
+    // NFC erscheint nur, wo der Browser es kann (Android Chrome).
     h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">';
-    h += '<button class="nbtn primary" onclick="sdScanDevForArea(\'' + s.id + '\',' + areaIdx + ')">📷 Gerät scannen &amp; zuweisen</button>';
+    h += '<button class="nbtn primary" onclick="sdScanDevForArea(\'' + s.id + '\',' + areaIdx + ',\'qr\')">📷 QR scannen &amp; zuweisen</button>';
+    if(_sdNfcMoeglich()){
+      h += '<button class="nbtn" onclick="sdScanDevForArea(\'' + s.id + '\',' + areaIdx + ',\'nfc\')">📡 NFC scannen</button>';
+    }
     h += '<button class="nbtn" onclick="sdOpenDevAdd(\'' + s.id + '\',' + areaIdx + ')">+ Gerät manuell</button>';
     h += '</div>';
   }
@@ -3463,17 +3474,14 @@ function sdOpenDevAdd(id, raumIdx) {
   if(typSel){ typSel.value = 'stunden'; _sdApplyZaehlerTyp('stunden'); }
   var stat = document.getElementById('devScanStatus');
   if(stat) stat.textContent = '';
-  // Scan-Button-Text je nach Verfuegbarkeit: NFC oder QR-Fallback
+  // QR steht IMMER; NFC nur wo der Browser es kann (Android Chrome).
+  // Frueher war es EIN Knopf, dessen Beschriftung wechselte — auf Android
+  // hiess er «NFC» und ein Geraet mit blosser QR-Etikette liess sich dort
+  // gar nicht scannen.
   var nfcBtn = document.getElementById('devNfcScanBtn');
-  if(nfcBtn){
-    if(typeof GemaNFC !== 'undefined' && GemaNFC.isAvailable()){
-      nfcBtn.textContent = '📡 NFC-Tag scannen';
-    } else if(typeof GemaNFC !== 'undefined' && GemaNFC.isIos()){
-      nfcBtn.textContent = '📷 QR-Code scannen';
-      if(stat) stat.textContent = 'iPhone: Tag direkt ans Gerät halten — Safari öffnet die Seite. Sonst QR scannen.';
-    } else {
-      nfcBtn.textContent = '📷 QR-Code scannen';
-    }
+  if(nfcBtn) nfcBtn.style.display = _sdNfcMoeglich() ? '' : 'none';
+  if(stat && typeof GemaNFC !== 'undefined' && !GemaNFC.isAvailable() && GemaNFC.isIos()){
+    stat.textContent = 'iPhone: Tag direkt ans Gerät halten — Safari öffnet die Seite. Sonst QR scannen.';
   }
   _sdRenderDevPicker(id);
   document.getElementById('devAddModal').dataset.schadenId = id;
@@ -3512,14 +3520,23 @@ function sdOpenDevEdit(id, gi) {
 window.sdOpenDevEdit = sdOpenDevEdit;
 
 // Öffnet die Geräte-Zuweisung für einen Bereich und startet SOFORT den
-// QR/NFC-Scan (User-Gesture vom Button-Klick). Nach dem Scan sind Name/kW
+// Scan (User-Gesture vom Button-Klick). Nach dem Scan sind Name/kW
 // und der aktuelle Zählerstand vorbefüllt — der Monteur prüft den
 // Zählerstand kurz gegen und bestätigt mit «Hinzufügen».
-function sdScanDevForArea(id, raumIdx) {
+// `modus`: 'qr' | 'nfc' — der Bereichs-Karten-Knopf gibt ihn IMMER mit,
+// damit die Wahl beim Nutzer liegt. Ohne Angabe bleibt es beim alten
+// 'auto' (Bestandsschutz für andere Aufrufer).
+function sdScanDevForArea(id, raumIdx, modus) {
   sdOpenDevAdd(id, raumIdx);
-  try { _sdScanForDev(); } catch (e) {}
+  try { _sdScanForDev(modus); } catch (e) {}
 }
 window.sdScanDevForArea = sdScanDevForArea;
+
+// Kann dieser Browser NFC lesen? (Android Chrome — iPhone/Desktop nie.)
+function _sdNfcMoeglich(){
+  try { return typeof GemaNFC !== 'undefined' && GemaNFC.isAvailable(); }
+  catch (e) { return false; }
+}
 
 // Default-Zaehler-Typ pro Geraet (Backwards-Compat). Basis-Logik wie
 // if_trocknung.html _tgDefaultZaehlerTyp — mit EINEM Bericht-Mapping:
@@ -3567,15 +3584,19 @@ function _sdApplyZaehlerTyp(typ){
   }
 }
 
-// NFC/QR-Scan starten — Helper aus gema_nfc_scanner.js, auto-fallback.
-function _sdScanForDev(){
+// Scan starten — Helper aus gema_nfc_scanner.js.
+// `modus` 'qr'|'nfc' kommt von den beiden Knöpfen; ohne Angabe 'auto'
+// (dann entscheidet der Helper und blendet im NFC-Overlay den
+// QR-Umschalter ein).
+function _sdScanForDev(modus){
   if(typeof GemaNFC === 'undefined'){
     alert('NFC/QR-Scanner nicht geladen.');
     return;
   }
+  if(modus === 'nfc' && !_sdNfcMoeglich()) modus = 'qr';
   var stat = document.getElementById('devScanStatus');
   GemaNFC.scan({
-    mode: 'auto',
+    mode: modus || 'auto',
     statusEl: stat,
     onScan: _sdHandleScanPayload,
     onError: function(e){
