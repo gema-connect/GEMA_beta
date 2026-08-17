@@ -22,6 +22,11 @@
  *     opts = { imageBase64, mediaType?, text?, modus:'grundriss'|'schnitt', signal? }
  *     — Plan-Analyse (Grundriss Pass 1 / Schnitt Pass 3) via
  *       /.netlify/functions/claude-plan. Pläne-Modul (pm_plaene.html).
+ *   GemaClaude.checkOfferPdf(opts)             Promise<{gesamtbetrag_pdf,
+ *                                                       uebereinstimmung,abweichungen[],fazit}>
+ *     opts = { fileBase64, mediaType?, filename?, erfasst, signal? }
+ *     — Offert-PDF-Gegencheck (Original-PDF vs. erfasste Preise) via
+ *       /.netlify/functions/claude-offertcheck. Ausschreibungs-Modul.
  *   GemaClaude.createRedactor(extraTerms?)     → {redactText,matchesTerm,restore,count}
  *     — Anonymisierung: Kundennamen/-adressen (Objekt-Stammdaten,
  *       Beteiligte, generische Adressmuster) werden vor dem API-Aufruf
@@ -41,6 +46,7 @@
   var EXTRACT_ENDPOINT = '/.netlify/functions/claude-extract';
   var FORMFIELDS_ENDPOINT = '/.netlify/functions/claude-formfields';
   var PLAN_ENDPOINT = '/.netlify/functions/claude-plan';
+  var OFFERTCHECK_ENDPOINT = '/.netlify/functions/claude-offertcheck';
 
   // Auth-Header (Review S3): die KI-Proxies akzeptieren nur eingeloggte
   // GEMA-User. Das JWT liegt in der GemaSync-Session; ohne Token laeuft der
@@ -299,6 +305,34 @@
     });
   }
 
+  // ── Offert-PDF-Gegencheck (Ausschreibung, pm_ausschreibungsunterlagen):
+  //    vergleicht das Original-Offert-PDF des Unternehmers mit den im System
+  //    erfassten Preisen und liefert Abweichungen strukturiert zurück.
+  //    Die Antwort ist eine EINSCHÄTZUNG — massgebend bleibt das Original-PDF.
+  //    opts = { fileBase64, mediaType?, filename?, erfasst, signal? }
+  function checkOfferPdf(opts) {
+    opts = opts || {};
+    var payload = {
+      fileBase64: opts.fileBase64 || '',
+      mediaType: opts.mediaType || 'application/pdf',
+      erfasst: String(opts.erfasst || '')
+    };
+    if (opts.filename) payload.filename = opts.filename;
+    return fetch(OFFERTCHECK_ENDPOINT, {
+      method: 'POST',
+      headers: _authHeaders(),
+      body: JSON.stringify(payload),
+      signal: opts.signal
+    }).then(function(r){
+      return _parseJson(r, 'KI-Offertprüfung').then(function(data){
+        var d = data.data || {};
+        d.abweichungen = Array.isArray(d.abweichungen) ? d.abweichungen : [];
+        if (['ok','abweichung','unklar'].indexOf(d.uebereinstimmung) < 0) d.uebereinstimmung = 'unklar';
+        return d;
+      });
+    });
+  }
+
   w.GemaClaude = {
     isConfigured: isConfigured,
     rewrite: function(t, o){ return _call('rewrite', t, o); },
@@ -309,6 +343,7 @@
     extractPositions: extractPositions,
     analyzeForm: analyzeForm,
     analyzePlan: analyzePlan,
+    checkOfferPdf: checkOfferPdf,
     createRedactor: createRedactor
   };
 })(typeof window !== 'undefined' ? window : this);

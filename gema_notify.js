@@ -50,6 +50,21 @@
       modul:'ausschreibung',
       defaultOn:true
     },
+    ausschreibung_freigabe: {
+      label:'Freigabe der Unterlagen (Projektleitung)',
+      modul:'ausschreibung',
+      defaultOn:true
+    },
+    ausschreibung_abgebot: {
+      label:'Abgebotsrunde (Anfrage / Antwort)',
+      modul:'ausschreibung',
+      defaultOn:true
+    },
+    ausschreibung_unterlagen_geaendert: {
+      label:'Unterlagen geändert (neue Version)',
+      modul:'ausschreibung',
+      defaultOn:true
+    },
     werkzeug_defekt: {
       label:'Defektmeldung eines Werkzeugs',
       modul:'werkzeug',
