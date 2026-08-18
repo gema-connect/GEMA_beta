@@ -1850,6 +1850,16 @@ Das Benutzerwechsel-Dropdown oben rechts (`_injectBadge`/`GemaAuth._switchUser` 
 
 **Fix (`gema_auth.js`, gilt für alle Seiten zentral)**: `_navLogoPrepaint()` läuft **synchron im `<head>`** (gema_auth.js ist ein blockierendes `<script>` vor dem Body → vor dem Nav-Paint). Es liest den Pre-Paint-Cache `gema_nav_logo_v1` (`{orgId, src, ratio, name, hideName}`, von `_cacheNavLogo` beim letzten erfolgreichen `_swapLogo` geschrieben) und injiziert — nur wenn der Cache zur Org des eingeloggten Users passt (**orgId-Guard** gegen fremdes Logo nach User-/Org-Wechsel) — ein `<style id="_gaNavLogo">`, das `.g-nav-mark svg{display:none}` setzt und das Firmenlogo als `.g-nav-mark::before`-Hintergrund rendert. So erscheint auf jeder Folgeseite sofort das richtige Logo (nur die allererste Seite nach dem Login blitzt einmalig, weil der Cache noch fehlt). `_swapLogo` entfernt den Pre-Paint-Style, bevor es das echte `<img>` einsetzt (gleiches Bild → kein Doppel-Logo), und **self-heilt**: hat die Org kein Logo, werden Cache + Pre-Paint-Style gelöscht und das GEMA-SVG wieder sichtbar; `logout()` leert den Cache. Test: `scripts/navlogo_prepaint_test.mjs` (16 Checks: Pre-Paint aktiv, Cache-Schreiben, Cross-Org-Guard, Self-Heal — Pre-Swap-Zustand via zuerst registriertem DOMContentLoaded-Listener gemessen).
 
+### Datei-Dialoge auf iOS: Mediathek-Auswahl tut nichts (18.08.2026, Drift-Guard `scripts/dateiwahl_ios_test.mjs` 30 Checks)
+
+Gemeldet am Dachbericht auf dem iPad: «Fotos aus der Mediathek kann man nicht einfügen, es passiert einfach nichts — mit der Kamera funktioniert es.» **Zwei unabhängige Ursachen, beide still.**
+
+**(1) Der losgelöste File-Input (die alte `sdTriggerPhotoUpload`-Falle, an acht Stellen wieder da).** WebKit räumt einen per `createElement` erzeugten File-Input weg, solange er NICHT im DOM hängt und der Auswahl-Dialog offen ist — das `change`-Event feuert danach nie. **Warum ausgerechnet die Mediathek:** der Fotos-Picker läuft als eigener Prozess und ist deutlich länger offen als die Kamera; beim Fotografieren blieb die Seite eher im Speicher und es ging zufällig gut. Genau dieses Muster steckte ausser in `sp_dachbericht` noch in `pm_abnahme` (2×, u.a. der ausdrückliche Mediathek-Weg und die Monteur-Mängelliste), `pm_erp`, `pm_revisionsunterlagen`, `ab_pruefungen`, `ab_pruefung_live` und `sys_lieferant_dashboard`.
+
+**Sicherheitsnetz zentral in `gema_auth.js`** (ganz oben, VOR der Auth-IIFE — es ist die einzige Datei auf JEDER Modulseite): ein Patch auf `HTMLInputElement.prototype.click` hängt einen **losgelösten** File-Input unsichtbar in den Body, bevor der Dialog aufgeht, und räumt ihn nach `change` bzw. beim Zurückkommen des Fensters wieder ab. Greift **nur** bei `type="file"` UND `!el.isConnected` — wer den Input korrekt selbst einhängt, wird nicht angefasst; andere Input-Typen ebenfalls nicht. Idempotent (`__gemaFileClickFix`). **Neue Datei-Dialoge sollen den Input trotzdem selbst einhängen** — das Netz fängt nur ab, was vergessen geht.
+
+**(2) Ein Foto aus der iCloud-Mediathek kommt auf iOS regelmässig OHNE MIME-Typ an** (`file.type === ''`). Der Filter `f.type && f.type.indexOf('image')===0` verwarf es **kommentarlos** — an zwei Stellen (`_addFilesToGrid` und `_processImageFileToDataUrl`). **Leerer Typ heisst «unbekannt», nicht «kein Bild»**: `_spIstBild(f)` lässt ihn durch und überlässt die Entscheidung dem Bild-Decoder; ein gesetzter Nicht-Bild-Typ wird weiterhin abgelehnt. Dazu meldet der Dachbericht jetzt, was NICHT übernommen wurde (kein Bild erkannt / N Fotos nicht lesbar, mit Grund) statt still nichts zu tun. **Regel für jeden neuen Datei-Filter: nie über `file.type` allein aussortieren, und nie stillschweigend nichts tun.**
+
 ### DM-Sans „l" wird zu dick im PDF-Export (Optical-Sizing)
 
 **Symptom**: Im HTML/Print-PDF (Schaden-/Dachbericht) erscheint das kleine „l" (und ähnliche dünne Glyphen) **fetter/dicker** als der Rest — v.a. in Listen/Fliesstext.
@@ -2355,7 +2365,7 @@ Full-Screen-Overlay (`position:fixed`) mit 4-Phasen-Timeline und aufklappbaren A
 - Fotos sind phasenspezifisch (Analyse, Trocknung, Abschluss) UND **bereichsspezifisch** (`foto.raum`, siehe «Bereichs-Struktur») — `sdTriggerPhotoUpload(schadenId, phase, raumIdx)` / `sdStorePhoto(…, raum)` setzen `foto.raum` additiv
 - Lightbox-Ansicht bei Klick
 - Delete-Buttons auf Touch-Geräten immer sichtbar (kein Hover)
-- **KRITISCH — dynamischer File-Input MUSS im DOM hängen (iOS-GC-Bug, BEHOBEN)**: `sdTriggerPhotoUpload` erzeugte den Input früher detached (nur lokale Variable) — WebKit garbage-collected solche Inputs, während die Kamera offen ist → das `change`-Event feuerte NIE und das Foto war nach «Verwenden» still weg (trat v.a. bei mehreren Fotos hintereinander auf, weil die Bildverarbeitung des vorherigen Fotos GC-Druck erzeugt). Jetzt: Input unsichtbar in `document.body` + globale Referenz `_sdPhotoInput`, Cleanup im change-Handler; `FileReader`/`Image` haben `onerror`-Meldungen (kein stilles Verwerfen mehr). Dasselbe Muster gilt für JEDEN neuen dynamisch erzeugten File-Input.
+- **KRITISCH — dynamischer File-Input MUSS im DOM hängen (iOS-GC-Bug, BEHOBEN)**: `sdTriggerPhotoUpload` erzeugte den Input früher detached (nur lokale Variable) — WebKit garbage-collected solche Inputs, während die Kamera offen ist → das `change`-Event feuerte NIE und das Foto war nach «Verwenden» still weg (trat v.a. bei mehreren Fotos hintereinander auf, weil die Bildverarbeitung des vorherigen Fotos GC-Druck erzeugt). Jetzt: Input unsichtbar in `document.body` + globale Referenz `_sdPhotoInput`, Cleanup im change-Handler; `FileReader`/`Image` haben `onerror`-Meldungen (kein stilles Verwerfen mehr). Dasselbe Muster gilt für JEDEN neuen dynamisch erzeugten File-Input — seit 18.08.2026 zusätzlich zentral abgesichert, siehe «Datei-Dialoge auf iOS».
 
 ### Messwert-System (Trocknung)
 
@@ -2698,6 +2708,52 @@ Tab **«📥 Migration»** in pm_erp (nur `erpCanEdit`). Alle fünf Abschnitte s
 - **Löschen ≠ entkoppeln (die eigentliche Entscheidung)**: Gelöscht werden nur Datensätze, die ohne den Beleg keinen Sinn haben — nachgelagerte Belege, Kreditoren, reine Plan-Termine. **NIE gelöscht, nur entkoppelt** werden Datensätze mit eigenem Bestand: Termine **mit erfasster Zeit** (lohnrelevant), Regierapporte (`verrechnetIn` weg → wieder verrechenbar), Serviceaufträge (`rechnungId` weg, `verrechnet` → `erledigt`), Abschlussmeldungen und die **vorgelagerte** Offerte. Der Dialog weist beide Gruppen getrennt aus («wird gelöscht» / «bleibt bestehen, Bezug wird gelöst»).
 - **Fremde Pools nur per `saveRecord`/`deleteRecord`** (`ERP_FREMD`-Registry für einsatzplan/stundenerfassung/regierapport/service) — nie `persistCollection`, die Pools sind cross-org.
 - **`erpSaveAbbrechen()` vor dem Löschen (KRITISCH)**: `erpCloseEditor()` ruft `erpFlushSave()`; ein noch offener Auto-Save-Debounce hätte den eben gelöschten Beleg sofort wieder in die Cloud geschrieben (Geister-Datensatz).
+
+### Kalkulations-Assistent (NPK-Systematik) — Drift-Guard `scripts/erp_kalkulation_test.mjs` (130 Checks)
+
+Übernahme der Kalkulationslogik von **OF-4000** (dem abzulösenden ERP) ins GEMA-ERP: Positionen nach der NPK-Systematik rechnen — Leitfadenzeit × Verkaufslohn für die Arbeit, Materialbasis × Faktor fürs Material. Gegen eine reale Offerte verifiziert (Kapitel 361: 2.40 h × 0.6 × 98.00 = 141.12 gegen gedruckte 141.10; 3.65 h → 214.62 gegen 214.65). Vorbereitet für den **NPK-Import**, sobald die CRB-Daten da sind.
+
+**Die beiden Formeln (Engine im `/*ENGINE-START*/`-Block, DOM-frei):**
+```
+Lohn     = Σ Leitfadenzeiten × Zeitfaktor × Verkaufslohn
+Material = Materialbasis × (1 − Einkaufsrabatt) × Materialfaktor
+EP       = Lohn + Material
+
+Lohnfaktor     = (1 + Soziallasten + Lohngemeinkosten) × (1 + Risiko&Gewinn)
+Materialfaktor = (1 + Materialgemeinkosten)            × (1 + Risiko&Gewinn)
+```
+**Soziallasten und Lohngemeinkosten werden ADDIERT, Risiko&Gewinn wird MULTIPLIZIERT** — so rechnet OF-4000. Der Verkaufslohn kann direkt gesetzt ODER aus dem Nettolohn hergeleitet werden (`erpKalkVlQuelle`: `direkt`/`hergeleitet`/`fehlt`; OF-4000 kennt dieselben zwei Wege über seinen «leer»-Sentinel).
+
+**Zwei Dinge dürfen NIE verschmelzen (im Datenmodell festgeschrieben):**
+1. **Zeiten einzeln, nie als Summe** — der NPK liefert Grundzeit + Montagezeiten getrennt, und nur so bleibt nachvollziehbar, WARUM eine Position teurer wurde. `erpKalkZeitSumme` akzeptiert `[1.7,0.25]` und `[{bez,h}]`; gespeichert wird IMMER die Liste (`p.kalk.zeiten`).
+2. **Einkaufsrabatt NEBEN dem Materialfaktor, nie darin** — mathematisch ist `100×0.88×1.298` dasselbe wie `100×(1.298×0.88)`, fachlich aber nicht: verschmolzen wäre eine geänderte Lieferantenkondition nicht mehr von einer geänderten Marge zu unterscheiden. `erpKalkMaterialfaktor` bleibt darum vom Rabatt unberührt, beide Werte werden getrennt gespeichert (der Guard prüft das ausdrücklich).
+
+**Modelle liegen ORG-WEIT** (`org.settings.erp.kalkModelle[]`, `erpKalkModelle/-ById/-Save`, `erpKalkModellNeu`). Ein Modell hält NUR die Prozentsätze, den Stundenansatz, den Zeitfaktor und optionale **Kapitel-Abweichungen des Materialgemeinkosten-Satzes** (`kapitel:[{nr:'426',materialGkPct:25}]` — NPK-Kapitel mit eigenem Faktor, wie im OF-4000-Assistenten). Zeiten und Materialbasis kommen aus der POSITION, nie aus dem Modell. **Ein neues Modell erfindet keine Prozentsätze** — alle Felder starten leer, nur der Zeitfaktor auf 100 % (keine stille Reduktion). `erpKalkModelleSave` mergt die bestehende erp-Config (`Object.assign` über `org.settings.erp`) und ruft `GemaAuth.updateOrgSettings(org.id, {erp:s})` — **orgId als ERSTES Argument**, sonst findet die Funktion die Org nicht und gibt still `false` zurück.
+
+**Fixierung — «freie Positionen sind immer fixiert» (User-Vorgabe):** `erpPosFixiert(p)` = `p.fixiert` wenn gesetzt, sonst **abgeleitet aus der Herkunft**: NPK-Position (`p.npk.nr`/`.kat`) → rechenbar, alles andere (frei, Katalog, DataSelect, Eigen) → fixiert. Der Preis einer freien Position IST bereits der verkaufte, ein Materialfaktor darauf wäre doppelt. **KRITISCH: `false` muss AUSDRÜCKLICH gespeichert werden** — ein blosses `delete` liesse die Vorgabe sofort zurückkommen und das Aufheben wäre gar nicht möglich (`erpPosFixToggle`, `erpKalkAnwenden`). Umschaltbar per 🔒/🔓-Marke in der Quelle-Spalte und im Kontextmenü; im Dialog hebt die Checkbox **«Fixierte Positionen mitrechnen»** die Sperre für den einen Lauf auf, statt jede Zeile einzeln anfassen zu müssen.
+
+**Katalogpreis-Abweichung wird NUR belegt behauptet:** `erpArtGo` stempelt beim Einfügen `p.katalogEp` — aber nur bei Katalog-Herkunft (`produktId`/`eigenArtikelId`/`dsArtnr`); eine Regie-Zeile oder eine Lieferanten-Offerte trägt bereits einen verkauften bzw. offerierten Preis, keinen Listenpreis. `erpPosAbweichung(p)` liefert `null` ohne gestempelten Katalogpreis (Altbestand ist nicht rekonstruierbar — dann wird nichts behauptet) und blendet Rappen-Rauschen aus; sonst erscheint die Marke **▲ +x %** (aufgerechnet) bzw. **▼ −x %** (reduziert) mit beiden Preisen im Tooltip.
+
+**Materialbasis-Kette macht die Rechnung IDEMPOTENT** (`erpKalkMatQuelle`/`erpKalkMatBasis`): `p.kalk.materialBasis` → `p.npk.materialBasis` → `p.katalogEp` → `p.ep`. Der letzte Schritt ist der gefährliche — zweimal Anwenden würde doppelt aufschlagen; weil `erpKalkAnwenden` die Basis in `p.kalk` festhält, greift ab dem zweiten Lauf Stufe 1 und **nichts ändert sich mehr**. Der Dialog sagt das an der Zeile, wo die Basis der aktuelle EP ist.
+
+**Zielwahl (User-Vorgabe, `_kalkZielIds`/`erpKalkPlan`):**
+| Markierung | Verhalten |
+|---|---|
+| ≥ 2 Positionen | eindeutig — genau diese, **keine Rückfrage** |
+| 1 Position | gefragt: «Nur die markierte» ⇄ «Alle Positionen» |
+| keine | gefragt: «Alle Positionen» + Hinweis, dass nichts markiert ist |
+
+**`erpKalkPlan` rechnet NICHTS ins Dokument** — es liefert nur die Vorschau (`zeilen[]` mit `epAlt`/`epNeu`/`betragAlt`/`betragNeu` und dem vollen Rechenblatt je Zeile) plus `uebersprungen[]` mit Grund. Der **aktuelle EP steht immer als Vergleich daneben**, mit Δ-Spalte und Summen-Zeile. Erst «Übernehmen» ruft `erpKalkAnwenden` je Zeile. **Nichts fällt still weg**: übersprungene Positionen werden nach Grund gezählt benannt (`fixiert` · `Variante` · `ohne Zeiten und ohne Materialbasis`).
+
+**Nachvollziehbarkeit ist strukturiert, nicht formatiert:** `erpKalkPos` liefert `schritte[]` = `{grp:'lohn'|'material', lbl, formel, wert, einheit}`. Der Dialog rendert sie unverändert als Rechenblatt (▸ je Zeile), `erpPosKalkInfo` zeigt später dieselbe Herleitung aus `p.kalk` — inkl. Hinweis, wenn der EP danach von Hand geändert wurde. Der Guard prüft die Struktur, nicht den Text.
+
+**Fokus-Regel im Modell-Editor**: `erpKalkModLive()` zeichnet beim Tippen NUR die Faktor-Zeile (`#km_fak`) nach — ein `erpKalkRender()` würde den Fokus aus dem Feld reissen.
+
+**Die Marken kosten Spaltenbreite — und die ist nicht vorhanden (Messbefund):** Die Quelle-Spalte trägt neben dem Herkunfts-Badge (bis 91 px, «🔎 DataSelect») nun 🧮, ▲/▼ % und 🔒/🔓 sowie den 📷-Knopf. Die Editor-Tabelle füllt ihr Fenster aber bereits **exakt** aus (gemessen: `.pos-wrap` clientWidth = scrollWidth = tableW, **Reserve 0**), weil die Bezeichnung per `--pos-bezw` auf 94 mm gepinnt ist (WYSIWYG-Umbruchregel) — ein blosses Verbreitern erzeugt sofort einen waagrechten Rollbalken. Die nötigen 40 px sind deshalb bei den **Zahlenspalten** geholt (`menge` 76→68, `ep` 104→82, `betrag` 96→86, `quelle` 104→144): **die Summe der Standard-`edW` bleibt bei 512** — der Drift-Guard prüft genau diese Summe. Dazu ist der 📷-Knopf von 36 auf 30 px verkleinert; ohne das brach die Gruppe eine dritte Mal um und die gerechnete Zeile wurde 87 statt 61 px hoch. **Die Breiten stehen nur noch in `ERP_POSCOLS`** — `Pos.`/`Quelle`/`Betrag` trugen sie zusätzlich als feste Zahl im `<th>`-Markup (zweite Wahrheit, lief bei jeder Änderung still auseinander) und lesen die Registry jetzt über `_pcW(id)`. **Die Abweichungs-Marke ist ein HINWEIS, kein Rechenwert**: ab 10 % ganzzahlig (`▲+30%`), darunter mit einer Nachkommastelle — der exakte Prozentsatz UND beide Frankenbeträge stehen vollständig im Tooltip, damit die Rundung keine stille Kürzung ist.
+
+**NPK-Vorbereitung**: Eine Position kann `p.npk = {nr:'361.131', kat:'361', zeiten:[…], materialBasis:…}` tragen — genau das füllt der spätere CRB-Import. `erpKalkZeiten`/`erpKalkMatBasis`/`erpKalkKapNr` lesen es, die Kapitel-Abweichung greift über `p.npk.kat`. Bis dahin rechnen Katalog-Positionen den **Material-Strang allein** (Zeiten leer) — das ist der DataSelect-Fall.
+
+Registriert: Knopf «🧮 Kalkulation» in der Editor-Aktionsleiste (`erpRenderFooter`, nur editierbar), drei Kontextmenü-Einträge (`erpPosCtx`: kalkulieren / fixieren / Rechenweg), Marken in der Quelle-Spalte (`.kalkb rech|fix|auf|ab`), Dialog `#kalkModal` mit den Reitern **Rechnen** und **Modelle**, sw.js (v482). Kein neues Modul, kein Notify-Event — die Kalkulation lebt im ERP-Editor.
 
 ### Kunden & Rechte
 

@@ -1927,26 +1927,63 @@ function _resolveBilderArray(r, scope, kid, ukid){
   return null;
 }
 // Mehrfachauswahl: oeffnet den Datei-Dialog mit multiple=true.
+// KRITISCH — der Input MUSS im DOM haengen (iOS-GC-Bug, gleiche Falle wie
+// sdTriggerPhotoUpload in sd_schadensbericht): WebKit raeumt einen losgeloesten
+// Input weg, waehrend der Auswahl-Dialog offen ist — das change-Event feuert
+// dann NIE. Beim Fotografieren blieb die Seite eher im Speicher und es ging
+// zufaellig gut; ueber die MEDIATHEK (eigener Prozess, laenger offen) griff der
+// GC zuverlaessig und es "passierte einfach nichts".
+var _spPickInput = null;
 function pickGridImage(rid, scope, kid, ukid){
+  // Liegengebliebene Instanz (Dialog abgebrochen) abraeumen
+  if(_spPickInput && _spPickInput.parentNode){ try{ _spPickInput.parentNode.removeChild(_spPickInput); }catch(e){} }
+  _spPickInput = null;
   var input = document.createElement('input');
   input.type = 'file';
   input.accept = 'image/*';
   input.multiple = true; // mehrere Fotos gleichzeitig waehlbar
-  input.onchange = function(e){
-    var files = e.target.files;
+  input.style.cssText = 'position:fixed;top:-100px;left:-100px;width:1px;height:1px;opacity:0;pointer-events:none';
+  input.onchange = function(){
+    var files = input.files;
+    if(input.parentNode){ try{ input.parentNode.removeChild(input); }catch(e){} }
+    if(_spPickInput === input) _spPickInput = null;
     if(!files || !files.length) return;
     _addFilesToGrid(rid, scope, kid, ukid, files);
   };
+  document.body.appendChild(input);
+  _spPickInput = input;
   input.click();
+}
+// Ist die Datei ein Bild? Ein Foto aus der iCloud-Mediathek kommt auf iOS
+// regelmaessig OHNE MIME-Typ (file.type === '') an — ein strenger
+// type.indexOf('image')===0-Filter verwarf es damit still. Leerer Typ heisst
+// "unbekannt", nicht "kein Bild": dann entscheidet der Bild-Decoder.
+function _spIstBild(f){
+  if(!f) return false;
+  if(f.type) return f.type.indexOf('image') === 0;
+  return true;
 }
 // Verarbeitet 1..n Bilddateien und fuegt sie dem Bilder-Array hinzu.
 // Das Bildunterschrift-Popup oeffnet sich NUR bei genau 1 Bild; bei
 // mehreren gleichzeitig wird ohne Popup hinzugefuegt.
 function _addFilesToGrid(rid, scope, kid, ukid, files){
-  files = Array.prototype.slice.call(files).filter(function(f){ return f && f.type && f.type.indexOf('image') === 0; });
-  if(!files.length) return;
+  var gewaehlt = Array.prototype.slice.call(files);
+  files = gewaehlt.filter(_spIstBild);
+  // Nie stillschweigend nichts tun — der Nutzer soll erfahren, WARUM ein Foto
+  // nicht im Bericht landet.
+  if(!files.length){
+    GemaDialog.alert({ title:'Kein Bild erkannt', message:'Die gewählte Datei ist kein Bild und wurde nicht übernommen.' });
+    return;
+  }
   Promise.all(files.map(_processImageFileToDataUrl)).then(function(urls){
+    var fehler = urls.filter(function(u){ return !u; }).length;
     urls = urls.filter(Boolean);
+    if(fehler){
+      GemaDialog.alert({
+        title: fehler === 1 ? 'Foto nicht lesbar' : fehler + ' Fotos nicht lesbar',
+        message:'Konnte nicht gelesen werden (Format nicht unterstützt oder Datei noch nicht vom Gerät geladen). Bitte in der Fotos-App öffnen und erneut versuchen.'
+      });
+    }
     if(!urls.length) return;
     if(urls.length === 1){
       GemaDialog.prompt({
@@ -2075,7 +2112,7 @@ function setGridImageCap(rid, scope, kid, ukid, idx, val){
 // JPEG-Data-URL. Wird fuer Datei-Auswahl UND Drag&Drop genutzt.
 function _processImageFileToDataUrl(file){
   return new Promise(function(resolve){
-    if(!file || !file.type || file.type.indexOf('image') !== 0){ resolve(null); return; }
+    if(!_spIstBild(file)){ resolve(null); return; }
     var reader = new FileReader();
     reader.onload = function(){
       var img = new Image();
