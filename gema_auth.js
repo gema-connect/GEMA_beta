@@ -3,6 +3,48 @@
  * Multi-Tenant: Unternehmen → Benutzer → Rollen → Berechtigungen
  * Profil-Einstellungen, Logo-Swap, zentrale Auth für alle Module.
  */
+/* ─────────────────────────────────────────────────────────────────
+   SICHERHEITSNETZ: dynamisch erzeugte Datei-Dialoge (iOS)
+
+   Ein per document.createElement('input') erzeugter File-Input, der NICHT
+   im DOM haengt, wird von WebKit weggeraeumt, waehrend der Auswahl-Dialog
+   offen ist — sein change-Event feuert danach NIE. Symptom auf dem iPad:
+   «man waehlt ein Foto aus der Mediathek und es passiert einfach nichts»,
+   waehrend die Kamera-Aufnahme zufaellig funktioniert (die Seite bleibt
+   dabei eher im Speicher; der Fotos-Picker laeuft als eigener Prozess und
+   ist laenger offen).
+
+   Der Patch haengt einen losgeloesten File-Input unsichtbar in den Body,
+   BEVOR der Dialog aufgeht, und raeumt ihn danach wieder ab. Inputs, die
+   der Aufrufer selbst korrekt einhaengt, bleiben unberuehrt.
+
+   gema_auth.js ist die einzige Datei, die auf JEDER Modulseite liegt —
+   darum steht das Netz hier. Neue Datei-Dialoge sollen den Input trotzdem
+   selbst einhaengen; das hier faengt nur ab, was vergessen geht.
+   ───────────────────────────────────────────────────────────────── */
+(function () {
+  'use strict';
+  if (typeof HTMLInputElement === 'undefined') return;
+  var proto = HTMLInputElement.prototype;
+  if (proto.__gemaFileClickFix) return;   // idempotent (SW-Reload, doppeltes Script)
+  var nativeClick = proto.click;
+  proto.click = function () {
+    var el = this;
+    if (el.type !== 'file' || el.isConnected || !document.body) return nativeClick.call(el);
+    el.style.cssText = 'position:fixed;top:-100px;left:-100px;width:1px;height:1px;opacity:0;pointer-events:none';
+    document.body.appendChild(el);
+    var weg = function () {
+      if (el.parentNode) { try { el.parentNode.removeChild(el); } catch (e) { } }
+    };
+    // Nach der Auswahl abraeumen — und auch dann, wenn der Nutzer abbricht
+    // (kein change-Event): der naechste Fokus auf dem Fenster raeumt auf.
+    el.addEventListener('change', function () { setTimeout(weg, 0); }, { once: true });
+    window.addEventListener('focus', function () { setTimeout(weg, 2000); }, { once: true });
+    return nativeClick.call(el);
+  };
+  proto.__gemaFileClickFix = true;
+})();
+
 (function(w) {
   'use strict';
 
