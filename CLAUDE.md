@@ -2570,6 +2570,55 @@ Artikel eines IGH-Lieferanten aus **dataselect.ch** (DataExpert®) direkt in ein
 - **Diagnose «🔍 Rohantwort prüfen» (07/2026, `scripts/dataselect_debug_test.mjs` 10 Checks)**: Pro IGH-Lieferant in der Sidebar ein Link, der die **rohe** Antwort von dataselect.ch abruft und im Dialog zeigt — HTTP-Status, Content-Type, **erkanntes Format** (JSON/debim-XML mit Artikelzahl/CSV/HTML/leer), JSON-parsebar, Länge, **erste ~2500 Zeichen** + die abgefragte URL (Token redigiert) — mit Deutung (403 = Vertrag nötig · debim/CSV wird unterstützt · JSON ✓ · Netzwerkfehler). So sieht man ohne IGH-Wissen, WAS ein Lieferant zurückgibt. Proxy: `?debug=1` (JWT-gated, Key nie im `triedUrl`), optional `&format=<x>` zum Testen anderer Zielformate; Client `GemaDataSelect.debug({anbieter,artnr?|bez?,format?})`; UI `erpDsDebug`/`erpDsDebugFormat` (Dialog via `GemaDialog.alert({html:true})` — neuer opt-in `html`-Flag im geteilten Dialog, Aufrufer escapt selbst).
 - Registriert: sw.js (CACHE_FILES), Script-Include in pm_erp, netlify.toml (`/api/dataselect`). ENV (Netlify, alle optional): `DATASELECT_BASE`, `DATASELECT_API_KEY`, `DATASELECT_KEY_PARAM`, `DATASELECT_FORMAT_SUCHE` (Default `debim`), `DATASELECT_FORMAT_BILD` (Default `debim`). Ohne Deploy/Key läuft das Modul weiter (Picker meldet den Fehler, restliche Positions-Quellen unberührt). Node-Test `scripts/dataselect_norm_test.mjs` (89 Checks inkl. debim-XML-Parsing + `_xmlUnescape` + `_debimBild`).
 
+### Intelligente Adress-Suche (gema_adresse.js) — Zerlegung statt Roh-Text
+
+Feedback: «Eingabe `pfirterg 47` soll nur Ergebnisse zeigen, die *pfirterg* im
+Strassennamen haben und die Hausnummer 47.» Bis dahin ging der getippte Text
+**unverändert** an swisstopo und die ersten 8 Zeilen wurden 1:1 angezeigt.
+Drift-Guard `scripts/adresse_suche_test.mjs` (83 Checks: Engine in Node +
+Browser gegen einen nachgebauten Typeahead-Backend).
+
+- **Die Eingabe wird ZERLEGT** (`adrZerlege`) in Strassenname · Hausnummer ·
+  PLZ · Ort. Zahlen-Regel: **genau 4 Ziffern (1000–9999) = PLZ, 1–3 Ziffern
+  (optional mit Buchstabe oder Bereich) = Hausnummer** — eine vierstellige
+  Hausnummer gibt es in der Schweiz praktisch nicht; kommt doch eine vor,
+  greift der Rückfall-Hinweis statt einer stillen Fehlzuordnung. Ein Komma
+  trennt Strasse von PLZ/Ort (das ist die Form, die `setDisplayValue` selbst
+  erzeugt); ohne Komma entscheidet die Stellung zur Hausnummer.
+- **Die Ursache lag im Backend, nicht in der Anzeige (KRITISCH):** Eine
+  Typeahead-Suche behandelt nur das **letzte Wort** als Präfix. `pfirterg 47`
+  verlangt damit *pfirterg* als ganzes Wort — und findet nichts. Darum gehen
+  **zwei Suchtexte** raus (`adrQueries`): die Eingabe wie getippt UND **nur das
+  Strassen-Fragment** (dann steht es zuletzt und wird als Präfix gesucht).
+- **Gezielte Nachfrage, wenn die Hausnummer fehlt** (`adrNachfragen`): Aus der
+  ersten Runde wird der **volle Strassenname** gelernt und `Pfirtergasse 47
+  4054` nachgeschlagen — sonst hängt es am Zufall, ob die 47 unter den ersten
+  Zeilen einer langen Strasse liegt. Höchstens 2 Nachfragen, und nur wenn die
+  Nummer nicht schon getroffen wurde (die vollständig getippte Adresse löst
+  also keine Zusatz-Abfrage aus).
+- **Gefiltert und sortiert wird im Client** (`adrPasst`/`adrSortiere`):
+  Strassenname muss das Fragment **enthalten** (normalisiert — Umlaute
+  gefaltet, Punkte/Leerzeichen weg, damit «st gallerstr» die «St. Gallerstrasse»
+  trifft), Hausnummer muss stimmen (`47` nimmt `47a` mit, `47a` aber nicht `47`;
+  `4` trifft NIE `47`; ein Bereich `47-49` deckt die 48 ab), PLZ exakt, Ort
+  enthalten. Reihenfolge: Präfix-Treffer vor Enthalten, exakte Nummer vor
+  Buchstaben-Variante. Angefragt werden **30** Zeilen, angezeigt 8.
+- **Nichts fällt still weg**: Bleibt nach dem Filter nichts übrig, werden die
+  übrigen Treffer trotzdem gezeigt — mit Hinweis-Zeile («Keine Adresse mit
+  Nr. 47 — weitere Treffer:»); mehr Treffer als Plätze werden gezählt
+  («… und N weitere»). Eine Eingabe **ohne** Nummer/PLZ/Ort (blosser
+  Suchbegriff wie «basel») wird nur sortiert, nie gefiltert — sonst würde eine
+  Ortssuche ihre eigenen Ergebnisse wegwerfen.
+- **Wettlauf-Schutz**: `ctx._lauf` verwirft die Antwort einer älteren Eingabe
+  (mit mehreren Abfragen pro Tastendruck sonst real).
+- **EINE Wahrheit für alle Adressfelder**: `pm_objekte` (Beteiligten-Dialog mit
+  eigenem Dropdown) ruft `GemaAdresse.suche(q)` und rendert nur noch; seine
+  direkte swisstopo-Abfrage ist der Rückfall, falls der Helfer fehlt. Der Sweep
+  im Drift-Guard failt, sobald irgendwo eine **zweite** Adress-Suche entsteht
+  oder eine Seite mit Adressfeld den Helfer nicht lädt (erlaubt bleiben die
+  zwei **programmatischen** Geocoder in `gema_hoehe.js`/`sb_niederschlag` — die
+  lösen EINE fertige Adresse auf und schlagen nichts vor).
+
 ### Handelsregister-Anbindung (LINDAS/Zefix, gema_zefix.js)
 
 Firmenidentität aus dem **Schweizer Handelsregister** direkt am Firma-Feld — bisher war `lief.uid`/`kunde.firma` reiner Freitext (dokumentierte Lücke in `HANDOFF_lieferanten_monetarisierung.md`).
@@ -4325,7 +4374,7 @@ UI-Anbindung:
 
 | Datei | Zweck |
 |-------|-------|
-| `gema_adresse.js` | Adress-Autocomplete (swisstopo geo.admin.ch). Auto-Init via `data-gema-adresse` + `data-target-strasse/plz/ort/kanton`-Attribute, oder programmatisch via `GemaAdresse.attach(input, opts)` |
+| `gema_adresse.js` | **Adress-Autocomplete (swisstopo geo.admin.ch) mit Zerlegung der Eingabe** — siehe «Intelligente Adress-Suche». Auto-Init via `data-gema-adresse` + `data-target-strasse/plz/ort/kanton`-Attribute, programmatisch via `GemaAdresse.attach(input, opts)`, nur die Suche via `GemaAdresse.suche(text)` (für Module mit eigenem Dropdown). Engine im `/*ENGINE-START*/`-Block: `zerlege/teileStrasse/nr/nrPasst/passt/rang/sortiere/filtere/queries/nachfragen/norm` |
 | `gema_aktivitaetslog.js` | **Aktivitätenlog** für Infrastruktur-Module. `GemaActivityLog.log({modul,modulRecordId,modulRecordName,aktion,beschreibung,details})` pusht einen Eintrag; `getForModul(modul, orgId?)` liefert die gefilterte Historie. Cloud-First via `gema_sync.js` (Collection `gema_aktivitaetslog_v1`, moduleKey `aktivitaetslog`, prefix `log:`). `openModal({modul,titel,recordId?,recordName?})` zeigt das einheitliche Tabellen-Modal mit Suche, Aktion-Filter und CSV-Export — mit `recordId` gefiltert auf EINEN Datensatz (per-Werkzeug-Historie). |
 | `gema_abo_api.js` | **Abo-, Preis- & Token-System** (`window.GemaAbo`). Preiskonfiguration `abocfg:main`, Abos `abosub:*`, Token-Ledger `abotok:*` (moduleKey `abos`). Preis-Engine (Zusatz-Gewerk, Jahres-/Promo-Rabatt, MwSt, Rappenrundung), `charge(aktionId)` für Token-Verbrauch, `bestellen()/setStatus()`, Stripe-Checkout-Client (vorbereitet). Konsumenten: sys_preise, sys_abos. Siehe «Abo- & Preissystem». |
 | `gema_anlagenwahl.js` | Anlagenauswahl-Widget für Berechnungen |
