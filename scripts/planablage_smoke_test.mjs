@@ -180,6 +180,18 @@ console.log('■ Viewer — Rechteck zeichnen → Annot-Pool, Undo, Pin→Penden
   await page.waitForSelector('#pd_pin', { state: 'attached', timeout: 4000 });
   const pin = await page.evaluate(() => JSON.parse(document.getElementById('pd_pin').value));
   ok(pin && pin.x > 0.25 && pin.x < 0.45 && pin.y > 0.6 && pin.y < 0.8, 'Pin-Klick → Pendenz-Modal mit normiertem Pin-Preset');
+  // KRITISCH: das Modal muss VOR dem Vollbild-Viewer liegen. Lag es dahinter
+  // (z-index 900 < 1000), war es unsichtbar — der Pin «funktionierte nicht».
+  const pinSicht = await page.evaluate(() => {
+    const m = document.querySelector('#pabModalHost .modal');
+    const r = m.getBoundingClientRect();
+    const oben = document.elementFromPoint(Math.round(r.left + r.width / 2), Math.round(r.top + 8));
+    const zM = parseInt(getComputedStyle(document.querySelector('.modal-bg')).zIndex, 10);
+    const zV = parseInt(getComputedStyle(document.getElementById('pvWrap')).zIndex, 10);
+    return { imModal: !!(oben && oben.closest && oben.closest('#pabModalHost')), zM, zV, w: r.width, h: r.height };
+  });
+  ok(pinSicht.zM > pinSicht.zV, 'Pendenz-Modal liegt ÜBER dem Viewer (z-index ' + pinSicht.zM + ' > ' + pinSicht.zV + ')');
+  ok(pinSicht.imModal && pinSicht.w > 200 && pinSicht.h > 100, 'Modal ist am Pin-Klick wirklich SICHTBAR (elementFromPoint trifft den Dialog)');
   ok(await page.evaluate(() => document.getElementById('pd_dok').value) === 'd1', 'Plan im Pendenz-Modal vorgewählt');
   await page.fill('#pd_titel', 'Neuer Punkt aus Pin');
   await page.evaluate(() => pabPendSave());
@@ -189,6 +201,110 @@ console.log('■ Viewer — Rechteck zeichnen → Annot-Pool, Undo, Pin→Penden
   await page.evaluate(() => pabViewerClose());
   const mlog = await page.evaluate(() => (_pabHooks.dokById('d1').log || []).filter(e => e.aktion === 'markierung'));
   ok(mlog.length === 1 && /Seite 1/.test(mlog[0].text), 'Änderungslog: EIN Markierungs-Eintrag pro Viewer-Session (Seite 1)');
+  await ctx.close();
+}
+
+// ── 2b) Viewer-Gesten: Pinch, Strg+Mausrad, kein Doppeltipp-Zoom, Redo ──
+console.log('■ Viewer — 2-Finger-Zoom, Strg+Mausrad, Doppeltipp gesperrt, Rückgängig/Wiederholen');
+{
+  const { ctx, page } = await openPage(browser, ['role_planer'], { doks: [DOK], pends: [PEND] });
+  await waitBoot(page);
+  await page.evaluate(() => pabViewerOpen('d1'));
+  await page.waitForFunction(() => document.getElementById('pvWrap').classList.contains('open') && document.getElementById('pvCanvas').width > 100, null, { timeout: 6000 });
+
+  // touch-action: EIN Finger schiebt, der Browser zoomt NICHT (kein Doppeltipp-Zoom)
+  const ta = await page.evaluate(() => ({
+    body: getComputedStyle(document.getElementById('pvBody')).touchAction,
+    svgHand: getComputedStyle(document.getElementById('pvSvg')).touchAction
+  }));
+  ok(/pan-x/.test(ta.body) && /pan-y/.test(ta.body) && !/pinch|manipulation|auto/.test(ta.body),
+     'pv-body: touch-action «pan-x pan-y» — Ein-Finger-Schwenk ja, Browser-Zoom nein');
+  ok(/pan-x/.test(ta.svgHand), 'Overlay mit Hand-Werkzeug: Finger schiebt den Plan');
+  await page.evaluate(() => pabTool('rect'));
+  ok(await page.evaluate(() => getComputedStyle(document.getElementById('pvSvg')).touchAction) === 'none',
+     'Overlay mit Zeichen-Werkzeug: touch-action none — der Finger zeichnet');
+  await page.evaluate(() => pabTool('hand'));
+
+  // Zwei Finger = zoomen (Live-Faktor während der Geste, danach scharf gerendert)
+  const z0 = await page.evaluate(() => _pabHooks.zoom());
+  const pinchRes = await page.evaluate(() => {
+    const el = document.getElementById('pvSvg');
+    const r = document.getElementById('pvBody').getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const t = (id, x, y) => new Touch({ identifier: id, target: el, clientX: x, clientY: y });
+    const send = (typ, pts) => {
+      const ts = pts.map((p, i) => t(i, p[0], p[1]));
+      return el.dispatchEvent(new TouchEvent(typ, { touches: ts, targetTouches: ts, changedTouches: ts, bubbles: true, cancelable: true }));
+    };
+    const startOk = send('touchstart', [[cx - 50, cy], [cx + 50, cy]]);
+    send('touchmove', [[cx - 100, cy], [cx + 100, cy]]);
+    const live = _pabHooks.zoom();
+    send('touchend', []);
+    return { startOk, live };
+  });
+  ok(pinchRes.startOk === false, 'touchstart mit 2 Fingern wird abgefangen (kein Browser-Zoom der ganzen App)');
+  ok(pinchRes.live.eff > z0.eff * 1.6, 'Pinch spreizt live auf ~200 % (' + Math.round(pinchRes.live.eff / z0.eff * 100) + ' %)');
+  ok(pinchRes.live.live > 1.6 && Math.abs(pinchRes.live.scale - z0.scale) < 1e-9, 'während der Geste nur der Live-Faktor — Rendermassstab noch unverändert');
+  await page.waitForFunction(z => _pabHooks.zoom().scale > z * 1.6 && Math.abs(_pabHooks.zoom().live - 1) < 0.01, z0.scale, { timeout: 4000 });
+  ok(true, 'nach dem Loslassen: Zoom in den Rendermassstab übernommen (Plan wieder scharf)');
+  ok(await page.evaluate(() => document.getElementById('pvCanvas').width) > 1200, 'Canvas neu gerendert (grössere Auflösung statt hochskaliertem Bild)');
+  ok(/%/.test(await page.evaluate(() => document.getElementById('pvZoomPct').textContent)), 'Zoom-Stufe wird angezeigt');
+
+  // Strg + Mausrad zoomt, Mausrad allein scrollt normal
+  const wheel = await page.evaluate(() => {
+    const b = document.getElementById('pvBody'), r = b.getBoundingClientRect();
+    const vor = _pabHooks.zoom().eff;
+    const mit = b.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, ctrlKey: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, bubbles: true, cancelable: true }));
+    const nachStrg = _pabHooks.zoom().eff;
+    const ohne = b.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, clientX: r.left + 10, clientY: r.top + 10, bubbles: true, cancelable: true }));
+    return { vor, nachStrg, ohneZoom: _pabHooks.zoom().eff, strgGeschluckt: mit === false, ohneGeschluckt: ohne === false };
+  });
+  ok(wheel.nachStrg > wheel.vor && wheel.strgGeschluckt, 'Strg + Mausrad zoomt (und wird dem Browser weggenommen)');
+  ok(wheel.ohneZoom === wheel.nachStrg && !wheel.ohneGeschluckt, 'Mausrad ohne Strg scrollt weiter normal');
+
+  // Doppeltipp: der zweite Tipp innert 320 ms wird unterbunden (App-Zoom)
+  const dt = await page.evaluate(async () => {
+    const el = document.getElementById('pvSvg');
+    const tap = () => el.dispatchEvent(new TouchEvent('touchend', { touches: [], targetTouches: [], changedTouches: [], bubbles: true, cancelable: true }));
+    const a = tap(); const b = tap();
+    await new Promise(r => setTimeout(r, 400));
+    const c = tap();
+    return { erster: a, zweiter: b, spaeter: c };
+  });
+  ok(dt.erster === true, 'Einzeltipp direkt nach der Zoom-Geste zählt NICHT als zweiter Tipp');
+  ok(dt.zweiter === false, 'Doppeltipp wird abgefangen — die App zoomt nicht mehr weg');
+  ok(dt.spaeter === true, 'Einzeltipp nach der Doppeltipp-Frist bleibt unangetastet');
+
+  // Einpassen + Rückgängig/Wiederholen
+  await page.evaluate(() => pabFit());
+  await page.waitForFunction(() => _pabHooks.zoom().fit === true && Math.abs(_pabHooks.zoom().live - 1) < 0.01, null, { timeout: 4000 });
+  ok(true, '«Einpassen» setzt die Ansicht auf Breite zurück');
+
+  ok(await page.evaluate(() => document.getElementById('pvUndo').disabled && document.getElementById('pvRedo').disabled), 'Rückgängig/Wiederholen starten deaktiviert');
+  await page.evaluate(() => pabTool('rect'));
+  const bx = await page.evaluate(() => { const r = document.getElementById('pvSvg').getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; });
+  await page.mouse.move(bx.x + bx.w * 0.2, bx.y + bx.h * 0.2);
+  await page.mouse.down();
+  await page.mouse.move(bx.x + bx.w * 0.5, bx.y + bx.h * 0.45, { steps: 3 });
+  await page.mouse.up();
+  ok(await page.evaluate(() => _pabHooks.seiteShapes().length) === 1, 'Rechteck gezeichnet');
+  ok(await page.evaluate(() => !document.getElementById('pvUndo').disabled), 'Rückgängig jetzt möglich');
+  const vorher = await page.evaluate(() => JSON.stringify(_pabHooks.seiteShapes()));
+  await page.evaluate(() => pabUndo());
+  ok(await page.evaluate(() => _pabHooks.seiteShapes().length) === 0, 'Rückgängig entfernt die Markierung');
+  ok(await page.evaluate(() => !document.getElementById('pvRedo').disabled), 'Wiederholen jetzt möglich');
+  await page.evaluate(() => pabRedo());
+  ok(await page.evaluate(() => JSON.stringify(_pabHooks.seiteShapes())) === vorher, 'Wiederholen stellt die Markierung 1:1 wieder her');
+  await page.waitForFunction(() => (_pabHooks.annotFor('d1') || {}).seiten && (_pabHooks.annotFor('d1').seiten['1'] || []).length === 1, null, { timeout: 4000 });
+  ok(true, 'Wiederholen wird gespeichert (Annot-Pool aktuell)');
+  // Neue Zeichnung nach dem Rückgängig-Machen verwirft den Wiederholen-Stapel
+  await page.evaluate(() => pabUndo());
+  await page.mouse.move(bx.x + bx.w * 0.6, bx.y + bx.h * 0.2);
+  await page.mouse.down();
+  await page.mouse.move(bx.x + bx.w * 0.8, bx.y + bx.h * 0.4, { steps: 3 });
+  await page.mouse.up();
+  ok(await page.evaluate(() => _pabHooks.hist().redo) === 0 && await page.evaluate(() => document.getElementById('pvRedo').disabled), 'neue Markierung leert den Wiederholen-Stapel');
+  await page.evaluate(() => pabViewerClose());
   await ctx.close();
 }
 

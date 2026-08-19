@@ -78,7 +78,10 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 .chips{display:flex;gap:6px;flex-wrap:wrap}
 .chip{padding:5px 12px;border-radius:999px;border:1.5px solid var(--brd2);background:var(--sur);font-size:11.5px;font-weight:800;color:var(--mut);cursor:pointer}
 .chip.on{background:var(--acc);border-color:var(--acc);color:#fff}
-.modal-bg{position:fixed;inset:0;z-index:900;background:rgba(8,20,40,.6);backdrop-filter:blur(5px);display:none;align-items:flex-end;justify-content:center}
+/* KRITISCH z-index: der PDF-Viewer (#pvWrap) liegt auf 1000 — ein Modal
+   darunter (früher 900) öffnete UNSICHTBAR hinter dem Vollbild-Viewer.
+   Genau daran scheiterte die Pendenz-Erfassung über den 📍-Pin. */
+.modal-bg{position:fixed;inset:0;z-index:1200;background:rgba(8,20,40,.6);backdrop-filter:blur(5px);display:none;align-items:flex-end;justify-content:center}
 .modal-bg.open{display:flex}
 @media(min-width:640px){.modal-bg{align-items:center;padding:20px}}
 .modal{background:var(--sur);border-radius:18px 18px 0 0;width:100%;max-width:600px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 -8px 40px rgba(0,0,0,.2)}
@@ -108,19 +111,34 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 /* ── PDF-Viewer (Vollbild) ── */
 #pvWrap{position:fixed;inset:0;z-index:1000;background:#3d434d;display:none;flex-direction:column}
 #pvWrap.open{display:flex}
-.pv-top{display:flex;align-items:center;gap:6px;padding:8px 10px;padding-top:calc(8px + env(safe-area-inset-top));background:#1f2530;flex-wrap:wrap}
+.pv-top{display:flex;align-items:center;gap:6px;padding:8px 10px;padding-top:calc(8px + env(safe-area-inset-top));background:#1f2530;flex-wrap:wrap;touch-action:manipulation}
 .pv-name{color:#fff;font-size:12.5px;font-weight:800;max-width:26vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pv-btn{min-width:36px;height:36px;padding:0 9px;border-radius:9px;border:1px solid #46506033;background:#2c3442;color:#dfe5ee;font-size:14px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:4px}
 .pv-btn.on{background:var(--acc);border-color:var(--acc);color:#fff}
 .pv-btn:disabled{opacity:.35;cursor:default}
 .pv-sep{width:1px;height:24px;background:#ffffff22;margin:0 2px}
 .pv-pg{color:#cfd6e0;font-size:12px;font-weight:800;white-space:nowrap}
+.pv-zoom{min-width:56px;font-size:12px}
+/* Auf Touch-Geräten wird mit ZWEI FINGERN gezoomt — die −/＋-Knöpfe entfallen
+   dort (User-Vorgabe). Am Desktop bleiben sie neben Strg+Mausrad. */
+@media (hover:none) and (pointer:coarse){ .pv-zoombtn{display:none} }
 .pv-farb{width:22px;height:22px;border-radius:50%;border:2px solid #ffffff55;cursor:pointer;padding:0}
 .pv-farb.on{border-color:#fff;box-shadow:0 0 0 2px #ffffff44}
-.pv-body{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;display:flex;align-items:flex-start;justify-content:center;padding:18px}
-#pvStage{position:relative;box-shadow:0 6px 30px rgba(0,0,0,.45);background:#fff;flex-shrink:0}
+/* touch-action «pan-x pan-y»: EIN Finger scrollt nativ (mit Schwung), aber
+   der Browser zoomt NICHT mehr — weder per Pinch noch per Doppeltipp (die
+   ganze App wurde sonst gezoomt und der ✕-Knopf war ausserhalb des Bildes).
+   Das Zoomen macht der Viewer selbst (Pinch / Strg+Mausrad). */
+.pv-body{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;display:flex;align-items:flex-start;justify-content:flex-start;padding:18px;touch-action:pan-x pan-y;overscroll-behavior:contain}
+/* margin:auto zentriert bei freiem Platz und schneidet beim Überlaufen NICHT
+   ab (justify-content:center macht den linken Überlauf unerreichbar). */
+#pvStage{position:relative;box-shadow:0 6px 30px rgba(0,0,0,.45);background:#fff;flex-shrink:0;margin:auto}
 #pvStage canvas{display:block}
-#pvSvg{position:absolute;inset:0;touch-action:none}
+/* Default: EIN Finger schiebt den Plan (Hand-Werkzeug / nur Lesen).
+   Mit aktivem Zeichen-Werkzeug muss der Finger zeichnen → touch-action:none. */
+#pvSvg{position:absolute;left:0;top:0;touch-action:pan-x pan-y}
+#pvSvg.zeichnen{touch-action:none}
+#pvSvg.greifen{cursor:grab}
+#pvSvg.greifen:active{cursor:grabbing}
 #pvSvg .shp{cursor:pointer}
 #pvSvg .shp.sel{filter:drop-shadow(0 0 3px rgba(37,99,235,.9))}
 #pvSvg text{font-family:'DM Sans',sans-serif;font-weight:700}
@@ -205,8 +223,9 @@ function fixLeadingZero(el){
     <span class="pv-pg" id="pvPg">–</span>
     <button class="pv-btn" onclick="pabSeite(1)">›</button>
     <span class="pv-sep"></span>
-    <button class="pv-btn" onclick="pabZoom(-1)">−</button>
-    <button class="pv-btn" onclick="pabZoom(1)">＋</button>
+    <button class="pv-btn pv-zoombtn" onclick="pabZoom(-1)" title="Verkleinern">−</button>
+    <button class="pv-btn pv-zoom" id="pvZoomPct" onclick="pabFit()" title="Auf Breite einpassen — zoomen: 2 Finger bzw. Strg + Mausrad">–</button>
+    <button class="pv-btn pv-zoombtn" onclick="pabZoom(1)" title="Vergrössern">＋</button>
     <span class="pv-sep"></span>
     <button class="pv-btn" id="pvEye" onclick="pabEye()" title="Alle Markierungen & Pins ein-/ausblenden (sauberer Plan)">👁</button>
     <button class="pv-btn" id="pvLayerBtn" onclick="pabLayerPanel()" title="Layer (Gewerke) ein-/ausblenden">🗂</button>
@@ -215,7 +234,8 @@ function fixLeadingZero(el){
     <span id="pvTools"></span>
     <span id="pvFarben" style="display:inline-flex;gap:5px;align-items:center;margin-left:4px"></span>
     <span style="flex:1"></span>
-    <button class="pv-btn" id="pvUndo" onclick="pabUndo()" title="Letzte eigene Markierung entfernen">↶</button>
+    <button class="pv-btn" id="pvUndo" onclick="pabUndo()" title="Rückgängig (Strg+Z)" disabled>↶</button>
+    <button class="pv-btn" id="pvRedo" onclick="pabRedo()" title="Wiederholen (Strg+Y)" disabled>↷</button>
     <button class="pv-btn" id="pvDel" onclick="pabDelSel()" title="Ausgewählte Markierung löschen" disabled>🗑</button>
     <span class="pv-pg" id="pvSaveState" style="font-size:10.5px"></span>
   </div>
@@ -1095,6 +1115,9 @@ function fixLeadingZero(el){
     }
     pabCloseModal(); toast(alt ? 'Pendenz aktualisiert' : 'Pendenz erfasst');
     TAB = 'pend'; render();
+    // Aus dem Viewer heraus erfasst (📍-Pin): der neue Pin muss SOFORT auf
+    // dem Plan stehen — render() zeichnet nur die Seite dahinter neu.
+    if(PV.dok && $id('pvWrap') && $id('pvWrap').classList.contains('open')) drawShapes();
   };
   // Statuswechsel — Abarbeiten steht JEDEM eingeloggten Leser offen (Monteur!),
   // Prüfen/Zurückweisen nur den Verwaltenden (write + eigene Org).
@@ -1270,7 +1293,8 @@ function fixLeadingZero(el){
     $id('pvName').textContent = d.name;
     $id('pvWrap').classList.add('open');
     if(typeof GemaScroll !== 'undefined' && GemaScroll.lock) try{ GemaScroll.lock(); }catch(e){}
-    renderTools();
+    _hist.length = 0; _fut.length = 0; _live = 1; _fokus = null; PV.fit = true;
+    renderTools(); updZeichnen(); updUndo(); updZoomPct();
     _pdfjs().then(function(lib){
       return lib.getDocument({ url: d.datei.url }).promise;
     }).then(function(pdf){
@@ -1314,10 +1338,72 @@ function fixLeadingZero(el){
     if(n < 1 || n > PV.seiten) return;
     flushAnnot(); PV.seite = n; PV.sel = null; renderSeite();
   };
+  // ── Zoom wie in einem PDF-Programm ────────────────────────────────
+  // Zwei Ebenen: PV.scale ist der pdf.js-Rendermassstab (scharf), _live ein
+  // rein visueller Faktor WÄHREND der Geste (CSS-Grösse von Canvas + Overlay
+  // — billig, läuft flüssig). Beim Loslassen rechnet zoomCommit() den Faktor
+  // in PV.scale ein und lässt die Seite neu rendern → wieder scharf.
+  var ZMIN = 0.05, ZMAX = 8;
+  var _live = 1, _commitT = null, _fokus = null;
+  function clamp01(v){ return v < 0 ? 0 : (v > 1 ? 1 : v); }
+  function zoomEff(){ return (PV.scale || 1) * _live; }
+  function updZoomPct(){
+    var el = $id('pvZoomPct'); if(el) el.textContent = PV.pdf ? Math.round(zoomEff() * 100) + ' %' : '–';
+  }
+  function applyLive(){
+    var c = $id('pvCanvas'), svg = $id('pvSvg'), st = $id('pvStage');
+    if(!c || !svg || !st) return;
+    var w = Math.round(c.width * _live), h = Math.round(c.height * _live);
+    st.style.width = w + 'px'; st.style.height = h + 'px';
+    c.style.width = w + 'px'; c.style.height = h + 'px';
+    svg.style.width = w + 'px'; svg.style.height = h + 'px';
+    updZoomPct();
+  }
+  // Zoomt um (cx,cy) in Client-Koordinaten: der Plan-Punkt unter dem Finger
+  // bzw. Zeiger bleibt exakt dort stehen. Anker über die Stage-Box — damit
+  // unabhängig von Zentrierung und Innenabstand des Scroll-Bereichs.
+  function zoomLive(k, cx, cy){
+    var b = $id('pvBody'), st = $id('pvStage'); if(!b || !st) return;
+    var basis = PV.scale || 1;
+    k = Math.max(ZMIN / basis, Math.min(ZMAX / basis, k));
+    var r = st.getBoundingClientRect();
+    if(cx == null){ var br = b.getBoundingClientRect(); cx = br.left + br.width / 2; cy = br.top + br.height / 2; }
+    var ax = r.width ? clamp01((cx - r.left) / r.width) : 0.5;
+    var ay = r.height ? clamp01((cy - r.top) / r.height) : 0.5;
+    _live = k; applyLive();
+    var r2 = st.getBoundingClientRect();
+    b.scrollLeft += (r2.left + ax * r2.width) - cx;
+    b.scrollTop  += (r2.top  + ay * r2.height) - cy;
+    PV.fit = false; _fokus = { x: cx, y: cy };
+  }
+  function zoomCommit(){
+    clearTimeout(_commitT); _commitT = null;
+    if(!PV.pdf || Math.abs(_live - 1) < 0.005){ _live = 1; applyLive(); return; }
+    var b = $id('pvBody'), st = $id('pvStage');
+    var r = st.getBoundingClientRect(), br = b.getBoundingClientRect();
+    var cx = _fokus ? _fokus.x : br.left + br.width / 2;
+    var cy = _fokus ? _fokus.y : br.top + br.height / 2;
+    var ax = r.width ? clamp01((cx - r.left) / r.width) : 0.5;
+    var ay = r.height ? clamp01((cy - r.top) / r.height) : 0.5;
+    PV.scale = Math.max(ZMIN, Math.min(ZMAX, zoomEff()));
+    _live = 1;
+    renderSeite().then(function(){
+      var r2 = st.getBoundingClientRect();
+      b.scrollLeft += (r2.left + ax * r2.width) - cx;
+      b.scrollTop  += (r2.top  + ay * r2.height) - cy;
+    });
+  }
+  function commitSoon(ms){ clearTimeout(_commitT); _commitT = setTimeout(zoomCommit, ms || 160); }
   window.pabZoom = function(d){
     if(!PV.pdf) return;
-    PV.scale = Math.min(4, Math.max(0.4, (PV.scale || 1) + d * 0.2));
-    renderSeite();
+    zoomLive(_live * (d > 0 ? 1.25 : 0.8), null, null);
+    commitSoon(140);
+  };
+  window.pabFit = function(){
+    if(!PV.pdf) return;
+    clearTimeout(_commitT); _commitT = null;
+    _live = 1; PV.scale = 0; PV.fit = true;          // 0 = beim Rendern einpassen
+    renderSeite().then(function(){ var b = $id('pvBody'); if(b){ b.scrollLeft = 0; b.scrollTop = 0; } });
   };
   function renderTools(){
     var host = $id('pvTools');
@@ -1326,10 +1412,12 @@ function fixLeadingZero(el){
       host.innerHTML = '<span class="pv-pg" style="opacity:.7">👁 nur Lesen</span>';
       $id('pvFarben').innerHTML = '';
       $id('pvUndo').style.display = 'none';
+      $id('pvRedo').style.display = 'none';
       $id('pvDel').style.display = 'none';
       return;
     }
     $id('pvUndo').style.display = '';
+    $id('pvRedo').style.display = '';
     $id('pvDel').style.display = '';
     // Zeichen-Layer: Externe zeichnen fix auf ihrem Freigabe-Gewerk,
     // die eigene Org wählt den Layer frei (Default = Gewerk der Org)
@@ -1348,7 +1436,15 @@ function fixLeadingZero(el){
       return '<button class="pv-farb' + (PV.farbe === f ? ' on' : '') + '" style="background:' + f + '" onclick="pabFarbe(\'' + f + '\')" title="Farbe"></button>';
     }).join('');
   }
-  window.pabTool = function(t){ PV.tool = t; PV.sel = null; renderTools(); drawShapes(); updDel(); };
+  window.pabTool = function(t){ PV.tool = t; PV.sel = null; renderTools(); drawShapes(); updDel(); updZeichnen(); };
+  // Overlay-Modus: mit Zeichen-Werkzeug muss der Finger ZEICHNEN (touch-action
+  // none), sonst SCHIEBT er den Plan (nativer Ein-Finger-Schwenk).
+  function updZeichnen(){
+    var svg = $id('pvSvg'); if(!svg) return;
+    var zeichnet = !!PV.canEdit && PV.tool !== 'hand';
+    svg.classList.toggle('zeichnen', zeichnet);
+    svg.classList.toggle('greifen', !zeichnet);
+  }
   window.pabFarbe = function(f){ PV.farbe = f; renderTools(); };
   window.pabDrawLayer = function(v){ PV.drawLayer = v || 'allgemein'; renderTools(); };
   window.pabViewerLog = function(){ if(PV.dok) pabLogOpen('dok', PV.dok.id); };
@@ -1387,10 +1483,12 @@ function fixLeadingZero(el){
   };
 
   function renderSeite(){
-    PV.pdf.getPage(PV.seite).then(function(page){
+    return PV.pdf.getPage(PV.seite).then(function(page){
       var body = $id('pvBody');
       var vw1 = page.getViewport({ scale: 1 });
-      if(!PV.scale) PV.scale = Math.max(0.4, Math.min(2.5, (body.clientWidth - 40) / vw1.width));
+      // 0 = auf Breite einpassen. Untergrenze bewusst klein — ein A1-Plan
+      // muss auf dem Handy WIRKLICH ganz ins Bild passen (früher 0.4).
+      if(!PV.scale) PV.scale = Math.max(ZMIN, Math.min(2.5, (body.clientWidth - 40) / vw1.width));
       var vp = page.getViewport({ scale: PV.scale });
       var c = $id('pvCanvas');
       c.width = Math.round(vp.width); c.height = Math.round(vp.height);
@@ -1400,10 +1498,14 @@ function fixLeadingZero(el){
     }).then(function(){ drawShapes(); renderLayerPanel(); });
   }
   function sizeSvg(w, h){
-    var svg = $id('pvSvg');
+    var svg = $id('pvSvg'), c = $id('pvCanvas'), st = $id('pvStage');
     svg.setAttribute('width', w); svg.setAttribute('height', h);
     svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
-    var st = $id('pvStage'); st.style.width = w + 'px'; st.style.height = h + 'px';
+    _live = 1;                                   // frisch gerendert = kein Live-Faktor mehr
+    st.style.width = w + 'px'; st.style.height = h + 'px';
+    svg.style.width = w + 'px'; svg.style.height = h + 'px';
+    if(c){ c.style.width = w + 'px'; c.style.height = h + 'px'; }
+    updZoomPct();
   }
   function seiteShapes(){
     var k = String(PV.seite);
@@ -1413,8 +1515,6 @@ function fixLeadingZero(el){
   function W(){ return $id('pvCanvas').width; }
   function H(){ return $id('pvCanvas').height; }
   // Shapes sind auf die Seitengrösse normiert (0..1) — zoom-unabhängig
-  function nx(px){ return px / W(); }
-  function ny(px){ return px / H(); }
   function X(n){ return n * W(); }
   function Y(n){ return n * H(); }
 
@@ -1485,14 +1585,40 @@ function fixLeadingZero(el){
     var b = $id('pvDel'); if(!b) return;
     b.disabled = !PV.sel;
   }
+  // ── Rückgängig / Wiederholen ──────────────────────────────────────
+  // Schnappschuss-Verlauf über PV.shapes (klein, reines JSON). PV.shapes ist
+  // eine Sitzungs-Kopie — es ändert IMMER nur die eigene Bearbeitung, ein
+  // Schritt zurück kann also nie fremde Markierungen wegnehmen.
+  var _hist = [], _fut = [], HIST_MAX = 60;
+  function snapShapes(){
+    _hist.push({ s: JSON.stringify(PV.shapes), p: PV.seite });
+    if(_hist.length > HIST_MAX) _hist.shift();
+    _fut.length = 0;
+    updUndo();
+  }
+  function updUndo(){
+    var u = $id('pvUndo'), r = $id('pvRedo');
+    if(u) u.disabled = !_hist.length;
+    if(r) r.disabled = !_fut.length;
+  }
+  function applySnap(e){
+    PV.shapes = JSON.parse(e.s);
+    PV.sel = null; PV.dirty = true;
+    if(e.p && e.p !== PV.seite && PV.pdf){ PV.seite = e.p; renderSeite(); }   // dorthin, wo sich etwas ändert
+    else drawShapes();
+    updDel(); updUndo(); queueAnnot();
+  }
   window.pabUndo = function(){
-    if(!PV.canEdit) return;
-    var me = user(); var arr = seiteShapes();
-    for(var i = arr.length - 1; i >= 0; i--){
-      if(arr[i].von && arr[i].von.userId === (me && me.id)){ arr.splice(i, 1); PV.dirty = true; break; }
-    }
-    PV.sel = null; drawShapes(); updDel(); queueAnnot();
+    if(!PV.canEdit || !_hist.length) return;
+    _fut.push({ s: JSON.stringify(PV.shapes), p: PV.seite });
+    applySnap(_hist.pop());
   };
+  window.pabRedo = function(){
+    if(!PV.canEdit || !_fut.length) return;
+    _hist.push({ s: JSON.stringify(PV.shapes), p: PV.seite });
+    applySnap(_fut.pop());
+  };
+  function pushShape(sh){ snapShapes(); seiteShapes().push(sh); PV.dirty = true; }
   window.pabDelSel = function(){
     if(!PV.canEdit || !PV.sel) return;
     var arr = seiteShapes();
@@ -1502,6 +1628,7 @@ function fixLeadingZero(el){
         var me = user();
         if(!(arr[i].von && me && arr[i].von.userId === me.id)){ PV.sel = null; updDel(); return; }
       }
+      snapShapes();
       arr.splice(i, 1); PV.dirty = true;
     }
     PV.sel = null; drawShapes(); updDel(); queueAnnot();
@@ -1527,7 +1654,10 @@ function fixLeadingZero(el){
     var r = $id('pvSvg').getBoundingClientRect();
     var x = (ev.touches && ev.touches[0] ? ev.touches[0].clientX : ev.clientX) - r.left;
     var y = (ev.touches && ev.touches[0] ? ev.touches[0].clientY : ev.clientY) - r.top;
-    return { x: Math.max(0, Math.min(1, nx(x))), y: Math.max(0, Math.min(1, ny(y))) };
+    // Normiert über die DARGESTELLTE Grösse (nicht über canvas.width): bleibt
+    // damit auch während einer laufenden Zoom-Geste korrekt, in der das
+    // Overlay per CSS skaliert ist.
+    return { x: clamp01(r.width ? x / r.width : 0), y: clamp01(r.height ? y / r.height : 0) };
   }
   function neuShape(base){
     var me = user();
@@ -1566,16 +1696,16 @@ function fixLeadingZero(el){
     if(PV.tool === 'text'){
       GemaDialog.prompt({ title: 'Text einfügen', placeholder: 'z.B. Achtung Leitungsführung' }).then(function(txt){
         if(txt === null) return; txt = (txt || '').trim(); if(!txt) return;
-        seiteShapes().push(neuShape({ typ: 'text', x1: p.x, y1: p.y, text: txt }));
-        PV.dirty = true; drawShapes(); queueAnnot();
+        pushShape(neuShape({ typ: 'text', x1: p.x, y1: p.y, text: txt }));
+        drawShapes(); queueAnnot();
       });
       return;
     }
     if(PV.tool === 'callout'){
       GemaDialog.prompt({ title: 'Textbox mit Pfeil', message: 'Text der Box — der Pfeil zeigt auf die geklickte Stelle.', placeholder: 'z.B. Durchbruch hier' }).then(function(txt){
         if(txt === null) return; txt = (txt || '').trim(); if(!txt) return;
-        seiteShapes().push(neuShape({ typ: 'callout', x1: Math.max(0, p.x - 0.14), y1: Math.max(0, p.y - 0.1), x2: p.x, y2: p.y, text: txt }));
-        PV.dirty = true; drawShapes(); queueAnnot();
+        pushShape(neuShape({ typ: 'callout', x1: Math.max(0, p.x - 0.14), y1: Math.max(0, p.y - 0.1), x2: p.x, y2: p.y, text: txt }));
+        drawShapes(); queueAnnot();
       });
       return;
     }
@@ -1605,14 +1735,79 @@ function fixLeadingZero(el){
     var p = svgPos(ev);
     var dist = Math.abs(p.x - _down.x) + Math.abs(p.y - _down.y);
     if(PV.tool === 'frei' && PV.pts && PV.pts.length > 2){
-      seiteShapes().push(neuShape({ typ: 'frei', pts: PV.pts }));
-      PV.dirty = true;
+      pushShape(neuShape({ typ: 'frei', pts: PV.pts }));
     } else if((PV.tool === 'rect' || PV.tool === 'kreis' || PV.tool === 'pfeil') && dist > 0.008){
-      seiteShapes().push(neuShape({ typ: PV.tool, x1: _down.x, y1: _down.y, x2: p.x, y2: p.y }));
-      PV.dirty = true;
+      pushShape(neuShape({ typ: PV.tool, x1: _down.x, y1: _down.y, x2: p.x, y2: p.y }));
     }
     _down = null; PV.pts = null; PV.temp = null;
     drawShapes(); queueAnnot();
+  }
+  // ── Gesten im Viewer ──────────────────────────────────────────────
+  // ZWEI Finger = zoomen und schieben · EIN Finger = schieben (nativ, mit
+  // Schwung) bzw. zeichnen · Strg/Cmd + Mausrad = zoomen · Doppeltipp tut
+  // NICHTS (der Browser zoomte sonst die ganze App und der ✕-Knopf lag
+  // ausserhalb des Bildes).
+  function wireGesten(b){
+    var pinch = null, letzterTipp = 0;
+    function mitte(t){
+      return { x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2,
+               d: Math.max(1, Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY)) };
+    }
+    b.addEventListener('touchstart', function(ev){
+      if(ev.touches.length !== 2) return;
+      // Angefangene Zeichnung verwerfen — zwei Finger sind IMMER die Geste
+      if(_down){ _down = null; PV.pts = null; PV.temp = null; drawShapes(); }
+      var m = mitte(ev.touches);
+      pinch = { d: m.d, k: _live };
+      ev.preventDefault();
+    }, { passive: false });
+    b.addEventListener('touchmove', function(ev){
+      if(!pinch || ev.touches.length < 2) return;
+      ev.preventDefault();
+      var m = mitte(ev.touches);
+      zoomLive(pinch.k * (m.d / pinch.d), m.x, m.y);
+    }, { passive: false });
+    function pinchEnde(){ if(!pinch) return; pinch = null; zoomCommit(); }
+    b.addEventListener('touchend', function(ev){
+      var warPinch = !!pinch;
+      if(pinch && ev.touches.length < 2) pinchEnde();
+      if(ev.touches.length) return;
+      // Das Ende einer Zoom-Geste ist KEIN Tipp — sonst gälte der nächste
+      // Einzeltipp fälschlich als zweiter Tipp und würde geschluckt.
+      if(warPinch){ letzterTipp = 0; return; }
+      var jetzt = Date.now();
+      if(jetzt - letzterTipp < 320) ev.preventDefault();     // Doppeltipp-Zoom des Browsers
+      letzterTipp = jetzt;
+    }, { passive: false });
+    b.addEventListener('touchcancel', pinchEnde);
+    // Strg/Cmd + Mausrad — der Trackpad-Pinch kommt in Chrome/Edge ebenfalls so an
+    b.addEventListener('wheel', function(ev){
+      if(!(ev.ctrlKey || ev.metaKey) || !PV.pdf) return;
+      ev.preventDefault();
+      zoomLive(_live * (ev.deltaY < 0 ? 1.12 : 0.89), ev.clientX, ev.clientY);
+      commitSoon(200);
+    }, { passive: false });
+    // iPhone/iPad-Safari: Pinch kommt zusätzlich als WebKit-GestureEvent —
+    // ohne preventDefault zoomt Safari die ganze Seite.
+    var gk = 1;
+    b.addEventListener('gesturestart', function(ev){ ev.preventDefault(); gk = _live; pinch = null; });
+    b.addEventListener('gesturechange', function(ev){ ev.preventDefault(); zoomLive(gk * (ev.scale || 1), ev.clientX, ev.clientY); });
+    b.addEventListener('gestureend', function(ev){ ev.preventDefault(); zoomCommit(); });
+    // Maus-Drag schiebt den Plan (Hand-Werkzeug / nur Lesen) — Zeichnen hat Vorrang
+    var pan = null;
+    b.addEventListener('pointerdown', function(ev){
+      if(ev.pointerType !== 'mouse' || ev.button !== 0) return;
+      if(PV.canEdit && PV.tool !== 'hand') return;
+      pan = { x: ev.clientX, y: ev.clientY, l: b.scrollLeft, t: b.scrollTop };
+    });
+    b.addEventListener('pointermove', function(ev){
+      if(!pan) return;
+      b.scrollLeft = pan.l - (ev.clientX - pan.x);
+      b.scrollTop = pan.t - (ev.clientY - pan.y);
+    });
+    ['pointerup','pointercancel','pointerleave'].forEach(function(n){
+      b.addEventListener(n, function(){ pan = null; });
+    });
   }
   window.pabPinKlick = function(pid){
     var p = pendById(pid); if(!p) return;
@@ -1648,9 +1843,20 @@ function fixLeadingZero(el){
     if(typeof GemaScroll !== 'undefined' && GemaScroll.unlock) try{ GemaScroll.unlock(); }catch(e){}
   };
   document.addEventListener('keydown', function(e){
-    if(e.key !== 'Escape') return;
-    if($id('pabModalHost') && $id('pabModalHost').firstChild){ window.pabCloseModal(); return; }
-    if($id('pvWrap') && $id('pvWrap').classList.contains('open')) window.pabViewerClose();
+    var modalOffen = !!($id('pabModalHost') && $id('pabModalHost').firstChild);
+    if(e.key === 'Escape'){
+      if(modalOffen){ window.pabCloseModal(); return; }
+      if($id('pvWrap') && $id('pvWrap').classList.contains('open')) window.pabViewerClose();
+      return;
+    }
+    // Rückgängig / Wiederholen im offenen Viewer
+    if(modalOffen || !(e.ctrlKey || e.metaKey)) return;
+    if(!($id('pvWrap') && $id('pvWrap').classList.contains('open'))) return;
+    var t = e.target, tag = (t && t.tagName) || '';
+    if(tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable)) return;
+    var k = (e.key || '').toLowerCase();
+    if(k === 'z' && !e.shiftKey){ e.preventDefault(); window.pabUndo(); }
+    else if(k === 'y' || (k === 'z' && e.shiftKey)){ e.preventDefault(); window.pabRedo(); }
   });
 
   // ── Boot ──────────────────────────────────────────────────────────
@@ -1664,6 +1870,15 @@ function fixLeadingZero(el){
       svg.addEventListener('pointerup', onUp);
       svg.addEventListener('pointerleave', onUp);
     }
+    if($id('pvBody')) wireGesten($id('pvBody'));
+    // Beim Drehen des Geräts neu einpassen — aber nur solange niemand selbst
+    // gezoomt hat (eine bewusste Zoom-Stufe bleibt erhalten).
+    var _rsT = null;
+    window.addEventListener('resize', function(){
+      if(!PV.pdf || !PV.fit) return;
+      clearTimeout(_rsT);
+      _rsT = setTimeout(function(){ if(PV.pdf && PV.fit) window.pabFit(); }, 250);
+    });
     _objFilterInit();
     render();
     var timeout = new Promise(function(r){ setTimeout(r, 6000); });
@@ -1710,7 +1925,9 @@ function fixLeadingZero(el){
     setTab: function(t){ TAB = t; render(); }, cloudLoaded: function(){ return _cloudLoaded; },
     objFilter: function(){ return _objFilter; }, objFilterInit: _objFilterInit,
     myGewerk: myGewerk, layerSichtbar: layerSichtbar, multi: function(){ return _pvMulti; },
-    saveAnnot: function(rec){ saveRec(LSA, PFA, rec); }
+    saveAnnot: function(rec){ saveRec(LSA, PFA, rec); },
+    zoom: function(){ return { scale: PV.scale, live: _live, eff: zoomEff(), fit: !!PV.fit }; },
+    hist: function(){ return { undo: _hist.length, redo: _fut.length }; }
   };
 })();
 </script>
