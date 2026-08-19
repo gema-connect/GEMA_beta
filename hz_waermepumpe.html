@@ -590,6 +590,7 @@ table.wpe-kenn .req{color:var(--red);font-weight:800}
 <script src="gema_offer_request.js"></script>
 <script src="gema_anlagenwahl.js"></script>
 <script src="gema_dialog.js"></script>
+<script src="gema_wpesti_daten.js"></script>
 <link rel="stylesheet" href="gema_responsive.css"/>
 </head>
 <body style="background:#f4f6fb;color:#111827">
@@ -688,6 +689,16 @@ table.wpe-kenn .req{color:var(--red);font-weight:800}
             <option value="4">Wasser-Wasser-Wärmepumpe</option>
             <option value="5">Erdkollektor-Wärmepumpe</option>
           </select></div>
+        <div class="fg" id="wpe_db_row_herst"><div class="fg-lbl">WP-Datenbank — Hersteller<br><span class="lbl-hint">Gerätedaten aus WPesti (EnergieSchweiz/FWS) — Auswahl füllt die Kennwerte, bleibt editierbar</span></div>
+          <select class="g-sel" id="wpe_db_herst" onchange="wpeDbHerstChanged()" style="min-width:220px">
+            <option value="">— Hersteller wählen —</option>
+          </select></div>
+        <div class="fg" id="wpe_db_row_typ" style="display:none"><div class="fg-lbl">WP-Datenbank — Gerät</div>
+          <select class="g-sel" id="wpe_db_typ" onchange="wpeDbTypChanged()" style="min-width:220px;max-width:340px">
+            <option value="">— Gerät wählen —</option>
+          </select></div>
+        <div id="wpe_db_chip" class="lbl-hint" style="display:none;margin:-2px 0 10px;color:#0e7490">📚 Kennwerte aus WP-Datenbank: <b id="wpe_db_chip_txt"></b> — eigene Eingabe überschreibt</div>
+        <input type="hidden" id="wpe_db_wahl"/>
         <div class="fg"><div class="fg-lbl">Stufigkeit</div>
           <select class="g-sel" id="wpe_stufig" onchange="wpeRecalc()" style="width:150px">
             <option value="1" selected>einstufig</option><option value="2">zweistufig</option><option value="3">mehrstufig</option><option value="4">stufenlos</option>
@@ -1136,8 +1147,8 @@ function wpeLuftMap(k){
   var e20=wpeNum(k.cop35[0]),f20=wpeNum(k.cop35[1]),g20=wpeNum(k.cop35[2]),h20=wpeNum(k.cop35[3]),u20c=wpeNum(k.cop35[4]);
   var f22=wpeNum(k.q55[0]), h22=wpeNum(k.q55[1]), u22=wpeNum(k.q55[2]);
   var f23=wpeNum(k.cop55[0]),h23=wpeNum(k.cop55[1]),u23=wpeNum(k.cop55[2]);
-  var n19=(g19-f19)/8;                       // Steigung A−15/A−7 (Q, 35°)
-  var n20=(g20-f20)/8;                       // Steigung (COP, 35°)
+  var n19=(f19-e19)/8;                       // N19 Steigung A−15/A−7 (Q, 35°) — (F19−E19)/(F18−E18)
+  var n20=(f20-e20)/8;                       // N20 Steigung A−15/A−7 (COP, 35°) — (F20−E20)/(F18−E18)
   var i22 = (u22===0) ? h22 : u22;           // Q55@20 (Fallback A7)
   var i23 = (u23===0) ? h23 : u23;           // COP55@20
   var n22=(i22-h22)/13, n23=(i23-h23)/13;    // Steigung A7/A20 (55°)
@@ -1804,7 +1815,91 @@ function wpeArtChanged(){
   var eu=$id('wpe_einheit'); var lbl = (eu&&eu.value==='MJ')?'MJ/m²a':'kWh/m²a';
   var us=document.querySelectorAll('span[data-u="e"]');
   for(i=0;i<us.length;i++) us[i].textContent=lbl;
+  wpeDbFill();
 }
+
+/* ── WP-Datenbank (WPesti-Blatt WP_Daten via gema_wpesti_daten.js) ──
+   Auswahl Hersteller → Gerät FÜLLT die Kennwert-Felder (bleiben editierbar);
+   eigene Eingabe löst die Herkunft (Muster NPSH-Katalog sb_saugpumpe).
+   Die Wahl liegt im hidden #wpe_db_wahl (AutoSave) — die WERTE leben in den
+   normalen Feldern, ein fehlgeschlagener Picker-Restore verliert nie Daten. */
+function _wpeEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+function _wpeDb(){ return (typeof GemaWpestiDaten!=='undefined') ? GemaWpestiDaten : null; }
+function _wpeDbGruppe(art){ return (art===3||art===5)?'sw':(art===4?'ww':(art===2?'lw':null)); }
+function _wpeDbWahl(){ try{ var s=_v('wpe_db_wahl'); return s?JSON.parse(s):null; }catch(e){ return null; } }
+function _wpeDbSetWahl(w){ var el=$id('wpe_db_wahl'); if(el) el.value = w?JSON.stringify(w):''; }
+function _wpeDbChip(){
+  var w=_wpeDbWahl(), chip=$id('wpe_db_chip');
+  if(!chip) return;
+  if(w&&w.h){ $id('wpe_db_chip_txt').textContent = w.h+' — '+w.t; chip.style.display=''; }
+  else chip.style.display='none';
+}
+function _wpeDbTypenFuellen(art, herst, selTyp){
+  var D=_wpeDb(); if(!D) return;
+  var typen=D.typen(art, herst), sel=$id('wpe_db_typ');
+  var html='<option value="">— Gerät wählen ('+typen.length+') —</option>';
+  for(var i=0;i<typen.length;i++) html+='<option value="'+_wpeEsc(typen[i])+'">'+_wpeEsc(typen[i])+'</option>';
+  sel.innerHTML=html;
+  $id('wpe_db_row_typ').style.display='';
+  if(selTyp) sel.value=selTyp;
+}
+function wpeDbFill(){
+  var rowH=$id('wpe_db_row_herst'), rowT=$id('wpe_db_row_typ');
+  if(!rowH||!rowT) return;
+  var D=_wpeDb();
+  if(!D){ rowH.style.display='none'; rowT.style.display='none'; return; }   // Datenbank-Script fehlt → Picker weg, Handeingabe unverändert
+  var art=parseInt(_v('wpe_art'),10)||2;
+  var liste=D.herstellerListe(art), sel=$id('wpe_db_herst');
+  var html='<option value="">— Hersteller wählen ('+liste.length+' in Datenbank) —</option>';
+  for(var i=0;i<liste.length;i++) html+='<option value="'+_wpeEsc(liste[i])+'">'+_wpeEsc(liste[i])+'</option>';
+  sel.innerHTML=html;
+  var wahl=_wpeDbWahl();
+  if(wahl && wahl.g!==_wpeDbGruppe(art)){ _wpeDbSetWahl(null); wahl=null; }  // Wärmequelle gewechselt → Herkunft lösen, Werte bleiben
+  if(wahl){ sel.value=wahl.h; _wpeDbTypenFuellen(art, wahl.h, wahl.t); }
+  else rowT.style.display='none';
+  _wpeDbChip();
+}
+function wpeDbHerstChanged(){
+  var art=parseInt(_v('wpe_art'),10)||2, h=_v('wpe_db_herst');
+  _wpeDbSetWahl(null); _wpeDbChip();
+  if(!h){ $id('wpe_db_row_typ').style.display='none'; return; }
+  _wpeDbTypenFuellen(art, h, '');
+}
+function wpeDbTypChanged(){
+  var art=parseInt(_v('wpe_art'),10)||2, h=_v('wpe_db_herst'), t=_v('wpe_db_typ');
+  if(!h||!t){ _wpeDbSetWahl(null); _wpeDbChip(); return; }
+  var D=_wpeDb(), g=D?D.geraet(art,h,t):null;
+  if(!g) return;
+  _wpeDbUebernehmen(art,g);
+  _wpeDbSetWahl({ g:_wpeDbGruppe(art), h:h, t:t });
+  _wpeDbChip();
+  wpeRecalc();
+}
+function _wpeDbUebernehmen(art,g){
+  function setV(id,v){ var el=$id(id); if(el) el.value = (v>0? String(v) : ''); } // 0 = kein Messwert → leer (OFFSET-Semantik)
+  if(art===2){
+    var k=g.kennlinie, i;
+    for(i=0;i<5;i++){ setV('wpe_l_q35_'+i,k.q35[i]); setV('wpe_l_c35_'+i,k.cop35[i]); }
+    for(i=0;i<3;i++){ setV('wpe_l_q55_'+i,k.q55[i]); setV('wpe_l_c55_'+i,k.cop55[i]); }
+  } else {
+    setV('wpe_qb035',g.qB035); setV('wpe_cb035',g.copB035);
+    setV('wpe_qb055',g.qB055); setV('wpe_cb055',g.copB055);
+  }
+  var typ=$id('wpe_typ'); if(typ) typ.value = g.hersteller+' '+g.typ;
+  var st=$id('wpe_stufig'); if(st && g.stufigkeit>=1 && g.stufigkeit<=4) st.value=String(g.stufigkeit);
+}
+(function(){
+  var wahlEl=$id('wpe_db_wahl');
+  if(wahlEl) wahlEl.addEventListener('change', function(){ wpeDbFill(); });    // AutoSave-Restore stellt die Wahl wieder her
+  function loesen(ev){                                                        // NUR echte Benutzer-Eingabe löst die Herkunft
+    if(ev && ev.isTrusted===false) return;
+    if(_wpeDbWahl()){ _wpeDbSetWahl(null); _wpeDbChip(); var t=$id('wpe_db_typ'); if(t) t.value=''; }
+  }
+  var k1=$id('wpe_kennluft'), k2=$id('wpe_kennsole');
+  if(k1) k1.addEventListener('input', loesen, true);
+  if(k2) k2.addEventListener('input', loesen, true);
+  wpeDbFill();
+})();
 
 function wpeInputs(){
   var art = parseInt(_v('wpe_art'),10)||2;

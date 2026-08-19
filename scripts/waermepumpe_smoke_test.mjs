@@ -123,6 +123,66 @@ console.log('■ Kein-Zugriff (Monteur) & Anlagenwahl-Payload');
   ok(pl.strombedarfWp > 3000, 'Payload strombedarfWp plausibel');
   await ctx.close();
 }
+console.log('■ WP-Datenbank-Picker (gema_wpesti_daten.js)');
+{
+  const { ctx, page } = await newPage(browser, seed(['role_planer']));
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await page.goto(BASE + '/hz_waermepumpe.html', { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => typeof wpeCalc === 'function' && typeof GemaWpestiDaten !== 'undefined', null, { timeout: 12000 });
+
+  // Boot: Luft-Wasser (Default) → Hersteller-Select befüllt, Typ-Zeile versteckt
+  ok(await page.evaluate(() => GemaWpestiDaten.anzahl() === 1817), 'Datenbank geladen (1817 Geräte)');
+  ok(await page.evaluate(() => document.querySelectorAll('#wpe_db_herst option').length === 50), 'Hersteller-Select: 49 Luft-Wasser-Hersteller + Platzhalter');
+  ok(await page.evaluate(() => document.getElementById('wpe_db_row_typ').style.display === 'none'), 'Typ-Zeile anfangs versteckt');
+
+  // Gerät wählen → Kennlinie/Typ/Stufigkeit übernommen, Chip + Wahl gesetzt
+  const g = await page.evaluate(() => {
+    document.getElementById('wpe_db_herst').value = 'STIEBEL ELTRON'; wpeDbHerstChanged();
+    document.getElementById('wpe_db_typ').value = '09,04 kW WPL 24 I / IK / A'; wpeDbTypChanged();
+    const v = id => document.getElementById(id).value;
+    return { q0: v('wpe_l_q35_0'), c55_0: v('wpe_l_c55_0'), typ: v('wpe_typ'), stufig: v('wpe_stufig'),
+             chip: document.getElementById('wpe_db_chip').style.display, wahl: v('wpe_db_wahl') };
+  });
+  ok(g.q0 === '12.98' && g.c55_0 === '2.34', 'Kennlinie zellidentisch übernommen (Q−15/W35 = 12.98, COP−7/W55 = 2.34)');
+  ok(g.typ === 'STIEBEL ELTRON 09,04 kW WPL 24 I / IK / A', 'WP-Typ-Feld befüllt');
+  ok(g.stufig === '4', 'Stufigkeit übernommen (stufenlos)');
+  ok(g.chip !== 'none' && g.wahl.indexOf('WPL 24') > 0, 'Herkunfts-Chip sichtbar + Wahl im Hidden-Feld');
+
+  // Eigene Eingabe (echtes Event) → Herkunft gelöst, Wert bleibt
+  await page.click('#wpe_l_q35_0', { clickCount: 3 });
+  await page.keyboard.type('13.5');
+  const o = await page.evaluate(() => ({
+    wahl: document.getElementById('wpe_db_wahl').value,
+    chip: document.getElementById('wpe_db_chip').style.display,
+    q0: document.getElementById('wpe_l_q35_0').value }));
+  ok(o.wahl === '' && o.chip === 'none' && o.q0 === '13.5', 'Eigene Eingabe löst die DB-Herkunft, der Wert bleibt');
+
+  // Quellen-Wechsel auf Erdsonde → Sole-Hersteller, Übernahme in die B0/W-Felder
+  const s = await page.evaluate(() => {
+    document.getElementById('wpe_art').value = '3'; wpeArtChanged();
+    document.getElementById('wpe_db_herst').value = 'alpha innotec'; wpeDbHerstChanged();
+    document.getElementById('wpe_db_typ').value = 'SWCV 62H(K)3'; wpeDbTypChanged();
+    const v = id => document.getElementById(id).value;
+    return { n: document.querySelectorAll('#wpe_db_herst option').length,
+             qb035: v('wpe_qb035'), cb055: v('wpe_cb055') };
+  });
+  ok(s.n === 32, 'Quellen-Wechsel: 31 Sole-Hersteller + Platzhalter');
+  ok(s.qb035 === '5.95' && s.cb055 === '2.87', 'Sole-Gerät übernommen (Q B0/W35 = 5.95, COP B0/W55 = 2.87)');
+
+  // AutoSave-Restore-Pfad: Hidden-Feld + synthetisches change → Selects/Chip nachgezogen, keine Löse-Reaktion
+  const r = await page.evaluate(() => {
+    const w = document.getElementById('wpe_db_wahl');
+    w.value = JSON.stringify({ g: 'sw', h: 'alpha innotec', t: 'SWCV 62H(K)3' });
+    w.dispatchEvent(new Event('change', { bubbles: true }));
+    return { herst: document.getElementById('wpe_db_herst').value,
+             typ: document.getElementById('wpe_db_typ').value,
+             chip: document.getElementById('wpe_db_chip').style.display };
+  });
+  ok(r.herst === 'alpha innotec' && r.typ === 'SWCV 62H(K)3' && r.chip !== 'none', 'Restore-Pfad stellt Selects + Chip wieder her');
+  ok(errors.length === 0, 'Picker: keine pageerror-Exceptions (' + errors.join('; ') + ')');
+  await ctx.close();
+}
 {
   // Monteur → Kein Zugriff
   const { ctx, page } = await newPage(browser, seed(['role_monteur']));

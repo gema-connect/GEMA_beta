@@ -7,6 +7,13 @@
 //   2) Bedarfsseite (Blatt «Grafik») — Heiz-/WW-/Total-Bedarf exakt
 //   3) Klimadaten-Integrität (32 SIA-2028-Stationen, je ~8760 h)
 //   4) JAZ-Kette — interne Energie-Konsistenz + Plausibilität je Wärmequelle
+//   7) Live-Beispiel Ende-zu-Ende (Buchs-Aarau/MFH/WPL 24) — die JAZ-Kette
+//      zellidentisch gegen die live nachgerechnete Mappe (Version 8.3.47);
+//      pinnt zugleich den N19/N20-Fix der Kennfeld-Erweiterung («Steigung
+//      A−15/A−7» = (F−E)/8 — der frühere Code nahm (G−F)/8 und rechnete
+//      damit alle Bins unter −8 °C falsch)
+//   8) WP-Datenbank gema_wpesti_daten.js (Blatt «WP_Daten», 1817 Geräte) —
+//      API, Gruppen-Zuordnung, Stichproben-Werte, Engine-Durchstich
 //
 // Ausführen:  node scripts/waermepumpe_engine_test.mjs
 import { readFileSync } from 'fs';
@@ -126,6 +133,86 @@ truthy('Zu kleine WP monovalent → Ungedeckt-Warnung', und.warnungen.some(w => 
 const biv = wpeCalc(Object.assign({}, A, { betriebsweise: 4 }));
 truthy('Fossil bivalent → keine JAZh+ww (Original H66 leer)', biv.jazTot === '');
 truthy('Fossil bivalent: bivalent-Flag gesetzt', biv.bivalent === true);
+
+// ═══ 7) Live-Beispiel Ende-zu-Ende (WPesti 8.3.47, Buchs-Aarau / MFH / EBF 459 /
+//        STIEBEL ELTRON WPL 24 I/IK/A, monovalent, H+WW, Speicher, WW-Verteilung
+//        «Zirkulation») — Golden-Werte aus der live nachgerechneten Original-Mappe.
+//        KRITISCH: pinnt den N19/N20-Fix in wpeLuftMap — mit dem alten Fehler
+//        ((G−F)/8 statt (F−E)/8) wichen jazh/jazww/laufzeit messbar ab. ═══
+console.log('■ Live-Beispiel Ende-zu-Ende (WPL 24, Buchs-Aarau)');
+const WPL24 = {
+  q35: [12.98, 13.45, 9.04, 7.41, 7.54], cop35: [2.69, 3, 4, 4.72, 6.21],
+  q55: [15.46, 10.42, 7.89],             cop55: [2.34, 3.19, 3.56]
+};
+// Kennfeld-Erweiterung: Stützstellen bei −25 °C (WP_BIN D19/D20/D22/D23-Kette)
+const mapE = sandbox.wpeLuftMap(WPL24);
+chk('Kennfeld Q(−25/W35) = 12.3925 (D19)', mapE.q35[0], 12.3925, 1e-9);
+chk('Kennfeld COP(−25/W35) (D20, konst. Gütegrad)', mapE.c35[0], 2.2416666666666667, 1e-9);
+chk('Kennfeld Q(−15/W55) (E22, Steigung N19)', mapE.q55[1], 14.99, 1e-9);
+chk('Kennfeld COP(−25/W55) (D23)', mapE.c55[0], 1.77625, 1e-9);
+
+const BU = WPE_STATIONEN.findIndex(s => s.name === 'Buchs-Aarau');
+const KMFH = WPE_KATEGORIEN.findIndex(k => k.id === 'mfh');
+truthy('Station Buchs-Aarau + Kategorie MFH vorhanden', BU >= 0 && KMFH >= 0);
+const L = wpeCalc({
+  station: BU, kat: KMFH, ebf: 459,
+  einheit: 'kWh', qh: 32.9, qt: 44.1, qv: 20.4,
+  verteilverluste: 0.02, sperrzeit: 0,
+  wwVerluste: 0.3, wwVerteilSel: 3, qwwManuell: '',
+  einsatz: 4, wpArt: 2, kennlinie: WPL24,
+  tvl: 35, trl: 28, tiSoll: 22, dtSpeicher: 3,
+  speicherSel: 3, tww: 60, twwZusatz: '',
+  wwZusatzSel: 2, ladungElSel: 1,
+  betriebsweise: 2, umschaltTemp: '',
+  solarSel: 1, solarFlaeche: '', solarAzimut: '', solarNeigung: '', solarErtrag: '',
+  heizbandLaenge: ''
+});
+truthy('Live-Beispiel: Berechnung ok', L.ok);
+chk('Leistungsvorschlag (WP1 M31)', L.geb.vorschlag, 8.695705875451937, 1e-9);
+chk('Heizkurve M20', L.wp.m20, 38, 0);
+chk('Heizkurve M22', L.wp.m22, 31, 0);
+chk('Heizkurve M23', L.wp.m23, 7, 0);
+chk('Heizkurve M24', L.wp.m24, 7, 0);
+chk('η_h Speicherladung (F45)', L.etah, 0.96, 0);
+chk('η_w WW-System (F49)', L.etaw, 0.94, 0);
+chk('Gewicht Heizung wh (F62-Kette)', L.wh, 0.553384929970757, 1e-9);
+chk('Gewicht WW www', L.www, 0.44661507002924294, 1e-9);
+chk('Laufzeit h/a (H61)', L.laufzeit, 3626.126868795059, 1e-9);
+chk('JAZ Heizung (H62 = V29)', L.jazh, 4.038546729776427, 1e-9);
+chk('JAZ Warmwasser (H63 = V37)', L.jazww, 2.8113635925008715, 1e-9);
+chk('JAZ H+WW (H66)', L.jazTot, 3.3796752520918574, 1e-9);
+chk('Anteil WP Heizung (F62)', L.f62, 1, 0);
+chk('Anteil WP Warmwasser (F63)', L.f63, 1, 0);
+
+// ═══ 8) WP-Datenbank (gema_wpesti_daten.js — Blatt «WP_Daten») ═══
+console.log('■ WP-Datenbank gema_wpesti_daten.js');
+const dbSrc = readFileSync(join(ROOT, 'gema_wpesti_daten.js'), 'utf8');
+const dbMod = { exports: {} };
+new Function('module', 'window', dbSrc)(dbMod, undefined);
+const DB = dbMod.exports;
+truthy('Version 8.3.47 (log-Blatt Spalte D)', DB.version === '8.3.47');
+chk('Geräte total (ohne messwertlose Zeilen, dedupliziert)', DB.anzahl(), 1817, 0);
+chk('Hersteller Luft-Wasser', DB.herstellerListe(2).length, 49, 0);
+chk('Hersteller Sole-Wasser', DB.herstellerListe(3).length, 31, 0);
+chk('Hersteller Wasser-Wasser', DB.herstellerListe(4).length, 14, 0);
+truthy('Art 5 (Erdkollektor) nutzt die Sole-Gruppe', DB.herstellerListe(5).length === DB.herstellerListe(3).length);
+truthy('Unbekannte Art → leer/null', DB.herstellerListe(6).length === 0 && DB.geraet(2, 'XYZ', 'a') === null);
+const wpl = DB.geraet(2, 'STIEBEL ELTRON', '09,04 kW WPL 24 I / IK / A');
+truthy('WPL 24 gefunden (stufenlos)', !!wpl && wpl.stufigkeit === 4 && wpl.stufigkeitName === 'stufenlos');
+truthy('WPL 24 Kennlinie zellidentisch zu WP_Daten',
+  JSON.stringify(wpl.kennlinie) === JSON.stringify(WPL24));
+const sole = DB.geraet(5, 'alpha innotec', 'SWCV 62H(K)3');
+truthy('Sole-Gerät via Art 5 (B0/W35 5.95 · COP 4.25 · B0/W55 5.17 · COP 2.87)',
+  !!sole && sole.qB035 === 5.95 && sole.copB035 === 4.25 && sole.qB055 === 5.17 && sole.copB055 === 2.87);
+// Durchstich: DB-Kennlinie in die Engine → exakt dieselbe JAZ wie das Live-Beispiel
+const LD = wpeCalc(Object.assign({}, {
+  station: BU, kat: KMFH, ebf: 459, einheit: 'kWh', qh: 32.9, qt: 44.1, qv: 20.4,
+  verteilverluste: 0.02, sperrzeit: 0, wwVerluste: 0.3, wwVerteilSel: 3, qwwManuell: '',
+  einsatz: 4, wpArt: 2, kennlinie: wpl.kennlinie, tvl: 35, trl: 28, tiSoll: 22, dtSpeicher: 3,
+  speicherSel: 3, tww: 60, twwZusatz: '', wwZusatzSel: 2, ladungElSel: 1,
+  betriebsweise: 2, umschaltTemp: '', solarSel: 1, heizbandLaenge: ''
+}));
+truthy('DB-Kennlinie → Engine liefert die Live-Beispiel-JAZ', LD.ok && LD.jazh === L.jazh && LD.jazww === L.jazww);
 
 // ═══ Ergebnis ═══
 console.log('\n' + (fail === 0 ? '✅' : '❌') + ' waermepumpe_engine: ' + pass + ' ok, ' + fail + ' fail');
