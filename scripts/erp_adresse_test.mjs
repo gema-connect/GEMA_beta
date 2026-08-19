@@ -79,8 +79,10 @@ await page.type('#k_strasse', 'Musterstrasse 12', { delay: 12 });
 await page.waitForSelector('#kundeModal .gema-adr-drop.open .gema-adr-item', { timeout: 6000 });
 ok(apiCalls > 0, 'swisstopo-Endpunkt wurde abgefragt');
 {
+  // Die Antwort enthält Nr. 12 UND Nr. 14 — die getippte Hausnummer filtert
+  // (siehe scripts/adresse_suche_test.mjs), es bleibt genau die 12.
   const items = await page.$$eval('#kundeModal .gema-adr-drop .gema-adr-item', els => els.map(e => e.textContent));
-  ok(items.length === 2, 'Zwei Vorschläge im Dropdown');
+  ok(items.length === 1, 'Nur der Vorschlag mit der getippten Hausnummer');
   ok(/Musterstrasse 12/.test(items[0]) && /4051 Basel/.test(items[0]), 'Vorschlag zeigt Strasse + PLZ/Ort');
 }
 await page.$eval('#kundeModal .gema-adr-drop .gema-adr-item', el => el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));

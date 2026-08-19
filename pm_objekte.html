@@ -276,6 +276,8 @@ table.tbl .cellcap{display:block;max-width:260px;overflow:hidden;text-overflow:e
 .adr-item .adr-main{font-weight:700;color:var(--txt)}
 .adr-item .adr-sub{font-size:11px;color:var(--mut)}
 .adr-loading{padding:12px;text-align:center;font-size:12px;color:var(--mut)}
+.adr-hint{padding:7px 12px;font-size:11px;line-height:1.35;color:#92400e;background:#fffbeb;border-bottom:1px solid #fde68a}
+.adr-hint:last-child{border-bottom:none;border-top:1px solid #fde68a}
 .adr-tag{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;background:var(--grn-bg);color:var(--grn);border:1px solid var(--grn-bd);margin-left:4px}
 .adr-chip{display:inline-flex;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:var(--bg2);color:var(--txt2);border:1px solid var(--brd)}
 .adr-chip-kt{background:var(--blue-bg);color:var(--blue);border-color:var(--blue-bd);font-weight:800}
@@ -3217,6 +3219,24 @@ async function adrFetch(q,dropId,prefix){
   drop.innerHTML='<div class="adr-loading">Suche…</div>';
   drop.classList.add('open');_adrActiveIdx=-1;
 
+  // Suchlogik zentral aus gema_adresse.js: die Eingabe wird in Strasse /
+  // Hausnummer / PLZ / Ort zerlegt, daraus gehen mehrere Suchtexte raus,
+  // und die Antwort wird gefiltert + sortiert («pfirterg 47» → Pfirtergasse 47).
+  // EINE Wahrheit fuer alle Adressfelder — der Weg darunter ist nur der
+  // Rueckfall, falls der Helper nicht geladen ist.
+  if(window.GemaAdresse && GemaAdresse.suche){
+    try{
+      const erg=await GemaAdresse.suche(q);
+      if(!erg.treffer.length && erg.fehler){
+        drop.innerHTML='<div class="adr-loading">Adress-API nicht erreichbar</div>';
+        return;
+      }
+      _adrCache[q]=erg;
+      adrRender(erg,dropId,prefix);
+      return;
+    }catch(e){ console.warn('[GEMA] Adress-Suche:',e); }
+  }
+
   try{
     const url='https://api3.geo.admin.ch/rest/services/api/SearchServer?searchText='+encodeURIComponent(q)+'&type=locations&origins=address&limit=8&lang=de';
     const res=await fetch(url);
@@ -3259,10 +3279,17 @@ async function adrFetch(q,dropId,prefix){
   }
 }
 
-function adrRender(results,dropId,prefix){
+// res = Array (Rueckfall-Weg) ODER Ergebnis von GemaAdresse.suche
+// ({treffer,hinweis,gekappt}) — der Hinweis sagt, was gefiltert wurde.
+function adrRender(res,dropId,prefix){
   const drop=$(dropId);
+  const erg=Array.isArray(res)?{treffer:res,hinweis:'',gekappt:0}:(res||{treffer:[]});
+  const results=erg.treffer||[];
   if(!results.length){drop.innerHTML='<div class="adr-loading">Keine Adresse gefunden</div>';drop.classList.add('open');return;}
-  drop.innerHTML=results.map((r,i)=>`<div class="adr-item${i===_adrActiveIdx?' active':''}" onmousedown="adrSelect(${i},'${dropId}','${prefix}')" onmouseenter="adrHover(${i},'${dropId}')"><div class="adr-main">${esc(r.strasse)}</div><div class="adr-sub">${esc(r.plz)} ${esc(r.ort)}${r.gemeinde&&r.gemeinde!==r.ort?' · '+esc(r.gemeinde):''}</div></div>`).join('');
+  let html=erg.hinweis?`<div class="adr-hint">${esc(erg.hinweis)}</div>`:'';
+  html+=results.map((r,i)=>`<div class="adr-item${i===_adrActiveIdx?' active':''}" onmousedown="adrSelect(${i},'${dropId}','${prefix}')" onmouseenter="adrHover(${i},'${dropId}')"><div class="adr-main">${esc(r.strasse)}</div><div class="adr-sub">${esc(r.plz)} ${esc(r.ort)}${r.gemeinde&&r.gemeinde!==r.ort?' · '+esc(r.gemeinde):''}</div></div>`).join('');
+  if(erg.gekappt)html+=`<div class="adr-hint">… und ${erg.gekappt} weitere — Suche verfeinern</div>`;
+  drop.innerHTML=html;
   drop.classList.add('open');
   // Store results for keyboard selection
   drop._results=results;
