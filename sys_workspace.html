@@ -803,6 +803,9 @@ input::placeholder{color:#cbd5e1}
   // z.B. eine Nur-Prüfliste-Rolle die Ausschreibungs-Kachel. Unbekannte
   // Dateien ohne Mapping bleiben sichtbar (fail-open). Bereits in Eimern
   // liegende Module rendern unabhaengig davon weiter (kein Datenverlust).
+  // Zusätzlich (19.08.2026): bei GEWÄHLTER Organisation folgt die Auswahl
+  // den Rollen dieser Org (_wsOrgModOk) — reine Sicht-Verengung, can()
+  // bleibt der harte Gate.
   var HUB_SUBMODS={ pm_ausschreibung:['ausschreibungsunterlagen','schnellausschreibung','crbx_offertvergleich'] };
   function _wsModAllowed(m){
     try{
@@ -811,10 +814,10 @@ input::placeholder{color:#cbd5e1}
       var key=fm[m.id];
       if(!key){
         var subs=HUB_SUBMODS[m.id];
-        if(subs) return subs.some(function(k){ return !!GemaAuth.can('read', k); });
+        if(subs) return subs.some(function(k){ return !!GemaAuth.can('read', k) && _wsOrgModOk(k); });
         return true;
       }
-      return !!GemaAuth.can('read', key);
+      return !!GemaAuth.can('read', key) && _wsOrgModOk(key);
     }catch(e){ return true; }
   }
 
@@ -2535,7 +2538,8 @@ input::placeholder{color:#cbd5e1}
     var u=null;
     try{if(typeof GemaAuth!=='undefined')u=GemaAuth.getCurrentUser();}catch(e){}
     var name=u?(u.name||((u.vorname||'')+' '+(u.nachname||'')).trim()||u.username):'Benutzer';
-    var role=_wsRoleName(u)||'Mitglied';
+    // Rollen-Zeile folgt der gewählten Organisation (19.08.2026)
+    var role=_wsRolleAnzeige(u)||'Mitglied';
     var initials=name.split(' ').map(function(s){return s[0]||'';}).join('').slice(0,2).toUpperCase()||'??';
     document.getElementById('wsUser').innerHTML=avatar(initials,40,'#0c4a2e')
       +'<div class="ws-user-meta"><div class="ws-user-name">'+esc(name)+'</div><div class="ws-user-role">'+esc(role)+'</div></div>';
@@ -2612,6 +2616,67 @@ input::placeholder{color:#cbd5e1}
       {ic:'settings',label:'Einstellungen …',fn:function(){_wsOpenSettings();_wsSettingsTab('eimer');}}
     ]);
   };
+
+  /* ── Rollen-Sicht folgt der Organisation (Feedback 19.08.2026) ──────────
+     GEMA kennt KEINE per-Org-Rollenzuweisung (user.roleIds ist kontoweit,
+     Gastzugänge tragen keine Rollen). Die «Rollen dieser Org» werden darum
+     über die bestehende kanonische Map Org-Kategorie → passende Rollen
+     abgeleitet: GemaAuth.getAssignableRoleIdsForOrg — DIESELBE Wahrheit
+     wie das User-Modal in sys_admin. Rückgabe:
+       null = nichts ableitbar («Alle» gewählt, role_admin, Org ohne
+              Kategorien/unbekannt, Rollen noch nicht geladen) → NIE filtern
+       []   = ableitbar, aber KEINE eigene Rolle passt (Gast in einer
+              fremden Org) → Anzeige «Gast», Module NICHT einschränken
+     Wie der Rollen-Filter im User-Modal ist das UI-KOMFORT, keine harte
+     Rechtegrenze — can() (Vereinigung aller Rollen) bleibt der Gate. */
+  function _wsRollenInOrg(orgId){
+    if(!orgId||orgId==='all')return null;
+    try{
+      var u=_curUser();
+      if(!u||!u.roleIds||!u.roleIds.length)return null;
+      if(u.roleIds.indexOf('role_admin')>=0)return null;   // Admin: immer Voll-Sicht
+      var erlaubt=(typeof GemaAuth!=='undefined'&&GemaAuth.getAssignableRoleIdsForOrg)
+        ?GemaAuth.getAssignableRoleIdsForOrg(orgId):null;
+      if(!erlaubt)return null;
+      return u.roleIds.filter(function(id){return erlaubt.indexOf(id)>=0;});
+    }catch(e){return null;}
+  }
+  /* Modul «passt zur Rolle»? Sichtbar, wenn eine Org-Rolle read gibt.
+     Gibt KEINE Rolle des Nutzers (auch ausserhalb der Org) das Modul
+     explizit frei, kam die Freischaltung ADDITIV über Nutzer-Mechanismen
+     (Lieferanten-Sortiment, Studenten-Klassen) — die hängen am NUTZER,
+     nicht an einer Rolle, und dürfen mit der Org-Sicht nie verschwinden. */
+  function _wsOrgModOk(key){
+    var rollen=_wsRollenInOrg(_wsOrgAktiv());
+    if(rollen===null||!rollen.length)return true;   // nichts ableitbar / Gast → fail-open
+    try{
+      var roles=(typeof GemaAuth!=='undefined'&&GemaAuth.getRoles&&GemaAuth.getRoles())||[];
+      var byId={};roles.forEach(function(r){if(r&&r.id)byId[r.id]=r;});
+      var liest=function(id){var r=byId[id];return !!(r&&r.permissions&&r.permissions[key]&&r.permissions[key].read);};
+      if(rollen.some(liest))return true;
+      // Lieferanten-Sicht: Berechnungen des eigenen Sortiments sind additiv
+      // freigeschaltet (hängen an keiner Rolle) — sie gehören zur
+      // Lieferanten-Arbeit und bleiben in der Org-Sicht stehen.
+      if(rollen.some(function(id){return /^role_(lieferant|produktlieferant)/.test(id);})){
+        try{ if(((GemaAuth.getLieferantModule&&GemaAuth.getLieferantModule())||[]).indexOf(key)>=0)return true; }catch(e2){}
+      }
+      var u=_curUser();
+      var andere=((u&&u.roleIds)||[]).some(liest);
+      return !andere;   // keine Rolle gibt read → additiv via can() → sichtbar lassen
+    }catch(e){return true;}
+  }
+  /* Rollen-Zeile unter dem Namen: bei gewählter Org NUR die Rollen, die zu
+     dieser Org passen; passt in einer FREMDEN Org keine → «Gast». Unter
+     «Alle» (und wo nichts ableitbar ist) wie bisher alle Rollen. */
+  function _wsRolleAnzeige(u){
+    var af=_wsOrgAktiv();
+    var rollen=_wsRollenInOrg(af);
+    if(af!=='all'&&rollen!==null&&u){
+      if(rollen.length)return _wsRoleName(Object.assign({},u,{roleIds:rollen}));
+      if(u.orgId!==af)return 'Gast';
+    }
+    return _wsRoleName(u);
+  }
 
   /* «… N mehr» aufklappen (Bugfix Feedback 31.07.2026, Tim Löhrer): der
      Zustand lebt in einer PERSISTENTEN Map pro Liste — der frühere Code
@@ -4378,6 +4443,7 @@ input::placeholder{color:#cbd5e1}
     // Org-Wechsel (19.08.2026) — Konsument: nativer Handy-Screen + Tests
     sichtListen:_wsSichtListen, orgs:_getOrgs, orgAktiv:_wsOrgAktiv,
     setOrg:function(id){_wsSetOrg(id);}, privatSichtbar:_wsPrivatSichtbar,
+    orgRollen:_wsRollenInOrg, orgModOk:_wsOrgModOk, rolleAnzeige:_wsRolleAnzeige,
     templates:{load:function(){return loadTemplates();}, save:function(t){saveTemplates(t);}} };
   initResize('wsResizeSidebar','wsSidebar','left');
   initResize('wsResizeNotes','wsNotesCol','right');
@@ -4527,6 +4593,16 @@ document.addEventListener('DOMContentLoaded',function(){
   function renderUebersicht(root){
     var k=kpis(), u=user();
     var org=''; try{ var o=GemaAuth.getCurrentOrg(); org=(o&&o.name)||''; }catch(e){}
+    // Kopfzeile folgt der gewählten Organisation (Org-Wechsel 19.08.2026)
+    try{
+      if(window._wsHooks&&_wsHooks.orgAktiv){
+        var afH=_wsHooks.orgAktiv();
+        if(afH&&afH!=='all'){
+          var oH=(_wsHooks.orgs()||[]).find(function(x){return x.id===afH;});
+          if(oH&&oH.name)org=oH.name;
+        }
+      }
+    }catch(e){}
     var recent=[]; try{
       var cur=(GemaRecent.currentKey)||'sys_workspace';
       recent=(GemaRecent.list()||[]).filter(function(r){ return r&&r.key&&r.key!==cur&&r.key!=='sys_workspace'; }).slice(0,6);

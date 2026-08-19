@@ -62,6 +62,24 @@ ok('neuer Eimer folgt der gewählten Organisation',
 ok('Deep-Link/aktive Org fliesst in _resolveOrg',
   /function _resolveOrg\(\)\{[\s\S]{0,120}_wsOrgAktiv\(\)/.test(WS));
 
+/* Rollen-Sicht folgt der Org (User-Entscheid 19.08.2026): die «Rollen
+   dieser Org» kommen aus der kanonischen Kategorie→Rollen-Map — KEINE
+   zweite Wahrheit neben dem User-Modal in sys_admin. */
+ok('_wsRollenInOrg leitet über getAssignableRoleIdsForOrg ab (eine Wahrheit)',
+  /function _wsRollenInOrg\(orgId\)\{[\s\S]{0,600}getAssignableRoleIdsForOrg/.test(WS));
+ok('role_admin wird NIE eingeschränkt',
+  /_wsRollenInOrg[\s\S]{0,400}roleIds\.indexOf\('role_admin'\)>=0\)return null;/.test(WS));
+ok('_wsModAllowed verengt zusätzlich über _wsOrgModOk (can() bleibt der Gate)',
+  /GemaAuth\.can\('read', key\) && _wsOrgModOk\(key\)/.test(WS));
+ok('HUB-Untermodule laufen durch dieselbe Verengung',
+  /GemaAuth\.can\('read', k\) && _wsOrgModOk\(k\)/.test(WS));
+ok('additive Freischaltungen (Lieferanten-Sortiment) bleiben in der Org-Sicht',
+  /getLieferantModule[\s\S]{0,80}indexOf\(key\)>=0\)return true;/.test(WS));
+ok('Rollen-Zeile unter dem Namen folgt der Org (_wsRolleAnzeige)',
+  /var role=_wsRolleAnzeige\(u\)\|\|'Mitglied';/.test(WS));
+ok('fremde Org ohne passende Rolle zeigt «Gast»',
+  /if\(u\.orgId!==af\)return 'Gast';/.test(WS));
+
 /* ═══ Teil B — im Browser ═════════════════════════════════════════════════ */
 const server = await startServer();
 const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
@@ -77,7 +95,7 @@ const EIMER = [
   {
     id: 'ws_gast', name: 'Umbau Bahnhofstrasse', type: 'project', ownerType: 'org', ownerOrgId: 'org_b',
     createdBy: 'u_fremd', modules: [], notes: [], activity: [], beteiligte: [], members: [],
-    accessControl: { orgVisible: true, invitedUsers: ['u_test'], revokedUsers: [] }, createdAt: '2026-08-02'
+    accessControl: { orgVisible: true, invitedUsers: ['u_test', 'u_zwei'], revokedUsers: [] }, createdAt: '2026-08-02'
   },
   {
     id: 'ws_priv', name: 'Mein Privater Eimer', type: 'private', ownerType: 'personal', ownerOrgId: '',
@@ -86,17 +104,19 @@ const EIMER = [
   }
 ];
 
-function konto(userId) {
-  const s = seed(['role_planer']);
+function konto(userId, roleIds) {
+  const s = seed(roleIds || ['role_planer']);
   if (userId && userId !== 'u_test') {
     s['gema_users_v1'] = (s['gema_users_v1'] || []).concat([{
       id: userId, name: 'Zweitnutzer', username: userId + '@gema.ch', active: true,
-      orgId: 'org_test', roleIds: ['role_planer']
+      orgId: 'org_test', roleIds: roleIds || ['role_planer']
     }]);
     s['gema_session_v1'] = Object.assign({}, s['gema_session_v1'], { userId: userId });
   }
   const orgs = (s['gema_orgs_v1'] || []).slice();
-  if (!orgs.find(x => x.id === 'org_b')) orgs.push({ id: 'org_b', name: 'Fremdfirma Basel AG', admins: [], kategorien: [] });
+  /* org_b ist eine SCHULE — daraus leitet die Rollen-Sicht «Dozent» ab
+     (Kategorie→Rollen-Map, dieselbe Wahrheit wie das User-Modal). */
+  if (!orgs.find(x => x.id === 'org_b')) orgs.push({ id: 'org_b', name: 'Fremdfirma Basel AG', admins: [], kategorien: ['schule'] });
   s['gema_orgs_v1'] = orgs;
   s['gema_ws_pool_v1'] = JSON.stringify(EIMER);
   s['gema_coachmarks_done_sys_workspace_v2'] = '1';
@@ -119,10 +139,10 @@ const page = await ctx.newPage();
 const errs = [];
 page.on('pageerror', e => errs.push(e.message));
 
-async function laden(userId) {
+async function laden(userId, roleIds) {
   await page.addInitScript(st => {
     for (const [k, v] of Object.entries(st)) localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v));
-  }, konto(userId || 'u_test'));
+  }, konto(userId || 'u_test', roleIds));
   await page.goto(BASE + '/sys_workspace.html', { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1600);
 }
@@ -263,6 +283,54 @@ await laden('u_zwei');
   const z = await zustand();
   ok('Zweitnutzer startet auf «Alle» (kein geerbter Filter)', z.af === 'all', z.af);
   ok('sein privater Bereich ist nicht ausgeblendet', !/ausgeblendet/.test(z.pers), z.pers.slice(0, 80));
+  ok('keine JS-Fehler', errs.length === 0, errs.slice(0, 3));
+}
+
+/* ── Rollen-Sicht folgt der Org (User-Entscheid 19.08.2026) ─────────────── */
+const sicht = () => page.evaluate(() => {
+  const mods = window._wsModulesHook();
+  const erlaubt = mods.modules.filter(m => mods.allowed(m)).map(m => m.id);
+  return {
+    role: (document.querySelector('#wsUser .ws-user-role') || {}).textContent || '',
+    hatErp: erlaubt.indexOf('pm_erp') >= 0,
+    hatKlassen: erlaubt.indexOf('ab_klassen') >= 0,
+    hatZirk: erlaubt.indexOf('sb_zirkulation') >= 0
+  };
+});
+
+console.log('\n■ B11: Planer + Dozent — Module und Rollen-Zeile folgen der gewählten Org');
+await laden('u_test', ['role_planer', 'role_dozent']);
+await page.evaluate(() => _wsSetOrg('all'));
+await page.waitForTimeout(300);
+{
+  const z = await sicht();
+  ok('«Alle»: beide Rollen unter dem Namen', /\+1/.test(z.role), z.role);
+  ok('«Alle»: ERP und Klassen im Picker', z.hatErp && z.hatKlassen, z);
+}
+await page.evaluate(() => _wsSetOrg('org_b'));   // die Schule
+await page.waitForTimeout(300);
+{
+  const z = await sicht();
+  ok('Schul-Org: nur «Dozent» unter dem Namen', z.role.trim() === 'Dozent', z.role);
+  ok('Schul-Org: Planer-Module (ERP) verschwinden aus dem Picker', !z.hatErp, z);
+  ok('Schul-Org: Dozenten-Module (Klassen + Berechnungen) bleiben', z.hatKlassen && z.hatZirk, z);
+}
+await page.evaluate(() => _wsSetOrg('org_test'));   // die Sanitär-Firma
+await page.waitForTimeout(300);
+{
+  const z = await sicht();
+  ok('eigene Firma: nur «Sanitärplaner» unter dem Namen', z.role.trim() === 'Sanitärplaner', z.role);
+  ok('eigene Firma: Vollzugangs-Rolle → Picker unverengt (ERP wieder da)', z.hatErp, z);
+}
+
+console.log('\n■ B12: Gast ohne passende Rolle — Label «Gast», Module fail-open');
+await laden('u_zwei');   // nur role_planer
+await page.evaluate(() => _wsSetOrg('org_b'));
+await page.waitForTimeout(300);
+{
+  const z = await sicht();
+  ok('fremde Schul-Org ohne Dozenten-Rolle → «Gast»', z.role.trim() === 'Gast', z.role);
+  ok('Module werden dabei NICHT verengt (fail-open)', z.hatErp, z);
   ok('keine JS-Fehler', errs.length === 0, errs.slice(0, 3));
 }
 
