@@ -150,7 +150,14 @@ ok((await page.evaluate(() => window._abState().abnahme.entscheid)) === 'zurueck
 await page.check('#chkArt158');
 await page.waitForTimeout(150);
 const z158 = await page.evaluate(() => document.getElementById('siaZusatz').textContent);
-ok(z158.indexOf('158') >= 0 && z158.indexOf('Monatsfrist seit Empfang der Vollendungsanzeige') >= 0 && z158.indexOf('mit Ablauf dieser Frist als abgenommen') >= 0, 'Art. 158 Abs. 2 → Zusatztext normnah (Monatsfrist ab Vollendungsanzeige, 18.08.)');
+// BEWUSST invertiert (Feedback 20.08.2026 Nachtrag, Marc Dischler): der
+// Art.-158-Abs.-2-Zusatztext ist ENTFERNT — das Kästchen im Kopf und seine
+// Erläuterung bleiben, der Normtext gehört aber nicht unter vier Unterschriften
+// einer tatsächlich durchgeführten Prüfung. Der Ergebnis-Zusatz (159/160/161)
+// steht weiterhin und wird oben geprüft.
+ok(z158.indexOf('Art. 158') < 0 && z158.indexOf('Monatsfrist') < 0, 'Art.-158-Abs.-2-Zusatztext entfernt (20.08.2026)', z158.slice(0, 160));
+const a158Tip = await page.evaluate(() => (document.getElementById('ci_art158') || {}).title || '');
+ok(/Monatsfrist seit Empfang der Vollendungsanzeige/.test(a158Tip) && /mit Ablauf dieser Frist als abgenommen/.test(a158Tip), 'Art.-158-Bedeutung bleibt am Kästchen erklärt (Tooltip)');
 
 console.log('— Geprüft-Art im Titel: Installationselemente / Rohinstallation (#3) —');
 const gtOpts = await page.evaluate(() => Array.from(document.getElementById('geprueftTyp').options).map(o => o.value));
