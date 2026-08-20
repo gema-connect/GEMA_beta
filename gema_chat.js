@@ -17,7 +17,30 @@
  *                                          (Prefix-Filter) + lokaler Cache
  *                                          gema_chat_msgcache_v1 (LRU, 100/Thread)
  *   Gelesen  chatread:cr_<threadId>_<uid> → gema_chat_read_pool_v1
- *            (ein Record pro User+Thread — keine Schreibkonflikte)
+ *            (ein Record pro User+Thread — keine Schreibkonflikte). Der
+ *            Record trägt seit 19.08.2026 zusätzlich die PERSÖNLICHEN
+ *            Chat-Marker: fav (Favorit), kat (Kategorie-id), ungelesen
+ *            (manuell als ungelesen markiert), weg (gelöscht — WhatsApp-
+ *            Semantik: der Chat bleibt versteckt, bis eine NEUERE Nachricht
+ *            eintrifft oder er bewusst erneut geöffnet wird; die Gegenseite
+ *            behält ihren Verlauf). KRITISCH: _metaSet/_markRead MERGEN
+ *            immer in den bestehenden Record — nie ersetzen, sonst gingen
+ *            fav/kat/weg beim nächsten Lesen verloren.
+ *   Einstellungen chatprefs:cp_<uid> → gema_chat_prefs_v1 (EIN Record pro
+ *            User via loadRecord — bewusst NIE bindCollection, sonst zöge
+ *            jeder Client die Einstellungen ALLER Nutzer). Enthält:
+ *            Kategorien (GEMA-Defaults, pro Nutzer umbenenn-/erweiterbar,
+ *            IDs bleiben stabil), Hintergrund in der Firmen-Primärfarbe
+ *            (Standard AN, sanft ≈90% Weiss gemischt — Sprechblasen
+ *            behalten via Rahmen ihren Kontrast), Enter-Verhalten,
+ *            Schriftgrösse, Favoriten zuoberst.
+ *
+ * Kontextmenü (Rechtsklick bzw. langes Drücken auf einen Chat der Liste):
+ *   Favorit, als ungelesen/gelesen markieren, Kategorie (Farbe), löschen.
+ * Kontakt-Picker («＋ Neuer Chat») schlägt NUR Personen mit
+ *   Berührungspunkten vor (gleiche Firma, gemeinsame Projekte,
+ *   Offertanfragen, Bestellungen, bisherige Chats) — alle anderen
+ *   erreicht man über die E-Mail-Eingabe im Suchfeld.
  *
  * Public API:
  *   GemaChat.start({userId?|userIds?|email?|lieferantId?, kontext?, text?})
@@ -35,11 +58,24 @@
   var RD_PREFIX='chatread:', RD_CACHE='gema_chat_read_pool_v1';
   var MSG_PREFIX='chatmsg:';
   var MSG_CACHE='gema_chat_msgcache_v1';
+  var PREFS_PREFIX='chatprefs:', PREFS_CACHE='gema_chat_prefs_v1';
   var NOTIF_LOCK='gema_chat_notif_lock_v1';
   var NOTIF_THROTTLE_MS=30*60*1000;
   var META_POLL_MS=45000, MSG_POLL_MS=10000;
   var KONTEXT_ICON={offertanfrage:'📨',ausschreibung:'📋',bestellung:'🛒',objekt:'🏢',regierapport:'📝',abnahme:'✅',klasse:'🎓',frei:'💬'};
   var SENDER_COLORS=['#e11d48','#7c3aed','#0284c7','#d97706','#16a34a','#0891b2','#c026d3','#4f46e5'];
+  // Standard-Kategorien von GEMA (Feedback 19.08.2026) — pro Nutzer in den
+  // Chat-Einstellungen anpassbar (Name + Farbe, eigene ergänzbar). Die IDs
+  // bleiben beim Umbenennen stabil (Zuweisungen hängen an der id).
+  var KAT_DEFAULTS=[
+    {id:'wichtig',  name:'Wichtig',     farbe:'#dc2626'},
+    {id:'projekt',  name:'Projekt',     farbe:'#d97706'},
+    {id:'kunde',    name:'Kunden',      farbe:'#16a34a'},
+    {id:'lieferant',name:'Lieferanten', farbe:'#2563eb'},
+    {id:'intern',   name:'Intern',      farbe:'#7c3aed'},
+    {id:'spaeter',  name:'Später',      farbe:'#64748b'}
+  ];
+  var PREF_DEFAULTS={hintergrund:'primaer',enterSendet:true,schrift:'normal',favOben:true,kategorien:null};
 
   // ── Pure Helpers (Node-testbar via GemaChat._pure) ──────────────────
   function _esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];});}
@@ -85,10 +121,33 @@
     for(var i=0;i<uid.length;i++)h=((h<<5)-h+uid.charCodeAt(i))|0;
     return SENDER_COLORS[Math.abs(h)%SENDER_COLORS.length];
   }
+  // Sanftes Aufhellen einer Hex-Farbe Richtung Weiss (f = Weiss-Anteil 0..1).
+  // Ungültige Eingabe → '' (kein Tint, Standard-Hintergrund bleibt) — nie
+  // eine Farbe erfinden.
+  function _mixWhite(hex,f){
+    var m=/^#?([0-9a-f]{6})$/i.exec(String(hex||'').trim());
+    if(!m)return '';
+    var n=parseInt(m[1],16),r=(n>>16)&255,g=(n>>8)&255,b=n&255;
+    f=Math.max(0,Math.min(1,f==null?0.9:f));
+    r=Math.round(r+(255-r)*f);g=Math.round(g+(255-g)*f);b=Math.round(b+(255-b)*f);
+    return 'rgb('+r+','+g+','+b+')';
+  }
+  // Stabile Kategorie-id aus dem Namen (ae/oe/ue, eindeutig via Suffix) —
+  // vergeben nur beim ANLEGEN; Umbenennen behält die id (Zuweisungen hängen daran).
+  function _katSlug(name,taken){
+    taken=taken||{};
+    var s=String(name||'').toLowerCase()
+      .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue')
+      .replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,24)||'kat';
+    var base=s,i=2;
+    while(taken[s])s=base+'_'+(i++);
+    taken[s]=true;
+    return s;
+  }
 
   // ── State ────────────────────────────────────────────────────────────
   var ST={
-    open:false, view:'list', threadId:'', search:'',
+    open:false, view:'list', threadId:'', search:'', filter:'',   // filter: ''|'fav'|'kat:<id>'
     threads:[], reads:[], msgs:{}, drafts:{},   // drafts: threadId → Thread-Objekt (noch nicht gespeichert)
     prefill:'', metaTimer:null, msgTimer:null, booted:false
   };
@@ -194,6 +253,14 @@
     Object.keys(ST.drafts).forEach(function(tid){
       if(!pool.some(function(t){return t.id===tid;}))pool.push(ST.drafts[tid]);
     });
+    // Gelöschte Chats (weg-Marker) bleiben versteckt, bis etwas NEUERES
+    // eintrifft — dann erscheint der Chat samt Verlauf wieder (WhatsApp-
+    // Semantik; die Gegenseite behält ihren Verlauf ohnehin).
+    pool=pool.filter(function(t){
+      var m=_myMeta(t.id);
+      if(!m.weg)return true;
+      return !!(t.letzte&&t.letzte.ts&&String(t.letzte.ts)>String(m.weg));
+    });
     pool.sort(function(a,b){
       var ta=(a.letzte&&a.letzte.ts)||a.erstelltAm||'', tb=(b.letzte&&b.letzte.ts)||b.erstelltAm||'';
       return tb.localeCompare(ta);
@@ -203,30 +270,46 @@
   function _threadById(tid){
     return _cached(TH_CACHE).find(function(t){return t&&t.id===tid;})||ST.drafts[tid]||null;
   }
-  function _myReadTs(tid){
-    var me=_me();if(!me)return '';
-    var r=_cached(RD_CACHE).find(function(x){return x&&x.threadId===tid&&x.userId===me.id;});
-    return r?(r.ts||''):'';
+  // ── Persönliche Chat-Marker (im chatread-Record: ts/fav/kat/ungelesen/weg)
+  function _myMeta(tid){
+    var me=_me();if(!me)return {};
+    return _cached(RD_CACHE).find(function(x){return x&&x.threadId===tid&&x.userId===me.id;})||{};
   }
+  // KRITISCH — MERGE, nie ersetzen: derselbe Record trägt Lesestand UND
+  // Favorit/Kategorie/Ungelesen/Gelöscht; ein blosses Überschreiben (wie
+  // das frühere _markRead) löschte die Marker beim nächsten Lesen wieder.
+  // patch[k] === null ENTFERNT das Feld.
+  function _metaSet(tid,patch){
+    var me=_me();if(!me)return;
+    var id='cr_'+tid+'_'+me.id;
+    var arr=_cached(RD_CACHE);
+    var old=arr.find(function(x){return x&&x.id===id;})||{};
+    var rec={};
+    Object.keys(old).forEach(function(k){rec[k]=old[k];});
+    rec.id=id;rec.threadId=tid;rec.userId=me.id;
+    Object.keys(patch||{}).forEach(function(k){
+      if(patch[k]===null)delete rec[k];else rec[k]=patch[k];
+    });
+    try{
+      var neu=arr.filter(function(x){return !(x&&x.id===id);});
+      neu.push(rec);
+      localStorage.setItem(RD_CACHE,JSON.stringify(neu));
+    }catch(e){}
+    if(w.GemaSync)GemaSync.saveRecord(MK,RD_PREFIX+id,rec).catch(function(){});
+    _renderBadge();
+  }
+  function _markRead(tid){_metaSet(tid,{ts:_now(),ungelesen:null});}
+  function _myReadTs(tid){return _myMeta(tid).ts||'';}
   function _readTsOf(tid,uid){
     var r=_cached(RD_CACHE).find(function(x){return x&&x.threadId===tid&&x.userId===uid;});
     return r?(r.ts||''):'';
   }
   function _unreadThreads(){
     var me=_me();if(!me)return [];
-    return _myThreads().filter(function(t){return _threadUnread(t,_myReadTs(t.id),me.id);});
-  }
-  function _markRead(tid){
-    var me=_me();if(!me)return;
-    var rec={id:'cr_'+tid+'_'+me.id,threadId:tid,userId:me.id,ts:_now()};
-    // lokalen Cache aktualisieren
-    try{
-      var arr=_cached(RD_CACHE).filter(function(x){return !(x&&x.id===rec.id);});
-      arr.push(rec);
-      localStorage.setItem(RD_CACHE,JSON.stringify(arr));
-    }catch(e){}
-    if(w.GemaSync)GemaSync.saveRecord(MK,RD_PREFIX+rec.id,rec).catch(function(){});
-    _renderBadge();
+    return _myThreads().filter(function(t){
+      var m=_myMeta(t.id);
+      return m.ungelesen===true||_threadUnread(t,m.ts||'',me.id);
+    });
   }
   function _saveThreadLocal(t){
     try{
@@ -234,6 +317,83 @@
       arr.push(t);
       localStorage.setItem(TH_CACHE,JSON.stringify(arr));
     }catch(e){}
+  }
+
+  // ── Chat-Einstellungen (pro Nutzer, chatprefs:cp_<uid>) ──────────────
+  function _prefsRead(){
+    try{
+      var o=JSON.parse(localStorage.getItem(PREFS_CACHE)||'null');
+      if(o&&typeof o==='object')return o;
+    }catch(e){}
+    return null;
+  }
+  function _prefs(){
+    var me=_me();
+    var p={};
+    Object.keys(PREF_DEFAULTS).forEach(function(k){p[k]=PREF_DEFAULTS[k];});
+    var st=_prefsRead();
+    // Cache eines ANDEREN Kontos auf demselben Gerät gilt nicht
+    if(st&&me&&st.userId&&st.userId!==me.id)st=null;
+    if(st){
+      Object.keys(PREF_DEFAULTS).forEach(function(k){
+        if(st[k]!==undefined&&st[k]!==null)p[k]=st[k];
+      });
+      if(Array.isArray(st.kategorien))p.kategorien=st.kategorien;
+    }
+    return p;
+  }
+  // Wirksame Kategorien: null = GEMA-Standard · [] = bewusst keine
+  function _kats(){
+    var k=_prefs().kategorien;
+    if(Array.isArray(k))return k.filter(function(x){return x&&x.id&&x.name;});
+    return KAT_DEFAULTS;
+  }
+  function _katById(id){
+    if(!id)return null;
+    return _kats().find(function(x){return x.id===id;})||null;
+  }
+  function _prefsSave(patch){
+    var me=_me();if(!me)return;
+    var cur=_prefsRead()||{};
+    if(cur.userId&&cur.userId!==me.id)cur={};
+    Object.keys(patch||{}).forEach(function(k){cur[k]=patch[k];});
+    cur.id='cp_'+me.id;cur.userId=me.id;cur.updatedAt=_now();
+    try{localStorage.setItem(PREFS_CACHE,JSON.stringify(cur));}catch(e){}
+    if(w.GemaSync)GemaSync.saveRecord(MK,PREFS_PREFIX+cur.id,cur).catch(function(){});
+  }
+  var _prefsPulled=false;
+  function _pullPrefs(){
+    var me=_me();
+    if(_prefsPulled||!me||!w.GemaSync||!GemaSync.loadRecord)return Promise.resolve();
+    _prefsPulled=true;
+    return GemaSync.loadRecord(MK,PREFS_PREFIX+'cp_'+me.id).then(function(r){
+      var data=r&&r.data;
+      if(!data||typeof data!=='object'||data.userId!==me.id)return;
+      var cur=_prefsRead();
+      // Cloud gewinnt — ausser der lokale Stand ist nachweislich neuer
+      if(cur&&cur.userId===me.id&&String(cur.updatedAt||'')>String(data.updatedAt||''))return;
+      try{localStorage.setItem(PREFS_CACHE,JSON.stringify(data));}catch(e){}
+      if(ST.open){
+        if(ST.view==='list')_renderList();
+        else if(ST.view==='thread')_renderThread();
+        else if(ST.view==='settings')_renderSettings();
+      }
+    }).catch(function(){_prefsPulled=false;});
+  }
+  // Sanfter Chat-Hintergrund aus der Firmen-Primärfarbe
+  // (org.settings.pdfFarben.primary — dieselbe Quelle wie die Berichts-PDFs;
+  // ≈90% Weiss gemischt, damit auch eine kräftige grüne Primärfarbe den
+  // Sprechblasen genug Kontrast lässt). Ohne Farbe: '' → Standard bleibt.
+  function _brandTint(){
+    try{
+      var me=_me();if(!me)return '';
+      var org=null;
+      if(w.GemaAuth&&GemaAuth.getCurrentOrg)org=GemaAuth.getCurrentOrg();
+      if(!org)org=_orgs().find(function(o){return o&&o.id===me.orgId;})||null;
+      var prim=org&&org.settings&&org.settings.pdfFarben&&org.settings.pdfFarben.primary;
+      if(!prim)return '';
+      return _mixWhite(prim,0.9);
+    }catch(e){return '';}
   }
 
   // ── Teilnehmer-Snapshot ──────────────────────────────────────────────
@@ -520,7 +680,7 @@
       +'.gc-day span{display:inline-block;background:#fff;color:#64748b;font-size:10.5px;font-weight:700;padding:4px 12px;border-radius:999px;box-shadow:0 1px 2px rgba(0,0,0,.08)}'
       +'.gc-m{display:flex;gap:7px;margin-bottom:6px;align-items:flex-end}'
       +'.gc-m.own{flex-direction:row-reverse}'
-      +'.gc-bb{max-width:78%;background:#fff;border-radius:12px;border-top-left-radius:4px;padding:7px 10px 5px;box-shadow:0 1px 1.5px rgba(0,0,0,.10);position:relative}'
+      +'.gc-bb{max-width:78%;background:#fff;border:1px solid rgba(15,23,42,.07);border-radius:12px;border-top-left-radius:4px;padding:7px 10px 5px;box-shadow:0 1px 1.5px rgba(0,0,0,.10);position:relative}'
       +'.gc-m.own .gc-bb{background:#d9fdd3;border-radius:12px;border-top-right-radius:4px}'
       +'.gc-sn{font-size:11px;font-weight:800;margin-bottom:2px}'
       +'.gc-sn small{font-weight:600;color:#94a3b8;font-size:9.5px}'
@@ -538,6 +698,29 @@
       +'.gc-ctxbar .gc-ctx{margin-top:0}'
       +'.gc-new-grp{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;padding:10px 14px 4px}'
       +'.gc-fab{font-size:12px;font-weight:700;color:#0c4a2e;background:#dcfce7;border:1px solid #bbf7d0;border-radius:999px;padding:5px 12px;cursor:pointer;font-family:inherit}'
+      +'.gc-msgs.gross .gc-tx{font-size:15.5px}'
+      +'.gc-msgs.gross .gc-sn{font-size:12.5px}'
+      +'.gc-fav{color:#f59e0b;font-size:11px;flex-shrink:0}'
+      +'.gc-filter{display:flex;gap:6px;padding:7px 10px;border-bottom:1px solid var(--brd,#e2e8f0);background:#fff;overflow-x:auto;flex-shrink:0;scrollbar-width:none}'
+      +'.gc-filter::-webkit-scrollbar{display:none}'
+      +'.gc-chip{display:inline-flex;align-items:center;gap:5px;border:1px solid #dbe2ee;background:#f8fafc;color:#475569;border-radius:999px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;flex-shrink:0}'
+      +'.gc-chip.act{background:#0c4a2e;border-color:#0c4a2e;color:#fff}'
+      +'.gc-katdot{width:11px;height:11px;border-radius:50%;display:inline-block;flex-shrink:0;border:1px solid rgba(15,23,42,.12)}'
+      +'.gc-ctxmenu{position:fixed;z-index:12000;background:#fff;border:1px solid #dbe2ee;border-radius:12px;box-shadow:0 14px 36px -10px rgba(15,23,42,.4);padding:5px;min-width:216px;max-height:70vh;overflow-y:auto;font-family:var(--sans,"DM Sans",sans-serif)}'
+      +'.gc-ctxmenu button{display:flex;align-items:center;gap:8px;width:100%;border:none;background:none;text-align:left;padding:8px 10px;border-radius:8px;font-size:12.5px;font-weight:600;color:#1e293b;cursor:pointer;font-family:inherit}'
+      +'.gc-ctxmenu button:hover{background:#f1f5f9}'
+      +'.gc-ctxmenu button.del{color:#dc2626}'
+      +'.gc-ctxmenu .sep{height:1px;background:#eef2f7;margin:4px 4px}'
+      +'.gc-ctxmenu .grp{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;padding:6px 10px 2px}'
+      +'.gc-set{padding:12px 14px;border-bottom:1px solid #f1f5f9}'
+      +'.gc-set-t{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;margin-bottom:6px}'
+      +'.gc-set label.row{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:#1e293b;padding:6px 0;cursor:pointer}'
+      +'.gc-set label.row input[type=checkbox]{width:16px;height:16px;accent-color:#0c4a2e;flex-shrink:0}'
+      +'.gc-set .hint{font-size:10.5px;color:#94a3b8;line-height:1.5;margin:0 0 4px 24px}'
+      +'.gc-kat-row{display:flex;align-items:center;gap:7px;margin-bottom:6px}'
+      +'.gc-kat-row input[type=color]{width:32px;height:27px;border:1px solid #dbe2ee;border-radius:6px;padding:1px;background:#fff;cursor:pointer;flex-shrink:0}'
+      +'.gc-kat-row input[type=text]{flex:1;padding:6px 9px;border:1.5px solid #dbe2ee;border-radius:8px;font-size:12px;font-family:inherit;min-width:0;background:#fff}'
+      +'.gc-kat-row button{border:none;background:none;color:#dc2626;font-size:13px;cursor:pointer;padding:4px 6px;flex-shrink:0;font-family:inherit}'
       +'@media(max-width:640px){.gc-panel{top:calc(72px + env(safe-area-inset-top,0px));width:100vw;border-left:none}}'
       +'@media print{.gc-btn,.gc-panel{display:none!important}}';
     var st=d.createElement('style');st.id='gema-chat-style';st.textContent=css;d.head.appendChild(st);
@@ -575,7 +758,11 @@
     _panel=d.createElement('div');
     _panel.className='gc-panel no-print';
     d.body.appendChild(_panel);
-    d.addEventListener('keydown',function(e){if(e.key==='Escape'&&ST.open)close();});
+    d.addEventListener('keydown',function(e){
+      if(e.key!=='Escape')return;
+      if(_ctxEl){_ctxClose();return;}   // offenes Kontextmenü zuerst
+      if(ST.open)close();
+    });
     return _panel;
   }
   function _openPanel(){
@@ -583,10 +770,12 @@
     ST.open=true;
     _panel.classList.add('open');
     _pullMeta();
+    _pullPrefs();
     if(!ST.metaTimer)ST.metaTimer=setInterval(_pullMeta,META_POLL_MS);
   }
   function close(){
-    ST.open=false;ST.view='list';ST.threadId='';
+    ST.open=false;ST.view='list';ST.threadId='';ST.filter='';
+    _ctxClose();
     if(_panel)_panel.classList.remove('open');
     if(ST.msgTimer){clearInterval(ST.msgTimer);ST.msgTimer=null;}
     _deepLinkClear(); // bewusst geschlossen → Deep-Link nicht erneut öffnen
@@ -605,7 +794,10 @@
   function _openThread(tid){
     ST.view='thread';ST.threadId=tid;
     _renderThread();
-    _markRead(tid);
+    // EIN Merge-Write: Lesestand setzen, manuelle Ungelesen-Marke räumen und
+    // einen allfälligen weg-Marker lösen (gelöschter Chat bewusst erneut
+    // geöffnet → er bleibt wieder dauerhaft in der Liste).
+    _metaSet(tid,{ts:_now(),ungelesen:null,weg:null});
     _pullMsgs(tid);
     if(ST.msgTimer)clearInterval(ST.msgTimer);
     ST.msgTimer=setInterval(function(){
@@ -617,30 +809,66 @@
   function _renderList(){
     var p=_ensurePanel();
     var me=_me();
-    var threads=_myThreads();
+    var pr=_prefs();
+    var all=_myThreads();
+    // Marker einmal je Thread lesen; Filter-Chips zeigen NUR, was vorkommt
+    var metaOf={},anyFav=false,inUse={};
+    all.forEach(function(t){
+      var m=_myMeta(t.id);metaOf[t.id]=m;
+      if(m.fav)anyFav=true;
+      if(m.kat&&_katById(m.kat))inUse[m.kat]=true;
+    });
+    // Ein Filter, dessen Grundlage weg ist, fällt still auf «Alle» zurück
+    if(ST.filter==='fav'&&!anyFav)ST.filter='';
+    if(ST.filter.indexOf('kat:')===0&&!inUse[ST.filter.slice(4)])ST.filter='';
+    var threads=all;
     var q=ST.search.toLowerCase();
     if(q)threads=threads.filter(function(t){
       return _threadTitle(t).toLowerCase().indexOf(q)>=0
         ||(t.kontext&&t.kontext.label||'').toLowerCase().indexOf(q)>=0
         ||(t.letzte&&t.letzte.text||'').toLowerCase().indexOf(q)>=0;
     });
+    if(ST.filter==='fav')threads=threads.filter(function(t){return metaOf[t.id].fav;});
+    else if(ST.filter.indexOf('kat:')===0){
+      var kid=ST.filter.slice(4);
+      threads=threads.filter(function(t){return metaOf[t.id].kat===kid;});
+    }
+    if(pr.favOben!==false){
+      var fv=threads.filter(function(t){return metaOf[t.id].fav;});
+      threads=fv.concat(threads.filter(function(t){return !metaOf[t.id].fav;}));
+    }
+    var chips='';
+    if(anyFav||Object.keys(inUse).length){
+      chips='<div class="gc-filter">'
+        +'<button type="button" class="gc-chip'+(!ST.filter?' act':'')+'" data-f="">Alle</button>'
+        +(anyFav?'<button type="button" class="gc-chip'+(ST.filter==='fav'?' act':'')+'" data-f="fav">★ Favoriten</button>':'')
+        +_kats().filter(function(k){return inUse[k.id];}).map(function(k){
+          return '<button type="button" class="gc-chip'+(ST.filter==='kat:'+k.id?' act':'')+'" data-f="kat:'+_esc(k.id)+'"><span class="gc-katdot" style="background:'+_esc(k.farbe)+'"></span>'+_esc(k.name)+'</button>';
+        }).join('')
+        +'</div>';
+    }
     var h='<div class="gc-hd">'
       +'<div class="gc-hd-t">💬 Chats</div>'
       +'<button class="gc-ic" data-act="new" title="Neuer Chat">＋</button>'
+      +'<button class="gc-ic" data-act="set" title="Chat-Einstellungen">⚙</button>'
       +'<button class="gc-ic" data-act="close" title="Schliessen">✕</button></div>'
       +'<div class="gc-search"><input type="text" id="gcSearch" placeholder="Suchen (Name, Bezug, Nachricht)…" value="'+_esc(ST.search)+'"></div>'
+      +chips
       +'<div class="gc-list" id="gcList">';
     if(!threads.length){
-      h+='<div class="gc-empty">Noch keine Chats.<br>Starte einen Chat über ＋ oder direkt aus einem Modul<br>(Offertanfrage, Ausschreibung, Beteiligte …).</div>';
+      h+='<div class="gc-empty">'+(ST.filter
+        ?'Keine Chats in dieser Ansicht.'
+        :'Noch keine Chats.<br>Starte einen Chat über ＋ oder direkt aus einem Modul<br>(Offertanfrage, Ausschreibung, Beteiligte …).')+'</div>';
     }else{
       threads.forEach(function(t){
-        var readTs=_myReadTs(t.id);
-        var unread=me&&_threadUnread(t,readTs,me.id);
+        var m=metaOf[t.id]||{};
+        var unread=me&&(m.ungelesen===true||_threadUnread(t,m.ts||'',me.id));
+        var kat=_katById(m.kat);
         var preview=t.letzte?((t.letzte.von===(me&&me.id)?'<b>Du:</b> ':(_others(t).length>1?'<b>'+_esc((t.letzte.vonName||'').split(/\s+/)[0])+':</b> ':''))+_esc(t.letzte.text)):'<span style="color:#94a3b8">Noch keine Nachrichten</span>';
-        h+='<div class="gc-row" data-tid="'+_esc(t.id)+'">'
+        h+='<div class="gc-row" data-tid="'+_esc(t.id)+'"'+(kat?' style="box-shadow:inset 3px 0 0 '+_esc(kat.farbe)+'" title="'+_esc(kat.name)+'"':'')+'>'
           +_threadAvatar(t,46)
           +'<div class="gc-row-b">'
-          +'<div class="gc-row-top"><span class="gc-row-n">'+_esc(_threadTitle(t))+'</span>'
+          +'<div class="gc-row-top">'+(m.fav?'<span class="gc-fav">★</span>':'')+'<span class="gc-row-n">'+_esc(_threadTitle(t))+'</span>'
           +'<span class="gc-row-t'+(unread?' unread':'')+'">'+_esc(t.letzte?_listTime(t.letzte.ts):'')+'</span></div>'
           +'<div class="gc-row-p">'+preview+'</div>'
           +_kontextChip(t,false)
@@ -652,12 +880,105 @@
     h+='</div>';
     p.innerHTML=h;
     p.querySelector('[data-act=close]').onclick=close;
-    p.querySelector('[data-act=new]').onclick=_renderNew;
+    p.querySelector('[data-act=new]').onclick=function(){ST.search='';_renderNew();};
+    p.querySelector('[data-act=set]').onclick=_renderSettings;
+    Array.prototype.forEach.call(p.querySelectorAll('.gc-chip[data-f]'),function(c){
+      c.onclick=function(){ST.filter=c.getAttribute('data-f')||'';_renderList();};
+    });
     var si=p.querySelector('#gcSearch');
     si.oninput=function(){ST.search=this.value;_renderList();var el=p.querySelector('#gcSearch');el.focus();el.setSelectionRange(el.value.length,el.value.length);};
     Array.prototype.forEach.call(p.querySelectorAll('.gc-row[data-tid]'),function(row){
-      row.onclick=function(){_openThread(row.getAttribute('data-tid'));};
+      var tid=row.getAttribute('data-tid');
+      // Klick öffnet — ausser ein Long-Press hat gerade das Menü geöffnet
+      row.onclick=function(){if(row._lpFired){row._lpFired=false;return;}_openThread(tid);};
+      row.oncontextmenu=function(e){e.preventDefault();e.stopPropagation();_threadCtx(e.clientX,e.clientY,tid);};
+      // Long-Press (~550 ms) = Kontextmenü auf Touch; jede Bewegung bricht ab
+      var lp=null;
+      row.addEventListener('touchstart',function(e){
+        var t0=e.touches&&e.touches[0];if(!t0)return;
+        var sx=t0.clientX,sy=t0.clientY;
+        lp=setTimeout(function(){lp=null;row._lpFired=true;_threadCtx(sx,sy,tid);},550);
+      },{passive:true});
+      ['touchmove','touchend','touchcancel'].forEach(function(ev){
+        row.addEventListener(ev,function(){if(lp){clearTimeout(lp);lp=null;}},{passive:true});
+      });
     });
+  }
+
+  // ── Kontakte mit Berührungspunkten (für den «Neuer Chat»-Picker) ─────
+  // Vorgeschlagen wird NUR, mit wem es einen Berührungspunkt gibt:
+  // bisherige Chats, gleiche Firma, gemeinsame Projekte (Team-Zuweisung +
+  // Beteiligten-E-Mails), Offertanfragen und Bestellungen. Alle Quellen
+  // lesen defensiv die lokalen Pool-Caches (leerer Pool = leere Liste) —
+  // alle ANDEREN Personen erreicht man über die E-Mail-Eingabe im Suchfeld.
+  var _konMemo=null,_konMemoTs=0;
+  function _kontakte(){
+    if(_konMemo&&Date.now()-_konMemoTs<30000)return _konMemo;
+    var me=_me();
+    var ids={},emails={};
+    if(me){
+      var addId=function(id){if(id&&id!==me.id)ids[id]=true;};
+      var addEmail=function(em){em=String(em||'').trim().toLowerCase();if(em&&em.indexOf('@')>0)emails[em]=true;};
+      var liefMap={};
+      _users().forEach(function(u){
+        if(u&&u.active!==false&&u.lieferantId)(liefMap[u.lieferantId]=liefMap[u.lieferantId]||[]).push(u.id);
+      });
+      var addLiefTeam=function(lid){((lid&&liefMap[lid])||[]).forEach(addId);};
+      // 1) bisherige Chats (auch ausgeblendete — Kontakt bleibt Kontakt)
+      _cached(TH_CACHE).forEach(function(t){
+        if(t&&t.teilnehmerIds&&t.teilnehmerIds.indexOf(me.id)>=0)t.teilnehmerIds.forEach(addId);
+      });
+      Object.keys(ST.drafts).forEach(function(tid){(ST.drafts[tid].teilnehmerIds||[]).forEach(addId);});
+      // 2) gleiche Organisation
+      if(me.orgId)_users().forEach(function(u){if(u&&u.active!==false&&u.orgId===me.orgId)addId(u.id);});
+      // 3) gemeinsame Projekte: Team-Zuweisungen + Beteiligten-E-Mails
+      try{
+        if(w.GemaObjekte&&GemaObjekte.getAll){
+          var objIds={};
+          (GemaObjekte.getAll()||[]).forEach(function(o){
+            if(!o)return;
+            objIds[o.id]=true;
+            var team=[];
+            try{team=(GemaObjekte.getAssignedUserIds&&GemaObjekte.getAssignedUserIds(o))||[];}catch(e){}
+            if(o.erstelltVon===me.id||team.indexOf(me.id)>=0){team.forEach(addId);addId(o.erstelltVon);}
+          });
+          _cached('gema_betpool_v1').forEach(function(b){
+            if(b&&objIds[b.objektId])addEmail(b.email||b.mail);
+          });
+        }
+      }catch(e){}
+      // 4) Offertanfragen (Planer ↔ Lieferanten-Team)
+      try{
+        _cached('gema_pk_oa_pool_v1').forEach(function(oa){
+          if(!oa)return;
+          var mein=oa.absenderId===me.id
+            ||(oa.absenderOrgId&&oa.absenderOrgId===me.orgId)
+            ||(oa.orgId&&oa.orgId===me.orgId)
+            ||(me.lieferantId&&oa.lieferantId===me.lieferantId);
+          if(!mein)return;
+          addId(oa.absenderId);
+          addLiefTeam(oa.lieferantId);
+        });
+      }catch(e){}
+      // 5) Bestellungen (Besteller ↔ Lieferanten-Team)
+      try{
+        _cached('gema_best_pool_v1').forEach(function(b){
+          if(!b)return;
+          var mein=b.bestellerUserId===me.id
+            ||(b.orgId&&b.orgId===me.orgId)
+            ||(me.lieferantId&&b.lieferantId===me.lieferantId);
+          if(!mein)return;
+          addId(b.bestellerUserId);
+          addLiefTeam(b.lieferantId);
+        });
+      }catch(e){}
+      // Beteiligten-E-Mails auf GEMA-Konten auflösen (ohne Konto = kein
+      // Chat-Ziel — die erreicht man ohnehin nicht)
+      Object.keys(emails).forEach(function(em){var u=_userByEmail(em);if(u)addId(u.id);});
+    }
+    _konMemo={ids:ids};
+    _konMemoTs=Date.now();
+    return _konMemo;
   }
 
   // ── Render: Neuer Chat (Kontakt-Picker) ─────────────────────────────
@@ -665,16 +986,20 @@
     var p=_ensurePanel();
     ST.view='new';
     var me=_me();if(!me)return;
-    var q=(ST.search||'').toLowerCase();
+    var q=(ST.search||'').trim();
+    var ql=q.toLowerCase();
+    var kon=_kontakte();
     var list=_users().filter(function(u){
-      return u&&u.id!==me.id&&u.active!==false;
+      return u&&u.id!==me.id&&u.active!==false&&kon.ids[u.id];
     }).filter(function(u){
-      if(!q)return true;
-      var hay=((u.name||'')+' '+(u.username||'')+' '+_orgName(u.orgId)).toLowerCase();
-      return hay.indexOf(q)>=0;
+      if(!ql)return true;
+      var mail=(u.profile&&u.profile.email)||u.username||'';
+      var hay=((u.name||'')+' '+(u.username||'')+' '+mail+' '+_orgName(u.orgId)).toLowerCase();
+      return hay.indexOf(ql)>=0;
     });
     var mine=list.filter(function(u){return u.orgId===me.orgId;});
     var extern=list.filter(function(u){return u.orgId!==me.orgId;});
+    var isMail=/^\S+@\S+\.\S+$/.test(q);
     function rows(arr){
       return arr.slice(0,60).map(function(u){
         return '<div class="gc-row" data-uid="'+_esc(u.id)+'">'
@@ -687,11 +1012,16 @@
       +'<button class="gc-ic" data-act="back" title="Zurück">‹</button>'
       +'<div class="gc-hd-t">Neuer Chat</div>'
       +'<button class="gc-ic" data-act="close">✕</button></div>'
-      +'<div class="gc-search"><input type="text" id="gcSearch" placeholder="Person suchen…" value="'+_esc(ST.search)+'"></div>'
+      +'<div class="gc-search"><input type="text" id="gcSearch" placeholder="Kontakt suchen oder E-Mail eingeben…" value="'+_esc(ST.search)+'"></div>'
       +'<div class="gc-list">'
+      +(isMail?'<div class="gc-row" data-mail="'+_esc(q)+'"><span style="width:42px;height:42px;border-radius:50%;background:#dcfce7;display:inline-flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0">✉️</span>'
+        +'<div class="gc-row-b"><div class="gc-row-n">'+_esc(q)+' kontaktieren</div>'
+        +'<div class="gc-row-p">Startet den Chat, wenn zu dieser E-Mail ein GEMA-Login existiert.</div></div></div>':'')
       +(mine.length?'<div class="gc-new-grp">Meine Organisation</div>'+rows(mine):'')
-      +(extern.length?'<div class="gc-new-grp">Extern (Partner)</div>'+rows(extern):'')
-      +((!mine.length&&!extern.length)?'<div class="gc-empty">Keine Person gefunden.</div>':'')
+      +(extern.length?'<div class="gc-new-grp">Kontakte (Partner)</div>'+rows(extern):'')
+      +((!mine.length&&!extern.length&&!isMail)?'<div class="gc-empty">'
+        +(ql?'Keine Person mit diesem Namen unter deinen Kontakten.<br><br>':'')
+        +'Vorgeschlagen werden Personen mit Berührungspunkten — gleiche Firma, gemeinsame Projekte, Offertanfragen, Bestellungen oder bisherige Chats.<br><br>Jemand anderes? Oben die <b>E-Mail-Adresse</b> eingeben.</div>':'')
       +'</div>';
     p.innerHTML=h;
     p.querySelector('[data-act=close]').onclick=close;
@@ -699,9 +1029,196 @@
     var si=p.querySelector('#gcSearch');
     si.oninput=function(){ST.search=this.value;_renderNew();var el=p.querySelector('#gcSearch');el.focus();el.setSelectionRange(el.value.length,el.value.length);};
     si.focus();
+    var mailRow=p.querySelector('.gc-row[data-mail]');
+    if(mailRow)mailRow.onclick=function(){
+      var em=mailRow.getAttribute('data-mail');
+      if(start({email:em}))ST.search='';   // ohne GEMA-Login: Meldung, Eingabe bleibt
+    };
     Array.prototype.forEach.call(p.querySelectorAll('.gc-row[data-uid]'),function(row){
       row.onclick=function(){ST.search='';start({userId:row.getAttribute('data-uid')});};
     });
+  }
+
+  // ── Kontextmenü (Rechtsklick / langes Drücken auf einen Chat) ────────
+  var _ctxEl=null;
+  function _ctxClose(){if(_ctxEl){try{_ctxEl.remove();}catch(e){}_ctxEl=null;}}
+  function _ctxShow(x,y,items){
+    _ctxClose();
+    var m=d.createElement('div');
+    m.className='gc-ctxmenu no-print';
+    items.forEach(function(it){
+      if(it.sep){var s=d.createElement('div');s.className='sep';m.appendChild(s);return;}
+      if(it.grp){var g=d.createElement('div');g.className='grp';g.textContent=it.grp;m.appendChild(g);return;}
+      var b=d.createElement('button');
+      b.type='button';
+      if(it.del)b.className='del';
+      b.innerHTML=it.html;
+      b.onclick=function(e){e.stopPropagation();_ctxClose();if(it.fn)it.fn();};
+      m.appendChild(b);
+    });
+    d.body.appendChild(m);
+    // Viewport-Klemmung (Muster _wsCtxShow)
+    var r=m.getBoundingClientRect();
+    var vw=w.innerWidth||1200,vh=w.innerHeight||800;
+    m.style.left=Math.max(8,Math.min(x,vw-r.width-8))+'px';
+    m.style.top=Math.max(8,Math.min(y,vh-r.height-8))+'px';
+    _ctxEl=m;
+    setTimeout(function(){
+      if(_ctxEl!==m)return;
+      d.addEventListener('click',_ctxClose,{once:true});
+      d.addEventListener('contextmenu',_ctxClose,{once:true});
+      d.addEventListener('scroll',_ctxClose,{capture:true,once:true});
+      w.addEventListener('resize',_ctxClose,{once:true});
+    },0);
+  }
+  function _threadCtx(x,y,tid){
+    var me=_me();if(!me)return;
+    var t=_threadById(tid);if(!t)return;
+    var meta=_myMeta(tid);
+    var unread=meta.ungelesen===true||_threadUnread(t,meta.ts||'',me.id);
+    var items=[];
+    items.push({html:meta.fav?'☆ Favorit entfernen':'★ Als Favorit markieren',fn:function(){
+      _metaSet(tid,{fav:meta.fav?null:true});
+      if(ST.view==='list')_renderList();
+    }});
+    items.push({html:unread?'✓ Als gelesen markieren':'📩 Als ungelesen markieren',fn:function(){
+      if(unread)_metaSet(tid,{ts:_now(),ungelesen:null});
+      else _metaSet(tid,{ungelesen:true});
+      if(ST.view==='list')_renderList();
+    }});
+    var kats=_kats();
+    if(kats.length){
+      items.push({sep:true});
+      items.push({grp:'Kategorie'});
+      kats.forEach(function(k){
+        var akt=meta.kat===k.id;
+        items.push({html:'<span class="gc-katdot" style="background:'+_esc(k.farbe)+'"></span>'+_esc(k.name)+(akt?' ✓':''),fn:function(){
+          _metaSet(tid,{kat:akt?null:k.id});
+          if(ST.view==='list')_renderList();
+        }});
+      });
+      if(meta.kat)items.push({html:'<span class="gc-katdot" style="background:#e2e8f0"></span>Keine Kategorie',fn:function(){
+        _metaSet(tid,{kat:null});
+        if(ST.view==='list')_renderList();
+      }});
+    }
+    items.push({sep:true});
+    items.push({html:'🗑 Chat löschen',del:true,fn:function(){_deleteThread(tid);}});
+    _ctxShow(x,y,items);
+  }
+  // «Löschen» = weg-Marker im EIGENEN chatread-Record (WhatsApp-Semantik):
+  // der Chat verschwindet nur aus MEINER Liste; Nachrichten und der Verlauf
+  // der Gegenseite bleiben unangetastet (cross-org Records — ein hartes
+  // Löschen fremder Nachrichten stünde uns gar nicht zu). Der Dialog sagt
+  // das ehrlich, statt ein endgültiges Löschen zu behaupten.
+  function _deleteThread(tid){
+    var isDraft=!!ST.drafts[tid];
+    var doIt=function(){
+      if(isDraft)delete ST.drafts[tid];
+      else _metaSet(tid,{weg:_now(),ungelesen:null});
+      if(ST.threadId===tid){
+        ST.threadId='';ST.view='list';
+        if(ST.msgTimer){clearInterval(ST.msgTimer);ST.msgTimer=null;}
+      }
+      if(ST.open&&ST.view==='list')_renderList();
+      _renderBadge();
+    };
+    var msg=isDraft
+      ?'Diesen (noch leeren) Chat-Entwurf verwerfen?'
+      :'Der Chat wird aus deiner Liste entfernt — die Gegenseite behält ihren Verlauf. Trifft eine neue Nachricht ein oder startest du den Chat erneut, erscheint er samt Verlauf wieder.';
+    if(w.GemaDialog&&GemaDialog.confirm){
+      GemaDialog.confirm({title:'Chat löschen',message:msg,confirmLabel:'Löschen',danger:true}).then(function(ok){if(ok)doIt();});
+    }else if(confirm(msg)){doIt();}
+  }
+
+  // ── Render: Chat-Einstellungen ───────────────────────────────────────
+  function _renderSettings(){
+    var p=_ensurePanel();
+    ST.view='settings';
+    var pr=_prefs();
+    var kats=_kats();
+    var tint=_brandTint();
+    var h='<div class="gc-hd">'
+      +'<button class="gc-ic" data-act="back" title="Zurück">‹</button>'
+      +'<div class="gc-hd-t">Chat-Einstellungen</div>'
+      +'<button class="gc-ic" data-act="close">✕</button></div>'
+      +'<div class="gc-list">'
+      +'<div class="gc-set"><div class="gc-set-t">Darstellung</div>'
+      +'<label class="row"><input type="checkbox" id="gsBg"'+(pr.hintergrund==='primaer'?' checked':'')+'> Chat-Hintergrund in der Firmenfarbe</label>'
+      +'<div class="hint">'+(tint
+        ?'Sanft aufgehellter Ton der Primärfarbe deiner Firma — die Sprechblasen behalten ihren Kontrast.'
+        :'Deine Firma hat noch keine Primärfarbe hinterlegt (Firmendaten → Berichts-Farben) — bis dahin gilt der Standard-Hintergrund.')+'</div>'
+      +'<div class="row" style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:#1e293b;padding:6px 0">Schriftgrösse:'
+      +'<button type="button" class="gc-chip'+(pr.schrift!=='gross'?' act':'')+'" data-schrift="normal">Normal</button>'
+      +'<button type="button" class="gc-chip'+(pr.schrift==='gross'?' act':'')+'" data-schrift="gross">Gross</button></div>'
+      +'</div>'
+      +'<div class="gc-set"><div class="gc-set-t">Verhalten</div>'
+      +'<label class="row"><input type="checkbox" id="gsEnter"'+(pr.enterSendet!==false?' checked':'')+'> Enter sendet die Nachricht</label>'
+      +'<div class="hint">Ausgeschaltet macht Enter eine neue Zeile — gesendet wird über ➤. Shift+Enter bricht immer um.</div>'
+      +'<label class="row"><input type="checkbox" id="gsFav"'+(pr.favOben!==false?' checked':'')+'> Favoriten zuoberst in der Chat-Liste</label>'
+      +'</div>'
+      +'<div class="gc-set"><div class="gc-set-t">Kategorien</div>'
+      +'<div class="hint" style="margin-left:0">Zuweisen per Rechtsklick (bzw. langem Drücken) auf einen Chat. Zuweisungen bleiben gespeichert — eine gelöschte Kategorie zeigt nur keine Farbe mehr.</div>'
+      +'<div id="gsKats">'+kats.map(function(k){
+        return '<div class="gc-kat-row" data-id="'+_esc(k.id)+'">'
+          +'<input type="color" value="'+_esc(k.farbe||'#64748b')+'" title="Farbe">'
+          +'<input type="text" maxlength="30" value="'+_esc(k.name)+'" placeholder="Kategorie">'
+          +'<button type="button" title="Kategorie entfernen">✕</button></div>';
+      }).join('')+'</div>'
+      +'<button type="button" class="gc-fab" id="gsKatAdd">＋ Kategorie</button> '
+      +'<button type="button" class="gc-fab" id="gsKatReset" style="background:#f1f5f9;border-color:#dbe2ee;color:#475569">↺ GEMA-Standard</button>'
+      +'</div>'
+      +'<div class="gc-set" style="border-bottom:none"><div class="gc-set-t">Benachrichtigungen</div>'
+      +'<div class="hint" style="margin-left:0">Ob neue Nachrichten eine Mitteilung auslösen, stellst du in der Glocke 🔔 unter ⚙ ein (Gruppe «Chat»).</div>'
+      +'</div>'
+      +'</div>';
+    p.innerHTML=h;
+    p.querySelector('[data-act=close]').onclick=close;
+    p.querySelector('[data-act=back]').onclick=function(){ST.view='list';_renderList();};
+    p.querySelector('#gsBg').onchange=function(){_prefsSave({hintergrund:this.checked?'primaer':'standard'});};
+    p.querySelector('#gsEnter').onchange=function(){_prefsSave({enterSendet:this.checked});};
+    p.querySelector('#gsFav').onchange=function(){_prefsSave({favOben:this.checked});};
+    Array.prototype.forEach.call(p.querySelectorAll('[data-schrift]'),function(c){
+      c.onclick=function(){_prefsSave({schrift:c.getAttribute('data-schrift')});_renderSettings();};
+    });
+    var kh=p.querySelector('#gsKats');
+    function collectSave(){
+      // Erst vorhandene ids reservieren, dann neue Slugs vergeben — so
+      // bleibt die id beim Umbenennen stabil (Zuweisungen hängen daran).
+      var taken={};
+      Array.prototype.forEach.call(kh.querySelectorAll('.gc-kat-row'),function(r){
+        var id=r.getAttribute('data-id');if(id)taken[id]=true;
+      });
+      var list=[];
+      Array.prototype.forEach.call(kh.querySelectorAll('.gc-kat-row'),function(r){
+        var name=(r.querySelector('input[type=text]').value||'').trim();
+        if(!name)return; // leere Zeile wird nicht gespeichert
+        var id=r.getAttribute('data-id');
+        if(!id){id=_katSlug(name,taken);r.setAttribute('data-id',id);}
+        list.push({id:id,name:name.slice(0,30),farbe:r.querySelector('input[type=color]').value||'#64748b'});
+      });
+      _prefsSave({kategorien:list});
+    }
+    kh.addEventListener('change',collectSave);
+    kh.addEventListener('click',function(e){
+      var b=e.target&&e.target.closest?e.target.closest('button'):null;
+      if(!b)return;
+      var row=b.closest('.gc-kat-row');
+      if(row){row.remove();collectSave();}
+    });
+    p.querySelector('#gsKatAdd').onclick=function(){
+      var r=d.createElement('div');
+      r.className='gc-kat-row';
+      r.innerHTML='<input type="color" value="#64748b" title="Farbe"><input type="text" maxlength="30" value="" placeholder="Kategorie"><button type="button" title="Kategorie entfernen">✕</button>';
+      kh.appendChild(r);
+      r.querySelector('input[type=text]').focus();
+    };
+    p.querySelector('#gsKatReset').onclick=function(){
+      var go=function(){_prefsSave({kategorien:null});_renderSettings();};
+      var msg='Eigene Kategorien durch die GEMA-Standardkategorien ersetzen?';
+      if(w.GemaDialog&&GemaDialog.confirm)GemaDialog.confirm({title:'Kategorien zurücksetzen',message:msg,confirmLabel:'Zurücksetzen'}).then(function(ok){if(ok)go();});
+      else if(confirm(msg))go();
+    };
   }
 
   // ── Render: Thread (WhatsApp-Bubbles) ───────────────────────────────
@@ -710,6 +1227,10 @@
     var me=_me();
     var t=_threadById(ST.threadId);
     if(!t){ST.view='list';_renderList();return;}
+    var pr=_prefs();
+    // Hintergrund in der Firmen-Primärfarbe (Standard AN, sanft aufgehellt);
+    // ohne hinterlegte Farbe bleibt der Standard-Grund — nie eine erfinden.
+    var tint=(pr.hintergrund==='primaer')?_brandTint():'';
     var others=_others(t);
     var group=others.length>1;
     var sub=others.map(function(x){return [x.rolle,x.firma].filter(Boolean).join(' · ');}).filter(Boolean)[0]||'';
@@ -728,7 +1249,7 @@
       +(sub?'<div class="gc-hd-sub">'+_esc(sub)+'</div>':'')+'</div>'
       +'<button class="gc-ic" data-act="close">✕</button></div>';
     if(t.kontext&&t.kontext.label)h+='<div class="gc-ctxbar">'+_kontextChip(t,true)+'</div>';
-    h+='<div class="gc-msgs" id="gcMsgs">';
+    h+='<div class="gc-msgs'+(pr.schrift==='gross'?' gross':'')+'" id="gcMsgs"'+(tint?' style="background-color:'+tint+'"':'')+'>';
     var lastDay='',lastVon='';
     if(!msgs.length){
       h+='<div class="gc-day"><span>'+(t.kontext&&t.kontext.label?_esc('Bezug: '+t.kontext.label):'Neuer Chat')+'</span></div>'
@@ -774,7 +1295,8 @@
     }
     send.onclick=doSend;
     inp.addEventListener('keydown',function(e){
-      if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();doSend();}
+      // Einstellung «Enter sendet»: aus = Enter macht eine neue Zeile
+      if(e.key==='Enter'&&!e.shiftKey&&pr.enterSendet!==false){e.preventDefault();doSend();}
     });
     inp.focus();
   }
@@ -813,7 +1335,8 @@
   w.GemaChat={
     start:start, ensureGruppe:ensureGruppe, open:open, close:close, toggle:toggle,
     unreadCount:function(){return _unreadThreads().length;},
-    _pure:{threadKey:_threadKey,fmtHM:_fmtHM,dayLabel:_dayLabel,listTime:_listTime,threadUnread:_threadUnread,linkify:_linkify,esc:_esc,senderColor:_senderColor},
-    _debug:function(){return {booted:ST.booted,open:ST.open,view:ST.view,threadId:ST.threadId,threads:_myThreads().length,me:(_me()||{}).id||null};}
+    _pure:{threadKey:_threadKey,fmtHM:_fmtHM,dayLabel:_dayLabel,listTime:_listTime,threadUnread:_threadUnread,linkify:_linkify,esc:_esc,senderColor:_senderColor,mixWhite:_mixWhite,katSlug:_katSlug},
+    _hooks:{prefs:_prefs,prefsSave:_prefsSave,kats:_kats,katById:_katById,meta:_myMeta,metaSet:_metaSet,markRead:_markRead,kontakte:_kontakte,threadCtx:_threadCtx,deleteThread:_deleteThread,renderList:_renderList,renderNew:_renderNew,renderSettings:_renderSettings,brandTint:_brandTint,myThreads:_myThreads,unreadThreads:_unreadThreads},
+    _debug:function(){return {booted:ST.booted,open:ST.open,view:ST.view,threadId:ST.threadId,filter:ST.filter,threads:_myThreads().length,me:(_me()||{}).id||null};}
   };
 })(typeof window!=='undefined'?window:this,typeof document!=='undefined'?document:null);

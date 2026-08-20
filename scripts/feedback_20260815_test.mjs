@@ -195,7 +195,10 @@ const slh = await page.evaluate(() => {
   return { da: true, koepfe: tb.rows[0].cells.length, zeilen: rows, vorCanvas };
 });
 t(slh.da, 'Stunden-Tabelle gerendert');
-t(slh.da && slh.koepfe === 25, '25 Spalten (Stunde + 24), ist ' + (slh.da ? slh.koepfe : 0));
+// Feedback 19.08.2026 #2 (Sandro) übersteuert bewusst: die Tabelle trägt seither
+// eine unsichtbare Pad-Spalte (= padR des Canvas), damit sie EXAKT mit dem
+// Diagramm fluchtet → 26 Spalten (Stunde + 24 + Pad).
+t(slh.da && slh.koepfe === 26, '26 Spalten (Stunde + 24 + Pad), ist ' + (slh.da ? slh.koepfe : 0));
 t(slh.da && slh.vorCanvas, 'Tabelle steht ÜBER dem Diagramm (Foto-Layout)');
 t(slh.da && slh.zeilen.join('|') === '%|l|Σ %|Σ l',
   'kompakte Referenz-Labels % / l / Σ % / Σ l (ist ' + (slh.da ? slh.zeilen.join('|') : '—') + ')');

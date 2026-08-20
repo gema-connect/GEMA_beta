@@ -485,6 +485,16 @@ function renderFelder(){
       h+=`<label class="fl">${E(f.label)}${f.pflicht?' *':''}</label>`;
       if(f.typ==='select'){
         h+=`<select class="fc" data-fid="${f.id}"><option value="">—</option>${(f.optionen||[]).map(o=>`<option ${val===o?'selected':''}>${E(o)}</option>`).join('')}</select>`;
+      } else if(f.typ==='bild'){
+        // Produktbild mit Upload + Vorschau (Feedback 19.08.2026: «auch im
+        // Produktkatalog einfügbar») — vorher stand hier die rohe URL als Text.
+        h+=`<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <img id="pkBildPrev_${f.id}" src="${E(String(val||''))}" alt="" style="width:84px;height:84px;object-fit:contain;border-radius:10px;border:1.5px solid var(--brd);background:#fff;${val?'':'display:none'}"/>
+          <input type="hidden" data-fid="${f.id}" id="pkBildVal_${f.id}" value="${E(String(val))}"/>
+          <input type="file" accept="image/*" onchange="_pkPickBild(this,'${f.id}')" style="font-size:11px;max-width:220px"/>
+          ${val?`<button type="button" class="btn" onclick="_pkClearBild('${f.id}')" style="font-size:11px">✕ Entfernen</button>`:''}
+          <span id="pkBildStatus_${f.id}" style="font-size:11px;color:var(--mut)"></span>
+        </div>`;
       } else if(f.typ==='textarea'){
         h+=`<textarea class="fc" data-fid="${f.id}" rows="3">${E(val)}</textarea>`;
       } else if(f.typ==='checkbox'){
@@ -503,6 +513,55 @@ function renderFelder(){
   });
   document.getElementById('felderBody').innerHTML=h;
 }
+
+// Produktbild-Upload (Muster _pePickBild im Lieferanten-Dashboard): resize
+// max 800px JPEG → GemaStorage `produkte/<lieferantId>` (URL im Feldwert),
+// Base64-Fallback wenn der Bucket fehlt/ablehnt.
+window._pkPickBild=function(input,fid){
+  if(!input.files||!input.files.length)return;
+  const file=input.files[0];
+  const status=document.getElementById('pkBildStatus_'+fid);
+  if(status)status.textContent='Bild wird verarbeitet …';
+  const reader=new FileReader();
+  reader.onload=function(){
+    const img=new Image();
+    img.onload=function(){
+      const max=800;
+      const w=img.naturalWidth||img.width, hh=img.naturalHeight||img.height;
+      const scale=Math.min(1,max/Math.max(w,hh));
+      const cv=document.createElement('canvas');
+      cv.width=Math.max(1,Math.round(w*scale));cv.height=Math.max(1,Math.round(hh*scale));
+      const ctx=cv.getContext('2d');
+      ctx.fillStyle='#fff';ctx.fillRect(0,0,cv.width,cv.height);
+      ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+      ctx.drawImage(img,0,0,cv.width,cv.height);
+      const dataUrl=cv.toDataURL('image/jpeg',0.85);
+      function apply(src){
+        const valEl=document.getElementById('pkBildVal_'+fid);
+        const prev=document.getElementById('pkBildPrev_'+fid);
+        if(valEl)valEl.value=src;
+        if(prev){prev.src=src;prev.style.display='';}
+        if(status)status.textContent='✓ Bild bereit — Speichern nicht vergessen';
+      }
+      if(typeof GemaStorage!=='undefined'&&GemaStorage.isConfigured()){
+        if(status)status.textContent='Bild wird hochgeladen …';
+        GemaStorage.uploadDataUrl(dataUrl,'produkte/'+((currentProdukt&&currentProdukt.lieferantId)||'unbekannt')).then(res=>{
+          apply(res.url);
+        }).catch(()=>{ apply(dataUrl); });
+      } else apply(dataUrl);
+    };
+    img.src=reader.result;
+  };
+  reader.readAsDataURL(file);
+};
+window._pkClearBild=function(fid){
+  const valEl=document.getElementById('pkBildVal_'+fid);
+  const prev=document.getElementById('pkBildPrev_'+fid);
+  if(valEl)valEl.value='';
+  if(prev){prev.src='';prev.style.display='none';}
+  const status=document.getElementById('pkBildStatus_'+fid);
+  if(status)status.textContent='Bild entfernt — Speichern nicht vergessen';
+};
 
 // ── Status & Workflow ──
 function renderStatus(){

@@ -71,6 +71,7 @@ input::placeholder{color:#cbd5e1}
 .ws-org-pill:hover{background:#ECEEF1}
 .ws-org-pill.active{background:var(--ink);color:#fff}
 .ws-org-pill--all.active{background:var(--gradient);color:#fff}
+.ws-linkbtn{border:none;background:none;padding:0;font:inherit;font-size:inherit;color:var(--blue);cursor:pointer;text-decoration:underline}
 .ws-section{display:flex;flex-direction:column;gap:8px}
 .ws-section-head{display:flex;align-items:center;justify-content:space-between;padding:0 4px}
 .ws-bucket-list{display:flex;flex-direction:column;gap:2px}
@@ -91,6 +92,14 @@ input::placeholder{color:#cbd5e1}
 .ws-bucket-row--pinned:hover{background:linear-gradient(90deg,var(--ws-pin1h,#e4eeff),var(--ws-pin2h,#f0f6ff))}
 .ws-bucket-row--pinned.active{background:linear-gradient(90deg,var(--ws-pin1a,#dfeaff),var(--ws-pin2a,#eef4ff));color:var(--ws-pin-ink,var(--navy))}
 .ws-bucket-row--sub{margin-left:16px;width:calc(100% - 16px)}
+/* Rubrik-Sprungzeilen unter einem Direkt-Modul-Eimer (Feedback 19.08.2026:
+   «eingerückter untereimer … der die navigationsbuttons hat, welche im
+   Lieferantendashboard auch vorhanden sind») */
+.ws-rubrik-row{margin-left:26px;width:calc(100% - 26px);padding:5px 10px;font-size:12.5px;color:var(--ink-2)}
+.ws-rubrik-row .ws-rubrik-dot{width:5px;height:5px;border-radius:50%;background:var(--ws-pin-bd,#c5d4ee);flex:0 0 auto}
+.ws-rubrik-row:hover{background:#F4F5F7}
+.ws-rubrik-row.active{background:var(--ws-pin1,#eef4ff);color:var(--ws-pin-ink,var(--navy));font-weight:600}
+.ws-rubrik-row.active .ws-rubrik-dot{background:var(--ws-pin-ink,var(--navy))}
 /* Rechtsklick-Kontextmenü (Eimer) */
 .ws-ctx{position:fixed;z-index:9500;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 40px rgba(15,23,42,.18);padding:6px;min-width:210px}
 .ws-ctx button{display:flex;align-items:center;gap:9px;width:100%;padding:9px 12px;border:none;background:none;border-radius:8px;font-size:13px;color:var(--ink);cursor:pointer;text-align:left;font-family:inherit;transition:background var(--t)}
@@ -802,6 +811,9 @@ input::placeholder{color:#cbd5e1}
   // z.B. eine Nur-Prüfliste-Rolle die Ausschreibungs-Kachel. Unbekannte
   // Dateien ohne Mapping bleiben sichtbar (fail-open). Bereits in Eimern
   // liegende Module rendern unabhaengig davon weiter (kein Datenverlust).
+  // Zusätzlich (19.08.2026): bei GEWÄHLTER Organisation folgt die Auswahl
+  // den Rollen dieser Org (_wsOrgModOk) — reine Sicht-Verengung, can()
+  // bleibt der harte Gate.
   var HUB_SUBMODS={ pm_ausschreibung:['ausschreibungsunterlagen','schnellausschreibung','crbx_offertvergleich'] };
   function _wsModAllowed(m){
     try{
@@ -810,10 +822,10 @@ input::placeholder{color:#cbd5e1}
       var key=fm[m.id];
       if(!key){
         var subs=HUB_SUBMODS[m.id];
-        if(subs) return subs.some(function(k){ return !!GemaAuth.can('read', k); });
+        if(subs) return subs.some(function(k){ return !!GemaAuth.can('read', k) && _wsOrgModOk(k); });
         return true;
       }
-      return !!GemaAuth.can('read', key);
+      return !!GemaAuth.can('read', key) && _wsOrgModOk(key);
     }catch(e){ return true; }
   }
 
@@ -1428,21 +1440,39 @@ input::placeholder{color:#cbd5e1}
   // ── New Bucket Modal ──
   var _newType='project';
   var _newOrg='';
+  // Kürzel fürs Org-Pill: Initialen bei mehreren Wörtern («Schmutz + Partner
+  // AG» → SPA), sonst die ersten 3 Buchstaben — nie leer.
+  function _wsOrgShort(name){
+    var s=String(name||'').trim();
+    var teile=s.split(/\s+/).filter(function(w){return /[A-Za-zÀ-ž0-9]/.test(w);});
+    if(teile.length>=2)return teile.map(function(w){return w[0]||'';}).join('').slice(0,3).toUpperCase();
+    return (s.slice(0,3)||'Org').toUpperCase();
+  }
   function _getOrgs(){
-    var orgs=[];
+    var orgs=[];var seen={};
+    function push(id,name){
+      if(!id||seen[id])return;seen[id]=1;
+      orgs.push({id:id,short:_wsOrgShort(name||id),name:name||id});
+    }
     try{
       if(typeof GemaAuth!=='undefined'){
         var u=GemaAuth.getCurrentUser();
         if(u){
           var curOrg=GemaAuth.getCurrentOrg();
-          if(curOrg)orgs.push({id:curOrg.id,short:(curOrg.name||'').split(' ').map(function(w){return w[0]||'';}).join('').slice(0,3).toUpperCase(),name:curOrg.name||curOrg.id});
+          if(curOrg)push(curOrg.id,curOrg.name||curOrg.id);
           if(typeof GemaAuth.getGastOrgs==='function'){
-            var gast=GemaAuth.getGastOrgs(u.id)||[];
-            gast.forEach(function(g){
-              if(orgs.find(function(o){return o.id===g.orgId;}))return;
-              orgs.push({id:g.orgId,short:(g.orgName||g.orgId||'').slice(0,3).toUpperCase(),name:g.orgName||g.orgId});
-            });
+            (GemaAuth.getGastOrgs(u.id)||[]).forEach(function(g){push(g.orgId,g.orgName||g.orgId);});
           }
+          // Auch Organisationen, deren Eimer der Nutzer sehen darf (Gast via
+          // Einladung) — sonst gäbe es für sichtbare Gast-Eimer kein Kürzel
+          // zum Filtern. Namen über den Org-Pool auflösen, nie die rohe id.
+          var alle=null;
+          buckets.filter(_canSeeBucket).forEach(function(b){
+            if(b.ownerType!=='org'||!b.ownerOrgId||seen[b.ownerOrgId])return;
+            if(alle===null){try{alle=GemaAuth.getOrgs()||[];}catch(e2){alle=[];}}
+            var o=alle.find(function(x){return x.id===b.ownerOrgId;});
+            push(b.ownerOrgId,(o&&o.name)||b.org||b.ownerOrgId);
+          });
         }
       }
     }catch(e){}
@@ -1562,7 +1592,10 @@ input::placeholder{color:#cbd5e1}
   var _newOwner='org';
   window._wsOpenNewModal=function(){
     _newType='project';_newOwner='org';
-    var orgs=_getOrgs();_newOrg=orgs[0].id;
+    var orgs=_getOrgs();
+    // Vorauswahl folgt der gewählten Organisation (Org-Wechsel 19.08.2026)
+    var af=_wsOrgAktiv();
+    _newOrg=(af!=='all'&&orgs.some(function(o){return o.id===af;}))?af:orgs[0].id;
     var types=[{id:'project',icon:'building',label:'Bauprojekt'},{id:'training',icon:'grad',label:'Übung'},{id:'lerngruppe',icon:'users',label:'Lerngruppe'},{id:'private',icon:'lock',label:'Privat'}];
     var orgHtml='<div class="ws-form-field" id="wsOrgField"><label>Organisation</label><div class="ws-org-pills" id="wsOrgPillsModal">'
       +orgs.map(function(o){return '<button class="ws-org-pill'+(o.id===_newOrg?' active':'')+'" onclick="_wsPickOrg(\''+o.id+'\')">'+esc(o.name)+'</button>';}).join('')
@@ -2029,7 +2062,8 @@ input::placeholder{color:#cbd5e1}
 
   // ── Org Helper ──
   function _resolveOrg(){
-    if(activeOrg!=='all')return activeOrg;
+    var af=_wsOrgAktiv();
+    if(af!=='all')return af;
     try{if(typeof GemaAuth!=='undefined'){var u=GemaAuth.getCurrentUser();if(u&&u.orgId)return u.orgId;}}catch(e){}
     return 'default';
   }
@@ -2512,7 +2546,8 @@ input::placeholder{color:#cbd5e1}
     var u=null;
     try{if(typeof GemaAuth!=='undefined')u=GemaAuth.getCurrentUser();}catch(e){}
     var name=u?(u.name||((u.vorname||'')+' '+(u.nachname||'')).trim()||u.username):'Benutzer';
-    var role=_wsRoleName(u)||'Mitglied';
+    // Rollen-Zeile folgt der gewählten Organisation (19.08.2026)
+    var role=_wsRolleAnzeige(u)||'Mitglied';
     var initials=name.split(' ').map(function(s){return s[0]||'';}).join('').slice(0,2).toUpperCase()||'??';
     document.getElementById('wsUser').innerHTML=avatar(initials,40,'#0c4a2e')
       +'<div class="ws-user-meta"><div class="ws-user-name">'+esc(name)+'</div><div class="ws-user-role">'+esc(role)+'</div></div>';
@@ -2522,14 +2557,134 @@ input::placeholder{color:#cbd5e1}
     var section=document.getElementById('wsOrgSection');
     var tags=document.getElementById('wsOrgTags');
     var orgs=_getOrgs();
+    var af=_wsOrgAktiv();
     section.innerHTML='<span class="ws-label">Organisation</span>'
       +'<div class="ws-org-pills">'+orgs.map(function(o){
-        return '<button class="ws-org-pill'+(activeOrg===o.id?' active':'')+'" onclick="_wsSetOrg(\''+o.id+'\')">'+esc(o.short)+'</button>';
+        return '<button class="ws-org-pill'+(af===o.id?' active':'')+'" onclick="_wsSetOrg(\''+o.id+'\')" oncontextmenu="return _wsCtxOrg(event,\''+o.id+'\')" title="'+esc(o.name)+' — Klick: nur diese Organisation anzeigen · Rechtsklick: Optionen">'+esc(o.short)+'</button>';
       }).join('')
-      +'<button class="ws-org-pill ws-org-pill--all'+(activeOrg==='all'?' active':'')+'" onclick="_wsSetOrg(\'all\')">Alle</button></div>';
+      +'<button class="ws-org-pill ws-org-pill--all'+(af==='all'?' active':'')+'" onclick="_wsSetOrg(\'all\')" title="Eimer aller Organisationen anzeigen">Alle</button></div>';
     tags.innerHTML=orgs.map(function(o){return '<span class="ws-org-tag">'+esc(o.short)+'</span>';}).join('');
   }
-  window._wsSetOrg=function(id){activeOrg=id;render();};
+
+  /* ── Org-Wechsel (Feedback 19.08.2026) ──────────────────────────────────
+     Klick auf ein Org-Kürzel zeigt NUR die Eimer dieser Organisation, «Alle»
+     alles. Die Wahl ist die «Standard-Organisation» des Nutzers auf diesem
+     Gerät: persistiert PRO USER (localStorage, Muster _tabsKey — nach einem
+     Konto-Wechsel erbt niemand den Filter des vorherigen Nutzers).
+     Private Eimer bleiben grundsätzlich IMMER sichtbar; pro Organisation
+     abschaltbar (Rechtsklick aufs Kürzel oder Einstellungen → Eimer). */
+  function _wsOrgKey(){var u=_curUserId();return 'gema_ws_org_v1'+(u?'_'+u:'');}
+  function _wsOrgLoad(){try{var v=localStorage.getItem(_wsOrgKey());if(v)activeOrg=v;}catch(e){}}
+  /* Wirksame Org-Wahl: eine gespeicherte Org, die (noch) nicht in der
+     Pill-Liste steht, RENDERT wie «Alle» — die gespeicherte WAHL wird aber
+     nie zurückgesetzt (Pool-Filter-Regel: die Org-/Eimer-Liste kann beim
+     Boot noch laden; ein Reset verlöre eine bewusste Wahl). */
+  function _wsOrgAktiv(){
+    if(activeOrg==='all')return 'all';
+    return _getOrgs().some(function(o){return o.id===activeOrg;})?activeOrg:'all';
+  }
+  window._wsSetOrg=function(id){
+    activeOrg=id;
+    try{localStorage.setItem(_wsOrgKey(),id);}catch(e){}
+    render();
+    try{if(document.getElementById('wsDrawerSidebar').classList.contains('open'))renderDrawer();}catch(e){}
+    try{if(window._wsNatRefresh)window._wsNatRefresh();}catch(e){}
+  };
+  // Private (persönliche) Eimer: Default IMMER anzeigen; `privatAus[orgId]`
+  // in den Workspace-Einstellungen blendet sie aus, solange genau diese Org
+  // als Filter gewählt ist. Unter «Alle» sind sie nie ausgeblendet.
+  function _wsPrivatSichtbar(orgId){
+    if(!orgId||orgId==='all')return true;
+    var s=loadSettings();
+    return !(s.privatAus&&s.privatAus[orgId]);
+  }
+  window._wsPrivatToggle=function(orgId,zeigen){
+    if(!orgId||orgId==='all')return;
+    var s=loadSettings();
+    s.privatAus=s.privatAus||{};
+    if(zeigen)delete s.privatAus[orgId];else s.privatAus[orgId]=true;
+    saveSettingsData(s);
+    render();
+    try{if(document.getElementById('wsDrawerSidebar').classList.contains('open'))renderDrawer();}catch(e){}
+    try{if(window._wsNatRefresh)window._wsNatRefresh();}catch(e){}
+    var o=_getOrgs().find(function(x){return x.id===orgId;});
+    toast(zeigen?'Private Eimer werden bei «'+((o&&o.name)||orgId)+'» wieder angezeigt':'Private Eimer bei «'+((o&&o.name)||orgId)+'» ausgeblendet','check');
+  };
+  // Rechtsklick auf ein Org-Kürzel — auf Touch-Geräten stehen dieselben
+  // Schalter in den Einstellungen («Eimer & Vorlagen»).
+  window._wsCtxOrg=function(ev,orgId){
+    var o=_getOrgs().find(function(x){return x.id===orgId;});if(!o)return true;
+    var an=_wsPrivatSichtbar(orgId);
+    return _wsCtxShow(ev,[
+      {ic:'building',label:'Nur «'+o.name+'» anzeigen',fn:function(){_wsSetOrg(orgId);}},
+      {ic:'bucket',label:'Alle Organisationen anzeigen',fn:function(){_wsSetOrg('all');}},
+      {sep:true},
+      {ic:an?'lock':'check',label:an?'Private Eimer hier ausblenden':'Private Eimer hier anzeigen',fn:function(){_wsPrivatToggle(orgId,!an);}},
+      {sep:true},
+      {ic:'settings',label:'Einstellungen …',fn:function(){_wsOpenSettings();_wsSettingsTab('eimer');}}
+    ]);
+  };
+
+  /* ── Rollen-Sicht folgt der Organisation (Feedback 19.08.2026) ──────────
+     GEMA kennt KEINE per-Org-Rollenzuweisung (user.roleIds ist kontoweit,
+     Gastzugänge tragen keine Rollen). Die «Rollen dieser Org» werden darum
+     über die bestehende kanonische Map Org-Kategorie → passende Rollen
+     abgeleitet: GemaAuth.getAssignableRoleIdsForOrg — DIESELBE Wahrheit
+     wie das User-Modal in sys_admin. Rückgabe:
+       null = nichts ableitbar («Alle» gewählt, role_admin, Org ohne
+              Kategorien/unbekannt, Rollen noch nicht geladen) → NIE filtern
+       []   = ableitbar, aber KEINE eigene Rolle passt (Gast in einer
+              fremden Org) → Anzeige «Gast», Module NICHT einschränken
+     Wie der Rollen-Filter im User-Modal ist das UI-KOMFORT, keine harte
+     Rechtegrenze — can() (Vereinigung aller Rollen) bleibt der Gate. */
+  function _wsRollenInOrg(orgId){
+    if(!orgId||orgId==='all')return null;
+    try{
+      var u=_curUser();
+      if(!u||!u.roleIds||!u.roleIds.length)return null;
+      if(u.roleIds.indexOf('role_admin')>=0)return null;   // Admin: immer Voll-Sicht
+      var erlaubt=(typeof GemaAuth!=='undefined'&&GemaAuth.getAssignableRoleIdsForOrg)
+        ?GemaAuth.getAssignableRoleIdsForOrg(orgId):null;
+      if(!erlaubt)return null;
+      return u.roleIds.filter(function(id){return erlaubt.indexOf(id)>=0;});
+    }catch(e){return null;}
+  }
+  /* Modul «passt zur Rolle»? Sichtbar, wenn eine Org-Rolle read gibt.
+     Gibt KEINE Rolle des Nutzers (auch ausserhalb der Org) das Modul
+     explizit frei, kam die Freischaltung ADDITIV über Nutzer-Mechanismen
+     (Lieferanten-Sortiment, Studenten-Klassen) — die hängen am NUTZER,
+     nicht an einer Rolle, und dürfen mit der Org-Sicht nie verschwinden. */
+  function _wsOrgModOk(key){
+    var rollen=_wsRollenInOrg(_wsOrgAktiv());
+    if(rollen===null||!rollen.length)return true;   // nichts ableitbar / Gast → fail-open
+    try{
+      var roles=(typeof GemaAuth!=='undefined'&&GemaAuth.getRoles&&GemaAuth.getRoles())||[];
+      var byId={};roles.forEach(function(r){if(r&&r.id)byId[r.id]=r;});
+      var liest=function(id){var r=byId[id];return !!(r&&r.permissions&&r.permissions[key]&&r.permissions[key].read);};
+      if(rollen.some(liest))return true;
+      // Lieferanten-Sicht: Berechnungen des eigenen Sortiments sind additiv
+      // freigeschaltet (hängen an keiner Rolle) — sie gehören zur
+      // Lieferanten-Arbeit und bleiben in der Org-Sicht stehen.
+      if(rollen.some(function(id){return /^role_(lieferant|produktlieferant)/.test(id);})){
+        try{ if(((GemaAuth.getLieferantModule&&GemaAuth.getLieferantModule())||[]).indexOf(key)>=0)return true; }catch(e2){}
+      }
+      var u=_curUser();
+      var andere=((u&&u.roleIds)||[]).some(liest);
+      return !andere;   // keine Rolle gibt read → additiv via can() → sichtbar lassen
+    }catch(e){return true;}
+  }
+  /* Rollen-Zeile unter dem Namen: bei gewählter Org NUR die Rollen, die zu
+     dieser Org passen; passt in einer FREMDEN Org keine → «Gast». Unter
+     «Alle» (und wo nichts ableitbar ist) wie bisher alle Rollen. */
+  function _wsRolleAnzeige(u){
+    var af=_wsOrgAktiv();
+    var rollen=_wsRollenInOrg(af);
+    if(af!=='all'&&rollen!==null&&u){
+      if(rollen.length)return _wsRoleName(Object.assign({},u,{roleIds:rollen}));
+      if(u.orgId!==af)return 'Gast';
+    }
+    return _wsRoleName(u);
+  }
 
   /* «… N mehr» aufklappen (Bugfix Feedback 31.07.2026, Tim Löhrer): der
      Zustand lebt in einer PERSISTENTEN Map pro Liste — der frühere Code
@@ -2566,31 +2721,55 @@ input::placeholder{color:#cbd5e1}
     return out.concat(restOut);
   }
 
-  function renderSidebar(){
+  /* Gemeinsame Sicht-Listen für Sidebar, Mobile-Drawer UND nativen
+     Handy-Screen — EINE Wahrheit (Feedback 19.08.2026, Org-Wechsel).
+     af='all' → bisheriges Verhalten (eigene Org + persönliche + Gast-Eimer);
+     af=<orgId> → NUR die Eimer dieser Organisation in der Org-Sektion
+     (auch eine Gast-Org ist so wählbar), Gast-Sektion leer, private Eimer
+     nach der per-Org-Einstellung (_wsPrivatSichtbar). */
+  function _wsSichtListen(){
     var visible=buckets.filter(_canSeeBucket);
     var oid=_curOrgId();
+    var af=_wsOrgAktiv();
+    var sektOrg=(af==='all')?oid:af;
+    var orgs=_getOrgs();
     var orgName='Organisation';
-    try{var co=_getOrgs()[0];if(co)orgName=co.name;}catch(e){}
-    var orgOwn=visible.filter(function(b){return b.ownerType==='org'&&b.ownerOrgId===oid;});
-    var personal=visible.filter(function(b){return b.ownerType==='personal';});
-    var guest=visible.filter(function(b){return _isGuestBucket(b);});
+    var cur=orgs.find(function(o){return o.id===sektOrg;});
+    if(cur)orgName=cur.name;else if(orgs[0])orgName=orgs[0].name;
+    var orgOwn=visible.filter(function(b){return b.ownerType==='org'&&b.ownerOrgId===sektOrg;});
+    var personalAll=visible.filter(function(b){return b.ownerType==='personal';});
+    // Gast-Eimer: unter «Alle» wie bisher alle fremden Orgs; bei gewählter
+    // Org stehen deren Eimer bereits in der Org-Sektion (fremde Org gewählt)
+    // bzw. sind bewusst ausgeblendet (eigene Org gewählt).
+    var guest=(af==='all')?visible.filter(_isGuestBucket):[];
     /* Feedback 05.08.2026: «Übungsumgebung / Lernraum soll sich bei den
        jeweiligen Klassen anfügen» — ein PERSÖNLICHER Eimer, der einer Klasse
        zugeordnet ist (subOf), wird bei der Klasse gezeigt statt unten in der
-       eigenen Liste. Ohne sichtbaren Übergeordneten bleibt er, wo er war. */
+       eigenen Liste. Ohne sichtbaren Übergeordneten bleibt er, wo er war.
+       KRITISCH: die Zuordnung läuft VOR der Privat-Ausblendung — der einer
+       Klasse angefügte Übungs-Eimer gehört zum Klassen-Kontext und
+       verschwindet NICHT mit den privaten Eimern. */
     var orgIds={};orgOwn.forEach(function(b){orgIds[b.id]=1;});
-    var angehaengt=personal.filter(function(b){return b.subOf&&orgIds[b.subOf];});
-    if(angehaengt.length){
-      personal=personal.filter(function(b){return angehaengt.indexOf(b)<0;});
-      orgOwn=orgOwn.concat(angehaengt);
-    }
-    var orgBuckets=_wsOrder(orgOwn);
+    var angehaengt=personalAll.filter(function(b){return b.subOf&&orgIds[b.subOf];});
+    var personal=personalAll.filter(function(b){return angehaengt.indexOf(b)<0;});
+    if(angehaengt.length)orgOwn=orgOwn.concat(angehaengt);
+    var privatAn=_wsPrivatSichtbar(af);
+    if(!privatAn)personal=[];
+    return {af:af,orgName:orgName,orgBuckets:_wsOrder(orgOwn),personal:personal,guest:guest,privatAn:privatAn};
+  }
+  // Hinweis statt stillem Verschwinden (No-silent-Regel): ausgeblendete
+  // private Eimer sind mit einem Klick wieder da.
+  function _wsPrivatHint(L){
+    return '<div class="ws-empty-hint">Private Eimer sind hier ausgeblendet · '
+      +'<button class="ws-linkbtn" onclick="_wsPrivatToggle(\''+L.af+'\',true)">einblenden</button></div>';
+  }
 
-    var filterOrg=function(list){
-      if(activeOrg==='all')return list;
-      return list.filter(function(b){return(b.ownerOrgId||b.org)===activeOrg;});
-    };
-    orgBuckets=filterOrg(orgBuckets);
+  function renderSidebar(){
+    var L=_wsSichtListen();
+    var orgName=L.orgName;
+    var orgBuckets=L.orgBuckets;
+    var personal=L.personal;
+    var guest=L.guest;
 
     function renderList(list,emptyText,which){
       var exp=!!_wsExpand[which];
@@ -2603,8 +2782,10 @@ input::placeholder{color:#cbd5e1}
       return html;
     }
     var lbl=document.getElementById('wsOrgLabel');if(lbl)lbl.textContent=orgName;
-    document.getElementById('wsOrgBuckets').innerHTML=renderList(orgBuckets,'Keine Org-Eimer','org');
-    document.getElementById('wsPersonal').innerHTML=renderList(personal,'Keine persönlichen Eimer','personal');
+    document.getElementById('wsOrgBuckets').innerHTML=renderList(orgBuckets,(L.af==='all'?'Keine Org-Eimer':'Keine Eimer in dieser Organisation'),'org');
+    document.getElementById('wsPersonal').innerHTML=L.privatAn
+      ?renderList(personal,'Keine persönlichen Eimer','personal')
+      :_wsPrivatHint(L);
     var guestEl=document.getElementById('wsGuestBuckets');
     var guestSec=document.getElementById('wsGuestSection');
     if(guestEl)guestEl.innerHTML=renderList(guest,'','guest');
@@ -2619,12 +2800,26 @@ input::placeholder{color:#cbd5e1}
   function bucketRowHtml(b){
     var isActive=activeTab===b.id;
     var isOpen=openTabs.indexOf(b.id)>=0;
-    return '<button class="ws-bucket-row'+(isActive?' active':'')+_wsAutoRowClass(b)+'" onclick="_wsOpen(\''+b.id+'\')" oncontextmenu="return _wsCtxBucket(event,\''+b.id+'\')" style="'+(isOpen?'':'')+'position:relative">'
+    var html='<button class="ws-bucket-row'+(isActive?' active':'')+_wsAutoRowClass(b)+'" onclick="_wsOpen(\''+b.id+'\')" oncontextmenu="return _wsCtxBucket(event,\''+b.id+'\')" style="'+(isOpen?'':'')+'position:relative">'
       +(isOpen?'<span style="position:absolute;left:2px;top:50%;transform:translateY(-50%);width:3px;height:14px;border-radius:2px;background:var(--gradient)"></span>':'')
       +'<span class="ws-bucket-row__icon">'+typeIcon(b.type)+'</span>'
       +'<span class="ws-bucket-row__name">'+esc(b.name)+'</span>'
       +(b.ownerType==='org'&&b.members.length>1?avatarCluster(b.members,18):'')
       +'</button>';
+    // Rubrik-Sprungzeilen (Feedback 19.08.2026): unter einem Direkt-Modul-
+    // Eimer die Dashboard-Reiter als eingerückte Zeilen — Klick öffnet den
+    // Eimer direkt in dieser Rubrik. Sie hängen an der Eimer-Zeile und
+    // zählen damit nicht als eigene Listen-Einträge («… N mehr»-Logik).
+    var rubs=_wsRubriken(b);
+    if(rubs.length){
+      html+=rubs.map(function(r){
+        var akt=isActive&&_wsRubrikTab[b.id]===r.tab;
+        return '<button class="ws-bucket-row ws-rubrik-row'+(akt?' active':'')+'" onclick="_wsRubrik(\''+b.id+'\',\''+esc(r.tab)+'\')" title="'+esc(r.label)+' im '+esc(b.name)+' öffnen">'
+          +'<span class="ws-rubrik-dot"></span>'
+          +'<span class="ws-bucket-row__name">'+esc(r.label)+'</span></button>';
+      }).join('');
+    }
+    return html;
   }
 
   function renderTabBar(){
@@ -2772,10 +2967,13 @@ input::placeholder{color:#cbd5e1}
 
     var modsHtml='';
     if(direktMod){
+      // Gewählte Rubrik (Sidebar-Sprungzeile) als ?tab= mitgeben — das
+      // Dashboard öffnet dann direkt diesen Reiter (Deep-Link-Mechanik).
+      var rubTab=_wsRubrikTab[b.id]||'';
       modsHtml='<div class="ws-direkt-wrap">'
         +'<div class="ws-direkt-bar"><span>'+esc(direktMod.name)+'</span>'
         +'<a class="ws-btn ws-btn-ghost" href="'+direktMod.href+'" onclick="_wsMerkPfad(\''+b.id+'\')" style="padding:5px 10px;font-size:12px">'+icon('arrow-right',13)+' Im Vollbild öffnen</a></div>'
-        +'<iframe class="ws-direkt-frame" src="'+direktMod.href+(direktMod.href.indexOf('?')>=0?'&':'?')+'embed=1" title="'+esc(direktMod.name)+'"></iframe></div>';
+        +'<iframe class="ws-direkt-frame" src="'+direktMod.href+(direktMod.href.indexOf('?')>=0?'&':'?')+'embed=1'+(rubTab?'&tab='+encodeURIComponent(rubTab):'')+'" title="'+esc(direktMod.name)+'"></iframe></div>';
     }else if(noMods){
       modsHtml='<div class="ws-mod-hero-row">'+_wsHeroAdd()+_wsHeroVorlagen(b)+_wsHeroZuletzt(b)+'</div>';
     }else{
@@ -2975,22 +3173,32 @@ input::placeholder{color:#cbd5e1}
     }
   };
   function renderDrawer(){
-    var visible=buckets.filter(_canSeeBucket);
-    var oid=_curOrgId();
-    var orgName='Organisation';try{var co=_getOrgs()[0];if(co)orgName=co.name;}catch(e){}
-    var orgB=_wsOrder(visible.filter(function(b){return b.ownerType==='org'&&b.ownerOrgId===oid;}));
-    var persB=visible.filter(function(b){return b.ownerType==='personal';});
-    var guestB=visible.filter(function(b){return _isGuestBucket(b);});
+    // Dieselben Sicht-Listen wie die Sidebar (Org-Wechsel + Privat-Regel)
+    var L=_wsSichtListen();
+    var orgB=L.orgBuckets, persB=L.personal, guestB=L.guest;
     function drawerRow(b){
-      return '<button class="ws-bucket-row'+(activeTab===b.id?' active':'')+_wsAutoRowClass(b)+'" onclick="_wsOpen(\''+b.id+'\');_wsToggleDrawer(false)" oncontextmenu="return _wsCtxBucket(event,\''+b.id+'\')">'
+      var html='<button class="ws-bucket-row'+(activeTab===b.id?' active':'')+_wsAutoRowClass(b)+'" onclick="_wsOpen(\''+b.id+'\');_wsToggleDrawer(false)" oncontextmenu="return _wsCtxBucket(event,\''+b.id+'\')">'
         +'<span class="ws-bucket-row__icon">'+typeIcon(b.type)+'</span>'
         +'<span class="ws-bucket-row__name">'+esc(b.name)+'</span></button>';
+      // Rubrik-Sprungzeilen wie in der Desktop-Sidebar (Feedback 19.08.2026)
+      var rubs=_wsRubriken(b);
+      if(rubs.length){
+        html+=rubs.map(function(r){
+          var akt=activeTab===b.id&&_wsRubrikTab[b.id]===r.tab;
+          return '<button class="ws-bucket-row ws-rubrik-row'+(akt?' active':'')+'" onclick="_wsRubrik(\''+b.id+'\',\''+esc(r.tab)+'\');_wsToggleDrawer(false)">'
+            +'<span class="ws-rubrik-dot"></span>'
+            +'<span class="ws-bucket-row__name">'+esc(r.label)+'</span></button>';
+        }).join('');
+      }
+      return html;
     }
     document.getElementById('wsUserDrawer').innerHTML=document.getElementById('wsUser').innerHTML;
     document.getElementById('wsOrgSectionDrawer').innerHTML=document.getElementById('wsOrgSection').innerHTML;
-    var dl=document.getElementById('wsOrgLabelDrawer');if(dl)dl.textContent=orgName;
-    document.getElementById('wsOrgDrawer').innerHTML=orgB.length?orgB.map(drawerRow).join(''):'<div class="ws-empty-hint">Keine Org-Eimer</div>';
-    document.getElementById('wsPersonalDrawer').innerHTML=persB.length?persB.map(drawerRow).join(''):'<div class="ws-empty-hint">Keine persönlichen Eimer</div>';
+    var dl=document.getElementById('wsOrgLabelDrawer');if(dl)dl.textContent=L.orgName;
+    document.getElementById('wsOrgDrawer').innerHTML=orgB.length?orgB.map(drawerRow).join(''):'<div class="ws-empty-hint">'+(L.af==='all'?'Keine Org-Eimer':'Keine Eimer in dieser Organisation')+'</div>';
+    document.getElementById('wsPersonalDrawer').innerHTML=L.privatAn
+      ?(persB.length?persB.map(drawerRow).join(''):'<div class="ws-empty-hint">Keine persönlichen Eimer</div>')
+      :_wsPrivatHint(L);
     var gd=document.getElementById('wsGuestDrawer');if(gd)gd.innerHTML=guestB.map(drawerRow).join('');
     var gs=document.getElementById('wsGuestDrawerSection');if(gs)gs.style.display=guestB.length?'':'none';
   }
@@ -3104,6 +3312,19 @@ input::placeholder{color:#cbd5e1}
         +'<div class="ws-settings-row"><div class="ws-settings-row-info"><div class="ws-settings-row-label">Notizen automatisch erstellen</div>'
         +'<div class="ws-settings-row-desc">Neue Eimer erhalten automatisch eine erste Notizseite</div></div>'
         +'<div class="ws-toggle'+(settings.autoNotes!==false?' on':'')+'" onclick="this.classList.toggle(\'on\');_wsSetSetting(\'autoNotes\',this.classList.contains(\'on\'))"></div></div>'
+        +'</div>'
+        // Private Eimer je Organisation (19.08.2026): grundsätzlich immer
+        // sichtbar — hier pro Org abschaltbar. Wirkt NUR, solange genau
+        // diese Org oben als Filter gewählt ist; «Alle» zeigt sie immer.
+        // Dasselbe geht per Rechtsklick auf das Org-Kürzel in der Sidebar.
+        +'<div class="ws-settings-section"><div class="ws-settings-section-title">Private Eimer je Organisation</div>'
+        +'<p style="font-size:13px;color:var(--ink-2);margin-bottom:16px">Private Eimer werden grundsätzlich immer angezeigt. Hier kannst du sie pro Organisation ausblenden — sie verschwinden dann aus der Liste, solange diese Organisation oben als Filter gewählt ist. Unter «Alle» bleiben sie immer sichtbar. Tipp: Dasselbe geht per Rechtsklick auf das Org-Kürzel.</p>'
+        +_getOrgs().map(function(o){
+          var an=_wsPrivatSichtbar(o.id);
+          return '<div class="ws-settings-row"><div class="ws-settings-row-info"><div class="ws-settings-row-label">'+esc(o.name)+'</div>'
+            +'<div class="ws-settings-row-desc">Private Eimer anzeigen, wenn «'+esc(o.short)+'» gewählt ist</div></div>'
+            +'<div class="ws-toggle'+(an?' on':'')+'" onclick="_wsPrivatToggle(\''+o.id+'\',!this.classList.contains(\'on\'))"></div></div>';
+        }).join('')
         +'</div>'
         +'<div class="ws-settings-section"><div class="ws-settings-section-title">Modul-Vorlagen</div>'
         +'<p style="font-size:13px;color:var(--ink-2);margin-bottom:16px">Vorlagen definieren welche Module automatisch hinzugefügt werden, wenn du einen neuen Eimer erstellst.</p>';
@@ -4166,10 +4387,49 @@ input::placeholder{color:#cbd5e1}
   // direkt die Übersicht hat»): der Eimer-Inhalt zeigt die Seite direkt
   // eingebettet (?embed=1) statt einer Modul-Kachel; eine früher als
   // Kachel angelegte Instanz wird beim Provisionieren entfernt.
+  // `rubriken` (Feedback 19.08.2026): Sprungzeilen in der Sidebar unter dem
+  // gepinnten Eimer — dieselben Reiter, die das Dashboard selbst zeigt; der
+  // Klick öffnet den Eimer direkt in dieser Rubrik (?embed=1&tab=<x>).
+  // `nur` = Rollen-Präfix-Filter wie def.rollen (role_admin sieht alles,
+  // Muster setupTabs im Dashboard). Beschriftungen 1:1 wie die Dashboard-Tabs
+  // (Wiedererkennung). Die Kategorie-abhängigen Tabs (Rohrsysteme/Werkzeuge)
+  // stehen bewusst drin: das Firmenprofil ist vom Workspace aus nicht lesbar;
+  // fehlt der Tab im Dashboard, fällt dessen Deep-Link-Guard still auf den
+  // ersten Tab zurück (verifiziert — kein Bruch). Mitarbeiter/Firmenprofil
+  // sind KEINE Tabs (admin-gated Nav-Sektionen) und fehlen hier bewusst.
   var AUTO_ROLLEN_EIMER=[
     {key:'lieferant',name:'Lieferanten-Dashboard',rollen:['role_lieferant','role_produktlieferant'],
-     direkt:'sys_lieferant_dashboard',modules:[]}
+     direkt:'sys_lieferant_dashboard',modules:[],
+     rubriken:[
+       {tab:'uebersicht',label:'Übersicht'},
+       {tab:'produkte',label:'Produktkatalog'},
+       {tab:'anfragen',label:'Offertanfragen',nur:['role_lieferant']},
+       {tab:'bestellungen',label:'🛒 Bestellungen',nur:['role_lieferant']},
+       {tab:'revision',label:'📑 Revisionsanfragen'},
+       {tab:'rohrsysteme',label:'Rohrsysteme & Armaturen',nur:['role_lieferant']},
+       {tab:'werkzeuge',label:'🔧 Werkzeuge'}
+     ]}
   ];
+  // Gewählte Rubrik je Eimer — reine Sitzungs-UI (nie gespeichert): sie
+  // bestimmt nur, mit welchem ?tab= das Embed-iframe beim nächsten Render lädt.
+  var _wsRubrikTab={};
+  function _wsRubrikOk(r){
+    var u=_curUser();var rl=(u&&u.roleIds)||[];
+    if(rl.indexOf('role_admin')>=0)return true;
+    if(!r.nur||!r.nur.length)return true;
+    return r.nur.some(function(p){return rl.some(function(x){return x===p||String(x).indexOf(p)===0;});});
+  }
+  function _wsRubriken(b){
+    if(!b||!b.direktModul)return [];
+    var def=AUTO_ROLLEN_EIMER.find(function(d){return d.direkt===b.direktModul;});
+    if(!def||!def.rubriken)return [];
+    return def.rubriken.filter(_wsRubrikOk);
+  }
+  window._wsRubrik=function(id,tab){
+    if(!bucketSichtbar(id))return;
+    _wsRubrikTab[id]=tab;
+    window._wsOpen(id); // rendert immer neu → das iframe lädt mit dem neuen tab
+  };
   function _wsAutoRollenEimer(){
     var u=_curUser();if(!u||!u.id)return false;
     var rl=u.roleIds||[];var oid=_curOrgId();var changed=false;
@@ -4232,7 +4492,7 @@ input::placeholder{color:#cbd5e1}
     _showSettings=false;saveTabs();
     return true;
   }
-  load();loadTabs();_wsDeepLink();render();
+  load();loadTabs();_wsOrgLoad();_wsDeepLink();render();
   (function(){
     if(typeof GemaSync==='undefined'||!GemaSync.bindCollection){ _wsAutoProvision(); return; }
     GemaSync.bindCollection(MK, POOL, PF, 'id').then(function(){
@@ -4255,6 +4515,12 @@ input::placeholder{color:#cbd5e1}
     provision:function(){_wsAutoProvision();}, scopeOk:_bucketScopeOk, order:_wsOrder,
     wann:_wsWann, dozKandidaten:_wsDozKandidaten, klassenKandidaten:_wsKlassenKandidaten,
     zuletzt:_wsZuletztModule, fbListe:_wsFbListe,
+    // Org-Wechsel (19.08.2026) — Konsument: nativer Handy-Screen + Tests
+    sichtListen:_wsSichtListen, orgs:_getOrgs, orgAktiv:_wsOrgAktiv,
+    setOrg:function(id){_wsSetOrg(id);}, privatSichtbar:_wsPrivatSichtbar,
+    orgRollen:_wsRollenInOrg, orgModOk:_wsOrgModOk, rolleAnzeige:_wsRolleAnzeige,
+    // Rubrik-Sprungzeilen (19.08.2026)
+    rubriken:_wsRubriken, rubrikTab:function(){return _wsRubrikTab;},
     templates:{load:function(){return loadTemplates();}, save:function(t){saveTemplates(t);}} };
   initResize('wsResizeSidebar','wsSidebar','left');
   initResize('wsResizeNotes','wsNotesCol','right');
@@ -4292,7 +4558,7 @@ document.addEventListener('DOMContentLoaded',function(){
     var steps=[
       {selector:'.ws-sidebar',title:'Willkommen im Workspace',text:'Der Workspace ist dein zentraler Arbeitsplatz. Links siehst du deine Eimer — jeder Eimer gruppiert Module, Notizen und Beteiligte für ein Projekt oder eine Aufgabe.',placement:'right',icon:'🪣'},
       {selector:'.ws-sidebar-new',title:'Eimer erstellen',text:'Klicke hier, um einen neuen Eimer zu erstellen. Wähle einen Typ (Bauprojekt, Übung oder Privat) und optional eine Vorlage, die automatisch Module hinzufügt.',placement:'right',icon:'➕'},
-      {selector:'.ws-org-pills',title:'Organisation filtern',text:'Filtere deine Eimer nach Organisation. «Alle» zeigt sämtliche Eimer, oder wähle eine bestimmte Org um nur deren Projekte zu sehen.',placement:'right',icon:'🏢'},
+      {selector:'.ws-org-pills',title:'Organisation wechseln',text:'Klicke auf ein Kürzel, um nur die Eimer dieser Organisation zu sehen — «Alle» zeigt sämtliche Eimer. Die Wahl bleibt gespeichert. Rechtsklick auf ein Kürzel: private Eimer für diese Organisation ein- oder ausblenden.',placement:'right',icon:'🏢'},
       {selector:'.ws-search',title:'Schnelle Suche',text:'Suche blitzschnell nach Eimern oder Modulen. Tippe einfach den Namen ein — Ergebnisse erscheinen sofort als Dropdown.',placement:'bottom',icon:'🔍'},
       {selector:'#wsSettingsBtn',title:'Einstellungen & Vorlagen',text:'Hier findest du alle Workspace-Einstellungen: Darstellung, Sprache, Benachrichtigungen. Unter «Eimer & Vorlagen» erstellst du Modul-Vorlagen, die bei neuen Eimern automatisch geladen werden.',placement:'right',icon:'⚙️'},
       {selector:'#wsTabBar',title:'Tab-Leiste',text:'Öffne mehrere Eimer gleichzeitig als Tabs — wie im Browser. Klicke auf einen Tab zum Wechseln, auf × zum Schliessen. Das + öffnet weitere Eimer.',placement:'bottom',icon:'📑'},
@@ -4355,12 +4621,24 @@ document.addEventListener('DOMContentLoaded',function(){
     var rap=pool('gema_regie_pool_v1').filter(function(r){ return r.orgId===u.orgId&&(r.status==='entwurf'||r.status==='eingereicht'); }).length;
     return {std:(Math.round(min/6)/10).toFixed(1).replace('.',','),eins:eins,pruef:pruef,rap:rap};
   }
-  function buckets(){
+  function alleSichtbar(){
     // per-Record-Pool (Haupt-IIFE) inkl. Sichtbarkeits-Filter; der alte
     // Geräte-Blob bleibt Fallback für den Boot-Moment vor der Migration.
     try{ if(window._wsHooks) return _wsHooks.pool().filter(_wsHooks.canSee); }catch(e){}
     try{ var r=localStorage.getItem('gema_ws_pool_v1')||localStorage.getItem('gema_workspace_v1'); if(r){ var d=JSON.parse(r); if(Array.isArray(d)) return d; } }catch(e){}
     return [];
+  }
+  function buckets(){
+    // Übersichts-Liste folgt dem Org-Wechsel + der Privat-Regel der Sidebar
+    // (EINE Wahrheit: _wsSichtListen der Haupt-IIFE). Ein bereits GEÖFFNETER
+    // Eimer wird davon nie ausgesperrt — bucketById läuft über alleSichtbar.
+    try{
+      if(window._wsHooks&&_wsHooks.sichtListen){
+        var L=_wsHooks.sichtListen();
+        return L.orgBuckets.concat(L.personal).concat(L.guest);
+      }
+    }catch(e){}
+    return alleSichtbar();
   }
   /* Eimer-Navigation KOMPLETT nativ (Feedback 29.07.2026): Übersicht →
      Eimer-Detail (Module öffnen/hinzufügen) → zurück; neuer Eimer via ＋ in
@@ -4377,7 +4655,7 @@ document.addEventListener('DOMContentLoaded',function(){
   var curId=null;   // geöffneter Eimer (null = Übersicht)
 
   function katalog(){ try{ return window._wsModulesHook?window._wsModulesHook():null; }catch(e){ return null; } }
-  function bucketById(id){ return buckets().find(function(b){ return b&&b.id===id; })||null; }
+  function bucketById(id){ return alleSichtbar().find(function(b){ return b&&b.id===id; })||null; }
   function modMeta(modId){
     var k=katalog();
     return (k&&(k.modules||[]).find(function(m){ return m.id===modId; }))||{id:modId,name:modId,cat:''};
@@ -4392,11 +4670,35 @@ document.addEventListener('DOMContentLoaded',function(){
   function renderUebersicht(root){
     var k=kpis(), u=user();
     var org=''; try{ var o=GemaAuth.getCurrentOrg(); org=(o&&o.name)||''; }catch(e){}
+    // Kopfzeile folgt der gewählten Organisation (Org-Wechsel 19.08.2026)
+    try{
+      if(window._wsHooks&&_wsHooks.orgAktiv){
+        var afH=_wsHooks.orgAktiv();
+        if(afH&&afH!=='all'){
+          var oH=(_wsHooks.orgs()||[]).find(function(x){return x.id===afH;});
+          if(oH&&oH.name)org=oH.name;
+        }
+      }
+    }catch(e){}
     var recent=[]; try{
       var cur=(GemaRecent.currentKey)||'sys_workspace';
       recent=(GemaRecent.list()||[]).filter(function(r){ return r&&r.key&&r.key!==cur&&r.key!=='sys_workspace'; }).slice(0,6);
     }catch(e){}
     var bks=buckets();
+    // Org-Wechsel auch auf dem Handy (19.08.2026): Kürzel-Chips + «Alle» —
+    // nur gezeigt, wenn es überhaupt mehrere Organisationen gibt bzw. ein
+    // Filter aktiv ist (sonst reines Rauschen).
+    var orgChips='';
+    try{
+      if(window._wsHooks&&_wsHooks.orgs){
+        var orgsN=_wsHooks.orgs()||[], afN=_wsHooks.orgAktiv?_wsHooks.orgAktiv():'all';
+        if(orgsN.length>1||afN!=='all'){
+          orgChips='<div class="gn-chipbar" style="padding-left:0;padding-right:0">'
+            +orgsN.map(function(o){ return '<button type="button" class="gn-chip-sel'+(afN===o.id?' is-active':'')+'" data-nat-org="'+NE(o.id)+'" title="'+NE(o.name)+'">'+NE(o.short)+'</button>'; }).join('')
+            +'<button type="button" class="gn-chip-sel'+(afN==='all'?' is-active':'')+'" data-nat-org="all">Alle</button></div>';
+        }
+      }
+    }catch(e){}
     root.innerHTML=
       /* data-gn-noback: die Übersicht IST die Startseite des Projektleiters —
          eine Zurück-Taste zeigte auf index.html, von wo der Rollen-Redirect
@@ -4413,7 +4715,7 @@ document.addEventListener('DOMContentLoaded',function(){
           +'<div class="gn-stat"><div class="gn-stat-k">Prüfungen fällig</div><div class="gn-stat-v"'+(k.pruef?' style="color:var(--gn-danger)"':'')+'>'+k.pruef+'</div><div class="gn-stat-sub">Werkzeug ≤ 30 Tage</div></div>'
           +'<div class="gn-stat"><div class="gn-stat-k">Offene Rapporte</div><div class="gn-stat-v">'+k.rap+'</div><div class="gn-stat-sub">Regie</div></div>'
         +'</div>'
-        +'<div class="gn-label">Meine Eimer</div><div class="gn-list">'
+        +'<div class="gn-label">Meine Eimer</div>'+orgChips+'<div class="gn-list">'
           +(bks.length?bks.map(function(b){
             return '<div class="gn-row gn-row--lg" data-nat-bucket="'+NE(b.id)+'"><span class="gn-row-ic" style="--gn-row-bg:var(--gn-c-projekt)">'+(TYP_IC[b.type]||'🗂')+'</span>'
               +'<span class="gn-row-body"><span class="gn-row-title">'+NE(b.name||'Eimer')+'</span><span class="gn-row-sub">'+((b.modules||[]).length)+' Module · '+(TYP_LBL[b.type]||'Eimer')+'</span></span>'
@@ -4484,6 +4786,8 @@ document.addEventListener('DOMContentLoaded',function(){
     root.addEventListener('click',function(e){
       var t=e.target;
       if(t.closest&&t.closest('[data-nat-zurueck]')){ curId=null; if(nat) nat.refresh(); return; }
+      var oc=t.closest&&t.closest('[data-nat-org]');
+      if(oc){ try{ if(window._wsHooks&&_wsHooks.setOrg) _wsHooks.setOrg(oc.getAttribute('data-nat-org')); }catch(e2){} if(nat) nat.refresh(); return; }
       var bk=t.closest&&t.closest('[data-nat-bucket]');
       if(bk){ curId=bk.getAttribute('data-nat-bucket'); if(nat) nat.refresh(); return; }
       var am=t.closest&&t.closest('[data-nat-addmod]');
