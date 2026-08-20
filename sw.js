@@ -1,5 +1,5 @@
 /* GEMA Service Worker — Offline Cache + Push Vorbereitung */
-var CACHE_NAME = 'gema-v490';
+var CACHE_NAME = 'gema-v491';
 var CACHE_FILES = [
   '/', '/index.html', '/sb_index.html',
   '/sa_enthaertung.html', '/sa_osmose.html', '/sa_fettabscheider.html',
@@ -23,7 +23,7 @@ var CACHE_FILES = [
   '/br_vkf_formulare.html', '/br_vkf_formular.html', '/br_gasloeschung.html', '/br_brandlast.html',
   '/el_index.html', '/el_angaben.html', '/el_spannungsfall.html', '/el_belastbarkeit.html', '/el_kurzschluss.html', '/el_leistungsbedarf.html', '/el_beleuchtung.html', '/el_photovoltaik.html', '/el_potenzialausgleich.html', '/el_poe.html', '/el_base.css', '/gema_elektro.js',
   '/if_fahrzeug.html', '/if_werkzeug.html', '/if_trocknung.html', '/if_wareneingang.html', '/if_arbeitskleider.html', '/iv_immobilien.html', '/sd_schadensbericht.html', '/sp_dachbericht.html',
-  '/pm_goodel.html', '/pm_schnellausschreibung.html', '/pm_crbx.html', '/pm_regierapport.html', '/pm_erp.html', '/pm_einsatzplan.html', '/pm_stunden.html', '/pm_bestellungen.html', '/pm_revisionsunterlagen.html', '/pm_behoerden_formulare.html', '/pm_plaene.html', '/pm_planablage.html', '/pm_pruefliste.html', '/pm_wirtschaftlichkeit.html',
+  '/pm_goodel.html', '/pm_schnellausschreibung.html', '/pm_crbx.html', '/pm_regierapport.html', '/pm_erp.html', '/pm_einsatzplan.html', '/pm_stunden.html', '/pm_bestellungen.html', '/pm_revisionsunterlagen.html', '/pm_behoerden_formulare.html', '/pm_plaene.html', '/pm_planablage.html', '/pm_pruefliste.html', '/pm_wirtschaftlichkeit.html', '/pm_machbarkeitsstudie.html', '/pm_lebensdauer.html',
   '/gema_sync.js', '/gema_auth.js', '/gema_db.js', '/gema_feedback.js', '/gema_autosave.js', '/gema_berechnungs_tabs.js',
   '/gema_objekte_api.js', '/gema_produktkatalog_api.js', '/gema_armaturen_api.js', '/gema_armaturen_picker.js', '/gema_rohrsysteme.js', '/gema_bestellungen_api.js', '/gema_bkp_katalog.js',
   '/gema_lu_api.js', '/gema_osmose_api.js', '/gema_offer_request.js', '/gema_offerten_tab.js',
@@ -31,7 +31,7 @@ var CACHE_FILES = [
   '/gema_coachmarks.js', '/gema_mobile_menu.js', '/gema_recent.js',
   '/gema_pwa.js', '/gema_print_a4.js', '/gema_sektion.js', '/gema_verknuepfung.js', '/gema_werte_katalog.js', '/gema_print.js', '/gema-native.css', '/gema-native.js', '/gema_native_mobil.js', '/gema_adresse.js', '/gema_erp_adressen.js', '/gema_erp_import.js', '/gema_pumpenkennlinie.js', '/gema_wpesti_daten.js', '/gema_zefix.js', '/gema_hoehe.js', '/gema_avatar.js', '/gema_dialog.js', '/gema_aushang.js', '/gema_dataselect.js',
   '/gema_qr_scanner.js', '/gema_nfc_scanner.js', '/gema_aktivitaetslog.js', '/gema_editlock.js', '/gema_fotoqueue.js',
-  '/gema_schaden_pdf.js', '/gema_dachbericht_pdf.js', '/gema_claude.js', '/gema_storage.js', '/gema_revision_pdf.js', '/gema_abo_api.js',
+  '/gema_schaden_pdf.js', '/gema_dachbericht_pdf.js', '/gema_claude.js', '/gema_storage.js', '/gema_revision_pdf.js', '/gema_abo_api.js', '/gema_lebensdauer_api.js',
   '/icon-192.svg', '/icon-512.svg', '/manifest.json'
 ];
 
