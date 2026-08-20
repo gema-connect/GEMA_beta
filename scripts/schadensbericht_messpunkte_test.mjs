@@ -219,14 +219,18 @@ console.log('— B) Bereichs-UI: Referenz-Karte + Add-Buttons + Gesamtübersicht
     return {
       hasBad: !!card,
       cardTxt: card ? card.textContent : '',
-      addFoto: card ? /sdTriggerPhotoUpload\('sd_ana','analyse',\d+\)/.test(card.innerHTML) : false,
+      // Feedback 20.08.2026: die Foto-Kachel ist GESPLITTET (oben Kamera,
+      // unten Mediathek) — der Aufruf traegt seither die Quelle als 4.
+      // Argument. Geprueft werden BEIDE Wege, nicht nur die Anwesenheit.
+      addFoto: card ? (/sdTriggerPhotoUpload\('sd_ana','analyse',\d+,'kamera'\)/.test(card.innerHTML)
+                    && /sdTriggerPhotoUpload\('sd_ana','analyse',\d+,'galerie'\)/.test(card.innerHTML)) : false,
       addMp: card ? /sdOpenMpAdd\('sd_ana','analyse',\d+\)/.test(card.innerHTML) : false,
       refPill: card ? card.querySelectorAll('.sd-ref-pill').length : -1
     };
   });
   ok(ana.hasBad, 'Bereichs-Karte «Bad» vorhanden');
   ok(ana.cardTxt.indexOf('140 Digits') >= 0 && ana.refPill >= 1, 'Referenzmessung (140) mit Badge im Bereich');
-  ok(ana.addFoto && ana.addMp, 'Add-Buttons (Foto + Messpunkt) hängen an der Bereichs-Karte (kein Dropdown)');
+  ok(ana.addFoto && ana.addMp, 'Add-Buttons (Foto Kamera+Mediathek, Messpunkt) hängen an der Bereichs-Karte (kein Dropdown)');
 
   // Trocknung: «Erste Messung ausstehend»-Pill + Gesamtübersicht-Chart, QR-Button
   await page.evaluate(() => { const s = window.schaeden.find(x => x.id === 'sd_ana'); sdAdvancePhase('sd_ana', 'trocknung'); });

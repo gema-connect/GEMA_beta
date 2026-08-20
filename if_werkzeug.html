@@ -5182,12 +5182,17 @@ function _wzNfcIdAus(ev){
 }
 function _wzScanWithNFC(){
   if(!('NDEFReader' in window)){
-    // iPhone/Desktop: kein Browser-NFC — Kamera ist der gleichwertige Weg
+    // iPhone/iPad/Desktop: kein Web-NFC IN der App. Der Tag ist deswegen
+    // nicht wertlos — iOS liest ihn im Hintergrund und öffnet die
+    // hinterlegte Adresse, man landet also direkt beim Werkzeug. Das wird
+    // hier erklärt, statt still auf die Kamera umzuschalten (der Nutzer hat
+    // NFC gewählt) — den QR-Weg bietet der Dialog als bewusste Wahl an.
     if(typeof GemaDialog!=='undefined'){
-      GemaDialog.alert({title:'NFC hier nicht verfügbar',
-        message:'Dieses Gerät/Browser unterstützt kein NFC-Lesen in der App (iPhone, Desktop). Auf dem iPhone genügt es, den Tag bei gesperrtem Bildschirm ans Gerät zu halten — die hinterlegte Adresse öffnet das Werkzeug direkt. Alternativ den QR-Code scannen.'});
-    }
-    _wzScanWithCamera();
+      GemaDialog.confirm({title:'📡 NFC-Tag direkt ans Gerät halten',
+        message:'Dieser Browser kann NFC nicht in der App lesen (iPhone/iPad, Desktop). Der Tag funktioniert trotzdem: Gerät entsperrt oder gesperrt an den Tag halten — die hinterlegte Adresse öffnet das Werkzeug direkt in GEMA.\n\nKein NFC-Tag am Werkzeug? Dann den aufgeklebten QR-Code scannen.',
+        confirmLabel:'📷 QR-Code scannen', cancelLabel:'Schliessen'})
+        .then(function(ok){ if(ok) _wzScanWithCamera(); });
+    } else { _wzScanWithCamera(); }
     return;
   }
   var gen=_wzScanNewSession();
@@ -7710,9 +7715,13 @@ try{
     if((istTouch||istPruefer)&&wrap){
       wrap.style.display='flex';
       if(heroScan)heroScan.style.display='inline-flex';
-      // NFC nur zeigen, wo der Browser es kann (Android/Chrome) — sonst
-      // wäre der Knopf eine Sackgasse.
-      if(heroNfc&&('NDEFReader' in window))heroNfc.style.display='inline-flex';
+      // NFC IMMER anbieten (Feedback 20.08.2026 «auch NFC soll möglich sein,
+      // dass man direkt zum Werkzeug gelangt»): auf iPhone/iPad gibt es kein
+      // Web-NFC IN der App — der Tag funktioniert dort trotzdem, iOS liest ihn
+      // im Hintergrund und öffnet die hinterlegte Adresse (= das Werkzeug).
+      // Ohne Knopf weiss das niemand; _wzScanWithNFC erklärt den Weg und
+      // bietet den QR-Scan an, statt in eine Sackgasse zu führen.
+      if(heroNfc)heroNfc.style.display='inline-flex';
     }
   }catch(e){}
   // Einmal pro Sitzung: Faelligkeits-Scan fuer Magaziner/Admin ausloesen
@@ -7918,7 +7927,7 @@ try{
         +'<div class="gn-toolbar">'
           +'<div class="gn-large-title"><h1>Werkzeug</h1><p>'+ts.length+' Geräte · '+pruef+' Prüfungen fällig</p></div>'          +'<button class="gn-icon-btn" data-nat-filter title="Erweiterte Filter"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M7 12h10M10 18h4"/></svg>'+(advN?'<span class="gn-dot">'+advN+'</span>':'')+'</button>'
           +'<button class="gn-icon-btn" data-nat-scan title="QR scannen"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h3v3M20 14v6M17 20h3"/></svg></button>'
-          +(('NDEFReader' in window)?'<button class="gn-icon-btn" data-nat-nfc title="NFC scannen"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8.5a7 7 0 0 0 0 7M9.5 10.5a3 3 0 0 0 0 3M14.5 13.5a3 3 0 0 0 0-3M18 15.5a7 7 0 0 0 0-7"/></svg></button>':'')
+          +('<button class="gn-icon-btn" data-nat-nfc title="NFC scannen"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8.5a7 7 0 0 0 0 7M9.5 10.5a3 3 0 0 0 0 3M14.5 13.5a3 3 0 0 0 0-3M18 15.5a7 7 0 0 0 0-7"/></svg></button>')
         +'</div>'
         +'<div class="gn-searchbar"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.1" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-3.6-3.6"/></svg><input data-nat-q placeholder="Gerät, Inv-Nr. oder Person" value="'+NE(nst.q)+'"></div>'
         +'<div class="gn-seg" data-nat-seg>'
