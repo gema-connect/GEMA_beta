@@ -52,6 +52,9 @@ function FakeDoc(){
   this.setFillColor=_rec('setFillColor'); this.setTextColor=_rec('setTextColor'); this.setDrawColor=_rec('setDrawColor');
   this.rect=_rec('rect');
   this.splitTextToSize=function(t){ return String(t==null?'':t).split('\\n'); };
+  // Nur grob — reicht, damit Wort-Trennung und Label-Messung wirklich laufen
+  this.getTextWidth=function(t){ return String(t==null?'':t).length*4.6; };
+  this.getFontSize=function(){ return 10; };
   this.addPage=function(){ window.__pdf.pages++; window.__pdf.calls.push({n:'addPage',a:[]}); return this; };
   this.setPage=function(p){ window.__pdf.page=p; window.__pdf.calls.push({n:'setPage',a:[p]}); return this; };
   this.autoTable=function(o){ window.__pdf.tables.push(o); this.lastAutoTable={finalY:300}; window.__pdf.calls.push({n:'autoTable',a:[o]}); return this; };
@@ -115,14 +118,25 @@ ok(!rects.some(r => r.a[1] === 0 && r.a[3] === 9), 'kein Primär→Sekundär-Far
 ok(out.calls.some(c => c.n === 'addImage' && String(c.a[1]) === 'JPEG' && c.a[2] > 400), 'Firmenlogo oben rechts eingebettet');
 
 const texte = out.calls.filter(c => c.n === 'text').map(c => String(c.a[0])).join(' | ');
-ok(/MUSTER HAUSTECHNIK AG/.test(texte), 'Firmenname als Eyebrow über dem Titel');
+// Darstellungsvorschlag 20.08.2026: grosser Titel + Norm-Zeile, KEIN
+// Versalien-Eyebrow mit dem Firmennamen mehr (die Firma steht im Logo,
+// in der Laufzeile und in der Fusszeile).
+ok(!/MUSTER HAUSTECHNIK AG/.test(texte), 'kein Versalien-Eyebrow mit dem Firmennamen mehr');
+ok(/Norm SIA 118/.test(texte), 'Norm-Zeile unter dem Titel');
 // Abschnitts-Titel: Klartext statt Versalien im gefüllten Band
 ok(/Prüfungs-Protokoll/.test(texte) && !/PRÜFUNGS-PROTOKOLL/.test(texte), 'Abschnitts-Titel «Prüfungs-Protokoll» als Text, nicht als Band');
+ok(/Projekt- und Vertragsangaben/.test(texte), 'Abschnitts-Titel «Projekt- und Vertragsangaben»');
+ok(/Bestätigung \/ Unterschriften/.test(texte), 'Abschnitts-Titel «Bestätigung / Unterschriften»');
 ok(/Mängel- & Pendenzenliste/.test(texte), 'Abschnitts-Titel «Mängel- & Pendenzenliste»');
 ok(!/UNTERSCHRIFTEN/.test(texte), 'kein Unterschriften-Band mehr (Spalten auf Seite 1)');
 ok(/Fortschritt: 0 \/ 1 erledigt \(0 %\)/.test(texte), 'Fortschritts-Kachel mit Prozentwert');
 ok(/Seite 1 \/ /.test(texte), 'Fusszeile mit Seitenzahl');
-ok(/Muster Haustechnik AG · Musterweg 4, 4000 Basel/.test(texte), 'Fusszeile nennt Firma + Adresse');
+ok(/Muster Haustechnik AG {2}\| {2}.*\(SIA 118\)/.test(texte), 'Fusszeile benennt Firma + Dokument');
+// BEWUSST invertiert (Darstellungsvorschlag 20.08.2026): die Fusszeile trägt
+// nur noch Firma | Dokument links und die Seitenzahl rechts. Die frühere
+// mittige Adresse kollidierte mit der langen linken Hälfte und steht ohnehin
+// vollständig oben in den Vertragsangaben.
+ok(!/Musterweg 4, 4000 Basel/.test(texte), 'Fusszeile ohne mittige Adresse (Vorschlag 20.08.2026)');
 ok(out.calls.filter(c => c.n === 'setPage').length >= 2, 'Kopf-/Fusszeile wird auf JEDE Seite gezogen');
 
 ok(out.tables.length >= 2, 'Checklisten- UND Mängel-Tabelle gezeichnet (' + out.tables.length + ')');
@@ -130,23 +144,36 @@ ok(out.tables.every(t => !t.alternateRowStyles), 'kein Zebra mehr — die Tabell
 ok(out.tables.every(t => !(t.headStyles.fillColor && t.headStyles.fillColor[0] === 29 && t.headStyles.fillColor[1] === 78 && t.headStyles.fillColor[2] === 216)),
    'kein hart codiertes Blau [29,78,216] mehr in den Tabellenköpfen');
 
-console.log('— Anordnung wie das gedruckte Formular —');
-// Unterschriften auf Seite 1: vier Spalten, VOR dem ersten addPage
+console.log('— Anordnung wie der Darstellungsvorschlag —');
+// Unterschriften auf Seite 1: vier ZENTRIERTE Spalten, VOR dem ersten addPage
 const bisSeite2 = out.calls.slice(0, out.calls.findIndex(c => c.n === 'addPage') + 1 || out.calls.length);
 const sigTxt = bisSeite2.filter(c => c.n === 'text').map(c => String(c.a[0]));
-['Der Unternehmer', 'Der Bauherr', 'Die Bauleitung', 'Die Fachbauleitung'].forEach(l =>
-  ok(sigTxt.indexOf(l) >= 0, 'Unterschriften-Spalte «' + l + '» auf Seite 1'));
-const sigX = bisSeite2.filter(c => c.n === 'text' && /^(Der|Die) /.test(String(c.a[0]))).map(c => c.a[1]);
-ok(new Set(sigX).size === 4 && Math.max(...sigX) > 300, 'die vier Unterschriften stehen NEBENEINANDER (x: ' + sigX.join(', ') + ')');
+const SIG_LBL = ['Unternehmer', 'Bauherr', 'Bauleitung', 'Fachbauleitung'];
+SIG_LBL.forEach(l => ok(sigTxt.indexOf(l) >= 0, 'Unterschriften-Spalte «' + l + '» auf Seite 1'));
+ok(!/Der Unternehmer|Die Bauleitung|Die Fachbauleitung/.test(texte),
+   'Rollen ohne «Der/Die» (Vorschlag — der Artikel liess die Spalte umbrechen)');
+// «Bauherr»/«Bauleitung»/«Unternehmer» stehen zusätzlich als Tabellen-Label
+// in den Vertragsangaben — die Unterschriften-Spalten erkennt man an der
+// Zentrierung (a[3].align), nicht am Text.
+const sigCalls = bisSeite2.filter(c => c.n === 'text' && SIG_LBL.indexOf(String(c.a[0])) >= 0 && c.a[3] && c.a[3].align === 'center');
+const sigX = sigCalls.map(c => c.a[1]);
+ok(new Set(sigX).size === 4 && Math.max(...sigX) > 400, 'die vier Unterschriften stehen NEBENEINANDER (x: ' + sigX.join(', ') + ')');
+ok(sigCalls.length === 4, 'die Spalten sind zentriert (Vorschlag)');
 ok(sigTxt.indexOf('Ort, Datum:') >= 0, 'Ort/Datum steht über den Unterschriften');
-// Kopfblock als Label/Wert-Raster: Labels an M, Werte an derselben x-Position
-const lblX = bisSeite2.filter(c => c.n === 'text' && /^(Bauobjekt|Bauherr|Bauleitung|Unternehmer|Arbeitsgattung):$/.test(String(c.a[0])));
-ok(lblX.length >= 5 && new Set(lblX.map(c => c.a[1])).size === 1, 'Beteiligte als Label-Spalte (sauber untereinander)');
-// Ankreuzzeile statt rohem Schlüsselwort
-ok(/Zutreffendes ankreuzen/.test(texte) && /unwesentliche Mängel/.test(texte), 'Ergebnis als Ankreuzzeile');
+/* Angaben als TABELLE (Vorschlag «Mehr Abstand / Darstellung anpassen»):
+   Label fett in der linken Spalte OHNE Doppelpunkt, Wert an fester
+   x-Position, jede Zeile mit Trennlinie darunter. */
+const lblX = bisSeite2.filter(c => c.n === 'text' && !c.a[3] && /^(Bauobjekt|Bauherr|Bauleitung|Unternehmer|Arbeitsgattung|Vertrag vom)$/.test(String(c.a[0])));
+ok(lblX.length >= 6 && new Set(lblX.map(c => c.a[1])).size === 1, 'Angaben als Label-Spalte (sauber untereinander)');
+ok(!/Bauobjekt:|Arbeitsgattung:/.test(texte), 'Tabellen-Labels tragen keinen Doppelpunkt mehr');
+const trennL = bisSeite2.filter(c => c.n === 'line' && c.a[0] === 40 && c.a[2] === 555 && c.a[1] === c.a[3]);
+ok(trennL.length >= 8, 'jede Angaben-Zeile hat eine Trennlinie (' + trennL.length + ')');
+// Ankreuzzeile statt rohem Schlüsselwort — jetzt IN der Tabellenzeile «Ergebnis»
+ok(/\| Ergebnis \|/.test('| ' + texte + ' |') && /unwesentliche Mängel/.test(texte), 'Ergebnis als eigene Tabellenzeile mit Ankreuzkästchen');
+ok(bisSeite2.some(c => c.n === 'rect' && c.a[2] === 9 && c.a[3] === 9), 'die Kästchen werden gezeichnet (jsPDF-Fonts sind latin1)');
 ok(!/Ergebnis: *unwesentliche/.test(texte), 'kein rohes «Ergebnis: unwesentliche» mehr');
 // Checkliste auf EIGENER Seite: zwischen Unterschriften und Checklisten-Tabelle liegt ein addPage
-const iSig = out.calls.findIndex(c => c.n === 'text' && String(c.a[0]) === 'Der Unternehmer');
+const iSig = out.calls.findIndex(c => c.n === 'text' && String(c.a[0]) === 'Unternehmer');
 const iChk = out.calls.findIndex(c => c.n === 'text' && /^Checkliste zur Kontrolle/.test(String(c.a[0])));
 ok(iSig >= 0 && iChk > iSig, 'Checkliste kommt NACH den Unterschriften');
 ok(out.calls.slice(iSig, iChk).some(c => c.n === 'addPage'), 'Checkliste steht auf einer eigenen Seite');
@@ -190,6 +217,8 @@ ok(/function _abBand/.test(src) && !/function _abCoverBar/.test(src), 'Abschnitt
 ok(!/pf\.secondary/.test(src), 'die Sekundärfarbe wird nicht mehr ausgewertet');
 ok(/function _abKopfFuss/.test(src), 'Kopf-/Fusszeile als Helfer');
 ok(/function _abMetaZeile/.test(src), 'Label/Wert-Raster als Helfer');
+ok(/function _abTabZeile/.test(src) && /function _abTitelBand/.test(src), 'Angaben-Tabelle + Sektions-Titel der Titelseite als Helfer');
+ok(/function _nurFirma/.test(src) && /function _abTrenn/.test(src), 'Firmenname-Kürzung + Wort-Trennung als Helfer');
 ok(/function _abBox/.test(src) && /latin1/.test(src), 'Ankreuzkästchen werden GEZEICHNET (jsPDF-Fonts sind latin1)');
 ok(/function _abThumb/.test(src) && /function _abFotoDataUrl/.test(src), 'Vorschaubild + EINE Foto-Auflösungskette als Helfer');
 ok(/didDrawCell:d=>\{[\s\S]{0,400}addImage/.test(src), 'das Vorschaubild wird in die Foto-Zelle gezeichnet');
