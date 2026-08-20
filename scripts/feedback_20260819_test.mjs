@@ -657,7 +657,9 @@ async function teilF(browser) {
     /function _abFachbauleitungSeed\(st\)/.test(src) && /fachbauleitung\/i\.test\(\(b&&b\.funktion\)\|\|''\)/.test(src));
   check('F0.2 Seed an allen 4 Protokoll-Erzeugungen (newProtocol, Scope-Boot, Reset, Boot)',
     (src.match(/_abFachbauleitungSeed\(/g) || []).length >= 5);
-  check('F0.3 Art.-158-Text normnah (Monatsfrist ab Vollendungsanzeige, Fiktion mit Fristablauf)',
+  // Der Art.-158-ZUSATZTEXT ist seit dem Nachtrag vom 20.08.2026 entfernt; die
+  // normnahe Formulierung lebt weiter im Tooltip des Kästchens im Kopf (F0.5).
+  check('F0.3 Art.-158-Wortlaut normnah (Monatsfrist ab Vollendungsanzeige, Fiktion mit Fristablauf)',
     src.indexOf('Monatsfrist seit Empfang der Vollendungsanzeige') >= 0
     && src.indexOf('mit Ablauf dieser Frist als abgenommen') >= 0
     && src.indexOf('einen Monat nach der Anzeige') < 0);
@@ -704,8 +706,10 @@ async function teilF(browser) {
   await page.waitForTimeout(200);
   const zus = await page.evaluate(() => document.getElementById('siaZusatz').textContent);
   check('F3.1 Ergebnis-Text: abgenommen mit dem Abschluss der Prüfung', zus.indexOf('Abschluss der Prüfung') >= 0, zus.slice(0, 160));
-  check('F3.2 Art.-158-Zusatz: Monatsfrist ab Vollendungsanzeige, Fiktion mit Fristablauf',
-    zus.indexOf('Monatsfrist seit Empfang der Vollendungsanzeige') >= 0 && zus.indexOf('mit Ablauf dieser Frist als abgenommen') >= 0);
+  // BEWUSST invertiert (Nachtrag 20.08.2026): der Art.-158-Abs.-2-Zusatztext ist
+  // ENTFERNT — angehaktes Kästchen ändert den Zusatzblock nicht mehr.
+  check('F3.2 Art.-158-Zusatztext entfernt (Nachtrag 20.08.2026), Kästchen bleibt',
+    zus.indexOf('Art. 158') < 0 && zus.indexOf('Monatsfrist') < 0, zus.slice(0, 160));
 
   // #1: neues Protokoll — Stammdaten-Übernahme bringt die Zeile mit → KEIN Duplikat
   await page.evaluate(() => { window._abState().abnahme.bauobjekt = 'EFH Test'; newProtocol(); });

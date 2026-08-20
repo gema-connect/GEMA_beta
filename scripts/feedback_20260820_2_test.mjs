@@ -204,19 +204,26 @@ ok(boxZeile.length === 3, 'die drei Ergebnis-Kästchen stehen auf EINER Zeile');
 const bx = boxZeile.map(c => c.a[0]).sort((a, b) => a - b);
 ok(bx[2] + 9 + 6 + 100 <= 556, 'auch das dritte Kästchen samt Beschriftung bleibt im Satzspiegel');
 
-console.log('\n— Kommentar 3: «Bitte Satz richtig schreiben» (SIA 158/161) —');
-ok(/Unterbleibt die gemeinsame Prüfung innert Monatsfrist seit Empfang der Vollendungsanzeige/.test(fliess),
-   'Art. 158 Abs. 2 als Norm-REGEL im Konditionalsatz');
-ok(/gilt das Werk mit Ablauf dieser Frist als abgenommen/.test(fliess), 'Art. 158 Abs. 2: Rechtsfolge korrekt benannt');
+console.log('\n— Kommentar 3: «Bitte Satz richtig schreiben, sonst heraus nehmen» (SIA 158/161) —');
+// Nachtrag vom 20.08.2026 (Marc Dischler): «diesen Text noch entfernen» — der
+// Kunde hat den zweiten Ast seines eigenen Kommentars gewählt. Der
+// Art.-158-Abs.-2-Zusatz erscheint darum GAR NICHT mehr im Protokoll; welcher
+// Artikel für die Prüfung gilt, steht weiterhin in der Zeile «Prüfung gemäss»
+// und im Tooltip des Kästchens im Kopf.
+ok(!/Zusatz nach SIA 118 Art\. 158/.test(alle), 'Art.-158-Abs.-2-Zusatz aus dem Protokoll entfernt');
+ok(!/Monatsfrist seit Empfang der Vollendungsanzeige/.test(fliess), 'auch der Normtext dazu erscheint nicht mehr');
+ok(/Prüfung gemäss/.test(alle) && /Art\. 158 Abs\. 2/.test(alle), 'welcher Artikel gilt, steht weiterhin in der Zeile «Prüfung gemäss»');
 ok(/Wird auf die Wiederholung der Prüfung verzichtet, gilt das Werk als abgenommen, sobald die gerügten wesentlichen Mängel behoben sind/.test(fliess),
    'Art. 161 Abs. 3 als Norm-REGEL im Konditionalsatz');
 ok(!/ist .{0,40}unterblieben —/.test(fliess) && !/wurde .{0,40}verzichtet —/.test(fliess),
    'keine Tatsachenbehauptung im Perfekt mit Gedankenstrich mehr');
 ok(!/Nach SIA 118:/.test(alle), 'kein eigener Block «Nach SIA 118:» mehr (Vorschlag: Fliesstext)');
 ok(!/• Zusatz nach SIA 118/.test(alle), 'keine Aufzählungspunkte mehr');
-// Der Zusatz-Text steht am Entscheid-Satz, nicht irgendwo darunter
+// Der verbliebene Zusatz-Text steht am Entscheid-Satz, nicht irgendwo darunter
 const iEnt = s1txt.findIndex(t => /Das Werk gilt als abgenommen/.test(t));
-const iZus = s1txt.findIndex(t => /Unterbleibt die gemeinsame Prüfung/.test(t));
+// Gesucht wird der ANFANG des Zusatz-Absatzes: der Satz selbst bricht um und
+// steht darum in keiner einzelnen text()-Zeile vollständig.
+const iZus = s1txt.findIndex(t => /Zusatz nach SIA 118 Art\. 161/.test(t));
 ok(iEnt >= 0 && iZus > iEnt && iZus - iEnt <= 6, 'die SIA-Erläuterung steht direkt unter dem Entscheid-Satz');
 
 console.log('\n— Kommentar 4: «Nur Unternehmername nicht gesamte Adresse» —');
@@ -320,6 +327,23 @@ ok(/Bestätigt 20\.08\.2026/.test(alle), 'Bestätigungs-Stempel je Spalte');
 const sigLine = seite1.filter(c => c.n === 'line' && Math.abs(c.a[2] - c.a[0] - 104) < 0.5);
 ok(sigLine.length === 4, 'vier gleich lange Unterschriftenlinien');
 ok(sigLine.every(c => c.a[2] <= 556 && c.a[0] >= 40), 'die Linien bleiben im Satzspiegel');
+
+console.log('\n— Seitenkopf: keine Doppellinie (Nachtrag 20.08.2026) —');
+/* Die Laufzeile zieht ihre Linie bei y=34 über die volle Satzbreite. Der
+   Abschnitts-Titel (_abBand) zog seine zuvor bei y-10 und landete damit rund
+   12 pt darunter — zwei parallele Striche im Kopf. Gemessen wird deshalb der
+   ABSTAND zwischen der Laufzeilen-Linie und jeder weiteren Volllinie derselben
+   Seite: darunter darf im Kopfbereich nichts mehr liegen. */
+const kopfLinien = out.calls.filter(c => c.n === 'line' && c.a[0] === 40 && c.a[2] === 555 && c.a[1] === c.a[3] && c.p > 1);
+const lauf = kopfLinien.filter(c => Math.abs(c.a[1] - 34) < 0.5);
+ok(lauf.length >= 1, 'Laufzeile ab Seite 2 mit ihrer Trennlinie (' + lauf.length + ')');
+const nahe = kopfLinien.filter(c => c.a[1] > 34.5 && c.a[1] < 60);
+ok(nahe.length === 0, 'keine zweite Volllinie dicht unter der Laufzeile' + (nahe.length ? ' (bei y=' + nahe.map(c => c.a[1]).join(', ') + ')' : ''));
+// … und der Abschnitts-Strich steht jetzt UNTER seinem Titel (wie _abTitelBand)
+const bandTitel = out.calls.filter(c => c.n === 'text' && c.p > 1 && /^(Mängel- & Pendenzenliste|Foto-Anhang|Anhang|Checkliste zur Kontrolle der Installationswände)$/.test(String(c.a[0])));
+ok(bandTitel.length >= 1, 'Abschnitts-Titel auf den Inhaltsseiten (' + bandTitel.length + ')');
+ok(bandTitel.every(t => kopfLinien.some(l => l.p === t.p && l.a[1] > t.a[2] && l.a[1] - t.a[2] < 10)),
+   'jeder Abschnitts-Titel trägt seine Linie DARUNTER');
 
 console.log('\n— Fusszeile —');
 ok(/Schmutz \+ Partner AG {2}\| {2}Werkprüfung \/ Schlussabnahme \(SIA 118\)/.test(alle), 'Fusszeile benennt Firma + Dokument');
