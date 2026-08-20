@@ -742,6 +742,78 @@
     };
   }
 
+  // KRITISCH #6 (Bugreport 19.08.2026, Workspace-Eimer «Lieferanten-Dashboard»):
+  // html2canvas rendert <iframe>-INHALTE grundsaetzlich NICHT — beim ins
+  // Eimer-iframe eingebetteten Dashboard (direktModul, ?embed=1) war der Snip
+  // damit fast komplett weiss. Same-origin-iframes werden deshalb NACH dem
+  // Parent-Render einzeln erfasst (ihr eigener sichtbarer Ausschnitt, mit
+  // eigenem Scroll-Stand) und an ihrer gemessenen Position ins Bild gelegt —
+  // Ziel-Koordinaten laufen ueber die Kalibrier-Messung (c._gfbCal), damit
+  // Versatz/Skalierung des Parent-Renders auch fuers Compositing gelten.
+  // Cross-origin-iframes bleiben aussen vor (contentDocument wirft) — dort
+  // bleibt der leere Rahmen; besser als gar kein Screenshot. Fehler pro
+  // iframe werden verschluckt (best effort, NIE ein Abbruch der Erfassung).
+  function _iframesCompositen(canvas, scale, ov) {
+    var jobs = [];
+    try {
+      var vw = w.innerWidth, vh = w.innerHeight;
+      var wurzel = ov || document;
+      Array.prototype.forEach.call(wurzel.querySelectorAll('iframe'), function (f) {
+        try {
+          var doc = f.contentDocument, win = f.contentWindow;
+          if (!doc || !doc.body || !win) return;              // cross-origin/leer
+          var r = f.getBoundingClientRect();
+          if (r.width < 8 || r.height < 8) return;
+          if (r.right <= 0 || r.bottom <= 0 || r.left >= vw || r.top >= vh) return;
+          var cs = getComputedStyle(f);
+          if (cs.display === 'none' || cs.visibility === 'hidden') return;
+          jobs.push({ f: f, doc: doc, win: win, r: r });
+        } catch (e) { /* cross-origin → ueberspringen */ }
+      });
+    } catch (e) { }
+    if (!jobs.length) return Promise.resolve(canvas);
+    var ctx;
+    try { ctx = canvas.getContext('2d'); } catch (e) { return Promise.resolve(canvas); }
+    // KRITISCH: html2canvas laesst seine scale/translate-Transform auf dem
+    // Kontext des gelieferten Canvas ZURUECK — ohne Reset zeichnete drawImage
+    // das iframe-Bild nochmals um `scale` skaliert und um den Scroll-Versatz
+    // verschoben (geometrisch gemessen: Ziel (75,180) landete bei (112,270)).
+    try { ctx.setTransform(1, 0, 0, 1, 0, 0); } catch (e) { }
+    var cal = canvas._gfbCal || null;
+    var sc = cal ? cal.sc : scale, offX = cal ? cal.offX : 0, offY = cal ? cal.offY : 0;
+    var kette = Promise.resolve();
+    jobs.forEach(function (j) {
+      kette = kette.then(function () {
+        // smooth-scroll auch IM iframe neutralisieren (dieselbe Familie wie
+        // _instantScroll — der Dokument-Klon scrollt sonst animiert und
+        // html2canvas laese die Positionen vom Dokument-Anfang)
+        var de = j.doc.documentElement, bo = j.doc.body;
+        var alt = [de.style.scrollBehavior, bo.style.scrollBehavior];
+        try { de.style.scrollBehavior = 'auto'; bo.style.scrollBehavior = 'auto'; } catch (e) { }
+        var sx = j.win.scrollX || 0, sy = j.win.scrollY || 0;
+        var restaur = function () {
+          try { de.style.scrollBehavior = alt[0] || ''; bo.style.scrollBehavior = alt[1] || ''; } catch (e) { }
+        };
+        return Promise.resolve(html2canvas(bo, {
+          x: sx, y: sy,
+          width: j.win.innerWidth, height: j.win.innerHeight,
+          scale: sc, logging: false, useCORS: true, allowTaint: true,
+          backgroundColor: '#ffffff',
+          onclone: _cloneInstantScroll(sx, sy)
+        })).then(function (fc) {
+          restaur();
+          try {
+            // Zielpunkt = Content-Box des iframes (clientLeft/Top = Rahmen)
+            ctx.drawImage(fc,
+              Math.round((j.r.left + (j.f.clientLeft || 0)) * sc + offX),
+              Math.round((j.r.top + (j.f.clientTop || 0)) * sc + offY));
+          } catch (e) { }
+        }, function () { restaur(); });
+      });
+    });
+    return kette.then(function () { return canvas; }, function () { return canvas; });
+  }
+
   function _captureViewport(scale) {
     var ov = _fullscreenOverlayEl();
     var lay = _calAn();
@@ -764,7 +836,8 @@
         var cal = _calMessen(c, scale);
         if (cal) { _calWeg(c, cal); c._gfbCal = cal; }
       } catch (e) { }
-      return c;
+      // NACH Messung/Marken-Entfernung: iframe-Inhalte einlegen (siehe #6)
+      return _iframesCompositen(c, scale, ov);
     }, function (e) { _calAus(lay); zurueck(); throw e; });
   }
 

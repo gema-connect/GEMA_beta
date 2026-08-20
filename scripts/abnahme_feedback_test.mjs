@@ -137,7 +137,9 @@ await page.check('#ergKeine');
 await page.waitForTimeout(200);
 let ez = await page.evaluate(() => ({ ent: window._abState().abnahme.entscheid, chk: document.getElementById('entAbgenommen').checked, zus: document.getElementById('siaZusatz').textContent }));
 ok(ez.ent === 'abgenommen' && ez.chk, 'Keine Mängel → Entscheid automatisch «abgenommen»');
-ok(ez.zus.indexOf('mängelfrei') >= 0, 'SIA-Zusatztext zum Ergebnis sichtbar');
+// Feedback 18.08.2026 (Marc Dischler): Texte normnah — abgenommen ist das Werk
+// mit dem ABSCHLUSS der Prüfung (nicht zirkulär «mit der Abnahme»).
+ok(ez.zus.indexOf('keine Mängel ergeben') >= 0 && ez.zus.indexOf('Abschluss der Prüfung') >= 0, 'SIA-Zusatztext zum Ergebnis normnah (Abschluss der Prüfung)');
 await page.check('#ergWes');
 await page.waitForTimeout(200);
 ez = await page.evaluate(() => ({ ent: window._abState().abnahme.entscheid, chk: document.getElementById('entZurueck').checked }));
@@ -147,7 +149,8 @@ await page.waitForTimeout(200);
 ok((await page.evaluate(() => window._abState().abnahme.entscheid)) === 'zurueckgestellt', 'Unwesentliche Mängel → Entscheid bleibt manuell (unverändert)');
 await page.check('#chkArt158');
 await page.waitForTimeout(150);
-ok((await page.evaluate(() => document.getElementById('siaZusatz').textContent)).indexOf('158') >= 0, 'Art. 158 Abs. 2 → Zusatztext unten ergänzt');
+const z158 = await page.evaluate(() => document.getElementById('siaZusatz').textContent);
+ok(z158.indexOf('158') >= 0 && z158.indexOf('Monatsfrist seit Empfang der Vollendungsanzeige') >= 0 && z158.indexOf('mit Ablauf dieser Frist als abgenommen') >= 0, 'Art. 158 Abs. 2 → Zusatztext normnah (Monatsfrist ab Vollendungsanzeige, 18.08.)');
 
 console.log('— Geprüft-Art im Titel: Installationselemente / Rohinstallation (#3) —');
 const gtOpts = await page.evaluate(() => Array.from(document.getElementById('geprueftTyp').options).map(o => o.value));
@@ -198,13 +201,14 @@ ok(await page.evaluate(() => window._abState().abnahme.entscheid === ''), 'Keine
 console.log('— Checkliste zur Kontrolle der Installationswände (#1) —');
 const cw = await page.evaluate(() => ({
   card: !!document.getElementById('chkWandCard'),
+  sichtbar: document.getElementById('chkWandCard').style.display !== 'none',
   open: document.getElementById('chkWandBody').style.display !== 'none',
   rows: document.querySelectorAll('#chkWandBody .cw-row').length,
   count: document.getElementById('chkWandCount').textContent,
   legende: (document.querySelector('#chkWandBody .cw-leg') || {}).textContent || '',
   firstRow: (document.querySelector('#chkWandBody .cw-row .cw-lbl') || {}).textContent || ''
 }));
-ok(cw.card && cw.rows === 11, 'Karte mit 11 Kontrollpunkten vorhanden');
+ok(cw.card && cw.sichtbar && cw.rows === 11, 'Karte sichtbar mit 11 Kontrollpunkten (Sichtprüfung)');
 ok(cw.open, 'bei Sichtprüfung automatisch aufgeklappt');
 ok(cw.count === '11 Punkte', 'Fortschritts-Chip zeigt «11 Punkte» (nichts beurteilt)');
 ok(cw.firstRow.indexOf('Raum- / Achsmasse') >= 0, 'erster Kontrollpunkt = Raum-/Achsmasse nach Plan');
@@ -241,8 +245,18 @@ const back = await page.evaluate(() => {
   return { art158: vis('ci_art158'), entAbg: vis('ci_entAbg'), sichtChk: vis('ci_sichtChk'), hinweis: vis('sichtHinweis'), lbl: document.getElementById('entLabel').textContent };
 });
 ok(back.art158 && back.entAbg && !back.sichtChk && !back.hinweis && back.lbl === 'Entscheid', 'Rückwechsel auf Werkprüfung stellt SIA-Elemente wieder her');
+// Feedback 18.08.2026 (Marc Dischler, #3): Checkliste NUR bei Sichtprüfung —
+// mit bereits beurteilten Punkten bleibt die Karte sichtbar (Bestandsschutz),
+// ohne verschwindet sie bei Werkprüfung/Schluss- UND Teilabnahme.
+ok(await page.evaluate(() => document.getElementById('chkWandCard').style.display !== 'none'), 'Rückwechsel MIT Beurteilung: Checklisten-Karte bleibt (Bestandsschutz)');
 await page.evaluate(() => { const st = window._abState(); st.abnahme.instwandChk = {}; st.abnahme.sichtCheckliste = false; st.abnahme.art158 = false; window._abRender(); });
 await page.waitForTimeout(150);
+ok(await page.evaluate(() => document.getElementById('chkWandCard').style.display === 'none'), 'Werkprüfung ohne Beurteilung: Checklisten-Karte ausgeblendet (18.08. #3)');
+await page.selectOption('#protoArt', 'teilabnahme');
+await page.waitForTimeout(200);
+ok(await page.evaluate(() => document.getElementById('chkWandCard').style.display === 'none'), 'Teilabnahme: Checklisten-Karte ausgeblendet');
+await page.selectOption('#protoArt', '');
+await page.waitForTimeout(200);
 
 console.log('— Unterschriften: Name/Vorname + Firma von oben —');
 await page.evaluate(() => { const st = window._abState(); st.abnahme.unternehmer = 'Muster Haustechnik AG, Basel'; st.abnahme.bauherr = 'Bauherr GmbH'; window._abRender(); });
@@ -321,16 +335,18 @@ await page.fill('#bo_gebaeude', 'EFH Muster');
 await page.fill('#bo_adresse', 'Musterweg 1');
 await page.fill('#bo_plzort', '4000 Basel');
 ok((await page.evaluate(() => window._abState().abnahme.bauobjekt)) === 'EFH Muster, Musterweg 1, 4000 Basel', 'Teile → zusammengesetztes Bauobjekt');
-await page.click('#wbAdd');
-await page.waitForTimeout(150);
-await page.fill('#wbList [data-wbf="funktion"]', 'Fachbauleitung');
-await page.fill('#wbList [data-wbf="name"]', 'F. Fach');
-await page.fill('#wbList [data-wbf="firma"]', 'Fach AG');
+// Feedback 18.08.2026 (Marc Dischler, #1): die Fachbauleitung ist bei NEUEN
+// Protokollen fix vorbelegt (eingeloggte Person + eigene Firma) — normal
+// editier- und löschbar; sie speist die Unterschriften-Vorbefüllung.
+const wbSeed = await page.evaluate(() => window._abState().abnahme.weitereBeteiligte || []);
+ok(wbSeed.length === 1 && /fachbauleitung/i.test(wbSeed[0].funktion || '') && wbSeed[0].name === 'User A' && wbSeed[0].firma === 'T AG', 'Fachbauleitung fix vorbelegt (User + eigene Firma, kein Duplikat)');
+const fbSig = await page.evaluate(() => ({ n: document.getElementById('sigFachbauleitungName').value, f: document.getElementById('sigFachbauleitungVisum').value }));
+ok(fbSig.n === 'User A' && fbSig.f === 'T AG', 'Fachbauleitung-Unterschrift aus der fixen Zeile vorbefüllt');
+// Die vorbelegte Zeile bleibt normal editierbar (Name/Unternehmen überschreibbar)
+await page.fill('#wbList [data-wb="0"] [data-wbf="name"]', 'F. Fach');
+await page.fill('#wbList [data-wb="0"] [data-wbf="firma"]', 'Fach AG');
 const wb = await page.evaluate(() => window._abState().abnahme.weitereBeteiligte[0]);
 ok(wb && wb.funktion === 'Fachbauleitung' && wb.name === 'F. Fach' && wb.firma === 'Fach AG', 'Weitere Beteiligte erfasst (Funktion/Name/Unternehmen)');
-await page.evaluate(() => window._abRender());
-const fbSig = await page.evaluate(() => ({ n: document.getElementById('sigFachbauleitungName').value, f: document.getElementById('sigFachbauleitungVisum').value }));
-ok(fbSig.n === 'F. Fach' && fbSig.f === 'Fach AG', 'Fachbauleitung-Unterschrift aus «Weitere Beteiligte» vorbefüllt');
 
 console.log('— Arbeitsgattung: NUR BKP-Hauptkapitel + eigene Eingabe —');
 const ag = await page.evaluate(() => Array.from(document.querySelectorAll('#arbeitsgattungSel option')).map(o => o.value));

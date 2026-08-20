@@ -459,7 +459,7 @@ canvas.sig{width:100%;height:150px;background:#fff;display:block;touch-action:no
           <!-- Feedback 04.08.2026 (Marc Dischler): welcher Artikel wofür
                steht, muss VOR dem Ankreuzen dastehen — darum die Bedeutung
                als zweite Zeile im Kästchen (nicht nur als Tooltip). -->
-          <label class="check-item art-item" id="ci_art158" title="SIA 118 Art. 158 Abs. 2 — erste Abnahmeprüfung: sie wurde trotz Anzeige des Unternehmers nicht fristgerecht durchgeführt; das Werk gilt einen Monat nach der Anzeige als abgenommen."><input type="checkbox" id="chkArt158"><span>Art. 158 Abs. 2<small>erste Abnahmeprüfung</small></span></label>
+          <label class="check-item art-item" id="ci_art158" title="SIA 118 Art. 158 Abs. 2 — erste Abnahmeprüfung: unterbleibt die gemeinsame Prüfung innert Monatsfrist seit Empfang der Vollendungsanzeige des Unternehmers, gilt das Werk mit Ablauf dieser Frist als abgenommen."><input type="checkbox" id="chkArt158"><span>Art. 158 Abs. 2<small>erste Abnahmeprüfung</small></span></label>
           <label class="check-item art-item" id="ci_art161" title="SIA 118 Art. 161 Abs. 3 — Nachprüfung nach Behebung wesentlicher Mängel: auf die Wiederholung der Prüfung wird verzichtet; das Werk gilt als abgenommen, sobald die gerügten Mängel behoben sind."><input type="checkbox" id="chkArt161"><span>Art. 161 Abs. 3<small>Nachprüfung nach Behebung wesentlicher Mängel</small></span></label>
         </div>
       </div>
@@ -1596,6 +1596,13 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     const body=$('chkWandBody'); if(!body) return;
     const vals=_chkWandVals();
     const n=AB_INSTWAND_CHECK.filter(p=>vals[p.id]).length;
+    // Feedback 18.08.2026 (Marc Dischler): Die Checkliste gehört zur
+    // SICHTPRÜFUNG — bei Werkprüfung/Schluss- und Teilabnahme erscheint die
+    // Karte gar nicht. Bestandsschutz: trägt ein Protokoll bereits
+    // Beurteilungen (Altbestand bzw. nachträglicher Art-Wechsel), bleibt die
+    // Karte sichtbar — erfasste Punkte dürfen nie unsichtbar im PDF landen.
+    const card=$('chkWandCard');
+    if(card) card.style.display=(_isSicht()||n>0)?'':'none';
     const cnt=$('chkWandCount'); if(cnt) cnt.textContent=n?(n+' / '+AB_INSTWAND_CHECK.length+' beurteilt'):(AB_INSTWAND_CHECK.length+' Punkte');
     const open=_chkWandIsOpen();
     body.style.display=open?'':'none';
@@ -1617,10 +1624,14 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     const out=[];
     if(_isSicht()) return out;   // Sichtprüfung: keine SIA-Abnahme-Texte (#6)
     const erg=state.abnahme.ergebnis;
-    if(erg==='keine') out.push('Das Werk ist mängelfrei geprüft — es gilt als abgenommen (SIA 118 Art. 159/160).');
-    if(erg==='unwesentliche') out.push('Unwesentliche Mängel: Das Werk gilt mit der Abnahme als abgenommen; die gerügten Mängel sind innert der angesetzten Frist gemäss Mängelliste zu beheben (SIA 118 Art. 160).');
+    // Feedback 18.08.2026 (Marc Dischler): Texte normnah — die Abnahme-Fiktion
+    // hängt an der Monatsfrist seit Empfang der Vollendungsanzeige (Art. 158
+    // Abs. 2), und abgenommen ist das Werk mit dem ABSCHLUSS der gemeinsamen
+    // Prüfung (nicht zirkulär «mit der Abnahme»).
+    if(erg==='keine') out.push('Die gemeinsame Prüfung hat keine Mängel ergeben — das Werk gilt mit dem Abschluss der Prüfung als abgenommen (SIA 118 Art. 159/160).');
+    if(erg==='unwesentliche') out.push('Unwesentliche Mängel: Das Werk gilt mit dem Abschluss der gemeinsamen Prüfung als abgenommen; die gerügten Mängel sind innert der angesetzten Frist gemäss Mängelliste zu beheben (SIA 118 Art. 160).');
     if(erg==='wesentliche') out.push('Wesentliche Mängel: Die Abnahme wird zurückgestellt; nach der Behebung der gerügten Mängel findet eine neue Prüfung statt (SIA 118 Art. 161).');
-    if(state.abnahme.art158) out.push('Zusatz nach SIA 118 Art. 158 Abs. 2: Die gemeinsame Prüfung wurde trotz Anzeige des Unternehmers nicht fristgerecht durchgeführt — das Werk gilt einen Monat nach der Anzeige als abgenommen.');
+    if(state.abnahme.art158) out.push('Zusatz nach SIA 118 Art. 158 Abs. 2: Die gemeinsame Prüfung ist innert Monatsfrist seit Empfang der Vollendungsanzeige des Unternehmers unterblieben — das Werk gilt mit Ablauf dieser Frist als abgenommen.');
     if(state.abnahme.art161) out.push('Zusatz nach SIA 118 Art. 161 Abs. 3: Auf eine Wiederholung der Prüfung wird verzichtet — das Werk gilt als abgenommen, sobald die gerügten wesentlichen Mängel behoben sind.');
     return out;
   }
@@ -2314,6 +2325,29 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     return null;
   }
 
+  // Feedback 18.08.2026 (Marc Dischler): «Fix anheften, wird immer durch uns
+  // erstellt in der Regel» — die Fachbauleitung ist praktisch immer die eigene
+  // Firma. Jedes NEUE Protokoll startet darum mit einer Fachbauleitungs-Zeile
+  // (eingeloggte Person + eigene Firma samt Adresse) in «Weitere Beteiligte»;
+  // sie bleibt normal editier- und löschbar und speist die bestehende
+  // Unterschriften-Vorbefüllung (Pad «Fachbauleitung»). Bringt die
+  // Stammdaten-Übernahme bereits eine Fachbauleitung mit, entsteht KEIN
+  // Duplikat; ohne aufgelöste Session wird nichts erfunden.
+  function _abFachbauleitungSeed(st){
+    try{
+      if(!st||!st.abnahme) return;
+      var wb=st.abnahme.weitereBeteiligte=st.abnahme.weitereBeteiligte||[];
+      if(wb.some(function(b){ return /fachbauleitung/i.test((b&&b.funktion)||''); })) return;
+      var u=(typeof GemaAuth!=='undefined'&&GemaAuth.getCurrentUser)?GemaAuth.getCurrentUser():null;
+      if(!u) return;
+      var o=(GemaAuth.getCurrentOrg&&GemaAuth.getCurrentOrg())||null;
+      var a=(o&&o.adresse)||{};
+      var adr=[a.strasse,[a.plz,a.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+      var firma=[(o&&o.name)||'',adr].filter(Boolean).join(', ');
+      wb.push({id:uid(),funktion:'Fachbauleitung',name:u.name||'',firma:firma});
+    }catch(e){}
+  }
+
   function newProtocol(){
     // Aktuelles Protokoll SYNCHRON snapshotten + sichern, bevor gewechselt wird
     _abSnapActive();
@@ -2323,6 +2357,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     var name='Protokoll '+nr;
     var p={id:uid(), name:name, createdAt:new Date().toISOString(), state:_defaultState()};
     var uebernommen=_abStammUebernehmen(p.state,quelle&&quelle.state);
+    _abFachbauleitungSeed(p.state);
     protocols.push(p);
     _abLockRelease();
     activeProtocolId=p.id;
@@ -2464,6 +2499,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
         // Speichern hochgeschrieben)
         protocols=[{id:uid(),name:'Protokoll 1',createdAt:new Date().toISOString(),state:_defaultState(),
           _scope:STORAGE_KEY,_oid:PROTO_OID}];
+        _abFachbauleitungSeed(protocols[0].state);
         activeProtocolId=protocols[0].id;
       }
       var act=protocols.find(function(p){return p.id===activeProtocolId;});
@@ -2942,6 +2978,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
   $safe('resetBtn').addEventListener('click',()=>{
     if(!confirm('Dieses Protokoll zurücksetzen? Alle Daten dieses Protokolls gehen verloren.'))return;
     state=_defaultState();
+    _abFachbauleitungSeed(state);
     var idx=protocols.findIndex(p=>p.id===activeProtocolId);
     if(idx>=0) protocols[idx].state=state;
     openItemId=null; persistAll(); render(); initSignatures(); toast('Reset.');
@@ -3499,6 +3536,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     }
     if(!protocols.length){
       protocols=[{id:uid(),name:'Protokoll 1',createdAt:new Date().toISOString(),state:_defaultState()}];
+      _abFachbauleitungSeed(protocols[0].state);
       activeProtocolId=protocols[0].id;
     }
     var active=protocols.find(function(p){return p.id===activeProtocolId;});

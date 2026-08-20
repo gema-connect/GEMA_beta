@@ -575,6 +575,10 @@ table.wpe-kenn .req{color:var(--red);font-weight:800}
 .g-card-hd{display:flex;align-items:center;gap:10px}
 .hint-box{background:var(--accent-bg);border:1.5px solid var(--accent-bd);border-radius:var(--r-sm);padding:10px 14px;font-size:12.5px;color:var(--accent-dk);line-height:1.5}
 .lbl-hint{font-size:10.5px;color:var(--muted2);font-weight:500;line-height:1.4}
+/* Anlagenschema: klickbare Chips fuehren zum Eingabefeld (Muster data-esziel) */
+#wpeSchemaHost [data-wpeziel]{cursor:pointer}
+.wpe-puls{animation:wpePuls 1.2s ease}
+@keyframes wpePuls{0%{box-shadow:0 0 0 0 rgba(14,116,144,.55)}100%{box-shadow:0 0 0 14px rgba(14,116,144,0)}}
 </style>
 
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -878,6 +882,15 @@ table.wpe-kenn .req{color:var(--red);font-weight:800}
         </div>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- 📐 ANLAGENSCHEMA — Standardschema aus den Eingaben (WPesti-Feedback 18.08.2026) -->
+<div class="g-card" style="margin-top:14px" id="wpeSchemaCard">
+  <div class="g-card-hd"><h2>📐 Anlagenschema (Standardschema)</h2></div>
+  <div class="g-card-bd">
+    <div id="wpeSchemaHost"></div>
+    <div class="lbl-hint" style="margin-top:6px">Prinzipschema aus den Eingaben — Wärmequelle, Betriebsweise, Speicher, Warmwasser und Solaranlage bestimmen den Aufbau (FWS-Standardschaltung). Beschriftungen sind klickbar und führen zum Eingabefeld; hydraulische Details (Ventile, Fühler, Sicherheitsarmaturen) gemäss Herstellerschema.</div>
   </div>
 </div>
 
@@ -2018,6 +2031,28 @@ function wpePaint(){
     else h2.style.display='none';
   }
   if(typeof window._wpeChartDraw==='function'){ try{ window._wpeChartDraw(_wpeLast); }catch(e){} }
+  if(typeof window._wpeSchemaDraw==='function'){ try{ window._wpeSchemaDraw(_wpeSchemaData()); }catch(e){} }
+}
+
+/* Payload fürs Anlagenschema — das Schema zeichnet auch OHNE Gebäudedaten
+   (die Anlagen-Konfiguration steht unabhängig von Klimastation/EBF). */
+function _wpeSchemaData(){
+  var r=_wpeLast;
+  return {
+    art: parseInt(_v('wpe_art'),10)||2,
+    einsatz: parseInt(_v('wpe_einsatz'),10)||4,
+    bw: parseInt(_v('wpe_bw'),10)||2,
+    speicher: parseInt(_v('wpe_speicher'),10)||3,
+    ladung: parseInt(_v('wpe_ladung'),10)||1,
+    wwz: parseInt(_v('wpe_wwz'),10)||2,
+    wwvert: parseInt(_v('wpe_wwvert'),10)||2,
+    solar: parseInt(_v('wpe_solar'),10)||1,
+    typ: _v('wpe_typ'),
+    tvl: _v('wpe_tvl'), trl: _v('wpe_trl'), tww: _v('wpe_tww'),
+    umschalt: _v('wpe_umschalt'), heizband: _v('wpe_heizband'),
+    anz: _v('wpe_anz'), laenge: _v('wpe_laenge'), solfl: _v('wpe_solfl'),
+    leistung: (r&&r.ok&&r.geb)? r.geb.vorschlag : null
+  };
 }
 
 // Recalc nach AutoSave-Restore (GemaAutoSave feuert change-Events pro Feld)
@@ -2094,6 +2129,231 @@ document.addEventListener('DOMContentLoaded',function(){ wpeArtChanged(); wpeRec
     host.innerHTML=s;
   };
   document.addEventListener('DOMContentLoaded', function(){ if(typeof window._wpeChartDraw==='function') window._wpeChartDraw(null); });
+})();
+</script>
+
+<!-- 📐 Anlagenschema (eigener Script-Block — Zugriff nur über window-Hook, Cross-Block-Regel; NUR literale Hex-Farben) -->
+<script>
+(function(){
+  var host = document.getElementById('wpeSchemaHost');
+  if(!host) return;
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+  // Farbkanon (literal — GemaPDF-Regel): VL rot, RL blau, Kaltwasser hellblau, WW orange,
+  // Sole/Erdreich grün, Luft cyan, Solar amber, Elektro violett, Kessel braun.
+  var C={vl:'#dc2626', rl:'#2563eb', kw:'#38bdf8', ww:'#ea580c', sole:'#16a34a', luft:'#0891b2',
+         gw:'#0284c7', sol:'#d97706', el:'#7c3aed', kessel:'#b45309',
+         box:'#334155', txt:'#0f172a', mut:'#64748b', flae:'#f8fafc', erde:'#f5efe0', erdeBd:'#d9cdb0'};
+  function L(x1,y1,x2,y2,f,w,dash){ return '<line x1="'+x1+'" y1="'+y1+'" x2="'+x2+'" y2="'+y2+'" stroke="'+f+'" stroke-width="'+(w||2.5)+'"'+(dash?' stroke-dasharray="'+dash+'"':'')+' stroke-linecap="round"/>'; }
+  function P(d,f,w,dash){ return '<path d="'+d+'" fill="none" stroke="'+f+'" stroke-width="'+(w||2.5)+'"'+(dash?' stroke-dasharray="'+dash+'"':'')+' stroke-linecap="round" stroke-linejoin="round"/>'; }
+  function box(x,y,w,h,fill,stroke,rx){ return '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="'+(rx==null?10:rx)+'" fill="'+(fill||'#ffffff')+'" stroke="'+(stroke||C.box)+'" stroke-width="2"/>'; }
+  // halo=true → weisser Text-Umriss (paint-order:stroke), damit Beschriftungen auf
+  // kreuzenden Leitungen lesbar bleiben (Muster Spanne-Text sb_zirkulation).
+  function txt(x,y,s,size,fill,anchor,weight,halo){ return '<text x="'+x+'" y="'+y+'" font-size="'+(size||11)+'" fill="'+(fill||C.txt)+'" text-anchor="'+(anchor||'middle')+'"'+(weight?' font-weight="'+weight+'"':'')+(halo?' stroke="#ffffff" stroke-width="4" paint-order="stroke" stroke-linejoin="round"':'')+'>'+esc(s)+'</text>'; }
+  function chip(x,y,s,ziel,anchor){
+    var w=Math.max(30, String(s).length*5.7+14), rx=(anchor==='start')?x:(anchor==='end'?x-w:x-w/2);
+    var g='<g'+(ziel?' data-wpeziel="'+ziel+'"':'')+'>'+(ziel?'<title>Zum Eingabefeld springen</title>':'');
+    g+='<rect x="'+rx.toFixed(1)+'" y="'+(y-9)+'" width="'+w.toFixed(1)+'" height="18" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>';
+    g+='<text x="'+(rx+w/2).toFixed(1)+'" y="'+(y+3.5)+'" font-size="10" fill="#334155" text-anchor="middle" font-weight="600">'+esc(s)+'</text></g>';
+    return g;
+  }
+  function pumpe(x,y,r){ r=r||9; return '<circle cx="'+x+'" cy="'+y+'" r="'+r+'" fill="#ffffff" stroke="'+C.box+'" stroke-width="1.8"/><path d="M'+(x-r*0.42)+' '+(y-r*0.52)+' L'+(x+r*0.62)+' '+y+' L'+(x-r*0.42)+' '+(y+r*0.52)+' Z" fill="'+C.box+'"/>'; }
+  function zick(x,y){ return P('M'+x+' '+y+' l5 -8 l6 16 l6 -16 l6 16 l6 -16 l6 16 l5 -8', C.el, 2.4); }
+  function flamme(x,y){ return '<path d="M'+x+' '+(y+9)+' C'+(x-6)+' '+(y+1)+' '+(x+2)+' '+(y-3)+' '+x+' '+(y-10)+' C'+(x+8)+' '+(y-3)+' '+(x+7)+' '+(y+6)+' '+x+' '+(y+9)+' Z" fill="#f59e0b" stroke="'+C.kessel+'" stroke-width="1.5"/>'; }
+  function speicherZyl(x,y,w,h,fill){ return box(x,y,w,h,fill||'#ffffff',C.box,Math.min(26,w/4)); }
+
+  window._wpeSchemaDraw = function(d){
+    if(!d){ host.innerHTML=''; return; }
+    var hz = (d.einsatz===2||d.einsatz===4||d.einsatz===5);
+    var ww = (d.einsatz===3||d.einsatz===4||d.einsatz===5);
+    var wwHaupt = (d.einsatz===3||d.einsatz===4);                 // WW über die Haupt-WP
+    var wwDezent = (d.einsatz===5);                               // dezentrale WW-WP
+    var kombi = hz && wwHaupt && d.speicher>=4;                   // Kombispeicher vereint beide Kreise
+    var puffer = hz && d.speicher>=3 && !kombi;                   // technischer Heizungs-Speicher
+    var solar = d.solar>1, solHz = (d.solar===5||d.solar===7);
+    var topPad = solar? 100 : 16;
+    var yWW = ww? topPad+74 : 0;
+    var yHz = hz? (ww? topPad+244 : topPad+130) : 0;
+    var yWP = (hz&&wwHaupt)? (yWW+yHz)/2 : (hz? yHz : yWW);
+    var H = (hz? yHz+112 : yWW+126);
+    var vx=445, rx2=412;                                           // VL-Steigachse / RL-Sammelachse
+    var spX=515, spW=130, spR=spX+spW;
+    var s='';
+
+    // ── Wärmequelle (links) ────────────────────────────────────────────────
+    var qName = d.art===3?'Erdsonde' : d.art===4?'Grundwasser' : d.art===5?'Erdkollektor' : 'Aussenluft';
+    var qFarb = d.art===2? C.luft : (d.art===4? C.gw : C.sole);
+    if(d.art===2){
+      s+='<circle cx="80" cy="'+yWP+'" r="26" fill="#ffffff" stroke="'+C.luft+'" stroke-width="2.2"/>';
+      for(var f=0; f<3; f++){ var a=f*120;
+        s+='<ellipse cx="80" cy="'+(yWP-13)+'" rx="6" ry="12" fill="'+C.luft+'" transform="rotate('+a+' 80 '+yWP+')"/>'; }
+      s+='<circle cx="80" cy="'+yWP+'" r="4" fill="'+C.box+'"/>';
+      s+=L(18,yWP-16,44,yWP-16,C.luft,2,'6 5')+L(12,yWP,44,yWP,C.luft,2,'6 5')+L(18,yWP+16,44,yWP+16,C.luft,2,'6 5');
+    } else {
+      var eT=yWP-14, eH2=H-eT-8;
+      s+='<rect x="14" y="'+eT+'" width="140" height="'+eH2+'" rx="6" fill="'+C.erde+'" stroke="'+C.erdeBd+'" stroke-width="1.5"/>';
+      s+=L(6,eT,162,eT,'#a16207',2.5);
+      if(d.art===3){
+        s+=P('M70 '+(eT+6)+' V'+(H-26)+' q0 10 10 10 q10 0 10 -10 V'+(eT+6), C.sole, 2.6);
+        var anzN=parseFloat(String(d.anz||'').replace(',','.')), lgN=parseFloat(String(d.laenge||'').replace(',','.'));
+        var sn=(anzN>0? String(d.anz).trim():'')+(lgN>0? (anzN>0?' × ':'')+String(d.laenge).trim()+' m':'');
+        if(sn) s+=chip(112, eT+30, sn, 'wpe_anz');
+      } else if(d.art===5){
+        s+=P('M28 '+(eT+22)+' H132 q10 0 10 9 t-10 9 H38 q-10 0 -10 9 t10 9 H132', C.sole, 2.6);
+      } else {
+        s+=box(52,eT+8,20,eH2-26,'#ffffff',C.gw,3)+box(102,eT+8,20,eH2-26,'#ffffff',C.gw,3);
+        s+=P('M55 '+(eT+26)+' q3 -3 6 0 t6 0', C.gw, 1.6)+P('M105 '+(eT+26)+' q3 -3 6 0 t6 0', C.gw, 1.6);
+        s+=P('M62 '+(eT+eH2-32)+' V'+(eT+38), C.gw, 2)+'<path d="M58 '+(eT+42)+' L62 '+(eT+34)+' L66 '+(eT+42)+' Z" fill="'+C.gw+'"/>';
+        s+=P('M112 '+(eT+38)+' V'+(eT+eH2-36), C.gw, 2)+'<path d="M108 '+(eT+eH2-40)+' L112 '+(eT+eH2-32)+' L116 '+(eT+eH2-40)+' Z" fill="'+C.gw+'"/>';
+      }
+    }
+    s+='<g data-wpeziel="wpe_art"><title>Wärmequelle wählen</title>'+txt(84, (d.art===2? yWP+48 : yWP+6), qName, 11.5, qFarb, 'middle', 700, true)+'</g>';
+    s+=L(d.art===2?106:154, yWP-10, 215, yWP-10, qFarb, 2.4)+L(d.art===2?106:154, yWP+10, 215, yWP+10, qFarb, 2.4, d.art===2?null:'7 5');
+
+    // ── Wärmepumpe ─────────────────────────────────────────────────────────
+    s+=box(215, yWP-48, 150, 96);
+    s+='<circle cx="243" cy="'+(yWP-18)+'" r="11" fill="#ffffff" stroke="'+C.box+'" stroke-width="1.8"/>'+P('M236 '+(yWP-22)+' l7 4 l-7 4', C.box, 1.8)+P('M250 '+(yWP-14)+' l-7 -4 l7 -4', C.box, 1.8);
+    s+=txt(298, yWP-14, 'Wärmepumpe', 12, C.txt, 'middle', 800);
+    var typKurz=(d.typ||'').trim(); if(typKurz.length>26) typKurz=typKurz.slice(0,25)+'…';
+    s+='<g data-wpeziel="'+(typKurz?'wpe_typ':'wpe_db_herst')+'"><title>'+(typKurz?'Hersteller / Typ':'Gerät aus der WP-Datenbank wählen')+'</title>'+txt(290, yWP+6, typKurz||'— Gerät wählen —', 10, typKurz?C.mut:'#94a3b8', 'middle')+'</g>';
+    if(d.leistung>0) s+=chip(290, yWP+28, d.leistung.toFixed(1).replace('.',',')+' kW Bedarf', null);
+
+    // ── Zusatzerzeuger (Betriebsweise) ────────────────────────────────────
+    if(d.bw===4||d.bw===5){
+      var ky=yWP+82;
+      if(ky+96>H) H=ky+96;
+      s+=box(240,ky,120,58,'#fff7ed',C.kessel);
+      s+=flamme(268,ky+29)+txt(312,ky+25,'Heizkessel',11,C.kessel,'middle',700);
+      s+='<g data-wpeziel="wpe_bw"><title>Betriebsweise wählen</title>'+txt(312,ky+42,(d.bw===4?'bivalent parallel':'bivalent alternativ'),9.5,C.mut,'middle')+'</g>';
+      s+=P('M360 '+(ky+16)+' H'+vx+' V'+(yWP-24), C.kessel, 2.2, '7 5');
+      var uv=String(d.umschalt==null?'':d.umschalt).trim();
+      if(uv) s+=chip(312, ky+72, 'Bivalenzpunkt '+uv+' °C', 'wpe_umschalt');
+    } else if(d.bw===3){
+      if(d.ladung===2){
+        s+=box(388,yWP-40,46,32,'#f5f3ff',C.el,7)+zick(392,yWP-24)+'<g data-wpeziel="wpe_ladung"><title>Elektro-Notheizung</title>'+txt(411,yWP+2,'El. Durchlauferhitzer',9,C.el,'middle',600)+'</g>';
+      } else {
+        s+='<g data-wpeziel="wpe_ladung"><title>Elektro-Notheizung</title>'+txt(290,yWP+66,'El. Notheizung'+(d.ladung===4?' (gesperrt bei Ladung)':d.ladung===3?' im Speicher':''),9.5,C.el,'middle',600)+'</g>';
+      }
+    }
+
+    // ── WP → Speicher (VL rot / RL blau; Kreuzungen wie im Prinzipschema üblich) ──
+    s+=L(365,yWP-24,vx,yWP-24,C.vl)+L(rx2,yWP+24,365,yWP+24,C.rl);
+    if(kombi){
+      s+=L(vx,yWP-24,vx,yWW-30,C.vl)+L(vx,yWW-30,spX,yWW-30,C.vl);
+      s+=L(spX,yHz+30,rx2,yHz+30,C.rl)+L(rx2,yHz+30,rx2,yWP+24,C.rl);
+    } else {
+      if(wwHaupt){ s+=L(vx,yWP-24,vx,yWW-30,C.vl)+L(vx,yWW-30,spX,yWW-30,C.vl)+L(spX,yWW+30,rx2,yWW+30,C.rl)+L(rx2,yWW+30,rx2,yWP+24,C.rl); }
+      if(hz){
+        if(puffer){ s+=L(vx,yWP-24,vx,yHz-30,C.vl)+L(vx,yHz-30,spX,yHz-30,C.vl)+L(spX,yHz+30,rx2,yHz+30,C.rl)+L(rx2,yHz+30,rx2,yWP+24,C.rl); }
+        else { s+=L(vx,yWP-24,vx,yHz-24,C.vl)+L(rx2,yHz+30,rx2,yWP+24,C.rl); }
+      }
+      if(wwHaupt&&hz){
+        s+='<path d="M'+(vx-8)+' '+(yWP-24)+' L'+vx+' '+(yWP-32)+' L'+(vx+8)+' '+(yWP-24)+' L'+vx+' '+(yWP-16)+' Z" fill="#ffffff" stroke="'+C.box+'" stroke-width="1.8"/>';
+        s+=txt(vx,yWP-40,'Umschaltventil',9,C.mut,'middle',600,true);
+      }
+    }
+
+    // ── Speicher ───────────────────────────────────────────────────────────
+    var spLbl = d.speicher===4?'Kombispeicher (Stasch)': d.speicher===5?'Kombispeicher — 1 WP-Rücklauf': d.speicher===6?'Kombispeicher — 2 WP-Rücklauf': d.speicher===3?'Heizungs-Speicher':'ohne Heizungs-Speicher';
+    if(kombi){
+      var kT=topPad+16, kB=yHz+58;
+      s+=speicherZyl(spX,kT,spW,kB-kT);
+      s+='<rect x="'+(spX+6)+'" y="'+(kT+6)+'" width="'+(spW-12)+'" height="'+(yWW+28-kT)+'" rx="18" fill="#fff7ed" stroke="none"/>';
+      s+=L(spX+6,yWW+34,spR-6,yWW+34,'#cbd5e1',1.5,'5 4');
+      s+=txt(spX+spW/2, kT+26, 'WW', 10.5, C.ww, 'middle', 800)+txt(spX+spW/2, yHz, 'Heizung', 10.5, C.vl, 'middle', 800);
+      s+='<g data-wpeziel="wpe_speicher"><title>Speicherladung wählen</title>'+txt(spX+spW/2, kB+16, spLbl, 10, C.mut, 'middle', 700, true)+'</g>';
+      if(d.bw===3&&(d.ladung===3||d.ladung===4)) s+=zick(spX+spW/2-20, yHz-44);
+    } else {
+      if(wwHaupt){ s+=speicherZyl(spX,yWW-58,spW,116,'#fffdf9')+txt(spX+spW/2, yWW-40, 'WW-Speicher', 10.5, C.ww, 'middle', 800); }
+      if(puffer){
+        s+=speicherZyl(spX,yHz-58,spW,116);
+        s+='<g data-wpeziel="wpe_speicher"><title>Speicherladung wählen</title>'+txt(spX+spW/2, yHz-40, 'Heizungs-Speicher', 10.5, C.txt, 'middle', 800)+'</g>';
+        if(d.bw===3&&(d.ladung===3||d.ladung===4)) s+=zick(spX+spW/2-20, yHz+30);
+      } else if(hz){
+        s+='<g data-wpeziel="wpe_speicher"><title>Speicherladung wählen</title>'+txt(vx+16, yHz+52, spLbl+' — direkte Verteilung', 9.5, C.mut, 'start')+'</g>';
+      }
+    }
+
+    // ── Dezentrale WW-WP (Einsatz 5) ───────────────────────────────────────
+    if(wwDezent){
+      s+=speicherZyl(spX,yWW-58,spW,116,'#fffdf9')+txt(spX+spW/2, yWW-40, 'WW-Speicher', 10.5, C.ww, 'middle', 800);
+      s+=box(388,yWW-26,104,52,'#ffffff',C.box,8);
+      s+='<g data-wpeziel="wpe_einsatz"><title>Einsatz wählen</title>'+txt(440,yWW-6,'WW-Wärmepumpe',9.5,C.txt,'middle',700)+txt(440,yWW+8,'dezentral · Umgebungsluft',8.5,C.mut,'middle')+'</g>';
+      s+=L(492,yWW-12,spX,yWW-12,C.vl,2.2)+L(spX,yWW+16,492,yWW+16,C.rl,2.2);
+    }
+
+    // ── Abnehmer: Warmwasser ──────────────────────────────────────────────
+    if(ww){
+      s+=L(spR,yWW-34,880,yWW-34,C.ww,2.6);
+      s+=P('M880 '+(yWW-34)+' V'+(yWW-52)+' H902 V'+(yWW-44), C.ww, 2.6);
+      s+='<circle cx="902" cy="'+(yWW-36)+'" r="2.6" fill="'+C.kw+'"/><circle cx="902" cy="'+(yWW-27)+'" r="2.2" fill="'+C.kw+'"/>';
+      var twwS=(String(d.tww||'').trim()!==''? String(d.tww).trim()+' °C' : 'Temp. wählen');
+      s+=chip(820, yWW-58, 'WW '+twwS, 'wpe_tww');
+      s+='<g data-wpeziel="wpe_einsatz"><title>Einsatz</title>'+txt(902, yWW-10, 'Warmwasser', 10, C.ww, 'middle', 700)+'</g>';
+      // Kaltwasser-Zulauf: beim Kombispeicher unten in die Mitte (Label trägt darum
+      // einen Halo), sonst RECHTS an den Speichern vorbei — die frühere Route bei
+      // spX+26 durchquerte den Heizungs-Speicher bzw. die «direkte Verteilung»-Zeile.
+      if(kombi){
+        s+=L(spX+26, H-8, spX+26, yHz+58, C.kw, 2.4)+txt(spX+34, H-12, 'Kaltwasser', 9, C.gw, 'start');
+      } else {
+        s+=P('M680 '+(H-8)+' V'+(yWW+46)+' H'+spR, C.kw, 2.4)+txt(688, H-12, 'Kaltwasser', 9, C.gw, 'start');
+      }
+      // WW-Zusatzheizung / Legionellenschaltung
+      if(d.wwz===3||d.wwz===4){
+        s+=zick(spX+spW/2-20, kombi? yWW+4 : yWW+16);
+        s+='<g data-wpeziel="wpe_wwz"><title>WW-Zusatzheizung</title>'+txt(spR+10, kombi? yWW+8 : yWW+20, (d.wwz===3?'El. Einsatz parallel':'El. Einsatz Nachwärmung'), 9, C.el, 'start', 600)+'</g>';
+      } else if(d.wwz===5||d.wwz===6){
+        s+=chip(spR+14, kombi? yWW+8 : yWW+20, (d.wwz===5?'Legionellenschaltung täglich':'Legionellenschaltung wöchentlich'), 'wpe_wwz', 'start');
+      }
+      // Zirkulation / Begleitheizband
+      if(d.wwvert===3){
+        s+=P('M872 '+(yWW-34)+' V'+(yWW-14)+' H'+(spR+2), C.ww, 1.6)+pumpe(770, yWW-14, 7);
+        s+='<g data-wpeziel="wpe_wwvert"><title>WW-Verteilung</title>'+txt(716, yWW-4, 'Zirkulation', 9, C.mut, 'middle', 600)+'</g>';
+      } else if(d.wwvert===4){
+        s+=L(spR+10, yWW-26, 872, yWW-26, C.el, 1.8, '5 4');
+        var hb=(String(d.heizband||'').trim()!==''? ' '+String(d.heizband).trim()+' m':'');
+        s+='<g data-wpeziel="wpe_heizband"><title>Begleitheizband</title>'+txt(748, yWW-14, 'Begleitheizband'+hb, 9, C.el, 'middle', 600)+'</g>';
+      }
+    }
+
+    // ── Abnehmer: Heizverteilung ──────────────────────────────────────────
+    if(hz){
+      var hqx = (kombi||puffer)? spR : vx;
+      s+=L(hqx,yHz-24,828,yHz-24,C.vl)+pumpe((hqx+828)/2, yHz-24)+L(828,yHz+30,(kombi||puffer)? spR : rx2,yHz+30,C.rl);
+      s+=box(828,yHz-38,64,82,'#ffffff',C.box,5);
+      for(var hl=1; hl<5; hl++) s+=L(828+hl*13,yHz-30,828+hl*13,yHz+36,'#cbd5e1',1.6);
+      s+='<g data-wpeziel="wpe_einsatz"><title>Einsatz</title>'+txt(860, yHz+60, 'Heizverteilung', 10, C.txt, 'middle', 700)+'</g>';
+      var tvlS=(String(d.tvl||'').trim()!==''? 'VL '+String(d.tvl).trim()+' °C' : 'VL wählen');
+      var trlS=(String(d.trl||'').trim()!==''? 'RL '+String(d.trl).trim()+' °C' : 'RL wählen');
+      s+=chip(760, yHz-44, tvlS, 'wpe_tvl')+chip(760, yHz+50, trlS, 'wpe_trl');
+    }
+
+    // ── Solaranlage ────────────────────────────────────────────────────────
+    if(solar){
+      s+='<polygon points="470,64 496,16 636,16 610,64" fill="#fffbeb" stroke="'+C.sol+'" stroke-width="2.2"/>';
+      for(var sl=1; sl<5; sl++){ var sx0=470+sl*28; s+=L(sx0+13,64,sx0+26,16,C.sol,1.2); }
+      var solLbl=(solHz?'Solar — WW + Heizung':'Solar — Warmwasser')+(d.solar>=6?' (extern)':' (MINERGIE)');
+      s+='<g data-wpeziel="wpe_solar"><title>Solaranlage wählen</title>'+txt(553, 10, solLbl, 10, C.sol, 'middle', 700)+'</g>';
+      var solZielY = kombi? topPad+30 : (ww? yWW-52 : (hz? yHz-52 : 80));
+      s+=P('M553 64 V'+solZielY, C.sol, 2.2, '7 5');
+      if(solHz&&!kombi&&puffer) s+=P('M578 40 H676 V'+(yHz-44)+' H'+spR, C.sol, 2.2, '7 5');
+      var sf=(String(d.solfl||'').trim()!==''? String(d.solfl).trim()+' m²':'');
+      if(sf) s+=chip(664, 24, sf, 'wpe_solfl', 'start');
+    }
+
+    host.innerHTML='<svg viewBox="0 0 960 '+H+'" style="width:100%;height:auto;display:block" xmlns="http://www.w3.org/2000/svg">'+s+'</svg>';
+  };
+
+  // Chip-Klick → Eingabefeld (Muster data-esziel in sa_enthaertung)
+  host.addEventListener('click', function(ev){
+    var el = ev.target && ev.target.closest ? ev.target.closest('[data-wpeziel]') : null;
+    if(!el) return;
+    var ziel = document.getElementById(el.getAttribute('data-wpeziel'));
+    if(!ziel) return;
+    var fg = ziel.closest ? (ziel.closest('.fg')||ziel) : ziel;
+    try{ fg.scrollIntoView({behavior:'smooth', block:'center'}); }catch(e){ fg.scrollIntoView(); }
+    try{ ziel.focus({preventScroll:true}); }catch(e2){}
+    fg.classList.remove('wpe-puls'); void fg.offsetWidth; fg.classList.add('wpe-puls');
+  });
 })();
 </script>
 
