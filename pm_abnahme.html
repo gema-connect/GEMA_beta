@@ -3915,6 +3915,54 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       })||null;
     }catch(err){return null;}
   }
+  // ── Externe Übergabe (20.08.2026): Konto-Auflösung über die E-Mail ──
+  // abFindUserByEmail (oben) matcht profile.email ODER username und lässt
+  // deaktivierte Konten weg — die Extern-Prüfung braucht BEIDE Felder einzeln
+  // (ein Konto kann unter dem Login-Namen bekannt sein, obwohl im Profil eine
+  // andere Mail steht) und auch deaktivierte Konten, damit die Meldung «Konto
+  // deaktiviert» heisst statt irreführend «kein Konto».
+  function abFindUserByEmailAlle(email){
+    try{
+      var e=String(email||'').toLowerCase();if(!e)return null;
+      return (GemaAuth.getUsers()||[]).find(function(x){
+        return String((x.profile&&x.profile.email)||'').toLowerCase()===e
+            || String(x.username||'').toLowerCase()===e;
+      })||null;
+    }catch(err){return null;}
+  }
+  function abOrgNameOf(orgId){
+    try{var o=(GemaAuth.getOrgs()||[]).find(function(x){return x.id===orgId;});return (o&&o.name)||'';}catch(e){return '';}
+  }
+  function abRoleNameOf(x){
+    try{
+      var id=((x&&x.roleIds)||[])[0];if(!id)return '';
+      var r=(GemaAuth.getRoles()||[]).find(function(rr){return rr.id===id;});
+      return (r&&r.name)||'';
+    }catch(e){return '';}
+  }
+  // Kann dieses Konto die Abnahme-Seite überhaupt öffnen? Reine UI-Vorprüfung
+  // vor der Übergabe (Defense-in-Depth — die echte Autorisierung bleibt die
+  // Permission-Matrix beim Öffnen der Seite): role_admin immer, sonst genügt
+  // EINE Rolle mit read auf abnahme_sia (role_unternehmer hat read+write ab
+  // Werk). Sind die Rollen (noch) nicht auflösbar, wird NIE geblockt
+  // (fail-open) — sonst hinge die Übergabe am Lade-Timing des Rollen-Pools.
+  function abKannAbnahmeLesen(x){
+    try{
+      var ids=(x&&x.roleIds)||[];
+      if(ids.indexOf('role_admin')>=0)return true;
+      var roles=GemaAuth.getRoles()||[];if(!roles.length)return true;
+      var mine=roles.filter(function(r){return ids.indexOf(r.id)>=0;});
+      if(!mine.length)return true;                       // Rollen nicht im Pool → nicht raten
+      return mine.some(function(r){var p=r.permissions&&r.permissions.abnahme_sia;return !!(p&&p.read);});
+    }catch(e){return true;}
+  }
+  function abMeineMails(){
+    var u=abUser();if(!u)return [];
+    var out=[];[u.username,(u.profile&&u.profile.email)].forEach(function(v){
+      var e=String(v||'').toLowerCase();if(e&&out.indexOf(e)<0)out.push(e);
+    });
+    return out;
+  }
 
   // ── Gewerk-Logik: welche Beteiligten machen an DIESER Abnahme Sinn? ──
   var AB_GEWERKE=[['sanitaer','💧 Sanitär'],['heizung','🔥 Heizung'],['lueftung','💨 Lüftung'],['elektro','⚡ Elektro'],['spenglerei','🔨 Spenglerei / Dach'],['allgemein','🏗 Allgemein (alle)']];
@@ -4112,7 +4160,21 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       link:'pm_abnahme.html?objekt='+(ml.objektId||'')});
     abRenderTasks();toast('✓ An '+((ml.verantwortlich&&ml.verantwortlich.name)||'Verantwortlichen')+' gemeldet');
   };
+  // Kontrollieren (zurückweisen/freigeben/erneute Abnahme) darf NUR die
+  // verantwortliche Seite — die abarbeitende Person NIE, auch nicht per
+  // direktem Konsolen-Aufruf (Defense-in-Depth; die Kontrolle-Karte rendert
+  // für sie ohnehin nicht). «Abarbeitende Person» matcht wie das Panel über
+  // userId ODER E-Mail.
+  function abMlDarfKontrollieren(ml){
+    var u=abUser();if(!u||!ml)return false;
+    if(ml.monteurUserId===u.id)return false;
+    var mails=abMeineMails();
+    if(ml.monteurEmail&&mails.indexOf(String(ml.monteurEmail).toLowerCase())>=0)return false;
+    return (ml.verantwortlich&&ml.verantwortlich.userId)===u.id||ml.orgId===u.orgId;
+  }
   window.abMlZurueckweisen=function(mlId,itemId){
+    var _ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});
+    if(!abMlDarfKontrollieren(_ml)){toast('⚠ Nur die verantwortliche Seite kann kontrollieren');return;}
     GemaDialog.prompt({title:'Punkt zurückweisen — Begründung',placeholder:'z.B. Silikonfuge weiterhin undicht'}).then(function(v){
       if(v===null)return;
       var ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});if(!ml)return;
@@ -4126,6 +4188,8 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     });
   };
   window.abMlFreigeben=function(mlId){
+    var _ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});
+    if(!abMlDarfKontrollieren(_ml)){toast('⚠ Nur die verantwortliche Seite kann kontrollieren');return;}
     GemaDialog.confirm({title:'Mängelbehebung freigeben',message:'Alle Punkte akzeptieren und als erledigt ins Protokoll übernehmen?',confirmLabel:'Freigeben'}).then(function(ok){
       if(!ok)return;
       var ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});if(!ml)return;
@@ -4162,6 +4226,8 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     });
   };
   window.abMlErneutAbnahme=function(mlId){
+    var _ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});
+    if(!abMlDarfKontrollieren(_ml)){toast('⚠ Nur die verantwortliche Seite kann kontrollieren');return;}
     GemaDialog.confirm({title:'Erneute Abnahme vor Ort',message:'Mängelliste abschliessen und eine erneute Abnahme vor Ort vormerken? (Dazu ein neues Protokoll erstellen — «+ Neu» oben.)',confirmLabel:'Vormerken'}).then(function(ok){
       if(!ok)return;
       var ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});if(!ml)return;
@@ -4194,11 +4260,16 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
             +'<button class="act-btn" onclick="abFrgEntscheid(\''+r.id+'\',false)">✕ Ablehnen</button></span></div>';
         }).join('')+'</div></div>';
     }
-    // 2) Meine Mängellisten (Monteur)
-    var meineMl=abPoolRead(ML_POOL).filter(function(r){return r.monteurUserId===u.id&&(r.status==='offen');});
+    // 2) Meine Mängellisten (Monteur ODER externe Person) — Zuweisung matcht
+    // über die userId UND zusätzlich über die E-Mail (externe Übergaben: die
+    // E-Mail ist der stabile Anker, falls das Konto neu angelegt/gemergt wurde).
+    var mails=abMeineMails();
+    var istMeineMl=function(r){return r.monteurUserId===u.id||(r.monteurEmail&&mails.indexOf(String(r.monteurEmail).toLowerCase())>=0);};
+    var meineMl=abPoolRead(ML_POOL).filter(function(r){return istMeineMl(r)&&(r.status==='offen');});
     meineMl.forEach(function(ml){
       var items=ml.items||[];var done=items.filter(function(x){return x.status==='erledigt';}).length;
-      h+='<div class="card" style="margin-bottom:14px;border-color:#93c5fd"><div class="card-hd"><div class="card-hd-ic">📋</div><div><div class="card-hd-title">Mängelliste — '+esc(ml.objektName||'')+'</div><div class="card-hd-sub">'+esc(ml.protoName||'')+' · von '+esc((ml.verantwortlich&&ml.verantwortlich.name)||'')+' · '+done+'/'+items.length+' erledigt</div></div></div><div class="card-body">'
+      var vonWem=esc((ml.verantwortlich&&ml.verantwortlich.name)||'')+((ml.verantwortlich&&ml.verantwortlich.firma)?' ('+esc(ml.verantwortlich.firma)+')':'');
+      h+='<div class="card" style="margin-bottom:14px;border-color:#93c5fd"><div class="card-hd"><div class="card-hd-ic">📋</div><div><div class="card-hd-title">Mängelliste — '+esc(ml.objektName||'')+'</div><div class="card-hd-sub">'+esc(ml.protoName||'')+' · von '+vonWem+' · '+done+'/'+items.length+' erledigt</div></div></div><div class="card-body">'
         +items.map(function(it){
           var zg=it.status==='zurueckgewiesen';
           return '<div style="padding:9px 2px;border-bottom:1px solid var(--brd)'+(zg?';background:#fef2f2':'')+'">'
@@ -4216,11 +4287,15 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
         +'<button class="act-btn primary" style="margin-top:10px;width:100%" onclick="abMlFertigmelden(\''+ml.id+'\')">✓ Alle abgearbeitet — an '+esc((ml.verantwortlich&&ml.verantwortlich.name)||'Verantwortlichen')+' melden</button>'
         +'</div></div>';
     });
-    // 3) Kontrolle durch den Verantwortlichen
-    var kontrolle=abPoolRead(ML_POOL).filter(function(r){return r.status==='abgearbeitet'&&((r.verantwortlich&&r.verantwortlich.userId)===u.id||r.orgId===u.orgId);});
+    // 3) Kontrolle durch den Verantwortlichen — NIE durch die abarbeitende
+    // Person selbst (externe Übergabe: der Unternehmer arbeitet nur ab,
+    // kontrolliert wird beim Fachplaner). Filter = derselbe Guard wie die
+    // Aktionen (abMlDarfKontrollieren, eine Wahrheit).
+    var kontrolle=abPoolRead(ML_POOL).filter(function(r){return r.status==='abgearbeitet'&&abMlDarfKontrollieren(r);});
     kontrolle.forEach(function(ml){
       var items=ml.items||[];
-      h+='<div class="card" style="margin-bottom:14px;border-color:#86efac"><div class="card-hd"><div class="card-hd-ic">🔎</div><div><div class="card-hd-title">Zur Kontrolle — '+esc(ml.objektName||'')+'</div><div class="card-hd-sub">'+esc(ml.monteurName||'')+' hat alle '+items.length+' Punkte abgearbeitet</div></div></div><div class="card-body">'
+      var werHat=esc(ml.monteurName||'')+(ml.monteurFirma?' ('+esc(ml.monteurFirma)+')':'')+(ml.extern?' · ✉️ extern':'');
+      h+='<div class="card" style="margin-bottom:14px;border-color:#86efac"><div class="card-hd"><div class="card-hd-ic">🔎</div><div><div class="card-hd-title">Zur Kontrolle — '+esc(ml.objektName||'')+'</div><div class="card-hd-sub">'+werHat+' hat alle '+items.length+' Punkte abgearbeitet</div></div></div><div class="card-body">'
         +items.map(function(it){
           return '<div style="display:flex;align-items:flex-start;gap:9px;padding:9px 2px;border-bottom:1px solid var(--brd);flex-wrap:wrap">'
             +'<div style="flex:1;min-width:180px"><b style="font-size:13.5px">'+esc(it.ort||'—')+'</b> <span style="font-size:13px">'+esc(it.mangel||'')+'</span>'
@@ -4238,49 +4313,109 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     host.innerHTML=h;
   }
 
-  // ── Mängel an Monteur übergeben ──
+  // ── Mängel übergeben — ans eigene Team ODER extern per E-Mail (20.08.2026) ──
+  // «der Fachplaner macht die Abnahme, der Unternehmer arbeitet die Mängel ab»:
+  // der Empfänger braucht nur ein GEMA-Konto mit Zugriff aufs Abnahme-Modul
+  // (role_unternehmer hat abnahme_sia read+write ab Werk). Die Bindung läuft
+  // wie bisher über monteurUserId — der abml:-Pool ist bewusst nicht
+  // org-gescopt, cross-org funktioniert damit von selbst. Der Externe kann die
+  // Punkte NICHT bearbeiten, nur abarbeiten (das Panel rendert sie read-only,
+  // die Kontrolle bleibt bei der verantwortlichen Seite — abMlDarfKontrollieren).
+  var _mlMode='team', _mlExtUser=null;
+  window.abMlMode=function(mode){
+    _mlMode=mode==='ext'?'ext':'team';
+    var t=document.getElementById('mlModeTeam'),x=document.getElementById('mlModeExt');
+    if(t)t.classList.toggle('primary',_mlMode==='team');
+    if(x)x.classList.toggle('primary',_mlMode==='ext');
+    var tb=document.getElementById('mlTeamBlock'),xb=document.getElementById('mlExtBlock');
+    if(tb)tb.style.display=_mlMode==='team'?'':'none';
+    if(xb)xb.style.display=_mlMode==='ext'?'':'none';
+    if(_mlMode==='ext'){var inp=document.getElementById('mlExtEmail');if(inp){try{inp.focus();}catch(e){}}abMlExtCheck();}
+  };
   window.abMlOpenAssign=function(){
     var offene=(state.items||[]).filter(function(it){return !(it.erledigt||'').trim();});
     if(!offene.length){toast('Keine offenen Mängel');return;}
     var users=[];try{users=(GemaAuth.getUsers()||[]).filter(function(x){var u=abUser();return x.active!==false&&u&&x.orgId===u.orgId&&(x.roleIds||[]).some(function(r){return r==='role_monteur'||r==='role_spengler';});});}catch(e){}
-    if(!users.length){toast('⚠ Keine Monteure in der Firma gefunden');return;}
     var sel=document.getElementById('mlMonteurSel');
     sel.innerHTML=users.map(function(x){return '<option value="'+x.id+'">'+esc(x.name||x.username)+'</option>';}).join('');
-    document.getElementById('mlAssignInfo').textContent=offene.length+' offene Mängelpunkte werden als Checkliste übergeben (inkl. Fotos). Der Monteur arbeitet sie ab und liefert Foto-Beweise.';
+    var hint=document.getElementById('mlTeamHint');if(hint)hint.style.display=users.length?'none':'';
+    _mlExtUser=null;
+    var em=document.getElementById('mlExtEmail');if(em)em.value='';
+    var st=document.getElementById('mlExtStatus');if(st){st.textContent='';st.style.color='var(--mut,#64748b)';}
+    document.getElementById('mlAssignInfo').textContent=offene.length+' offene Mängelpunkte werden als Checkliste übergeben (inkl. Fotos). Die Person arbeitet sie ab und liefert Foto-Beweise — die Punkte selbst kann sie nicht ändern.';
+    // Fachplaner-Firmen haben oft keine eigenen Monteure — dann startet der
+    // Dialog direkt im Extern-Modus statt (wie früher) mit «⚠ Keine Monteure
+    // in der Firma gefunden» abzubrechen.
+    abMlMode(users.length?'team':'ext');
     document.getElementById('mlAssignModal').style.display='flex';
   };
+  window.abMlExtCheck=function(){
+    var st=document.getElementById('mlExtStatus');if(!st)return;
+    var raw=String(((document.getElementById('mlExtEmail')||{}).value)||'').trim().toLowerCase();
+    _mlExtUser=null;
+    var neutral=function(msg){st.style.color='var(--mut,#64748b)';st.textContent=msg||'';};
+    var rot=function(msg){st.style.color='#b91c1c';st.textContent=msg;};
+    if(!raw){neutral('');return;}
+    if(raw.indexOf('@')<1||raw.indexOf('.')<0){neutral('E-Mail vollständig eingeben …');return;}
+    var m=abFindUserByEmailAlle(raw);
+    if(!m){rot('✕ Kein GEMA-Konto mit dieser E-Mail — die Person braucht zuerst ein GEMA-Konto (z.B. per Einladung durch ihren Admin).');return;}
+    if(m.active===false){rot('✕ Dieses GEMA-Konto ist deaktiviert — Übergabe nicht möglich.');return;}
+    if(!abKannAbnahmeLesen(m)){rot('✕ '+(m.name||m.username)+' hat keinen Zugriff auf das Abnahme-Modul (Rolle des Kontos prüfen).');return;}
+    _mlExtUser=m;
+    var firma=abOrgNameOf(m.orgId),rolle=abRoleNameOf(m);
+    st.style.color='#15803d';
+    st.textContent='✓ GEMA-Konto: '+(m.name||m.username)+(firma?' — '+firma:'')+(rolle?' ('+rolle+')':'');
+  };
   window.abMlAssign=function(){
-    var monteurId=document.getElementById('mlMonteurSel').value;
-    var users=GemaAuth.getUsers()||[];
-    var m=users.find(function(x){return x.id===monteurId;});
-    if(!m){toast('⚠ Monteur wählen');return;}
-    var u=abUser();
+    var u=abUser();if(!u)return;
+    var m=null;
+    if(_mlMode==='ext'){
+      abMlExtCheck();               // Stand sicherstellen (Autofill feuert kein input-Event)
+      m=_mlExtUser;
+      if(!m){toast('⚠ Zuerst eine E-Mail mit gültigem GEMA-Konto angeben');return;}
+    }else{
+      var monteurId=((document.getElementById('mlMonteurSel')||{}).value)||'';
+      m=(GemaAuth.getUsers()||[]).find(function(x){return x.id===monteurId;});
+      if(!m){toast('⚠ Monteur wählen');return;}
+    }
+    var extern=!!(m.orgId&&m.orgId!==u.orgId);
     var proto=protocols.find(function(p){return p.id===activeProtocolId;});
     var offene=(state.items||[]).filter(function(it){return !(it.erledigt||'').trim();});
     var rec={id:uid(),orgId:u.orgId,objektId:state._objektId||'',objektName:state.abnahme.bauobjekt||'',
       protoId:activeProtocolId,protoName:proto?proto.name:'',gewerk:state.gewerk||'',
       monteurUserId:m.id,monteurName:m.name||m.username,
-      verantwortlich:{userId:u.id,name:u.name},status:'offen',erstelltAm:new Date().toISOString(),
+      // additiv (20.08.2026): E-Mail als zweiter Zustell-Anker + Herkunfts-
+      // Transparenz für beide Seiten. Alt-Leser ignorieren die Felder.
+      monteurEmail:String((m.profile&&m.profile.email)||m.username||'').toLowerCase(),
+      verantwortlich:{userId:u.id,name:u.name,firma:abOrgNameOf(u.orgId)},status:'offen',erstelltAm:new Date().toISOString(),
       items:offene.map(function(it){return {id:uid(),itemId:it.id,ort:it.ort||'',mangel:it.mangel||'',erledigungBis:it.erledigungBis||'',
         fotos:(it.photos||[]).map(function(p){return {url:p.url||'',dataUrl:p.url?'':(p.dataUrl||''),name:p.name||''};}),
         status:'offen',fixFotos:[],kommentar:''};})};
+    if(extern){rec.extern=true;rec.monteurFirma=abOrgNameOf(m.orgId);}
     abPoolSave(ML_POOL,ML_PREFIX,rec);
     persistAll();   // Protokoll-Snapshot aktuell halten (Mangel-IDs der Liste)
     abNotify({eventKey:'abnahme_maengel_zugewiesen',empfaengerUserId:m.id,modul:'abnahme',typ:'aktion',
-      titel:'Mängelliste zugewiesen',text:(rec.objektName||'Abnahme')+' — '+rec.items.length+' Punkte abarbeiten (mit Foto-Beweis)',link:'pm_abnahme.html'});
+      titel:'Mängelliste zugewiesen',text:(rec.objektName||'Abnahme')+' — '+rec.items.length+' Punkte abarbeiten (mit Foto-Beweis)'+(extern&&rec.verantwortlich.firma?' · von '+rec.verantwortlich.firma:''),link:'pm_abnahme.html'});
     document.getElementById('mlAssignModal').style.display='none';
     abRenderTasks();
-    toast('📋 '+rec.items.length+' Mängel an '+(m.name||m.username)+' übergeben');
+    toast('📋 '+rec.items.length+' Mängel an '+(m.name||m.username)+(extern&&rec.monteurFirma?' ('+rec.monteurFirma+')':'')+' übergeben');
   };
 
   // Modal fürs Übergeben (per JS eingehängt — kein weiterer HTML-Umbau nötig)
   document.body.insertAdjacentHTML('beforeend',
     '<div id="mlAssignModal" style="display:none;position:fixed;inset:0;z-index:1200;background:rgba(8,20,40,.6);align-items:center;justify-content:center;padding:16px">'
-    +'<div style="background:var(--sur,#fff);border-radius:16px;max-width:440px;width:100%;padding:18px;box-shadow:0 18px 60px rgba(0,0,0,.3)">'
-    +'<div style="font-size:15px;font-weight:900;margin-bottom:10px">📋 Mängel an Monteur übergeben</div>'
+    +'<div style="background:var(--sur,#fff);border-radius:16px;max-width:460px;width:100%;padding:18px;box-shadow:0 18px 60px rgba(0,0,0,.3)">'
+    +'<div style="font-size:15px;font-weight:900;margin-bottom:10px">📋 Mängel zur Abarbeitung übergeben</div>'
     +'<div id="mlAssignInfo" style="font-size:12.5px;color:var(--mut,#64748b);margin-bottom:12px"></div>'
-    +'<div class="fg" style="margin-bottom:14px"><label>Monteur</label><select id="mlMonteurSel" style="width:100%;padding:10px 12px;border:1.5px solid var(--brd2,#cdd4e4);border-radius:10px;font-size:14px"></select></div>'
-    +'<div style="display:flex;gap:8px"><button class="act-btn primary" style="flex:1" onclick="abMlAssign()">📤 Übergeben</button>'
+    +'<div style="display:flex;gap:6px;margin-bottom:12px">'
+    +'<button type="button" class="act-btn" id="mlModeTeam" style="flex:1" onclick="abMlMode(\'team\')">👷 Eigenes Team</button>'
+    +'<button type="button" class="act-btn" id="mlModeExt" style="flex:1" onclick="abMlMode(\'ext\')">✉️ Extern (E-Mail)</button></div>'
+    +'<div id="mlTeamBlock"><div class="fg" style="margin-bottom:6px"><label>Monteur</label><select id="mlMonteurSel" style="width:100%;padding:10px 12px;border:1.5px solid var(--brd2,#cdd4e4);border-radius:10px;font-size:14px"></select></div>'
+    +'<div id="mlTeamHint" style="display:none;font-size:12px;color:#b45309;margin-bottom:8px">⚠ Keine Monteure in der eigenen Firma — die Übergabe läuft über «Extern (E-Mail)».</div></div>'
+    +'<div id="mlExtBlock" style="display:none"><div class="fg" style="margin-bottom:6px"><label>E-Mail der externen Person (z.B. Unternehmer)</label>'
+    +'<input id="mlExtEmail" type="text" inputmode="email" autocomplete="off" placeholder="name@firma.ch" style="width:100%;padding:10px 12px;border:1.5px solid var(--brd2,#cdd4e4);border-radius:10px;font-size:14px" oninput="abMlExtCheck()"/></div>'
+    +'<div id="mlExtStatus" style="font-size:12.5px;min-height:18px;margin-bottom:8px;color:var(--mut,#64748b)"></div></div>'
+    +'<div style="display:flex;gap:8px;margin-top:6px"><button class="act-btn primary" style="flex:1" onclick="abMlAssign()">📤 Übergeben</button>'
     +'<button class="act-btn" onclick="document.getElementById(\'mlAssignModal\').style.display=\'none\'">Abbrechen</button></div>'
     +'</div></div>');
 
@@ -4306,6 +4441,10 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
   window._abRenderTasks=abRenderTasks;
   window._abActiveProtoId=function(){return activeProtocolId;};
   window._abProtokolle=function(){return protocols;};
+  // Externe Übergabe (20.08.2026) — der Drift-Guard prüft die Regeln funktional
+  window._abMlDarfKontrollieren=abMlDarfKontrollieren;
+  window._abKannAbnahmeLesen=abKannAbnahmeLesen;
+  window._abFindUserByEmailAlle=abFindUserByEmailAlle;
 
   // ── Cloud-Pull der Protokoll-/Freigabe-/Mängellisten-Pools (non-blocking) ──
   if(typeof GemaSync!=='undefined'&&GemaSync.bindCollection){
