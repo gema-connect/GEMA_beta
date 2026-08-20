@@ -1631,8 +1631,15 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     if(erg==='keine') out.push('Die gemeinsame Prüfung hat keine Mängel ergeben — das Werk gilt mit dem Abschluss der Prüfung als abgenommen (SIA 118 Art. 159/160).');
     if(erg==='unwesentliche') out.push('Unwesentliche Mängel: Das Werk gilt mit dem Abschluss der gemeinsamen Prüfung als abgenommen; die gerügten Mängel sind innert der angesetzten Frist gemäss Mängelliste zu beheben (SIA 118 Art. 160).');
     if(erg==='wesentliche') out.push('Wesentliche Mängel: Die Abnahme wird zurückgestellt; nach der Behebung der gerügten Mängel findet eine neue Prüfung statt (SIA 118 Art. 161).');
-    if(state.abnahme.art158) out.push('Zusatz nach SIA 118 Art. 158 Abs. 2: Die gemeinsame Prüfung ist innert Monatsfrist seit Empfang der Vollendungsanzeige des Unternehmers unterblieben — das Werk gilt mit Ablauf dieser Frist als abgenommen.');
-    if(state.abnahme.art161) out.push('Zusatz nach SIA 118 Art. 161 Abs. 3: Auf eine Wiederholung der Prüfung wird verzichtet — das Werk gilt als abgenommen, sobald die gerügten wesentlichen Mängel behoben sind.');
+    /* Feedback 20.08.2026 (Marc Dischler): «Bitte Satz richtig schreiben,
+       sonst heraus nehmen». Die beiden Zusätze standen als TATSACHEN-
+       behauptung im Perfekt mit Gedankenstrich («ist … unterblieben — das
+       Werk gilt …») und widersprachen damit dem Protokoll, das sie trägt:
+       darunter stehen vier Unterschriften einer gemeinsamen Prüfung. Sie
+       geben die Norm-REGEL wieder, gehören also in den Konditionalsatz —
+       gleicher Wortlaut wie die Tooltips an den Kästchen im Kopf. */
+    if(state.abnahme.art158) out.push('Zusatz nach SIA 118 Art. 158 Abs. 2: Unterbleibt die gemeinsame Prüfung innert Monatsfrist seit Empfang der Vollendungsanzeige des Unternehmers, gilt das Werk mit Ablauf dieser Frist als abgenommen.');
+    if(state.abnahme.art161) out.push('Zusatz nach SIA 118 Art. 161 Abs. 3: Wird auf die Wiederholung der Prüfung verzichtet, gilt das Werk als abgenommen, sobald die gerügten wesentlichen Mängel behoben sind.');
     return out;
   }
   function _siaZusatzRender(){
@@ -3056,6 +3063,49 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     if(ph.url){ try{ return await _abUrlToDataUrl(ph.url); }catch(e){ return ''; } }
     return '';
   }
+  /* «Nur Unternehmername nicht gesamte Adresse» (Feedback 20.08.2026).
+     Betrifft ALTDATEN: `it.kuerzel` wurde früher mit der vollen Adresse
+     vorbefüllt und liegt so gespeichert in den Mängelpunkten; in der
+     schmalen Spalte blieb davon «Lüthi Haustechnik AG, Muttenzers trasse
+     6…» übrig. Abgeschnitten wird ab dem ersten Komma NUR, wenn der Rest
+     wie eine Adresse aussieht (Ziffernfolge = Hausnummer/PLZ) — ein
+     Firmenname wie «Meier, Müller & Co.» bleibt damit unangetastet.
+     Die Adresse geht nicht verloren, sie steht im Protokollkopf. */
+  function _nurFirma(txt){
+    const s=String(txt==null?'':txt).trim();
+    const i=s.indexOf(',');
+    if(i<0) return s;
+    const rest=s.slice(i+1);
+    return /\d/.test(rest) ? s.slice(0,i).trim() : s;
+  }
+  /* «Trennung machen» (Feedback 20.08.2026): «Technikzentrale» brach in der
+     Spalte «Ort/Raum» mitten im Wort um («Technikzentra|le»). autoTable
+     kennt keine Silbentrennung und bricht ein zu langes Wort hart. Der
+     Helfer setzt vor der Ausgabe weiche Trennstellen mit Bindestrich —
+     nur in Wörtern, die für die Spalte zu breit sind, und nur an einer
+     Stelle, die noch mindestens zwei Zeichen stehen lässt. */
+  function _abTrenn(doc,txt,spalteW,fontSize){
+    const s=String(txt==null?'':txt);
+    if(!s.trim()) return s;
+    let alt=10; try{ alt=doc.getFontSize(); }catch(e){}
+    try{ doc.setFontSize(fontSize||8); }catch(e){}
+    const breite=w=>{ try{ return doc.getTextWidth(w); }catch(e){ return String(w).length*(fontSize||8)*0.5; } };
+    const out=s.split(/(\s+)/).map(wort=>{
+      if(/^\s*$/.test(wort)||breite(wort)<=spalteW) return wort;
+      let rest=wort, teile=[];
+      while(breite(rest)>spalteW){
+        let n=rest.length;
+        while(n>3 && breite(rest.slice(0,n-1)+'-')>spalteW) n--;
+        if(n<=3) break;                       // passt nicht mal silbenweise
+        teile.push(rest.slice(0,n-1)+'-');
+        rest=rest.slice(n-1);
+      }
+      teile.push(rest);
+      return teile.join(' ');                 // Leerzeichen = weiche Bruchstelle
+    }).join('');
+    try{ doc.setFontSize(alt); }catch(e){}
+    return out;
+  }
   /* Vorschaubild für die Mängelzeile: auf max px verkleinern, damit das
      Baustellenfoto nicht in voller Auflösung im PDF landet. */
   function _abThumb(dataUrl,maxPx){
@@ -3163,6 +3213,57 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     zeilen.forEach((z,i)=>doc.text(z,M+AB_META_LBL,vy+i*12));
     return y+(Math.max(1,zeilen.length)+extra)*12;
   }
+  /* ── ANGABEN-TABELLE DER TITELSEITE (Darstellungsvorschlag 20.08.2026) ──
+     «Mehr Abstand / Darstellung anpassen»: die Kopfangaben klebten als
+     enge Textzeilen aneinander. Der Vorschlag des Kunden zeigt sie als
+     Tabelle — Label fett in der linken Spalte, Wert rechts, jede Zeile
+     durch eine feine Linie getrennt und mit Luft nach oben und unten.
+     `opts.tint`  = Label-Zelle hell hinterlegt (die erste Zeile eines
+                    Blocks, wie «Geprüfter Teil» im Vorschlag)
+     `opts.zeichnen(x,y,restW)` = eigener Inhalt statt Text (Ankreuzzeile) */
+  const AB_TAB_LBL=175;              // Breite der Label-Spalte
+  /* Luft über/unter dem Text. 4 pt ergeben bei 9.5-pt-Text eine 20-pt-Zeile —
+     immer noch deutlich luftiger als die früheren ~14-pt-Zeilen («Mehr
+     Abstand»), aber knapp genug, dass die Titelseite auch mit langen
+     Adressen (zwei umbrechende Werte) samt Unterschriften auf EINE Seite
+     passt. Mehr Luft hier drückt die Unterschriften auf Seite 2. */
+  const AB_TAB_PADY=4;
+  function _abTabZeile(doc,br,M,y,label,wert,opts){
+    const o=opts||{}, W=515, restW=W-AB_TAB_LBL-16;
+    doc.setFont('helvetica','normal'); doc.setFontSize(9.5);
+    const zeilen=o.zeichnen ? [''] :
+      String(wert==null||wert===''?'-':wert).split(/[\t\r\n]+/).map(s=>s.trim()).filter(Boolean)
+        .reduce((acc,t)=>acc.concat(doc.splitTextToSize(t,restW)),[]);
+    const inhaltH=Math.max(1,zeilen.length)*12;
+    const h=inhaltH+AB_TAB_PADY*2;
+    if(o.tint){ doc.setFillColor(br.tint.r,br.tint.g,br.tint.b); doc.rect(M,y,AB_TAB_LBL,h,'F'); }
+    doc.setFont('helvetica','bold'); doc.setFontSize(9.5); doc.setTextColor(30,38,50);
+    doc.text(String(label||''),M+8,y+AB_TAB_PADY+9);
+    doc.setFont('helvetica','normal'); doc.setTextColor(0,0,0);
+    if(o.zeichnen) o.zeichnen(M+AB_TAB_LBL+8,y+AB_TAB_PADY+9,restW);
+    else zeilen.forEach((z,i)=>doc.text(z,M+AB_TAB_LBL+8,y+AB_TAB_PADY+9+i*12));
+    // feine Trennlinie unter der Zeile
+    doc.setDrawColor(206,212,222); doc.setLineWidth(0.5);
+    doc.line(M,y+h,M+W,y+h); doc.setLineWidth(0.2);
+    doc.setFontSize(10);
+    return y+h;
+  }
+  /* Abschnitts-Titel der Titelseite: Serif-Anmutung des Vorschlags in der
+     Primärfarbe, Trennlinie DARUNTER (nicht darüber wie _abBand), optional
+     rechtsbündig eine Zusatzangabe («Datum: …»). */
+  function _abTitelBand(doc,br,M,y,text,rechts){
+    doc.setFont('times','bold'); doc.setFontSize(13);
+    doc.setTextColor(br.acc.r,br.acc.g,br.acc.b);
+    doc.text(String(text),M,y);
+    if(rechts){
+      doc.setFont('helvetica','normal'); doc.setFontSize(9.5); doc.setTextColor(90,100,115);
+      doc.text(String(rechts),M+515,y,{align:'right'});
+    }
+    doc.setDrawColor(br.acc.r,br.acc.g,br.acc.b); doc.setLineWidth(0.8);
+    doc.line(M,y+5,M+515,y+5); doc.setLineWidth(0.2);
+    doc.setTextColor(0,0,0); doc.setFont('helvetica','normal'); doc.setFontSize(10);
+    return y+5;
+  }
   // Kopf-/Fusszeile auf JEDER Seite (im Schadensbericht die @page-Boxen)
   function _abKopfFuss(doc,br,titel){
     var o=br.org, orgName=(o&&o.name)||'GEMA', n=doc.internal.getNumberOfPages();
@@ -3179,7 +3280,13 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       }
       doc.setTextColor(120,130,145); doc.setFontSize(7);
       doc.setDrawColor(210,215,222); doc.setLineWidth(0.4); doc.line(40,806,555,806);
-      doc.text([orgName,adr].filter(Boolean).join(' · '),40,816);
+      /* Fusszeile nach dem Darstellungsvorschlag 20.08.2026: links benennt sie
+         das DOKUMENT («Firma | Titel») — auf dem Deckblatt ist sie die einzige
+         Stelle, die das tut (dort gibt es keine Laufzeile).
+         Die frühere Firmen-ADRESSE ist damit entfallen: zusammen mit dem
+         langen Dokumenttitel lief sie in der 7-pt-Zeile ineinander, und sie
+         gehört nicht zum Protokoll-Inhalt (sie steht im Briefpapier/Logo). */
+      doc.text(orgName+'  |  '+titel,40,816);
       doc.text('Seite '+i+' / '+n,555,816,{align:'right'});
       doc.setTextColor(0,0,0); doc.setLineWidth(0.2);
     }
@@ -3197,136 +3304,218 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       const br=_abBrand();
       const _pdfTitel=_protoTitel()+' (SIA 118)';
 
-      /* Seite 1 — Anordnung wie das gedruckte Vorbild-Formular (Feedback
-         03.08.2026): Logo rechts, Titel links, Beteiligte als Label/Wert-
-         Block, Prüfungs-Protokoll, Ort/Datum, Unterschriften. Die Checkliste
-         steht auf einer EIGENEN Seite (weiter unten). */
-      y=58;
+      /* ══ SEITE 1 — Darstellungsvorschlag des Kunden (20.08.2026) ══
+         Kopf: grosser Titel links (mehrzeilig) mit der Norm-Zeile darunter,
+         Logo rechts, Datum unter dem Logo. Der frühere Versalien-Eyebrow
+         mit dem Firmennamen ist entfallen — die Firma steht im Logo, in der
+         Laufzeile jeder Folgeseite und in der Fusszeile; oben war sie eine
+         dritte Nennung, die dem Titel den Platz nahm.
+         Darunter Sektionen mit Serif-Titel + Linie, deren Angaben als
+         Tabelle mit Zeilentrennlinien stehen («Mehr Abstand»). */
+      y=64;
       const logo=await _abPdfLogo();
+      let logoBreit=0, logoUnten=0;
       if(logo){
-        const lw=Math.min(120,54*logo.ratio), lh=lw/logo.ratio;
-        try{ doc.addImage(logo.dataUrl,'JPEG',555-lw,y-16,lw,Math.min(54,lh)); }catch(e){}
+        // IMMER proportional: erst an der Höhe messen, dann an der Breite
+        // deckeln — die frühere Kappung der HÖHE bei unveränderter Breite
+        // hätte ein hohes Logo gequetscht («Sauber darstellen»).
+        const LH_MAX=58, LW_MAX=132;
+        let lh=LH_MAX, lw=lh*logo.ratio;
+        if(lw>LW_MAX){ lw=LW_MAX; lh=lw/logo.ratio; }
+        try{ doc.addImage(logo.dataUrl,'JPEG',555-lw,y-14,lw,lh); }catch(e){}
+        logoBreit=lw;
+        // Datum unter dem Logo (Vorschlag), rechtsbündig
+        doc.setFont('helvetica','normal'); doc.setFontSize(9);
+        doc.setTextColor(110,120,135);
+        doc.text(String(state.abnahme.datum||'-'),555,y-14+lh+13,{align:'right'});
+        doc.setTextColor(0,0,0);
+        logoUnten=y-14+lh+13;
       }
-      // Eyebrow (Firmenname) über dem Titel
-      doc.setFont('helvetica','bold'); doc.setFontSize(8);
+      // Titel gross in Serif — «Werkprüfung / Schlussabnahme», Norm darunter
+      doc.setFont('times','bold'); doc.setFontSize(21);
+      doc.setTextColor(30,38,50);
+      const titelTxt=_protoTitel();
+      const titelL=doc.splitTextToSize(titelTxt,logoBreit?515-logoBreit-24:515);
+      titelL.forEach((z,i)=>doc.text(z,M,y+i*25));
+      y+=titelL.length*25+2;
+      doc.setFont('times','bold'); doc.setFontSize(11.5);
       doc.setTextColor(br.acc.r,br.acc.g,br.acc.b);
-      doc.text(((br.org&&br.org.name)||'GEMA').toUpperCase(),M,y-6);
-      doc.setFontSize(16);
-      // Titel inkl. Geprüft-Art (Feedback 24.07.2026 #3), umbrechend neben dem Logo
-      const titelL=doc.splitTextToSize(_pdfTitel,logo?380:515);
-      doc.text(titelL,M,y+12); y+=12+titelL.length*19+6;
-      doc.setTextColor(0,0,0);
-      doc.setDrawColor(br.acc.r,br.acc.g,br.acc.b); doc.setLineWidth(0.8);
-      doc.line(M,y-4,M+515,y-4); doc.setLineWidth(0.2); y+=14;
+      doc.text('Norm SIA 118',M,y); y+=6;
+      doc.setTextColor(0,0,0); doc.setFont('helvetica','normal'); doc.setFontSize(10);
+      // Der Kopf ist erst unter dem Logo zu Ende — sonst liefe die erste
+      // Sektionslinie in den Logo-Block hinein.
+      y=Math.max(y,logoUnten)+20;
 
-      // Beteiligte + Eckdaten sauber untereinander (Label-Spalte / Wert-Spalte)
-      const metaW=logo?515:515;
-      const meta=[['Datum',state.abnahme.datum],['Bauobjekt',state.abnahme.bauobjekt||'-'],['Bauherr',_pdfBet('bauherr')]];
+      /* Projekt- und Vertragsangaben — Tabelle statt enger Textzeilen.
+         Das Datum steht oben beim Logo und entfällt hier (Vorschlag).
+         Reihenfolge wie im Vorschlag: die Fachbauleitung steht zwischen
+         Bauleitung und Unternehmer — sie kommt aus «Weitere Beteiligte»
+         (dort legt sie _abFachbauleitungSeed an), nicht aus einem eigenen
+         Kopf-Feld. */
+      y=_abTitelBand(doc,br,M,y,'Projekt- und Vertragsangaben'); y+=8;
+      const meta=[['Bauobjekt',state.abnahme.bauobjekt||'-'],['Bauherr',_pdfBet('bauherr')],
+                  ['Bauleitung',_pdfBet('bauleitung')]];
       (state.abnahme.weitereBeteiligte||[]).forEach(b=>{
+        const fn=(b.funktion||'').trim();
         const t=[(b.name||'').trim(),(b.firma||'').trim()].filter(Boolean).join(' — ');
-        if(t||(b.funktion||'').trim()) meta.push([(b.funktion||'Beteiligter').trim()||'Beteiligter',t||'-']);
+        if(t||fn) meta.push([fn||'Beteiligter',t||'-']);
       });
-      meta.push(['Bauleitung',_pdfBet('bauleitung')],['Unternehmer',_pdfBet('unternehmer')],
+      meta.push(['Unternehmer',_pdfBet('unternehmer')],
                 ['Arbeitsgattung',state.abnahme.arbeitsgattung||'-'],['Vertrag vom',state.abnahme.vertragVom||'-']);
-      meta.forEach(([l,v])=>{ y=_abMetaZeile(doc,M,y,l,v,metaW); });
-      y+=16;
-
-      y=_abBand(doc,br,M,y,'Prüfungs-Protokoll'); y+=10;
-      y=_abMetaZeile(doc,M,y,'Geprüfter Teil',state.abnahme.gepruefterTeil||'-');
-      // Ergebnis als Ankreuzzeile — wie das gedruckte Formular («Zutreffendes
-      // ankreuzen»), statt eines Label/Wert-Paares mit dem rohen Schlüsselwort.
-      y+=4;
-      doc.setFont('helvetica','normal'); doc.setFontSize(10);
-      doc.text('Zutreffendes ankreuzen:',M,y); y+=15;
-      [['keine','keine Mängel'],['unwesentliche','unwesentliche Mängel'],['wesentliche','wesentliche Mängel']]
-        .forEach(([k,lbl],i)=>{ _abBox(doc,M+i*172,y,state.abnahme.ergebnis===k,lbl,br); });
+      meta.forEach(([l,v],i)=>{ y=_abTabZeile(doc,br,M,y,l,v,{tint:i===0}); });
       y+=18;
+
+      y=_abTitelBand(doc,br,M,y,'Prüfungs-Protokoll','Datum: '+(state.abnahme.datum||'-')); y+=8;
+      y=_abTabZeile(doc,br,M,y,'Geprüfter Teil',state.abnahme.gepruefterTeil||'-',{tint:true});
+      if(!_isSicht()){
+        const art=[state.abnahme.art158?'Art. 158 Abs. 2':null,state.abnahme.art161?'Art. 161 Abs. 3':null].filter(Boolean).join(' / ')||'-';
+        y=_abTabZeile(doc,br,M,y,'Prüfung gemäss',art);
+      }
+      /* «Ergebnis» als eigene Tabellenzeile (Darstellungsvorschlag) — MIT den
+         Ankreuzkästchen darin (Feedback 03.08.2026: «Zutreffendes ankreuzen»
+         wie im gedruckten Formular). Der Vorschlag zeigt an dieser Stelle nur
+         den Wert; die Kästchen bleiben, weil das Protokoll ein Formular ist —
+         beide Wünsche zusammen sind die Tabellenzeile mit Kästchen. */
+      y=_abTabZeile(doc,br,M,y,'Ergebnis','',{zeichnen:(x,yy)=>{
+        // Die Kästchen hängen sich aneinander (_abBox liefert das rechte Ende
+        // zurück) statt in einem festen Raster zu stehen — bei einem festen
+        // Abstand stiess «unwesentliche Mängel» an das nächste Kästchen.
+        let bx=x;
+        [['keine','keine Mängel'],['unwesentliche','unwesentliche Mängel'],['wesentliche','wesentliche Mängel']]
+          .forEach(([k,lbl])=>{ bx=_abBox(doc,bx,yy,state.abnahme.ergebnis===k,lbl,br)+13; });
+      }});
       if(_isSicht()){
         // Sichtprüfung: SIA-Artikel entfallen — Bestätigung ankreuzen (Feedback 24.07.2026 #5/#6)
-        _abBox(doc,M,y,!!state.abnahme.sichtCheckliste,'Sichtkontrolle gemäss beiliegender Checkliste durchgeführt.',br); y+=18;
-      } else {
-        const art=[state.abnahme.art158?'Art. 158 Abs. 2':null,state.abnahme.art161?'Art. 161 Abs. 3':null].filter(Boolean).join(' / ')||'-';
-        y=_abMetaZeile(doc,M,y,'Prüfung gemäss',art);
+        y=_abTabZeile(doc,br,M,y,'Sichtkontrolle','',{zeichnen:(x,yy)=>{
+          _abBox(doc,x,yy,!!state.abnahme.sichtCheckliste,'gemäss beiliegender Checkliste durchgeführt',br);
+        }});
       }
       const docu=[state.abnahme.docHilfsblaetter?'gemäss Anhang (Plan / Zusatzblatt)':null,state.abnahme.docMaengelliste?`gemäss Mängelliste${state.abnahme.schreibenVom?' / Schreiben vom '+state.abnahme.schreibenVom:''}`:null].filter(Boolean).join(' | ')||'-';
-      y=_abMetaZeile(doc,M,y,'Dokumentation',docu);
+      y=_abTabZeile(doc,br,M,y,'Dokumentation',docu);
       if((state.anhaenge||[]).length){
-        y=_abMetaZeile(doc,M,y,'Anhang',state.anhaenge.map(a=>({plan:'Plan',zusatzblatt:'Zusatzblatt',sonstiges:'Beilage'}[a.typ||'sonstiges'])+' «'+(a.name||'')+'»').join(' | '));
+        y=_abTabZeile(doc,br,M,y,'Anhang',state.anhaenge.map(a=>({plan:'Plan',zusatzblatt:'Zusatzblatt',sonstiges:'Beilage'}[a.typ||'sonstiges'])+' «'+(a.name||'')+'»').join(' | '));
       }
-      y=_abMetaZeile(doc,M,y,'Frist Mängelbehebung',state.abnahme.fristMaengel||'-'); y+=6;
+      y=_abTabZeile(doc,br,M,y,'Frist Mängelbehebung',state.abnahme.fristMaengel||'-');
+      y+=18;
 
+      /* Bemerkungen — eigene Sektion mit dem Zitat-Strich des Vorschlags */
       const bem=(state.abnahme.bemerkungen||'').trim()||'-';
-      doc.setFont('helvetica','bold'); doc.text('Bemerkungen:',M,y); y+=12;
-      doc.setFont('helvetica','normal'); const bemL=doc.splitTextToSize(bem,515); doc.text(bemL,M,y); y+=Math.min(200,bemL.length*12)+6;
+      y=_abTitelBand(doc,br,M,y,'Bemerkungen'); y+=10;
+      doc.setFont('helvetica','normal'); doc.setFontSize(9.5);
+      const bemL=doc.splitTextToSize(bem,503).slice(0,14);
+      doc.setDrawColor(br.acc.r,br.acc.g,br.acc.b); doc.setLineWidth(2);
+      doc.line(M+1,y-8,M+1,y-8+bemL.length*12+2); doc.setLineWidth(0.2);
+      bemL.forEach((z,i)=>doc.text(z,M+12,y+i*12));
+      y+=bemL.length*12+12;
 
       if(_isSicht()){
         // Sichtprüfung: kein SIA-Entscheid — fixer Hinweistext (Feedback 24.07.2026 #4)
-        doc.setFont('helvetica','bold'); doc.text('Hinweis:',M,y); y+=12;
-        doc.setFont('helvetica','normal');
+        y=_abTitelBand(doc,br,M,y,'Hinweis'); y+=10;
+        doc.setFont('helvetica','normal'); doc.setFontSize(9.5);
         const shL=doc.splitTextToSize(SICHT_HINWEIS,515);
         doc.text(shL,M,y); y+=shL.length*12+4;
       } else {
-        doc.setFont('helvetica','bold'); doc.text('Entscheid:',M,y); y+=12;
-        doc.setFont('helvetica','normal'); doc.text(state.abnahme.entscheid==='abgenommen'?'Das Werk gilt als abgenommen (Art. 159, 160)':state.abnahme.entscheid==='zurueckgestellt'?'Die Abnahme wird zurückgestellt (Art. 161)':'-',M,y); y+=14;
+        y=_abTitelBand(doc,br,M,y,'Entscheid'); y+=10;
+        doc.setFont('helvetica','bold'); doc.setFontSize(10.5);
+        doc.setTextColor(br.acc.r,br.acc.g,br.acc.b);
+        doc.text(state.abnahme.entscheid==='abgenommen'?'Das Werk gilt als abgenommen (Art. 159, 160).':state.abnahme.entscheid==='zurueckgestellt'?'Die Abnahme wird zurückgestellt (Art. 161).':'-',M,y);
+        doc.setTextColor(0,0,0); doc.setFont('helvetica','normal'); doc.setFontSize(10); y+=14;
       }
-      // SIA-118-Zusatztexte (Ergebnis + Art. 158/161) — Feedback 07/2026
+      /* SIA-118-Zusatztexte — im Darstellungsvorschlag stehen sie als kleiner
+         grauer Fliesstext DIREKT unter dem fetten Entscheid-Satz, nicht mehr
+         als eigener Block «Nach SIA 118:» mit Aufzählungspunkten. Sie
+         erläutern den Entscheid, sie sind kein zweites Kapitel. */
       const zusatz=_siaZusatzTexte();
       if(zusatz.length){
-        doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.text('Nach SIA 118:',M,y); y+=11;
-        doc.setFont('helvetica','normal');
-        zusatz.forEach(t=>{ const zl=doc.splitTextToSize('• '+t,505); if(y+zl.length*11>780){doc.addPage();y=46;} doc.text(zl,M+8,y); y+=zl.length*11+3; });
-        doc.setFontSize(10); y+=4;
+        doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(96,106,120);
+        const zl=doc.splitTextToSize(zusatz.join(' '),515);
+        zl.forEach((z,i)=>doc.text(z,M,y+i*10.5));
+        y+=zl.length*10.5+4;
+        doc.setTextColor(0,0,0); doc.setFontSize(10);
       }
-      // Garantie (Feedback 07/2026): Dauer + automatisch berechnete Frist
+      y+=12;
+      /* Garantie (Feedback 07/2026: Dauer + automatisch berechnete Frist) —
+         im Vorschlag zwei hinterlegte Zellen nebeneinander statt zweier
+         nackter Textzeilen. Die Frist ist der Wert, den man nachschlägt: sie
+         steht darum rechts in der Primärfarbe. */
       if(+state.abnahme.garantieJahre>0){
-        doc.setFont('helvetica','bold'); doc.text('Garantie:',M,y); y+=12;
-        doc.setFont('helvetica','normal');
-        doc.text(`Garantiedauer: ${state.abnahme.garantieJahre} Jahre ab Abnahme`,M,y); y+=12;
-        doc.text(`Garantiefrist: ${garantieFrist()||'-'}`,M,y); y+=14;
+        y=_abTitelBand(doc,br,M,y,'Garantie'); y+=10;
+        const GZ_H=24, GZ_W=(515-1)/2;
+        doc.setFillColor(br.tint.r,br.tint.g,br.tint.b);
+        doc.rect(M,y,GZ_W,GZ_H,'F'); doc.rect(M+GZ_W+1,y,GZ_W,GZ_H,'F');
+        doc.setDrawColor(206,212,222); doc.setLineWidth(0.5);
+        doc.rect(M,y,GZ_W,GZ_H); doc.rect(M+GZ_W+1,y,GZ_W,GZ_H); doc.setLineWidth(0.2);
+        doc.setFont('helvetica','bold'); doc.setFontSize(9.5); doc.setTextColor(30,38,50);
+        doc.text(`Garantiedauer: ${state.abnahme.garantieJahre} Jahre ab Abnahme`,M+10,y+17);
+        doc.setTextColor(br.acc.r,br.acc.g,br.acc.b);
+        doc.text(`Garantiefrist: ${garantieFrist()||'-'}`,M+GZ_W+11,y+17);
+        doc.setTextColor(0,0,0); doc.setFont('helvetica','normal'); doc.setFontSize(10);
+        y+=GZ_H+14;
       }
-      /* Ort/Datum + Unterschriften auf der ERSTEN Seite (Feedback 03.08.2026
-         «Auf erste Seite darstellen»). Vorher stand jede Unterschrift gross
-         untereinander und füllte eine ganze Folgeseite; das Vorbild-Formular
-         hat sie als vier schmale Spalten direkt unter Ort/Datum. */
-      y+=8;
-      doc.setDrawColor(150,158,170); doc.setLineWidth(0.5); doc.line(M,y-4,M+515,y-4); doc.setLineWidth(0.2); y+=10;
-      y=_abMetaZeile(doc,M,y,'Ort, Datum',[state.abnahme.ort||'',state.abnahme.datum||''].filter(Boolean).join(', ')||'-');
-      y+=10;
-      const sigBlocks=[['Der Unternehmer',state.abnahme.sig.unternehmer],['Der Bauherr',state.abnahme.sig.bauherr],['Die Bauleitung',state.abnahme.sig.bauleitung],['Die Fachbauleitung',state.abnahme.sig.fachbauleitung]];
-      const SIG_W=124, SIG_GAP=(515-4*SIG_W)/3, SIG_H=42, SIG_BLOCK=SIG_H+50;
+      /* Bestätigung / Unterschriften auf der ERSTEN Seite (Feedback 03.08.2026
+         «Auf erste Seite darstellen»); Aufbau nach dem Darstellungsvorschlag
+         20.08.2026: vier ZENTRIERTE Spalten unter einem Sektions-Titel, die
+         Rollen ohne «Der/Die» (der Artikel sagt nichts und liess «Die
+         Fachbauleitung» in der schmalen Spalte umbrechen).
+         Je Spalte: Rolle · Name · Firma · Bestätigt-Stempel · Unterschrift
+         über der Linie. Die ADRESSE steht bewusst NICHT hier — sie steht
+         oben in den Vertragsangaben, und in der Spalte blieb von ihr nur ein
+         abgeschnittener Rest übrig («Nur Unternehmername nicht gesamte
+         Adresse», Feedback 20.08.2026). */
+      y=_abTitelBand(doc,br,M,y,'Bestätigung / Unterschriften'); y+=13;
+      doc.setFont('helvetica','bold'); doc.setFontSize(9.5); doc.setTextColor(30,38,50);
+      doc.text('Ort, Datum:',M,y);
+      let odX=M; try{ odX=M+doc.getTextWidth('Ort, Datum:')+6; }catch(e){ odX=M+56; }
+      doc.setFont('helvetica','normal'); doc.setTextColor(0,0,0);
+      doc.text([state.abnahme.ort||'',state.abnahme.datum||''].filter(Boolean).join(', ')||'-',odX,y);
+      y+=17;
+      const sigBlocks=[['Unternehmer',state.abnahme.sig.unternehmer],['Bauherr',state.abnahme.sig.bauherr],['Bauleitung',state.abnahme.sig.bauleitung],['Fachbauleitung',state.abnahme.sig.fachbauleitung]];
+      const SIG_W=515/4, SIG_LINE=104;
+      // Das Unterschriften-Feld über der Linie bekommt nur dann volle Höhe,
+      // wenn wirklich eine Unterschrift vorliegt — sonst bliebe im Vorschlags-
+      // Layout ein leerer Streifen stehen.
+      const SIG_H=sigBlocks.some(([,s])=>s&&s.dataUrl)?40:14;
+      const SIG_BLOCK=46+SIG_H+12;
       if(y+SIG_BLOCK>782){ doc.addPage(); y=56; }
       const sigTop=y;
       sigBlocks.forEach(([label,s],i)=>{
-        const x=M+i*(SIG_W+SIG_GAP);
+        const cx=M+i*SIG_W+SIG_W/2;          // Spaltenmitte — alles zentriert
         let yy=sigTop;
-        doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(0,0,0);
-        doc.text(label,x,yy); yy+=6;
-        // Unterschrift proportional in die Spalte einpassen (nie verzerren)
-        if(s.dataUrl){
-          try{
-            const r=(s._w&&s._h)?(s._w/s._h):(300/110);
-            let w=SIG_W, h=w/r; if(h>SIG_H){ h=SIG_H; w=h*r; }
-            doc.addImage(s.dataUrl,'PNG',x,yy+(SIG_H-h),w,h);
-          }catch(e){}
+        doc.setFont('helvetica','bold'); doc.setFontSize(9);
+        doc.setTextColor(br.acc.r,br.acc.g,br.acc.b);
+        doc.text(label,cx,yy,{align:'center'}); yy+=15;
+        doc.setTextColor(0,0,0);
+        const nm=(s.name||'').trim();
+        const fa=_nurFirma(s.visum||'');
+        doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
+        if(nm){ doc.splitTextToSize(nm,SIG_W-8).slice(0,1).forEach(z=>doc.text(z,cx,yy,{align:'center'})); }
+        else { doc.setTextColor(150,158,170); doc.text('—',cx,yy,{align:'center'}); doc.setTextColor(0,0,0); }
+        yy+=11;
+        if(fa){
+          doc.setFontSize(8); doc.setTextColor(96,106,120);
+          doc.splitTextToSize(fa,SIG_W-8).slice(0,2).forEach((z,k)=>doc.text(z,cx,yy+k*9,{align:'center'}));
+          yy+=Math.min(2,doc.splitTextToSize(fa,SIG_W-8).length)*9;
+          doc.setTextColor(0,0,0);
         }
-        yy+=SIG_H+2;
-        doc.setDrawColor(120,130,145); doc.setLineWidth(0.5);
-        doc.line(x,yy,x+SIG_W,yy); doc.setLineWidth(0.2); yy+=10;
-        doc.setFont('helvetica','normal'); doc.setFontSize(8);
-        const nm=[s.name||'',s.visum?'('+s.visum+')':''].filter(Boolean).join(' ').trim();
-        if(nm) doc.splitTextToSize(nm,SIG_W).slice(0,2).forEach((z,k)=>doc.text(z,x,yy+k*9));
-        else { doc.setTextColor(140,148,160); doc.text('(keine Unterschrift)',x,yy); doc.setTextColor(0,0,0); }
-        let yb=yy+(nm?Math.min(2,doc.splitTextToSize(nm,SIG_W).length)*9:9);
         // Bestätigungs-Stempel (eingefrorene Unterschrift, Feedback 07/2026)
         if(s.bestaetigt){
           doc.setFontSize(7.5); doc.setTextColor(21,128,61);
-          doc.splitTextToSize('Bestätigt am '+s.bestaetigt.am+(s.bestaetigt.ort?' · '+s.bestaetigt.ort:''),SIG_W)
-             .slice(0,2).forEach((z,k)=>doc.text(z,x,yb+k*8));
+          doc.text('Bestätigt '+s.bestaetigt.am,cx,yy+2,{align:'center'});
           doc.setTextColor(0,0,0);
         }
+        // Unterschrift proportional über die Linie setzen (nie verzerren)
+        const lineY=sigTop+46+SIG_H;
+        if(s.dataUrl){
+          try{
+            const r=(s._w&&s._h)?(s._w/s._h):(300/110);
+            let w=SIG_LINE, h=w/r; if(h>SIG_H-2){ h=SIG_H-2; w=h*r; }
+            doc.addImage(s.dataUrl,'PNG',cx-w/2,lineY-2-h,w,h);
+          }catch(e){}
+        }
+        doc.setDrawColor(150,158,170); doc.setLineWidth(0.5);
+        doc.line(cx-SIG_LINE/2,lineY,cx+SIG_LINE/2,lineY); doc.setLineWidth(0.2);
       });
-      doc.setFontSize(10); y=sigTop+SIG_BLOCK;
-      doc.setDrawColor(150,158,170); doc.setLineWidth(0.5); doc.line(M,y-8,M+515,y-8); doc.setLineWidth(0.2);
+      doc.setFontSize(10); doc.setTextColor(0,0,0); y=sigTop+SIG_BLOCK;
 
       /* Checkliste auf einer SEPARATEN Seite (Feedback 03.08.2026 «Separate
          2 Seite») — wie im Vorbild-Formular, wo sie das ganze zweite Blatt
@@ -3390,8 +3579,23 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
         const src=await _abFotoDataUrl(ph); if(!src) continue;
         const t=await _abThumb(src,AB_THUMB*3); if(t) thumbs[i]=t;
       }
+      /* Spaltenbreiten (Feedback 20.08.2026): «Durch wen» trägt nur noch den
+         Firmennamen und gibt Breite an «Ort/Raum» ab — dort brach vorher
+         «Technikzentrale» mitten im Wort um. Summe bleibt exakt 515. */
+      const AB_SP={nr:22,typ:40,ort:72,mangel:112,foto:AB_THUMB+8,akz:38,frist:50,wer:63,erl:64};
+      const _pad=8;   // cellPadding links + rechts
       // «Durch wen» leer → Standard = Unternehmer aus dem Kopf (Feedback 07/2026)
-      const rows=state.items.map((it,i)=>[String(i+1),it.typ==='pendenz'?'Pendenz':'Mangel',it.ort||'',it.mangel||'','',it.akzeptiert||'Ja',it.erledigungBis||state.maengelMeta.standardErledigenBis||'',it.kuerzel||kuerzelVorschlag()||'',(it.erledigt||'').trim()||(it.teilweise?'teilweise erledigt':'')]);
+      const rows=state.items.map((it,i)=>[
+        String(i+1),
+        it.typ==='pendenz'?'Pendenz':'Mangel',
+        _abTrenn(doc,it.ort||'',AB_SP.ort-_pad,8),
+        _abTrenn(doc,it.mangel||'',AB_SP.mangel-_pad,8),
+        '',
+        it.akzeptiert||'Ja',
+        it.erledigungBis||state.maengelMeta.standardErledigenBis||'',
+        _abTrenn(doc,_nurFirma(it.kuerzel||kuerzelVorschlag()||''),AB_SP.wer-_pad,8),
+        (it.erledigt||'').trim()||(it.teilweise?'teilweise erledigt':'')
+      ]);
       doc.autoTable({
         startY:y,
         head:[['Nr.','Typ','Ort/Raum','Mangel / Pendenz','Foto','Akzept.','Erledigen bis','Durch wen','Erledigt']],
@@ -3399,7 +3603,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
         theme:'grid',
         styles:{font:'helvetica',fontSize:8,cellPadding:4,overflow:'linebreak',lineColor:[195,202,212],lineWidth:0.4,textColor:[0,0,0]},
         headStyles:{fillColor:[br.tint.r,br.tint.g,br.tint.b],textColor:[br.acc.r,br.acc.g,br.acc.b],fontStyle:'bold',lineColor:[br.acc.r,br.acc.g,br.acc.b],lineWidth:0.5},
-        columnStyles:{0:{cellWidth:22},1:{cellWidth:40},2:{cellWidth:56},3:{cellWidth:112},4:{cellWidth:AB_THUMB+8,halign:'center'},5:{cellWidth:42},6:{cellWidth:52},7:{cellWidth:64},8:{cellWidth:73}},
+        columnStyles:{0:{cellWidth:AB_SP.nr},1:{cellWidth:AB_SP.typ},2:{cellWidth:AB_SP.ort},3:{cellWidth:AB_SP.mangel},4:{cellWidth:AB_SP.foto,halign:'center'},5:{cellWidth:AB_SP.akz},6:{cellWidth:AB_SP.frist},7:{cellWidth:AB_SP.wer},8:{cellWidth:AB_SP.erl}},
         margin:{left:M,right:M},
         // Zeilenhöhe für das Vorschaubild reservieren — muss in didParseCell
         // gesetzt werden, VOR der Höhenberechnung.
@@ -3413,35 +3617,67 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
         }
       });
 
-      // Foto-Anhang
+      // Foto-Anhang — beginnt IMMER auf einer eigenen Seite (wie Checkliste
+      // und Mängelliste). Nur so stehen die beiden Foto-Slots über die volle
+      // Seitenhöhe zur Verfügung; an einer halb gefüllten Seite angehängt
+      // blieben je Slot wenige Zentimeter und die Fotos würden Briefmarken.
       let y2=doc.lastAutoTable.finalY+20;
       if(state.items.some(it=>it.photos?.length)){
-        if(y2>720){doc.addPage();y2=56;}
+        doc.addPage(); y2=56;
         y2=_abBand(doc,br,M,y2,'Foto-Anhang'); y2+=6;
-        doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.text('Fotos pro Mängelpunkt.',M,y2); y2+=14;
+        doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.text('Fotos pro Mängelpunkt — zwei Aufnahmen je Seite.',M,y2); y2+=14;
+        /* ZWEI Fotos pro Seite in festen Slots (Feedback 20.08.2026: «Auf
+           nächste Seite / bzw. zwei Fotos pro Seite»). Der frühere Fluss
+           setzte Titel und Mangel-Text, prüfte den Platz erst DANACH und
+           liess den Titelblock so allein am Seitenende zurück, während das
+           Foto auf die Folgeseite rutschte.
+           Darum werden zuerst ALLE Fotos aufgelöst und flach gelegt — der
+           Titelblock hängt am ERSTEN Foto seines Punktes und kann per
+           Konstruktion nicht mehr von ihm getrennt werden. */
+        const fotos=[];
         for(let i=0;i<state.items.length;i++){
-          const it=state.items[i]; if(!it.photos?.length)continue;
-          if(y2>760){doc.addPage();y2=46;}
-          doc.setFont('helvetica','bold'); doc.setFontSize(10);
-          doc.text(`Nr. ${i+1} – ${(it.ort||'-').slice(0,60)}`,M,y2); y2+=12;
-          doc.setFont('helvetica','normal'); doc.setFontSize(9);
-          const descL=doc.splitTextToSize(`Mangel: ${(it.mangel||'-').slice(0,140)}`,515); doc.text(descL,M,y2); y2+=descL.length*11+6;
+          const it=state.items[i]; if(!it.photos?.length) continue;
+          let erst=true;
           for(let p=0;p<it.photos.length;p++){
-            const ph=it.photos[p];
             // Ausgelagerte Fotos (nur url) fuer den PDF-Embed zurueck zu
             // DataURL holen — jsPDF braucht Base64 (gleiche Kette wie die
             // Vorschaubilder in der Mängelzeile).
-            const _src = await _abFotoDataUrl(ph);
+            const _src=await _abFotoDataUrl(it.photos[p]);
             if(!_src) continue;
             const info=await new Promise(res=>{ const img=new Image(); img.onload=()=>res({w:img.width,h:img.height}); img.onerror=()=>res({w:4,h:3}); img.src=_src; });
-            const scale=Math.min(515/info.w,330/info.h,1);
-            const w=Math.round(info.w*scale), h=Math.round(info.h*scale);
-            if(y2+h>780){doc.addPage();y2=46;}
-            doc.setFontSize(8); doc.text(`Foto ${p+1}: ${(ph.name||'').slice(0,70)}`,M,y2); y2+=10;
-            doc.addImage(_src,'JPEG',M,y2,w,h); y2+=h+14;
+            fotos.push({src:_src,info:info,erst:erst,nr:i+1,ort:(it.ort||'-').slice(0,60),mangel:(it.mangel||'-').slice(0,140)});
+            erst=false;
           }
-          y2+=6;
         }
+        const FOTO_BOT=784;              // unterster Bildrand über der Fusszeile
+        let seitenTop=y2, slot=0;
+        for(const f of fotos){
+          if(slot>=2){ doc.addPage(); seitenTop=56; slot=0; }
+          const slotH=(FOTO_BOT-seitenTop)/2;
+          const top=seitenTop+slot*slotH;
+          let yy=top;
+          if(f.erst){
+            doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(0,0,0);
+            doc.text(`Nr. ${f.nr} – ${f.ort}`,M,yy+9); yy+=13;
+            doc.setFont('helvetica','normal'); doc.setFontSize(9);
+            const dl=doc.splitTextToSize(`Mangel: ${f.mangel}`,515).slice(0,2);
+            dl.forEach((z,k)=>doc.text(z,M,yy+8+k*11));
+            yy+=dl.length*11+6;
+          } else {
+            /* Folgefoto desselben Punktes: die Zuordnung bleibt (sonst wäre
+               das Bild verwaist), der DATEINAME fällt weg — «Foto 1:
+               image.jpg» sagte nichts («Benennung löschen»). */
+            doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(110,120,135);
+            doc.text(`Nr. ${f.nr} – ${f.ort} (Fortsetzung)`,M,yy+8); doc.setTextColor(0,0,0); yy+=13;
+          }
+          const restH=top+slotH-16-yy;
+          const s=Math.min(515/f.info.w,restH/f.info.h,1);
+          const w=Math.round(f.info.w*s), h=Math.round(f.info.h*s);
+          // horizontal zentriert — ein Hochformat hing sonst am linken Rand
+          if(w>0&&h>0){ try{ doc.addImage(f.src,'JPEG',M+(515-w)/2,yy,w,h); }catch(e){} }
+          slot++;
+        }
+        doc.setFontSize(10);
       }
 
       // Anhang-Seiten: Bild-Anhänge einbetten, PDFs als Beilage referenzieren
@@ -4057,6 +4293,11 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
   window._abRender=function(){render();};
   window._abPoolRead=abPoolRead;
   window._abPoolSave=abPoolSave;
+  // Wort-Trennung der Mängelliste (Feedback 20.08.2026 «Trennung machen») —
+  // als Hook, damit der Drift-Guard sie funktional prüfen kann statt nur den
+  // Quelltext zu lesen.
+  window._abTrenn=function(doc,txt,spalteW,fontSize){return _abTrenn(doc,txt,spalteW,fontSize);};
+  window._nurFirma=function(t){return _nurFirma(t);};
   window._abRenderTeilnehmer=abRenderTeilnehmer;
   window._abRenderTasks=abRenderTasks;
   window._abActiveProtoId=function(){return activeProtocolId;};
