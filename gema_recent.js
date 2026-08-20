@@ -59,6 +59,8 @@
     'pm_planablage':'Plandialog',
     'pm_pruefliste':'Prüfliste',
     'pm_wirtschaftlichkeit':'Wirtschaftlichkeitsrechnung',
+    'pm_machbarkeitsstudie':'Machbarkeitsstudie',
+    'pm_lebensdauer':'Lebensdauer-Katalog',
     'pm_crbx':'CRBX Offertvergleich',
     'pm_einsatzplan':'Termine',
     'pm_erp':'Offerten · Aufträge · Rechnungen',
