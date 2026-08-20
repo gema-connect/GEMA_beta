@@ -41,13 +41,48 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
 .fl{font-size:11px;font-weight:700;color:var(--txt2);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px}
 .fg{margin-bottom:12px}
-/* Kategorie-Felder: Labels auf 2 Zeilen Mindesthöhe → ein- und
-   zweizeilige Labels gleich hoch, Inputs liegen nebeneinander auf einer
-   Linie (z.B. Salzverbrauch / Wasserverbrauch). */
-#peFelder .fg .fl{min-height:2.4em;line-height:1.2}
+
+/* ── Floating Labels im Produkt-Editor (Feedback 20.08.2026) ───────────
+   Die Feldbeschriftung ruht als Platzhalter IM Feld und wandert bei Fokus
+   oder vorhandenem Inhalt verkleinert auf die Rahmenkante.
+   REIN PER CSS — kein JavaScript, damit kein Zustand nachgeführt werden muss:
+   • Das Label steht im Markup NACH dem Input (Geschwister-Selektor `~`).
+   • Textfelder tragen placeholder=" " (ein LEERZEICHEN — ein leerer
+     placeholder matcht `:placeholder-shown` nicht zuverlässig).
+   • `:placeholder-shown` greift auch bei per value gesetztem Inhalt: ein
+     bestehendes Produkt zeigt seine Labels also sofort oben.
+   • `.pfl-up` = Label dauerhaft oben — für Selects und für Felder mit
+     eigenem Hinweistext im placeholder (die sehen nie leer aus).
+   Bewusst OHNE `text-transform:uppercase` (Kanon: Grossschreibung zerstört
+   Einheiten und Formelzeichen — aus «l/s» wird «L/S»). */
+.pfl{position:relative;display:block}
+.pfl>.fc{padding-top:12px;padding-bottom:12px}
+.pfl>.fl{position:absolute;left:8px;top:50%;margin:0;padding:0 5px;
+  transform:translateY(-50%);transform-origin:left center;pointer-events:none;
+  font-size:13px;font-weight:600;color:var(--mut);
+  text-transform:none;letter-spacing:0;background:transparent;
+  max-width:calc(100% - 16px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  transition:transform .15s ease,top .15s ease,color .15s ease,background .15s ease}
+.pfl.pfl--ta>.fl{top:17px}
+.pfl>.fc:focus~.fl,
+.pfl>.fc:not(:placeholder-shown)~.fl,
+.pfl.pfl-up>.fl{top:0;transform:translateY(-50%) scale(.85);background:var(--sur)}
+.pfl>.fc:focus~.fl{color:var(--acc)}
+/* Das Pflicht-Sternchen bleibt auch im geschrumpften Label sichtbar. */
+.pfl>.fl .req{color:var(--red,#dc2626)}
+/* Nicht-schwebende Beschriftungen im Editor (Produktbild-Upload,
+   Zubehör-Auswahl) folgen derselben Optik — sonst stünde neben normal
+   geschriebenen Feldnamen ein VERSALES Label. */
+#prodEditorOverlay .fg>.fl{font-size:11.5px;font-weight:700;color:var(--txt2);text-transform:none;letter-spacing:.01em}
+/* Mit Einheiten-Box: der Floating-Wrapper ist das flexende Kind, nicht das
+   Input selbst (das füllt den Wrapper). */
+.g-inp-group>.pfl{flex:1 1 auto;min-width:0}
+.g-inp-group>.pfl>.fc{border-radius:var(--r-sm,9px) 0 0 var(--r-sm,9px);border-right:0}
 /* Feedback 11.08.2026 (#14): Zahlenfelder kompakt — der Wert samt Einheit
-   braucht keine halbe Seitenbreite; Textfelder (Artikel-Nr. …) bleiben breit. */
-#peFelder .pe-num{max-width:230px}
+   braucht keine halbe Seitenbreite; Textfelder (Artikel-Nr. …) bleiben breit.
+   Seit den Floating Labels trägt das Feld zusätzlich den Feldnamen — darum
+   etwas mehr Platz (lange Namen kürzen mit …, voller Text im Tooltip). */
+#peFelder .pe-num{max-width:270px}
 /* Einheiten-Box am Eingabefeld (wie in den Berechnungen): Input + Einheit
    als EIN verbundenes Control, Rahmen schliessen buendig an. */
 .g-inp-group{display:flex;align-items:stretch;gap:0}
@@ -460,14 +495,18 @@ try{
       <section class="pe-grp" style="margin-top:0">
         <div class="grp-hd">Grunddaten</div>
         <div class="g2">
-          <div class="fg"><label class="fl">Kategorie</label>
-            <select class="fc" id="peKat" onchange="renderPeFelder()"></select></div>
-          <div class="fg"><label class="fl">Serie / Typ</label><input class="fc" id="peSerie"/></div>
+          <div class="fg"><div class="pfl pfl-up">
+            <select class="fc" id="peKat" onchange="renderPeFelder()"></select><label class="fl">Kategorie</label></div></div>
+          <div class="fg"><div class="pfl">
+            <input class="fc" id="peSerie" placeholder=" "/><label class="fl">Serie / Typ</label></div></div>
         </div>
         <div class="g2">
-          <div class="fg"><label class="fl">Modell</label><input class="fc" id="peModell"/></div>
-          <div class="fg"><label class="fl">Produktfamilie</label>
-            <input class="fc" id="peFamilie" list="peFamilieList" placeholder="z.B. Modula, AXW …"/>
+          <div class="fg"><div class="pfl">
+            <input class="fc" id="peModell" placeholder=" "/><label class="fl">Modell</label></div></div>
+          <div class="fg">
+            <!-- eigener Hinweistext im placeholder → Label dauerhaft oben (.pfl-up) -->
+            <div class="pfl pfl-up">
+              <input class="fc" id="peFamilie" list="peFamilieList" placeholder="z.B. Modula, AXW …"/><label class="fl">Produktfamilie</label></div>
             <datalist id="peFamilieList"></datalist>
             <div style="font-size:10.5px;color:var(--mut);margin-top:4px">Optional — Produkte derselben Familie stehen in der Produktliste zusammen.</div></div>
         </div>
@@ -1462,6 +1501,15 @@ window._peKennlinieEntfernen=function(){
   });
 };
 
+// Floating Label eines Eingabefeldes: steht im Markup NACH dem Feld, wird
+// von CSS (`.pfl`) als Platzhalter im Feld gezeigt und wandert bei Fokus oder
+// Inhalt auf die Rahmenkante. Langer Feldname wird mit … gekürzt — der volle
+// Text bleibt als Tooltip lesbar (No-silent-Regel).
+function _peFl(label, pflicht){
+  var voll = (label||'') + (pflicht ? ' *' : '');
+  return '<label class="fl" title="'+E(voll)+'">'+E(label||'')+(pflicht?'<span class="req"> *</span>':'')+'</label>';
+}
+
 function renderPeFelder(){
   var katId = document.getElementById('peKat').value;
   var kat = GemaProdukte.getKategorie(katId);
@@ -1474,8 +1522,13 @@ function renderPeFelder(){
     html += '<section class="pe-grp'+(gi?' pe-grp-sep':'')+'"><div class="grp-hd">'+E(g)+'</div><div class="g2">';
     felder.filter(function(f){return (f.gruppe||'Allgemein')===g;}).forEach(function(f){
       var val = _editProd ? ((_editProd.daten||{})[f.id]||'') : '';
+      // Floating Label: die Beschriftung steht im Markup NACH dem Feld
+      // (der CSS-Geschwister-Selektor lässt sie bei Fokus/Inhalt schweben);
+      // der volle Feldname bleibt als Tooltip erhalten, weil ein langer Name
+      // im Feld mit … gekürzt wird — kein stiller Informationsverlust.
+      var flLabel = _peFl(f.label, f.pflicht);
       if(f.typ==='select'){
-        html += '<div class="fg"><label class="fl">'+E(f.label)+(f.pflicht?' *':'')+'</label><select class="fc" data-fid="'+E(f.id)+'"><option value="">—</option>'+(f.optionen||[]).map(function(o){return '<option'+(o===val?' selected':'')+'>'+E(o)+'</option>';}).join('')+'</select></div>';
+        html += '<div class="fg"><div class="pfl pfl-up"><select class="fc" data-fid="'+E(f.id)+'"><option value="">—</option>'+(f.optionen||[]).map(function(o){return '<option'+(o===val?' selected':'')+'>'+E(o)+'</option>';}).join('')+'</select>'+flLabel+'</div></div>';
       } else if(f.typ==='bild'){
         // Produktbild: Upload → GemaStorage (URL im Feldwert), Vorschau.
         html += '<div class="fg" style="grid-column:1/-1"><label class="fl">'+E(f.label)+(f.pflicht?' *':'')+'</label>'
@@ -1489,7 +1542,7 @@ function renderPeFelder(){
       } else if(f.typ==='checkbox'){
         html += '<div class="fg"><label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" data-fid="'+E(f.id)+'"'+(val?' checked':'')+' style="width:16px;height:16px;accent-color:var(--acc)"/> '+E(f.label)+'</label></div>';
       } else if(f.typ==='textarea'){
-        html += '<div class="fg" style="grid-column:1/-1"><label class="fl">'+E(f.label)+'</label><textarea class="fc" data-fid="'+E(f.id)+'" rows="2">'+E(val)+'</textarea></div>';
+        html += '<div class="fg" style="grid-column:1/-1"><div class="pfl pfl--ta"><textarea class="fc" data-fid="'+E(f.id)+'" rows="2" placeholder=" ">'+E(val)+'</textarea>'+flLabel+'</div></div>';
       } else {
         // Einheit nicht mehr im Label ([..]), sondern als verbundene Box am Input.
         // Feedback 11.08.2026 (#14): ZAHLENFELDER kompakt (.pe-num, ~230px —
@@ -1497,10 +1550,13 @@ function renderPeFelder(){
         // (Artikel-Nr., Bezeichnungen …) behalten die volle Spaltenbreite,
         // damit längere Werte nicht abgeschnitten wirken.
         var isNum = f.typ==='number';
-        var inp = '<input class="fc" data-fid="'+E(f.id)+'" value="'+E(val)+'" '+(isNum?'type="text" inputmode="decimal"':'type="text"')+'/>';
-        var inpWrapped = f.einheit ? '<div class="g-inp-group'+(isNum?' pe-num':'')+'">'+inp+'<span class="g-inp-unit">'+E(f.einheit)+'</span></div>'
-                        : (isNum ? '<div class="pe-num">'+inp+'</div>' : inp);
-        html += '<div class="fg"><label class="fl">'+E(f.label)+(f.pflicht?' *':'')+'</label>'+inpWrapped+'</div>';
+        // placeholder=" " (ein LEERZEICHEN) ist die Bedingung fuers Floating
+        // Label — :placeholder-shown erkennt daran das leere Feld.
+        var inp = '<input class="fc" data-fid="'+E(f.id)+'" value="'+E(val)+'" placeholder=" " '+(isNum?'type="text" inputmode="decimal"':'type="text"')+'/>';
+        var fld = '<div class="pfl">'+inp+flLabel+'</div>';
+        var inpWrapped = f.einheit ? '<div class="g-inp-group'+(isNum?' pe-num':'')+'">'+fld+'<span class="g-inp-unit">'+E(f.einheit)+'</span></div>'
+                        : (isNum ? '<div class="pe-num">'+fld+'</div>' : fld);
+        html += '<div class="fg">'+inpWrapped+'</div>';
       }
     });
     html += '</div></section>';
