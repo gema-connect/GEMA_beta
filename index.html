@@ -2184,18 +2184,21 @@ function filterModules() {
     }
   });
 
-  /* «Bald»-Ausblicke: Platzhalter haben kein data-module (das Modul gibt es
-     noch nicht) und liefen darum an der Filterung vorbei — ein Monteur sah
-     z.B. die Auslastungsplanung. Wer einen Ausblick sehen soll, steht als
-     Stellvertreter-Modul im Markup (data-soon-fuer [+ data-soon-recht,
-     Default read). Ohne die Angabe bleibt der Ausblick wie bisher fuer alle
-     sichtbar — nichts wird stillschweigend verborgen. */
-  document.querySelectorAll('.mod-card[data-soon-fuer]').forEach(function(card){
+  /* «Bald»-/«Geplant»-Ausblicke: Platzhalter tragen kein data-module (das Modul
+     gibt es noch nicht) und liefen darum an der Filterung vorbei — in der
+     Uebersicht standen Kacheln, die niemand oeffnen kann (Feedback 21.08.2026:
+     «Module ohne Zugriff sollen gar nicht angezeigt werden»). Kanon ist die
+     App-Ansicht: sie liest nur echte, verlinkte Kacheln und zeigt Ausblicke
+     darum nie — die Uebersicht folgt jetzt derselben Regel. Ein Ausblick ist
+     damit OPT-IN: sichtbar nur mit Stellvertreter-Modul im Markup
+     (data-soon-fuer [+ data-soon-recht, Default read]) UND passender
+     Berechtigung. role_admin ist weiter oben schon ausgestiegen und sieht die
+     Roadmap unveraendert vollstaendig. */
+  document.querySelectorAll('.mod-card:not([data-module])').forEach(function(card){
     var key   = card.getAttribute('data-soon-fuer');
     var recht = card.getAttribute('data-soon-recht') || 'read';
-    if(!GemaAuth.can(recht, key)){
-      card.style.display='none'; card.setAttribute('data-perm-hidden','1');
-    }
+    if(key && GemaAuth.can(recht, key)) return;
+    card.style.display='none'; card.setAttribute('data-perm-hidden','1');
   });
 
   // Leere Kategorien ausblenden + Zähler aktualisieren
@@ -2203,7 +2206,12 @@ function filterModules() {
     var cards=sec.querySelectorAll('.mod-card[data-module]');
     var visible=0;
     cards.forEach(function(c){if(c.style.display!=='none') visible++;});
-    if(visible===0) sec.style.display='none';
+    // Ein freigeschalteter Ausblick haelt die Sektion offen, zaehlt aber nicht
+    // als Modul — sonst verschwaende er mit seiner Sektion, obwohl er bewusst
+    // fuer diese Rolle freigegeben ist.
+    var ausblick=0;
+    sec.querySelectorAll('.mod-card:not([data-module])').forEach(function(c){if(c.style.display!=='none') ausblick++;});
+    if(visible===0 && ausblick===0) sec.style.display='none';
     var badge=sec.querySelector('.cat-count-badge');
     if(badge&&visible>0) badge.textContent=visible+' Modul'+(visible!==1?'e':'');
   });
