@@ -1,0 +1,2436 @@
+<!doctype html>
+<html lang="de">
+<head>
+<script src="gema_sync.js"></script>
+<script src="gema_storage.js"></script>
+<script src="gema_fotoqueue.js"></script>
+<script src="gema_auth.js"></script>
+<script src="gema_editlock.js"></script>
+<script src="gema_recent.js"></script>
+<script src="gema_lebensdauer_api.js"></script>
+<meta charset="utf-8"/>
+<meta name="theme-color" content="#0f172a"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="GEMA"/>
+<title>GEMA – Zustandsanalyse</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700;9..40,800;9..40,900&&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f3f5fb;--bg2:#eaecf4;--sur:#fff;--sur2:#f7f8fc;
+  --brd:#e0e4ef;--brd2:#c8cfdf;
+  --txt:#0f172a;--txt2:#334155;--mut:#64748b;--mut2:#94a3b8;
+  --grn:#16a34a;--grn-bg:#f0fdf4;--grn-bd:#bbf7d0;
+  --red:#dc2626;--red-bg:#fef2f2;--red-bd:#fecaca;
+  --amb:#d97706;--amb-bg:#fffbeb;--amb-bd:#fde68a;
+  --blue:#1d4ed8;--blue-lt:#2563eb;--blue-dk:#1e40af;
+  --blue-bg:#eff6ff;--blue-bg2:#dbeafe;--blue-bd:#93c5fd;
+  --r:13px;--r-sm:8px;--r-lg:18px;
+  --sh-sm:0 1px 4px rgba(0,0,0,.06);
+  --sh:0 4px 16px rgba(0,0,0,.08),0 1px 4px rgba(0,0,0,.04);
+  --sh-lg:0 16px 48px rgba(0,0,0,.13),0 4px 16px rgba(0,0,0,.06);
+  --sans:"DM Sans",ui-sans-serif,system-ui,sans-serif;
+  --tap:48px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:15px;scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{font-family:var(--sans);background:var(--bg);color:var(--txt);-webkit-font-smoothing:antialiased}
+input,select,button,textarea{font-family:var(--sans)}
+input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
+
+/* NAV */
+.g-nav{position:sticky;top:0;z-index:200;background:rgba(255,255,255,.96);backdrop-filter:blur(14px);border-bottom:1px solid var(--brd);box-shadow:var(--sh-sm)}
+.nav-in{max-width:1100px;margin:0 auto;padding:0 20px;height:52px;display:flex;align-items:center}
+.g-nav-logo{display:flex;align-items:center;gap:9px;text-decoration:none;margin-right:14px}
+.g-nav-mark{height:28px;display:flex;align-items:center}
+.g-nav-bc{display:flex;align-items:center;gap:2px;flex:1}
+.g-nav-bc a,.g-nav-bc span{font-size:12.5px;color:var(--mut);text-decoration:none;padding:4px 7px;border-radius:6px;transition:.12s}
+.g-nav-bc a:hover{background:var(--bg2)}
+.g-nav-bc .bc-cur{color:var(--txt);font-weight:700}
+.g-nav-bc .bc-sep{padding:0 2px;color:var(--mut2)}
+
+.pg{max-width:1100px;margin:0 auto;padding:18px 20px 130px}
+
+/* HERO */
+.hero{background:linear-gradient(135deg,#0f3a4d 0%,#0e7490 55%,#22b8cf 100%);border-radius:var(--r-lg);padding:24px 28px;margin-bottom:18px;position:relative;overflow:hidden;box-shadow:var(--sh-lg)}
+.hero::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 80% 40%,rgba(255,255,255,.12) 0%,transparent 60%)}
+.hero::after{content:'🩺';position:absolute;right:28px;top:50%;transform:translateY(-50%);font-size:88px;opacity:.09;pointer-events:none}
+.hero-in{position:relative;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.hero-ic{width:52px;height:52px;border-radius:14px;background:rgba(255,255,255,.15);border:1.5px solid rgba(255,255,255,.25);display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0}
+.hero-title{font-size:22px;font-weight:900;color:#fff;letter-spacing:-.4px}
+.hero-sub{font-size:12px;color:rgba(255,255,255,.6);margin-top:4px;line-height:1.6}
+.hero-pill{padding:5px 13px;border-radius:8px;background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.2);color:#fff;font-size:12px;font-weight:700}
+.hero-pills{display:flex;gap:8px;flex-wrap:wrap}
+
+/* LISTE */
+.list-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.lt-count{font-size:12.5px;font-weight:700;color:var(--mut);flex:1}
+.st-card{background:var(--sur);border:1.5px solid var(--brd);border-radius:var(--r);box-shadow:var(--sh-sm);padding:15px 18px;margin-bottom:10px;display:flex;align-items:center;gap:14px;cursor:pointer;transition:.15s}
+.st-card:hover{border-color:var(--blue-bd);box-shadow:var(--sh)}
+.st-card-ic{width:42px;height:42px;border-radius:12px;background:var(--blue-bg);border:1px solid var(--blue-bd);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
+.st-card-main{flex:1;min-width:0}
+.st-card-t{font-size:14.5px;font-weight:800;color:var(--txt);line-height:1.3}
+.st-card-s{font-size:12px;color:var(--mut);margin-top:3px;line-height:1.5}
+.st-card-del{border:none;background:var(--red-bg);color:var(--red);width:38px;height:38px;border-radius:10px;font-size:15px;cursor:pointer;flex-shrink:0}
+.empty-box{background:var(--sur);border:1.5px dashed var(--brd2);border-radius:var(--r);padding:36px 20px;text-align:center;color:var(--mut);font-size:13.5px;line-height:1.7}
+.empty-box .eb-ic{font-size:40px;margin-bottom:8px}
+
+/* STUDIE Top */
+.st-topbar{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.st-titel-inp{flex:1;min-width:200px;padding:10px 14px;border:1.5px solid var(--brd2);border-radius:10px;font-size:15.5px;font-weight:800;background:var(--sur);color:var(--txt);outline:none;min-height:var(--tap)}
+.st-titel-inp:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(29,78,216,.1)}
+.st-top-actions{display:flex;gap:8px;flex-wrap:wrap}
+
+/* CARDS */
+.card{background:var(--sur);border:1px solid var(--brd);border-radius:var(--r);box-shadow:var(--sh-sm);overflow:hidden;margin-bottom:16px}
+.card-hd{padding:14px 18px;border-bottom:1px solid var(--brd);background:var(--sur2);display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.card-hd-ic{width:34px;height:34px;border-radius:10px;background:var(--blue);color:#fff;font-size:17px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.card-hd-title{font-size:14px;font-weight:800;color:var(--txt)}
+.card-hd-sub{font-size:11.5px;color:var(--mut);margin-top:2px}
+.card-body{padding:18px}
+
+/* KAPITEL Accordion */
+.kap{background:var(--sur);border:1px solid var(--brd);border-radius:var(--r);box-shadow:var(--sh-sm);overflow:hidden;margin-bottom:12px}
+.kap-hd{display:flex;align-items:center;gap:12px;padding:14px 18px;cursor:pointer;user-select:none;min-height:var(--tap);background:var(--sur)}
+.kap-hd:hover{background:var(--sur2)}
+.kap.open .kap-hd{border-bottom:1px solid var(--brd);background:var(--sur2)}
+.kap-nr{min-width:44px;height:30px;padding:0 8px;border-radius:8px;background:var(--blue-bg);border:1px solid var(--blue-bd);color:var(--blue);font-size:12.5px;font-weight:900;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.kap-t{flex:1;font-size:14px;font-weight:800;color:var(--txt);line-height:1.3}
+.kap-meta{display:flex;gap:6px;align-items:center;flex-shrink:0}
+.kap-badge{padding:3px 9px;border-radius:99px;background:var(--bg2);border:1px solid var(--brd);color:var(--mut);font-size:11px;font-weight:800;white-space:nowrap}
+.kap-badge.foto{background:var(--grn-bg);border-color:var(--grn-bd);color:var(--grn)}
+.kap-cx{width:30px;height:30px;border-radius:8px;background:var(--bg2);display:flex;align-items:center;justify-content:center;color:var(--mut);font-size:13px;transition:.2s;flex-shrink:0}
+.kap.open .kap-cx{transform:rotate(90deg);background:var(--blue-bg);color:var(--blue)}
+.kap-bd{display:none;padding:18px}
+.kap.open .kap-bd{display:block}
+
+/* FRAGEN / Felder */
+.frage{margin-bottom:16px}
+.frage:last-child{margin-bottom:0}
+.frage-lbl{font-size:12px;font-weight:800;color:var(--txt2);margin-bottom:7px;line-height:1.4}
+.f-head{font-size:13px;font-weight:900;text-transform:uppercase;letter-spacing:.6px;color:var(--blue);margin:22px 0 12px;padding-top:16px;border-top:1px dashed var(--brd2)}
+.frage + .f-head,.f-head:first-child{margin-top:0}
+.f-head:first-child{border-top:none;padding-top:0}
+.f-info{font-size:12.5px;color:var(--mut);background:var(--bg2);border:1px solid var(--brd);border-radius:10px;padding:10px 13px;line-height:1.6;margin-bottom:14px}
+.f-inp,.f-area{width:100%;padding:10px 13px;border:1.5px solid var(--brd2);border-radius:10px;font-size:14px;background:var(--bg2);color:var(--txt);outline:none;transition:.15s;min-height:var(--tap)}
+.f-inp:focus,.f-area:focus{border-color:var(--blue);background:var(--sur);box-shadow:0 0 0 3px rgba(29,78,216,.1)}
+.f-area{min-height:86px;resize:vertical;line-height:1.55}
+.f-row{display:flex;gap:8px;align-items:center}
+.f-unit{flex-shrink:0;padding:0 13px;min-height:var(--tap);display:flex;align-items:center;border:1.5px solid var(--brd2);border-radius:10px;background:var(--sur2);color:var(--mut);font-size:12.5px;font-weight:800;white-space:nowrap}
+.f-row .f-inp{flex:1;min-width:0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 16px}
+@media(max-width:760px){.grid2{grid-template-columns:1fr}}
+
+/* SEG — grosse Auswahl-Buttons */
+.seg{display:flex;gap:8px;flex-wrap:wrap}
+.seg button{min-height:var(--tap);padding:10px 16px;border:1.5px solid var(--brd2);border-radius:11px;background:var(--sur);font-size:13.5px;font-weight:700;color:var(--txt2);cursor:pointer;transition:.13s;text-align:left;line-height:1.35}
+.seg button:hover{border-color:var(--blue-bd);background:var(--blue-bg)}
+.seg button.on{background:var(--blue-bg);border-color:var(--blue);color:var(--blue);font-weight:800;box-shadow:0 0 0 1px var(--blue) inset}
+.seg button.on::before{content:'✓ ';font-weight:900}
+.seg-hint{margin-top:9px;font-size:12.5px;color:var(--txt2);background:var(--blue-bg);border:1px solid var(--blue-bd);border-radius:10px;padding:10px 13px;line-height:1.6;white-space:pre-wrap}
+/* MULTI — Mehrfachauswahl */
+.multi{display:flex;flex-direction:column;gap:7px}
+.multi button{min-height:var(--tap);padding:10px 14px;border:1.5px solid var(--brd2);border-radius:11px;background:var(--sur);font-size:13.5px;font-weight:600;color:var(--txt2);cursor:pointer;transition:.13s;text-align:left;display:flex;align-items:center;gap:10px;line-height:1.35}
+.multi button::before{content:'';width:20px;height:20px;border:2px solid var(--brd2);border-radius:6px;flex-shrink:0;background:var(--sur)}
+.multi button.on{background:var(--blue-bg);border-color:var(--blue);color:var(--blue-dk);font-weight:700}
+.multi button.on::before{content:'✓';background:var(--blue);border-color:var(--blue);color:#fff;font-size:13px;font-weight:900;display:flex;align-items:center;justify-content:center}
+
+/* Standardtext-Leiste */
+.stdbar{display:flex;gap:6px;margin-top:7px;flex-wrap:wrap}
+.stdbar button{border:1px solid var(--brd2);background:var(--sur2);color:var(--mut);font-size:11.5px;font-weight:700;padding:6px 11px;border-radius:8px;cursor:pointer}
+.stdbar button:hover{background:var(--blue-bg);color:var(--blue);border-color:var(--blue-bd)}
+
+/* BEREICHE (Optischer Eindruck) */
+.ber-box{border:1.5px solid var(--brd);border-radius:12px;padding:13px 15px;margin-bottom:12px;background:var(--sur)}
+.ber-hd{display:flex;gap:8px;margin-bottom:10px}
+.ber-hd .f-inp{flex:1;min-width:0;font-weight:800}
+.zseg{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}
+.zseg button{flex:1;min-width:110px;min-height:var(--tap);padding:9px 10px;border:1.5px solid var(--brd2);border-radius:11px;background:var(--sur);font-size:12.5px;font-weight:800;color:var(--txt2);cursor:pointer;transition:.13s}
+.zseg button.on::before{content:'✓ ';font-weight:900}
+.zseg button.z0.on{background:var(--grn-bg);border-color:var(--grn);color:var(--grn);box-shadow:0 0 0 1px var(--grn) inset}
+.zseg button.z1.on{background:var(--amb-bg);border-color:var(--amb);color:var(--amb);box-shadow:0 0 0 1px var(--amb) inset}
+.zseg button.z2.on{background:#fff7ed;border-color:#ea580c;color:#ea580c;box-shadow:0 0 0 1px #ea580c inset}
+.zseg button.z3.on{background:var(--red-bg);border-color:var(--red);color:var(--red);box-shadow:0 0 0 1px var(--red) inset}
+.fest{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+@media(max-width:760px){.fest{grid-template-columns:1fr}}
+.fest button{min-height:42px;padding:8px 11px;border:1.5px solid var(--brd2);border-radius:10px;background:var(--sur);font-size:12px;font-weight:600;color:var(--txt2);cursor:pointer;transition:.13s;text-align:left;display:flex;align-items:center;gap:8px;line-height:1.3}
+.fest button::before{content:'';width:17px;height:17px;border:2px solid var(--brd2);border-radius:5px;flex-shrink:0;background:var(--sur)}
+.fest button.on{background:var(--blue-bg);border-color:var(--blue);color:var(--blue-dk);font-weight:700}
+.fest button.on::before{content:'✓';background:var(--blue);border-color:var(--blue);color:#fff;font-size:11px;font-weight:900;display:flex;align-items:center;justify-content:center}
+.zl-row{display:flex;gap:8px;margin-top:8px}
+.zl-row .f-inp{flex:1;min-width:0}
+
+/* RISIKO */
+.risk-lbl{font-size:12px;font-weight:800;color:var(--txt2);margin:14px 0 7px}
+.risk{display:flex;gap:7px;flex-wrap:wrap}
+.risk button{flex:1;min-width:105px;min-height:var(--tap);padding:9px 10px;border:1.5px solid var(--brd2);border-radius:11px;background:var(--sur);font-size:12.5px;font-weight:800;color:var(--txt2);cursor:pointer;transition:.13s}
+.risk button small{display:block;font-size:10px;font-weight:700;color:var(--mut2);margin-top:2px}
+.risk button.on::before{content:'✓ ';font-weight:900}
+.risk button.r0.on{background:var(--grn-bg);border-color:var(--grn);color:var(--grn);box-shadow:0 0 0 1px var(--grn) inset}
+.risk button.r1.on{background:var(--amb-bg);border-color:var(--amb);color:var(--amb);box-shadow:0 0 0 1px var(--amb) inset}
+.risk button.r2.on{background:#fff7ed;border-color:#ea580c;color:#ea580c;box-shadow:0 0 0 1px #ea580c inset}
+.risk button.r3.on{background:var(--red-bg);border-color:var(--red);color:var(--red);box-shadow:0 0 0 1px var(--red) inset}
+.risk button.on small{color:inherit;opacity:.75}
+
+/* KOMPONENTEN (Kapitel 1) */
+.komp-box{border:1.5px solid var(--brd);border-radius:12px;padding:13px 15px;margin-bottom:12px;background:var(--sur)}
+.komp-hd{display:flex;gap:8px;margin-bottom:10px}
+.komp-hd .f-inp{flex:1;min-width:0;font-weight:800}
+
+/* MATERIAL-TABELLEN */
+.mtb-row{border:1.5px solid var(--brd);border-radius:12px;padding:11px 13px;margin-bottom:9px;background:var(--sur)}
+.mtb-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
+.mtb-f label{display:block;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--mut2);margin-bottom:4px}
+.mtb-mat{display:flex;gap:6px}
+.mtb-mat .f-inp{flex:1;min-width:0}
+.mtb-pick{border:1.5px dashed var(--brd2);background:var(--sur2);color:var(--mut);font-size:14px;width:44px;min-height:var(--tap);border-radius:10px;cursor:pointer;flex-shrink:0}
+.mtb-pick:hover{border-color:var(--blue-bd);color:var(--blue);background:var(--blue-bg)}
+.mtb-ft{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:9px}
+.mtb-ft .fx{flex:1}
+
+/* KOSTEN (Kapitel 9) */
+.kos-row{display:flex;gap:7px;margin-bottom:7px;align-items:flex-start}
+.kos-nr{width:64px;flex-shrink:0}
+.kos-nr .f-inp{text-align:center;font-weight:800;padding-left:6px;padding-right:6px}
+.kos-bez{flex:1;min-width:0}
+.kos-chf{width:128px;flex-shrink:0}
+.kos-chf .f-inp{text-align:right;font-weight:700}
+.kos-tot{display:flex;align-items:center;gap:10px;padding:10px 13px;border-radius:10px;background:var(--bg2);border:1px solid var(--brd);margin-top:9px}
+.kos-tot .kt-l{flex:1;font-size:12.5px;font-weight:800;color:var(--txt2)}
+.kos-tot .kt-v{font-size:13.5px;font-weight:900;color:var(--txt);white-space:nowrap}
+.kos-tot.grand{background:var(--blue-bg);border-color:var(--blue-bd)}
+.kos-tot.grand .kt-l,.kos-tot.grand .kt-v{color:var(--blue-dk);font-size:14px}
+.kos-sub{font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;color:var(--mut);margin:16px 0 8px}
+
+/* VERGLEICH V1/V2 */
+.vgl-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:820px){.vgl-grid{grid-template-columns:1fr}}
+.vgl-box{border:1.5px solid var(--brd);border-radius:12px;overflow:hidden;background:var(--sur)}
+.vgl-hd{padding:11px 14px;background:var(--sur2);border-bottom:1px solid var(--brd)}
+.vgl-hd .vh-t{font-size:13px;font-weight:900;color:var(--txt)}
+.vgl-hd .vh-s{font-size:11.5px;color:var(--mut);margin-top:2px}
+.vgl-sec{padding:10px 14px}
+.vgl-sec + .vgl-sec{border-top:1px dashed var(--brd)}
+.vgl-sec-t{font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px}
+.vgl-sec-t.vor{color:var(--grn)}.vgl-sec-t.nach{color:var(--red)}
+.vgl-item{display:flex;gap:8px;align-items:flex-start;padding:7px 9px;border-radius:8px;font-size:12.5px;line-height:1.5;color:var(--txt2);cursor:pointer;transition:.12s}
+.vgl-item:hover{background:var(--bg2)}
+.vgl-item::before{content:'✓';font-weight:900;flex-shrink:0;margin-top:1px}
+.vgl-item.vor::before{color:var(--grn)}
+.vgl-item.nach::before{content:'−';color:var(--red)}
+.vgl-item.aus{opacity:.42;text-decoration:line-through}
+.vgl-item.aus::before{content:'✕';color:var(--mut2)}
+.vgl-extra{margin-top:8px}
+.vgl-extra textarea{width:100%;min-height:52px;padding:8px 11px;border:1.5px dashed var(--brd2);border-radius:9px;font-size:12.5px;background:var(--sur2);color:var(--txt);outline:none;resize:vertical;line-height:1.5}
+.vgl-extra textarea:focus{border-color:var(--blue);border-style:solid;background:var(--sur)}
+.vgl-extra .ve-l{font-size:10.5px;font-weight:800;color:var(--mut2);margin-bottom:4px;text-transform:uppercase;letter-spacing:.4px}
+
+/* MATERIALWAHL / Lebensdauer-Verknüpfung */
+.mw-del{border:none;background:var(--red-bg);color:var(--red);width:42px;min-height:var(--tap);border-radius:10px;font-size:14px;cursor:pointer;flex-shrink:0}
+.mw-chip{display:inline-flex;align-items:center;gap:8px;padding:6px 11px;border:1.5px solid var(--blue-bd);background:var(--blue-bg);border-radius:10px;font-size:12px;font-weight:700;color:var(--blue-dk)}
+.mw-chip .mc-x{border:none;background:none;color:var(--mut);font-size:14px;font-weight:900;cursor:pointer;padding:2px 4px}
+.mw-result{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.mw-pill{padding:6px 12px;border-radius:9px;font-size:12px;font-weight:800;border:1px solid}
+.mw-pill.g{background:var(--grn-bg);border-color:var(--grn-bd);color:var(--grn)}
+.mw-pill.a{background:var(--amb-bg);border-color:var(--amb-bd);color:var(--amb)}
+.mw-pill.r{background:var(--red-bg);border-color:var(--red-bd);color:var(--red)}
+.mw-pill.n{background:var(--bg2);border-color:var(--brd);color:var(--mut)}
+
+/* Material-Such-Modal */
+.mwm-such{width:100%;padding:11px 14px;border:1.5px solid var(--brd2);border-radius:10px;font-size:14px;background:var(--bg2);outline:none;min-height:var(--tap)}
+.mwm-such:focus{border-color:var(--blue);background:var(--sur)}
+.mwm-liste{margin-top:10px;max-height:340px;overflow:auto;border:1px solid var(--brd);border-radius:10px}
+.mwm-opt{padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--brd);display:flex;align-items:center;gap:10px;min-height:var(--tap)}
+.mwm-opt:last-child{border-bottom:none}
+.mwm-opt:hover{background:var(--blue-bg)}
+.mwm-opt .mo-name{flex:1;font-size:13.5px;font-weight:600;color:var(--txt);line-height:1.3}
+.mwm-opt .mo-name small{display:block;font-size:11px;font-weight:500;color:var(--mut)}
+.mwm-jahre{flex-shrink:0;padding:3px 10px;border-radius:8px;background:var(--blue-bg);border:1px solid var(--blue-bd);color:var(--blue);font-size:12.5px;font-weight:800;white-space:nowrap}
+
+/* FOTOS */
+.foto-sec{margin-top:20px;padding-top:16px;border-top:1px dashed var(--brd2)}
+.foto-sec-t{font-size:13px;font-weight:900;text-transform:uppercase;letter-spacing:.6px;color:var(--txt2);margin-bottom:10px}
+.foto-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.foto-tile{border:1.5px solid var(--brd);border-radius:12px;overflow:hidden;background:var(--sur);display:flex;flex-direction:column}
+.foto-tile img{width:100%;height:110px;object-fit:cover;cursor:zoom-in;display:block;background:var(--bg2)}
+.foto-cap{padding:7px 9px;font-size:11px;color:var(--txt2);line-height:1.4;flex:1}
+.foto-cap b{display:block;font-size:11.5px;color:var(--txt)}
+.foto-warte{font-size:10px;font-weight:800;color:var(--amb);padding:2px 9px 0}
+.foto-acts{display:flex;border-top:1px solid var(--brd)}
+.foto-acts button{flex:1;border:none;background:var(--sur2);color:var(--mut);font-size:13px;padding:8px 0;cursor:pointer;min-height:38px}
+.foto-acts button:hover{background:var(--blue-bg);color:var(--blue)}
+.foto-acts button + button{border-left:1px solid var(--brd)}
+.foto-acts button.del:hover{background:var(--red-bg);color:var(--red)}
+.photo-add-split{border:1.5px dashed var(--brd2);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;min-height:158px}
+.pa-half{flex:1;border:none;background:var(--sur2);color:var(--mut);font-size:12.5px;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:8px}
+.pa-half:hover{background:var(--blue-bg);color:var(--blue)}
+.pa-half + .pa-half{border-top:1.5px dashed var(--brd2)}
+.pa-half .pa-ic{font-size:20px}
+
+/* FOOTER-BAR */
+.footer-bar{position:fixed;left:0;right:0;bottom:0;z-index:400;background:rgba(255,255,255,.94);backdrop-filter:blur(14px);border-top:1px solid var(--brd);padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));display:flex;gap:8px;align-items:center;max-width:100vw}
+.fb-spacer{flex:1}
+.fb-btn{min-height:var(--tap);padding:10px 16px;border:1.5px solid var(--brd2);border-radius:11px;background:var(--sur);font-size:13.5px;font-weight:800;color:var(--txt2);cursor:pointer}
+.fb-btn:hover{background:var(--bg2)}
+.fb-btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+.fb-btn.primary:hover{background:var(--blue-dk)}
+
+/* SAVE-STATUS */
+.save-status{position:fixed;bottom:calc(74px + env(safe-area-inset-bottom,0px));right:18px;z-index:1100;display:none;align-items:center;gap:8px;background:var(--sur);border:1.5px solid var(--brd);border-radius:99px;padding:8px 15px;font-size:12px;font-weight:800;color:var(--mut);box-shadow:var(--sh)}
+.save-status.pending,.save-status.saving,.save-status.saved,.save-status.error{display:flex}
+.save-status .save-spinner{width:13px;height:13px;border:2px solid var(--brd2);border-top-color:var(--blue);border-radius:50%;animation:spin 1s linear infinite;display:none}
+.save-status .save-check{color:var(--grn);font-weight:900;display:none}
+.save-status .save-err{color:var(--amb);font-weight:900;display:none}
+.save-status.pending .save-spinner,.save-status.saving .save-spinner{display:block}
+.save-status.saved .save-check{display:block}
+.save-status.error .save-err{display:block}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ACT-Buttons */
+.act-btn{display:inline-flex;align-items:center;gap:5px;padding:8px 14px;border-radius:9px;border:1.5px solid var(--brd2);background:var(--sur);font-size:13px;font-weight:700;color:var(--txt2);cursor:pointer;transition:.15s;min-height:var(--tap)}
+.act-btn:hover{background:var(--bg2)}
+.act-btn.primary{background:var(--blue-bg);border-color:var(--blue-bd);color:var(--blue)}
+.act-btn.primary:hover{background:var(--blue-bg2)}
+
+/* MODALS */
+.modal-bg{position:fixed;inset:0;background:rgba(15,23,42,.5);backdrop-filter:blur(3px);z-index:1200;display:none;align-items:flex-start;justify-content:center;padding:24px 14px;overflow-y:auto}
+.modal-bg.open{display:flex}
+.modal{background:var(--sur);border-radius:16px;box-shadow:var(--sh-lg);width:100%;max-width:560px;margin-top:24px;overflow:hidden}
+.modal-hd{padding:15px 20px;border-bottom:1px solid var(--brd);display:flex;align-items:center;gap:10px;background:var(--sur2)}
+.modal-hd .m-t{flex:1;font-size:15px;font-weight:800}
+.modal-x{border:none;background:var(--bg2);width:34px;height:34px;border-radius:9px;font-size:15px;cursor:pointer;color:var(--mut)}
+.modal-bd{padding:18px 20px}
+.modal-ft{padding:14px 20px;border-top:1px solid var(--brd);display:flex;gap:8px;justify-content:flex-end;background:var(--sur2);flex-wrap:wrap}
+.fg{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+.fg label{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--mut)}
+.fg input,.fg select,.fg textarea{width:100%;padding:10px 13px;border:1.5px solid var(--brd2);border-radius:10px;font-size:14px;background:var(--bg2);color:var(--txt);outline:none;transition:.15s;min-height:var(--tap)}
+.fg input:focus,.fg select:focus,.fg textarea:focus{border-color:var(--blue);background:var(--sur);box-shadow:0 0 0 3px rgba(29,78,216,.1)}
+.fg textarea{min-height:70px;resize:vertical}
+
+/* LIGHTBOX */
+#lightbox{position:fixed;inset:0;background:rgba(15,23,42,.92);z-index:1500;display:none;align-items:center;justify-content:center;padding:20px;cursor:zoom-out}
+#lightbox.open{display:flex}
+#lightbox img{max-width:100%;max-height:100%;border-radius:10px;box-shadow:var(--sh-lg)}
+
+/* TOAST */
+#toast{position:fixed;bottom:calc(84px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%) translateY(80px);background:var(--txt);color:#fff;padding:11px 22px;border-radius:99px;font-size:13.5px;font-weight:700;box-shadow:var(--sh-lg);z-index:1400;transition:.3s;opacity:0;pointer-events:none;max-width:92vw;text-align:center}
+#toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+
+@media print{.g-nav,.hero,.list-toolbar,.st-topbar,.footer-bar,.save-status,.stdbar,.foto-acts,.photo-add-split,.modal-bg,#toast,#lightbox{display:none!important}.kap-bd{display:block!important}.pg{padding-bottom:20px}}
+</style>
+<link rel="stylesheet" href="gema_responsive.css"/>
+</head>
+<body>
+
+<nav class="g-nav">
+  <div class="g-nav-inner">
+    <a class="g-nav-logo" href="index.html">
+      <div class="g-nav-mark"><svg xmlns="http://www.w3.org/2000/svg" viewBox="80 196 415 175" height="28" preserveAspectRatio="xMidYMid meet"><defs><clipPath id="gn_c1"><path d="M 29 17 L 145 17 L 145 151 L 29 151 Z" clip-rule="nonzero"/></clipPath><clipPath id="gn_c2"><path d="M 58.367188 0.613281 L 173.855469 67.289062 L 116.105469 167.3125 L 0.621094 100.636719 Z" clip-rule="nonzero"/></clipPath><clipPath id="gn_c3"><path d="M 73 47.414062 L 123.597656 47.414062 L 123.597656 98 L 73 98 Z" clip-rule="nonzero"/></clipPath><clipPath id="gn_c4"><rect x="0" width="174" y="0" height="168"/></clipPath></defs><g transform="matrix(1,0,0,1,83,199)"><g clip-path="url(#gn_c4)"><g clip-path="url(#gn_c1)"><g clip-path="url(#gn_c2)"><path fill="#000" d="M 144.929688 50.640625 L 144.929688 117.292969 L 87.207031 150.617188 L 29.484375 117.292969 L 29.484375 50.640625 L 87.207031 17.3125 Z" fill-opacity="1" fill-rule="nonzero"/></g></g></g><path fill="#fff" d="M 98.042969 73.117188 C 96.210938 71.285156 93.945312 69.882812 91.488281 69.070312 C 85.503906 75.054688 85.019531 75.28125 84.257812 77.097656 C 90.328125 76.699219 95.191406 82.253906 93.839844 88.324219 C 93.011719 92.078125 84.535156 99.5 76.90625 107.300781 C 73.34375 110.933594 67.460938 110.898438 63.863281 107.300781 C 60.265625 103.703125 60.265625 97.855469 63.863281 94.257812 L 71.992188 86.128906 C 70.988281 82.390625 71.214844 78.445312 72.476562 74.933594 L 57.203125 90.210938 C 50.664062 96.75 50.664062 107.40625 57.203125 113.960938 C 63.757812 120.515625 74.378906 120.515625 80.953125 113.960938 L 98.042969 96.871094 C 104.550781 90.363281 104.652344 79.726562 98.042969 73.117188 Z"/><g clip-path="url(#gn_c3)"><path fill="#fff" d="M 118.835938 76.078125 C 122.003906 72.910156 123.75 68.691406 123.75 64.210938 C 123.75 54.9375 116.242188 47.414062 106.953125 47.414062 C 102.472656 47.414062 98.253906 49.160156 95.085938 52.324219 C 90.8125 56.597656 82.269531 65.144531 77.996094 69.417969 C 71.507812 75.902344 71.371094 86.542969 77.996094 93.167969 C 79.828125 95 82.09375 96.402344 84.550781 97.214844 C 90.503906 91.265625 91.019531 91.023438 91.78125 89.1875 C 89.152344 89.363281 86.574219 88.410156 84.671875 86.507812 C 81.039062 82.875 81.109375 77.027344 84.671875 73.464844 C 87.855469 70.28125 95.882812 62.253906 99.132812 59.003906 C 102.734375 55.402344 108.578125 55.386719 112.179688 59.003906 C 115.777344 62.601562 115.777344 68.449219 112.179688 72.046875 L 104.046875 80.175781 C 105.066406 84.015625 104.824219 87.890625 103.5625 91.367188 Z"/></g></g></g><g fill="#000" fill-opacity="1"><g transform="translate(243.214799,313.539633)"><path d="M 62.46875 -35.8125 L 62.46875 -21.9375 C 60.8125 -14.34375 57.191406 -8.59375 51.609375 -4.6875 C 46.035156 -0.789062 39.8125 1.15625 32.9375 1.15625 C 24.3125 1.15625 16.960938 -2.070312 10.890625 -8.53125 C 4.816406 -14.988281 1.78125 -22.789062 1.78125 -31.9375 C 1.78125 -41.226562 4.75 -49.078125 10.6875 -55.484375 C 16.632812 -61.890625 24.050781 -65.09375 32.9375 -65.09375 C 43.320312 -65.09375 51.535156 -61.453125 57.578125 -54.171875 L 48.046875 -43.703125 C 44.640625 -49.179688 39.890625 -51.921875 33.796875 -51.921875 C 29.296875 -51.921875 25.457031 -49.96875 22.28125 -46.0625 C 19.101562 -42.164062 17.515625 -37.457031 17.515625 -31.9375 C 17.515625 -26.507812 19.101562 -21.867188 22.28125 -18.015625 C 25.457031 -14.171875 29.296875 -12.25 33.796875 -12.25 C 37.515625 -12.25 40.753906 -13.367188 43.515625 -15.609375 C 46.273438 -17.859375 47.65625 -20.84375 47.65625 -24.5625 L 32.9375 -24.5625 L 32.9375 -35.8125 Z"/></g></g><g fill="#000" fill-opacity="1"><g transform="translate(307.462326,313.539633)"><path d="M 41.234375 -63.9375 L 41.234375 -51.15625 L 19.21875 -51.15625 L 19.21875 -38.4375 L 40.296875 -38.4375 L 40.296875 -25.65625 L 19.21875 -25.65625 L 19.21875 -12.78125 L 41.234375 -12.78125 L 41.234375 0 L 4.65625 0 L 4.65625 -63.9375 Z"/></g></g><g fill="#000" fill-opacity="1"><g transform="translate(352.412344,313.539633)"><path d="M 57.5 0 L 54.484375 -37.890625 L 54.09375 -37.890625 L 41 -0.390625 L 32.3125 -0.390625 L 19.21875 -37.890625 L 18.828125 -37.890625 L 15.8125 0 L 1.234375 0 L 6.96875 -63.9375 L 22.46875 -63.9375 L 36.65625 -27.046875 L 50.84375 -63.9375 L 66.34375 -63.9375 L 72.078125 0 Z"/></g></g><g fill="#000" fill-opacity="1"><g transform="translate(425.727374,313.539633)"><path d="M 37.125 -63.9375 L 62.9375 0 L 47.28125 0 L 42.546875 -12.78125 L 18.21875 -12.78125 L 13.484375 0 L -2.171875 0 L 23.640625 -63.9375 Z M 37.59375 -25.578125 L 30.453125 -44.171875 L 30.296875 -44.171875 L 23.171875 -25.578125 Z"/></g></g></svg></div>
+    </a>
+    <div class="g-nav-bc">
+      <a class="bc-cat" href="pm_ausschreibung.html">Planung &amp; Management</a><span class="bc-sep">›</span><span class="bc-cur">Zustandsanalyse</span>
+    </div>
+    <div class="g-nav-right">
+      <button class="gema-feedback-btn no-print" onclick="GemaFeedback.start()">🔴 Feedback</button>
+    </div>
+  </div>
+</nav>
+
+<div class="pg">
+
+  <!-- ═══ ANSICHT: LISTE ═══ -->
+  <div id="viewListe">
+    <div class="hero">
+      <div class="hero-in">
+        <div style="display:flex;align-items:center;gap:14px">
+          <div class="hero-ic">🩺</div>
+          <div>
+            <div class="hero-title">Zustandsanalyse</div>
+            <div class="hero-sub">Zustandsbericht BKP 250 Sanitäranlagen · Risiken, Sanierungsvarianten &amp; Massnahmen · Bericht als PDF / Word</div>
+          </div>
+        </div>
+        <div class="hero-pills">
+          <span class="hero-pill">BKP 250</span>
+          <span class="hero-pill">Lebensdauer-Katalog</span>
+          <span class="hero-pill">Smartphone-optimiert</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="list-toolbar">
+      <div class="lt-count" id="listCount"></div>
+      <button class="act-btn primary" id="btnNeu" onclick="zaNeu()">＋ Neue Zustandsanalyse</button>
+    </div>
+    <div id="listHost"></div>
+  </div>
+
+  <!-- ═══ ANSICHT: STUDIE ═══ -->
+  <div id="viewStudie" style="display:none">
+    <div class="st-topbar">
+      <button class="act-btn" onclick="zaZurueck()">‹ Übersicht</button>
+      <input id="stTitel" class="st-titel-inp" placeholder="Titel der Zustandsanalyse" oninput="zaTitel(this)">
+    </div>
+
+    <div class="card" id="kopfCard">
+      <div class="card-hd">
+        <div class="card-hd-ic">🏗</div>
+        <div style="flex:1">
+          <div class="card-hd-title">Projektkopf</div>
+          <div class="card-hd-sub">Objekt, Bauherrschaft, Verwaltung, Verfasser und Titelbild — erscheint auf dem Deckblatt des Berichts</div>
+        </div>
+      </div>
+      <div class="card-body" id="kopfBody"></div>
+    </div>
+
+    <div id="kapHost"></div>
+  </div>
+</div>
+
+<!-- Footer-Bar (nur Studie-Ansicht) -->
+<div class="footer-bar no-print" id="footBar" style="display:none">
+  <button class="fb-btn" onclick="zaZurueck()">‹ Übersicht</button>
+  <div class="fb-spacer"></div>
+  <button class="fb-btn" onclick="zaBerichtWord()">📝 Word</button>
+  <button class="fb-btn primary" onclick="zaBericht()">📄 Bericht (PDF)</button>
+</div>
+
+<!-- Save-Status -->
+<div class="save-status" id="saveStatus">
+  <span class="save-spinner"></span><span class="save-check">✓</span><span class="save-err">⚠</span>
+  <span id="saveStatusTxt">Gespeichert</span>
+</div>
+
+<!-- Foto-Detail-Modal -->
+<div class="modal-bg" id="fotoModalBg">
+  <div class="modal">
+    <div class="modal-hd">
+      <div class="m-t">📷 Foto-Angaben</div>
+      <button class="modal-x" onclick="zaFotoModalZu()">✕</button>
+    </div>
+    <div class="modal-bd">
+      <div style="text-align:center;margin-bottom:14px"><img id="fmImg" style="max-width:100%;max-height:220px;border-radius:10px;border:1px solid var(--brd)" alt=""></div>
+      <div class="fg"><label>Beschreibung</label><input id="fmBeschreibung" placeholder="z.B. Korrosion an der Steigleitung"></div>
+      <div class="grid2">
+        <div class="fg"><label>Standort</label><input id="fmStandort" placeholder="z.B. Steigzone A"></div>
+        <div class="fg"><label>Geschoss</label><input id="fmGeschoss" placeholder="z.B. 2. OG"></div>
+      </div>
+      <div class="grid2">
+        <div class="fg"><label>Raum</label><input id="fmRaum" placeholder="z.B. Bad"></div>
+        <div class="fg"><label>Bauteil</label><input id="fmBauteil" placeholder="z.B. Kaltwasserleitung"></div>
+      </div>
+    </div>
+    <div class="modal-ft">
+      <button class="act-btn" onclick="zaFotoModalZu()">Abbrechen</button>
+      <button class="act-btn primary" onclick="zaFotoModalSave()">✓ Übernehmen</button>
+    </div>
+  </div>
+</div>
+
+<!-- Material-Such-Modal (Lebensdauer-Katalog) -->
+<div class="modal-bg" id="mwModalBg">
+  <div class="modal">
+    <div class="modal-hd">
+      <div class="m-t">⏳ Material aus dem Lebensdauer-Katalog</div>
+      <button class="modal-x" onclick="mwModalZu()">✕</button>
+    </div>
+    <div class="modal-bd">
+      <input class="mwm-such" id="mwmSuche" placeholder="Suchen … z.B. Chrom-Nickel-Stahl, PEX, Guss, PE Silent" oninput="mwmFilter()">
+      <div class="mwm-liste" id="mwmListe"></div>
+      <div class="hint" style="margin-top:10px;font-size:11.5px;color:var(--mut2);background:var(--bg2);border:1px solid var(--brd);border-radius:8px;padding:7px 11px;line-height:1.5">Lebensdauern gemäss paritätischer Lebensdauertabelle bzw. GEMA-Richtwert — Katalog pflegen im Modul «Lebensdauer-Katalog».</div>
+    </div>
+  </div>
+</div>
+
+<div id="lightbox" onclick="this.classList.remove('open')"><img id="lightboxImg" alt=""></div>
+<div id="toast"></div>
+
+<script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
+<script src="gema_objekte_api.js"></script>
+<script src="gema_dialog.js"></script>
+
+<script>
+function fixLeadingZero(el){
+  let v = el.value.trim();
+  if (v === '') return;
+  if (/^\./.test(v)) v = '0' + v;
+  if (/^-\./.test(v)) v = '-0' + v.slice(1);
+  el.value = String(parseFloat(v));
+}
+</script>
+
+<script>
+/* ═════════════════════════════════════════════════════════════
+   ZUSTANDSANALYSE — BKP 250 Sanitäranlagen (Hauptmodul)
+   Bestandsaufnahme mit Bereichen, Risiko-Beurteilungen, Material-
+   Tabellen (Lebensdauer-Katalog), Sanierungsvarianten, Grobkosten
+   und Massnahmen-Empfehlung. Analysen liegen per-Record in der
+   Cloud (moduleKey 'zustandsanalyse', prefix 'za:', Pool-Cache
+   'gema_za_pool_v1'); Fotos laufen über die geteilte Offline-
+   Foto-Warteschlange (GemaFotoQueue, Scope 'za').
+   ═════════════════════════════════════════════════════════════ */
+(function(){
+'use strict';
+/* ═══ P1 · Utilities, Storage, Save-Pipeline, Foto-Queue ═══ */
+var MOD_KEY = 'zustandsanalyse';
+var POOL    = 'gema_za_pool_v1';
+var PREFIX  = 'za:';
+
+var LD = (typeof window.GemaLebensdauer !== 'undefined') ? window.GemaLebensdauer : null;
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function el(id){ return document.getElementById(id); }
+function uid(){ return 'za_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8); }
+function today(){ var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+function dCH(iso){
+  if (!iso) return '';
+  var m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? (m[3] + '.' + m[2] + '.' + m[1]) : String(iso);
+}
+function me(){ try { return (typeof GemaAuth!=='undefined' && GemaAuth.getCurrentUser()) || null; } catch(e){ return null; } }
+function orgId(){ var u = me(); return (u && u.orgId) || ''; }
+function myOrg(){
+  try {
+    var u = me(); if (!u || !u.orgId || typeof GemaAuth==='undefined') return null;
+    return (GemaAuth.getOrgs()||[]).filter(function(o){ return o && o.id===u.orgId; })[0] || null;
+  } catch(e){ return null; }
+}
+function isAdmin(){ var u = me(); return !!(u && u.roleIds && u.roleIds.indexOf('role_admin')>=0); }
+function canEdit(){
+  try { return typeof GemaAuth!=='undefined' && GemaAuth.can('write', MOD_KEY); } catch(e){ return false; }
+}
+function toast(msg){
+  var t = el('toast'); if (!t) return;
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._tm); t._tm = setTimeout(function(){ t.classList.remove('show'); }, 2600);
+}
+
+/* ── Pool (per-Record-Cache, Kanon GemaSync.getCached) ────── */
+function poolRead(){
+  try { if (typeof GemaSync!=='undefined' && GemaSync.getCached) return GemaSync.getCached(POOL) || []; } catch(e){}
+  try { var raw = localStorage.getItem(POOL); if (raw){ var a = JSON.parse(raw); if (Array.isArray(a)) return a; } } catch(e2){}
+  return [];
+}
+function poolWrite(arr){ try { localStorage.setItem(POOL, JSON.stringify(arr)); } catch(e){} }
+/* Org-Sichtbarkeit: Admin alles; eigene Org; orgId-lose nur der Ersteller (effektiveOrgId-Regel) */
+function _sichtbar(s){
+  if (!s) return false;
+  if (isAdmin()) return true;
+  var org = orgId();
+  if (s.orgId) return s.orgId === org;
+  var u = me();
+  return !!(u && s.erstelltVon && s.erstelltVon.userId === u.id);
+}
+/* Einzel-Record lokal + Cloud sichern (ohne Status-Badge — für fremde Records im Foto-Runner) */
+function saveRecRaw(rec){
+  var pool = poolRead().filter(function(r){ return r && r.id !== rec.id; });
+  pool.push(rec); poolWrite(pool);
+  try { if (typeof GemaSync!=='undefined') GemaSync.saveRecord(MOD_KEY, PREFIX + rec.id, rec)['catch'](function(){}); } catch(e){}
+}
+
+/* ── Save-Pipeline (local-first + _acked-Signatur, Kanon pm_abnahme/pm_erp) ── */
+var cur = null;            // offene Studie (Arbeitskopie)
+var _saveT = null, _acked = '';
+function setStatus(cls, txt){
+  var s = el('saveStatus'); if (!s) return;
+  s.className = 'save-status' + (cls ? ' ' + cls : '');
+  el('saveStatusTxt').textContent = txt || '';
+  clearTimeout(s._tm);
+  if (cls === 'saved') s._tm = setTimeout(function(){ s.className = 'save-status'; }, 2000);
+}
+function sigOf(s){
+  var u = s.updatedAt; s.updatedAt = '';
+  var j = ''; try { j = JSON.stringify(s); } catch(e){}
+  s.updatedAt = u; return j;
+}
+function scheduleSave(){
+  if (!cur) return;
+  if (!canEdit()) return;                                  // Nur-Lesen: nie Writes einreihen
+  setStatus('pending', 'Änderungen …');
+  clearTimeout(_saveT);
+  _saveT = setTimeout(doSave, 1200);
+}
+function flushSave(){ if (_saveT){ clearTimeout(_saveT); _saveT = null; doSave(); } }
+function doSave(){
+  _saveT = null;
+  if (!cur) return;
+  var sig = sigOf(cur);
+  if (sig === _acked){ setStatus('saved', 'Gespeichert'); return; }
+  cur.updatedAt = new Date().toISOString();
+  setStatus('saving', 'Speichern …');
+  var kopie; try { kopie = JSON.parse(JSON.stringify(cur)); } catch(e){ kopie = cur; }
+  var pool = poolRead().filter(function(r){ return r && r.id !== cur.id; });
+  pool.push(kopie); poolWrite(pool);                       // lokal IMMER zuerst (durable)
+  if (typeof GemaSync === 'undefined'){ _acked = sig; setStatus('saved', 'Lokal gespeichert'); return; }
+  GemaSync.saveRecord(MOD_KEY, PREFIX + cur.id, kopie).then(function(){
+    _acked = sig; setStatus('saved', 'Gespeichert');
+  })['catch'](function(e){
+    if (e && e.queued){ _acked = sig; setStatus('saved', 'Lokal gesichert — Upload folgt'); }
+    else { setStatus('error', 'Cloud-Sync ausstehend'); setTimeout(function(){ if (cur) doSave(); }, 10000); }
+  });
+}
+
+/* ── Foto-Queue (geteilter Helper, Scope 'za') ───────────── */
+var fq = (typeof GemaFotoQueue !== 'undefined' && GemaFotoQueue.verfuegbar()) ? GemaFotoQueue.scope('za') : null;
+function fotoSrc(f){ return fq ? fq.src(f) : ((f && (f.url || f.dataUrl)) || ''); }
+function fotoWartet(f){ return fq ? fq.wartet(f) : false; }
+function fqRun(){
+  if (!fq) return;
+  var _fqPool = null, dirty = {};
+  fq.upload({
+    pfad: function(){ return 'zustandsanalyse/' + (orgId() || 'org'); },
+    stellen: function(pid){
+      var out = [];
+      function scan(rec, merk){
+        var fotos = (rec && rec.fotos) || {};
+        Object.keys(fotos).forEach(function(k){
+          (fotos[k] || []).forEach(function(f){
+            if (f && f.pendingId === pid && !f.url){
+              out.push(function(url){ f.url = url; delete f.pendingId; merk(); });
+            }
+          });
+        });
+      }
+      if (cur) scan(cur, function(){ dirty.__cur = true; });
+      if (!out.length){
+        if (_fqPool === null) _fqPool = poolRead();      // Pool EINMAL pro Lauf lesen
+        _fqPool.forEach(function(r){
+          if (!r || (cur && r.id === cur.id)) return;
+          scan(r, function(){ dirty[r.id] = r; });
+        });
+      }
+      return out;
+    },
+    fertig: function(n){
+      Object.keys(dirty).forEach(function(k){
+        if (k === '__cur'){ scheduleSave(); flushSave(); return; }
+        saveRecRaw(dirty[k]);
+      });
+      dirty = {}; _fqPool = null;
+      try {
+        if (cur && el('viewStudie').style.display !== 'none') renderKaps();
+        else renderListe();
+      } catch(e){}
+      toast(n + ' Foto' + (n > 1 ? 's' : '') + ' in die Cloud hochgeladen');
+    }
+  });
+}
+/* ============ P2: Kataloge, Standardtexte & Kapitel-Definitionen ============ */
+
+/* Zustands-Stufen (Optischer Eindruck) — Farben z0..z3 (gruen/amber/orange/rot) */
+var ZUSTAND = [
+ {v:'gut', l:'gut', c:'z0'},
+ {v:'maessig', l:'mässig', c:'z1'},
+ {v:'schlecht', l:'schlecht', c:'z2'},
+ {v:'sehr_schlecht', l:'sehr schlecht', c:'z3'}
+];
+/* Risiko-Stufen — EINE Wahl steuert im Bericht BEIDE Zeilen (Risiko ☒ + zugehöriger Handlungsbedarf fett) */
+var RISIKO = [
+ {v:'niedrig', l:'niedrig', c:'r0'},
+ {v:'mittel', l:'mittel', c:'r1'},
+ {v:'hoch', l:'hoch', c:'r2'},
+ {v:'sehr_hoch', l:'sehr hoch', c:'r3'}
+];
+/* Handlungsbedarf je Risikostufe (je höher das Risiko, desto kürzer der Zeithorizont) */
+var HB = {niedrig:'10 – 20 Jahre', mittel:'5 – 10 Jahre', hoch:'1 – 5 Jahre', sehr_hoch:'0 – 1 Jahr'};
+function risikoInfo(v){ for(var i=0;i<RISIKO.length;i++) if(RISIKO[i].v===v) return RISIKO[i]; return null; }
+function zustandInfo(v){ for(var i=0;i<ZUSTAND.length;i++) if(ZUSTAND[i].v===v) return ZUSTAND[i]; return null; }
+
+/* Feststellungs-Katalog für den Optischen Eindruck.
+   KRITISCH: Reihenfolge NIE ändern, neue Punkte nur ANHÄNGEN — die gespeicherten
+   Häkchen sind index-basiert (Regel wie FIXTURES in sa_abwasserhebeanlage). */
+var FEST = [
+ 'Oberflächenkorrosion ersichtlich',
+ 'Teilsanierung erkennbar (Wasserleitungen)',
+ 'Reparaturstellen erkennbar',
+ 'Rohrleitungen undicht',
+ 'Mischinstallation (CNS, verzinktes Eisen, Kupfer, Kunststoff)',
+ 'Bezeichnungen fehlen',
+ 'Abgetrennte, jedoch nicht demontierte Leitungen',
+ 'Stagnation',
+ 'Befestigungen fehlen teilweise',
+ 'Mischinstallation der Entsorgungsleitungen',
+ 'Undichtheiten an Verbindungen',
+ 'Schwitzwasserdämmungen fehlen',
+ 'Isolationsschlauch fehlt',
+ 'Dämmungen evtl. auf Schadstoffe (Asbest, PAK) untersuchen',
+ 'Dämmungen entsprechen nicht dem kantonalen Energiegesetz',
+ 'Umhüllung Rohrleitungsdämmung fehlt',
+ 'Umhüllung Rohrleitungsdämmung beschädigt',
+ 'Alte technische Anlagekomponenten (Wassererwärmer, Zirkulationspumpen etc.)',
+ 'Sanitärapparate mit Gebrauchsspuren',
+ 'Sanitäreinrichtungen entsprechen nicht dem heutigen Stand',
+ 'Teilsanierungen ersichtlich (Ersatz von Sanitärapparaten)',
+ 'Wasserarmaturen mangelhaft'
+];
+
+/* Bereichs-Startzeilen einer neuen Analyse (frei umbenenn-/erweiterbar) */
+var BEREICH_DEFAULTS = ['Technikraum Sanitär','Sanitärinstallation 1. UG','Sanitärinstallation Steigzonen','Nasszellen in Wohnräumen'];
+
+/* Komponenten-Startzeilen für Kapitel 1 (Beschrieb via Standardtext, Kennwerte leer — nie Werte erfinden) */
+var KOMP_DEFAULTS = [
+ {bez:'Badezimmer Allgemein', std:''},
+ {bez:'WC-Anlagen', std:''},
+ {bez:'Warmwasserspeicher', std:'komp_speicher'},
+ {bez:'Zirkulationspumpe', std:'komp_zirk'},
+ {bez:'Abwasserhebeanlage', std:'komp_hebe'}
+];
+
+/* Material-Tabellen je Kapitel — Zeilen {id, lage, material, ldId, alter, risiko, lebenserwartung}.
+   Nur die Lage ist vorbelegt; Material/Alter/Risiko erfasst die Fachperson (Katalog-Pick via 🔍). */
+var MAT_SEED = {
+ k2:[{lage:'Kaltwasser'},{lage:'Warmwasser'},{lage:'Zirkulation'}],
+ k3:[{lage:'1. UG – DG'}],
+ k3f:[{lage:'Fallstränge'}],
+ k4:[{lage:'Gas'}],
+ k7:[{lage:'Ausserhalb Wasser'},{lage:'Ausserhalb Gas'}]
+};
+/* Tabellen-ID → Kapitel-ID (für den gezielten Repaint nach dem Katalog-Pick) */
+var MAT_KAP = {k2:'k2', k3:'k3', k3f:'k3', k4:'k4', k7:'k7'};
+
+/* Grobkostenschätzung — BKP-Positionszeilen (Beträge IMMER leer: keine Beispielzahlen in Kundendokumenten) */
+var KOS_BKP = [
+ {nr:'251', bez:'Allgemeine Sanitärapparate'},
+ {nr:'252', bez:'Spezielle Sanitärapparate'},
+ {nr:'253', bez:'Ver- und Entsorgungsapparate'},
+ {nr:'254', bez:'Ver- und Entsorgungsleitungen'},
+ {nr:'255', bez:'Dämmungen'},
+ {nr:'259', bez:'Übriges'},
+ {nr:'', bez:'Bauliche Massnahmen (Fremdgewerke)'}
+];
+var KOS_HON = [
+ {bez:'Honorar Architekt / Bauleitung'},
+ {bez:'Honorar Sanitärplanung'},
+ {bez:'Honorar div. Spezialisten'}
+];
+/* «Nicht enthaltene Leistungen / Schnittstellen» — anhakbarer Katalog + freie Zeilen */
+var NE_KATALOG = [
+ 'Asbestsanierung',
+ 'Plattenarbeiten',
+ 'HLKE-Installationen',
+ 'Öffnungen aller Art (nicht sanierungsbedingt) inkl. Instandstellung',
+ 'Komplettersatz der Küchen',
+ 'Bewilligungsarbeiten und Erdbebenmassnahmen'
+];
+
+/* Massnahmen-Zeithorizonte + Vorlagen-Chips (Zeilen starten LEER, Chips hängen an) */
+var MSN_GRP = [
+ {k:'kurz', l:'Kurzfristige Massnahmen 1 – 5 Jahre'},
+ {k:'mittel', l:'Mittelfristige Massnahmen 5 – 10 Jahre'},
+ {k:'lang', l:'Langfristige Massnahmen 10 – 20 Jahre'}
+];
+var MSN_VORLAGEN = {
+ kurz:[
+  'Ersatz der Kalt- und Warmwasserleitungen inkl. Rohrleitungsdämmungen und Anschlussleitungen',
+  'Ersatz der Schmutz- und Regenwasserleitungen inkl. Rohrleitungsdämmungen und Anschlussleitungen',
+  'Ersatz der Warmwasserspeicher durch Frischwasserstationen',
+  'Sanierung der Grundleitungen'
+ ],
+ mittel:[
+  'Ersatz der Zirkulationspumpen inkl. Zubehör',
+  'Ersatz der Abwasserhebeanlage inkl. Zubehör',
+  'Kernsanierung Küchen und Badezimmer inkl. Sanitärapparate'
+ ],
+ lang:[]
+};
+
+/* Standardtexte — dienen als Vorlage, im Formular frei editierbar («…» = projektspezifisch ergänzen) */
+var STD = {
+ag_text:'Das Mehrfamilienhaus an der … erstreckt sich über … Geschosse. Im Rahmen der Zustandsanalyse wurden die Geschosse … sowie … Wohnungen betrachtet. Die Parzelle … befindet sich in … und hat eine Gesamtfläche von … m².',
+k1_text:'Die Sanitärapparate in den besichtigten Wohnungen weisen diverse Gebrauchs- und Abnutzungsspuren auf. Teilweise wurden einzelne Apparate ersetzt, beispielsweise der Waschtisch und der AP-Spülkasten.',
+komp_speicher:'Die Wassererwärmung erfolgt über einen Warmwasserspeicher mit innenliegendem Wärmetauscher, der heizungsseitig versorgt wird. Die Warmwasseraufbereitung dient dem gesamten Gebäude. Im Rahmen einer Sanierung wird empfohlen, den bestehenden Speicher aus hygienischen Gründen durch eine Frischwasserstation zu ersetzen.',
+komp_zirk:'Die Installation verfügt über eine Zirkulationspumpe, welche Gebrauchsspuren aufweist. Diese dient zur Temperaturhochhaltung des Warmwassernetzes.',
+komp_hebe:'Im Untergeschoss befindet sich eine Abwasserhebeanlage. Die Pumpen fördern das anfallende Abwasser zur Kanalisation. Bei einer Sanierung empfiehlt es sich, die Pumpe zu ersetzen und eine fachgerechte Installation zu erstellen.',
+k2_text:'Die Kaltwasserverteilbatterie besteht aus … Die Mehrheit der Kalt- und Warmwasser-Verteilleitungen ist aus … Bei den Verteilleitungen im Untergeschoss sind ersetzte Stellen im Rohrleitungssystem ersichtlich. Es sind Leckagen (Lochfrass) ersichtlich. Die Steigleitungen sind aus …',
+k3_text:'Die sichtbaren Schmutzwasserleitungen im Untergeschoss bestehen aus … Es sind teilweise Leckagen oder Undichtheiten ersichtlich. Das Material der Abwasserleitungen in den oberen Geschossen ist grösstenteils … Die Schmutz- und Regenwasserfallleitungen wurden mittels TV-Aufnahmen untersucht.',
+k3_tv:'Die Regen- und Schmutzabwasserfallstränge sind in einem … Zustand. Auf den Aufnahmen sind diverse Stellen mit harten Ablagerungen erkennbar. Zudem wurden Teilstücke in PE-Kunststoffrohren ersetzt.',
+k4_text:'Die Gasleitung wird zum Kochen in den Wohnungen verwendet und besteht aus … Die Installation ist fachmännisch und nach den geltenden Vorschriften erstellt.',
+k5_text:'Im Zuge der Zustandsanalyse wurden die Grundleitungen auf ihren Zustand und auf Dichtheit geprüft. Gewisse Leitungsabschnitte konnten nicht auf Dichtheit geprüft werden, da sie nicht zugänglich waren. Die Grundleitungen sind grösstenteils undicht und müssen saniert werden.',
+k6_text:'Die Kaltwasserverteilung ist gemäss den aktuellen Normen zu dämmen. Die Rohrleitungsdämmung fehlt an gewissen Stellen komplett. Die Dämmstärken der warmgehaltenen Leitungen sind gemäss den aktuellen Normen auszuführen. Des Weiteren ist die Kaltwasserverteilbatterie nicht vor Erwärmung geschützt.\nZusätzlich müssen die Rohrleitungsdämmungen vor Beginn jeglicher Arbeiten durch ein zugelassenes Unternehmen auf Schadstoffe (Asbest, PAK etc.) beprobt werden.',
+k7_text:'Die Erschliessung der Erdgasleitung erfolgt aus der … und besteht aus einer Kunststoffleitung. Das Trinkwasser wird ebenfalls aus der … erschlossen und kommt am gleichen Ort ins Gebäude. Die Zuleitungen wurden im Jahr … erstellt.',
+k8_v1:'Kalt- und Warmwasserleitungen:\nDie bestehenden Kalt- und Warmwasserleitungen in den Steigzonen inkl. Anschlussleitungen werden mittels Innenbeschichtung saniert. Das Verfahren kann nach Analyse und Bestätigung der ausführenden Firma in Betracht gezogen werden. Im Innern der Leitung wird mittels Sandstrahlverfahren eine möglichst glatte und homogene Oberfläche geschaffen. Mittels eines Schlauchverteilsystems werden alle neu geschaffenen UP-Ventile miteinander verbunden. Die Sanierung erfolgt ab der Steigzone, beim Übergang von Chromstahl auf verzinktes Eisen sowie Kupfer.\nDie Leitungen im Untergeschoss bis hin zur Wassereinführung werden komplett ersetzt, da die Zugänglichkeit gewährleistet ist.\n\nRegenwasserleitungen:\nDie bestehenden Regenwasserleitungen in den Steigzonen werden mittels Inlinerverfahren saniert. Bei der Inliner-Sanierung wird das alte Rohr zunächst gründlich gereinigt und für die Sanierung vorbereitet: Ablagerungen werden entfernt sowie allfällige Abzweiger, Bögen oder Dimensionswechsel genau eingemessen. Anschliessend wird ein Trägerschlauch (Textilgewebe, Nadelfilz mit Innenfolie) mit einem Zweikomponenten-Epoxidharz unter Druck in das alte Rohr eingebracht, wo er sich eng an die Form des bisherigen Rohres anschmiegt. Nach der Aushärtung werden Anfang und Ende des Liners geschnitten und sorgfältig eingepasst. Bevor die verschlossenen Seitenanschlüsse mit Fräsrobotern wieder geöffnet werden, wird zur Qualitätskontrolle eine Dichtheitsprüfung mit Luft nach SIA 190 durchgeführt. Zum Schluss werden Fräsrückstände entfernt und die sanierte Leitung mittels Kanal-TV nochmals befahren, um den sanierten Leitungszustand zu dokumentieren.\n\nSchmutzwasserfallstränge:\nDie Schmutzwasserfallstränge werden mittels Innenbeschichtung saniert. Das eingesetzte Material wird nach der Reinigung schichtweise aufgetragen und ausgehärtet.',
+k8_v2:'Die bestehenden Trinkwasserleitungen in den Steigzonen werden demontiert und durch neue Leitungen ersetzt. Die Sanierung erfolgt ab der Decke des Untergeschosses bis über sämtliche Wohnbereiche zu den UP-Ventilen sowie zu den Küchen. Die Leitungen im Untergeschoss bis hin zur Wassereinführung sind zu sanieren.\n\nDie Schmutz- und Regenwasserfallleitungen werden demontiert und durch neue Leitungen ersetzt. Die Sanierung erfolgt beim Schmutzabwasser ebenfalls bis zur Decke des Untergeschosses. Die Regenwasserleitungen werden bis zum Grundleitungsanschluss saniert.',
+kos_v1:'Um die Innenbeschichtung der Steigstränge realisieren zu können, sind bei den Kalt- und Warmwasserleitungen zwingend UP-Ventile einzubauen. Die unterputzverlegten Leitungen müssen punktuell geöffnet werden, um diese ebenfalls zu sanieren. Um den Zugang zu den Leitungen zu gewährleisten, müssen die davorliegenden Apparate temporär demontiert und die Schächte geöffnet werden. Wichtig: Es werden lediglich die Kalt- und Warmwassersteigzonen sowie die Abwasser- und Regenwasserfallleitungen saniert.',
+kos_v2:'Komplettersatz der Kaltwasser-, Warmwasser-, Schmutz- und Regenwasserleitungen in den Steigzonen sowie der Anschlussleitungen der jeweiligen Wohnungen (Bad und Küche) sowie der Kellerverteilung im Untergeschoss. Die Ausführung der Wasserleitungen erfolgt in Chromstahl und PEX-Leitungen. Die Rohrleitungen werden nach den aktuellen Normen gedämmt. Die Abwasserleitungen werden in Polyethylen Silent ausgeführt und mit Schalldämm-Matten umhüllt.',
+k10_text:'Die Sanitärinstallationen sind zum grössten Teil in einem Zustand, welcher Handlungsbedarf aufweist.\nWir empfehlen, die Wasser- und Abwasserleitungen sowie die verbauten Anlagekomponenten wie Wassererwärmer etc. zu sanieren oder zu ersetzen. Die nachfolgenden Tabellen zeigen den vorgeschlagenen Zeithorizont der Massnahmen. Des Weiteren empfehlen wir, die kurzfristigen sowie die mittelfristigen Massnahmen im gleichen Zug durchzuführen.'
+};
+
+/* Variantenvergleich — Vor-/Nachteile (abwählbar via a.vg_aus) */
+var VGL = {
+v1vor:[
+ {k:'v1v0', l:'Wenige Öffnungen der Steigzonen nötig'},
+ {k:'v1v1', l:'Etappierung möglich (Steigzonen)'},
+ {k:'v1v2', l:'Tiefere Gesamtkosten als bei Ersatz'}
+],
+v1nach:[
+ {k:'v1n0', l:'Leitungen können bei einem Schadenfall nicht getrennt werden'},
+ {k:'v1n1', l:'Der Zusammenschluss der Steigzonen kann nicht geändert werden'},
+ {k:'v1n2', l:'Verhältnismässig hohe Kosten (Kosten/Lebensdauer)'},
+ {k:'v1n3', l:'Durchführbarkeit muss durch ausführende Firma bestätigt werden'},
+ {k:'v1n4', l:'Gefahr von Leitungsschäden und zusätzliche Öffnungen möglich'},
+ {k:'v1n5', l:'Einbau Wasserzähler pro Wohnung nicht möglich (muss situativ beurteilt werden, wenn Bauöffnung vorhanden)'},
+ {k:'v1n6', l:'Wärmedämmung im Schacht kann nicht verbessert werden (Steigzonen)'}
+],
+v2vor:[
+ {k:'v2v0', l:'Lebensdauer der Leitungen mehr als 50 Jahre'},
+ {k:'v2v1', l:'Wärmedämmung kann verbessert werden (Steigzonen)'},
+ {k:'v2v2', l:'Einbau Wasserzähler möglich'},
+ {k:'v2v3', l:'Anpassung und Veränderung der Installation jederzeit möglich'}
+],
+v2nach:[
+ {k:'v2n0', l:'Grosse Öffnungen der Steigschächte nötig'},
+ {k:'v2n1', l:'Zusätzlicher administrativer Aufwand (Baubewilligungen etc.) notwendig'},
+ {k:'v2n2', l:'Höhere Gesamtkosten'}
+]
+};
+
+/* 12 Kapitel — Feldtypen: head/info/text/date/zahl/area/seg/multi/bereiche/komponenten/mat/risiko/vergleich/kosten/massnahmen */
+var KAP = [
+{id:'ausgangslage', nr:'', titel:'Ausgangslage', felder:[
+ {t:'area', id:'ag_text', l:'Ausgangslage', std:'ag_text'},
+ {t:'head', l:'Stammdaten'},
+ {t:'text', id:'ag_plangrundlage', l:'Plangrundlage', ph:'z.B. Kanalisationspläne 1965'},
+ {t:'text', id:'ag_begehung', l:'Begehung', ph:'z.B. 16.04.2026, vor Ort'},
+ {t:'text', id:'ag_baujahr', l:'Baujahr', ph:'z.B. ca. 1965'},
+ {t:'text', id:'ag_sanierungen', l:'Bisherige Sanierungsarbeiten', ph:'z.B. 2010 Hausanschlussleitung Kanalisation'},
+ {t:'text', id:'ag_parzelle', l:'Parzelle'},
+ {t:'text', id:'ag_eckdaten', l:'Eckdaten', ph:'z.B. Mehrfamilienhaus mit Gewerbe'},
+ {t:'zahl', id:'ag_wasserhaerte', l:'Wasserhärte', unit:'°fH'},
+ {t:'text', id:'ag_wasserdruck', l:'Wasserdruck', ph:'z.B. 5.15 − 0.6 − 0.7 = 3.85 bar'}
+]},
+{id:'eindruck', nr:'', titel:'Optischer Eindruck', felder:[
+ {t:'info', l:'Beurteilung der besichtigten Bereiche: pro Bereich den Zustand wählen und die zutreffenden Feststellungen anhaken — eigene Feststellungen lassen sich je Bereich ergänzen.'},
+ {t:'bereiche'}
+]},
+{id:'k1', nr:'1.', titel:'Apparate und Armaturen', felder:[
+ {t:'area', id:'k1_text', l:'Beurteilung', std:'k1_text'},
+ {t:'komponenten'}
+]},
+{id:'k2', nr:'2.', titel:'Kalt- und Warmwasserleitungen', felder:[
+ {t:'area', id:'k2_text', l:'Beurteilung', std:'k2_text'},
+ {t:'mat', mid:'k2', lageLabel:'Medium'},
+ {t:'risiko', id:'k2_risiko', l:'Risiko Kalt- und Warmwasserleitungen'}
+]},
+{id:'k3', nr:'3.', titel:'Schmutz- und Regenwasser', felder:[
+ {t:'area', id:'k3_text', l:'Beurteilung', std:'k3_text'},
+ {t:'mat', mid:'k3', lageLabel:'Lage'},
+ {t:'risiko', id:'k3_risiko', l:'Risiko Schmutz- und Regenwasserleitungen'},
+ {t:'head', l:'Auswertung Fallstrangaufnahmen'},
+ {t:'area', id:'k3_tv', l:'Auswertung Fallstrangaufnahmen', std:'k3_tv'},
+ {t:'mat', mid:'k3f', lageLabel:'Lage'},
+ {t:'risiko', id:'k3f_risiko', l:'Risiko Fallstränge'}
+]},
+{id:'k4', nr:'4.', titel:'Gasleitung', felder:[
+ {t:'area', id:'k4_text', l:'Beurteilung', std:'k4_text'},
+ {t:'mat', mid:'k4', lageLabel:'Medium'},
+ {t:'risiko', id:'k4_risiko', l:'Risiko Gasleitung'},
+ {t:'area', id:'k4_hinweis', l:'Wichtiger Hinweis Versorgungsnetz', vorlagen:[
+  {l:'Gasnetz-Stilllegung (Beispiel IWB Basel)', txt:'Wichtiger Hinweis (Medienmitteilung IWB):\nDas Gasnetz für Gebäudeheizungen und Kochgas wird bis 2037 schrittweise stillgelegt. Der Kanton Basel-Stadt hat das Ziel, bis 2037 die Klimaneutralität zu erreichen.'}
+ ]}
+]},
+{id:'k5', nr:'5.', titel:'Grundleitungen', felder:[
+ {t:'area', id:'k5_text', l:'Beurteilung', std:'k5_text'},
+ {t:'text', id:'k5_tv', l:'TV-Aufnahmen / Dichtheitsprüfung', ph:'Firma, Nr., Datum'}
+]},
+{id:'k6', nr:'6.', titel:'Dämmungen', felder:[
+ {t:'area', id:'k6_text', l:'Beurteilung', std:'k6_text'}
+]},
+{id:'k7', nr:'7.', titel:'Wasser- und Gasversorgung', felder:[
+ {t:'area', id:'k7_text', l:'Beurteilung', std:'k7_text'},
+ {t:'mat', mid:'k7', lageLabel:'Lage'},
+ {t:'risiko', id:'k7_risiko', l:'Risiko Versorgungsleitungen'}
+]},
+{id:'k8', nr:'8.', titel:'Sanierungsvarianten', felder:[
+ {t:'head', l:'Variante 1 — Innensanierung (Innenbeschichtung / Inliner)'},
+ {t:'area', id:'k8_v1', l:'Beschrieb Variante 1', std:'k8_v1'},
+ {t:'head', l:'Variante 2 — Ersatz der Steig- und Fallleitungen'},
+ {t:'area', id:'k8_v2', l:'Beschrieb Variante 2', std:'k8_v2'},
+ {t:'vergleich', l:'Vor- und Nachteile im Vergleich'}
+]},
+{id:'k9', nr:'9.', titel:'Grobkostenschätzung ± 25 %', felder:[
+ {t:'info', l:'Grobkostenschätzung mit einer Genauigkeit von ± 25 % — pro Variante Beschrieb, BKP-Positionen und Honorare erfassen; die Totale rechnen sich automatisch.'},
+ {t:'kosten'}
+]},
+{id:'k10', nr:'10.', titel:'Empfehlung Massnahmen', felder:[
+ {t:'area', id:'k10_text', l:'Empfehlung der Fachplanung', std:'k10_text'},
+ {t:'seg', id:'k10_variante', l:'Empfohlene Variante', opts:[{v:'v1',l:'Variante 1 — Innensanierung'},{v:'v2',l:'Variante 2 — Ersatz'}]},
+ {t:'massnahmen'}
+]}
+];
+function kapById(id){ for(var i=0;i<KAP.length;i++) if(KAP[i].id===id) return KAP[i]; return null; }
+/* ============ P3: Liste, Studien-Lifecycle, Kopf & Kapitel ============ */
+var _open = {};
+var _cloudLoaded = false;
+var SPINNER = '<svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true"><circle cx="17" cy="17" r="13" fill="none" stroke="#dbe3f5" stroke-width="4"/><path d="M17 4 a13 13 0 0 1 13 13" fill="none" stroke="#0e7490" stroke-width="4" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 17 17" to="360 17 17" dur="0.9s" repeatCount="indefinite"/></path></svg>';
+
+function studienListe(){
+  var arr = poolRead().filter(_sichtbar);
+  arr.sort(function(a,b){ return String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')); });
+  return arr;
+}
+function fotoCount(s){
+  var n = 0, k, fo = (s && s.fotos) || {};
+  for (k in fo){ if (fo.hasOwnProperty(k) && Object.prototype.toString.call(fo[k]) === '[object Array]') n += fo[k].length; }
+  return n;
+}
+function renderListe(){
+  var host = el('listHost'); if (!host) return;
+  var arr = studienListe();
+  var cnt = el('listCount'); if (cnt) cnt.textContent = arr.length + (arr.length === 1 ? ' Analyse' : ' Analysen');
+  if (!arr.length){
+    if (!_cloudLoaded){
+      host.innerHTML = '<div class="empty-box"><div class="eb-ic">' + SPINNER + '</div><div>Zustandsanalysen werden geladen …</div></div>';
+    } else {
+      host.innerHTML = '<div class="empty-box"><div class="eb-ic">🩺</div><b>Noch keine Zustandsanalyse</b><div>Erstellen Sie mit «＋ Neue Zustandsanalyse» den ersten Zustandsbericht (BKP 250 Sanitäranlagen) — Optischer Eindruck, Risiken pro Anlageteil, Sanierungsvarianten, Grobkostenschätzung und Massnahmen, mit Fotos und automatischem Bericht.</div></div>';
+    }
+    return;
+  }
+  var h = '';
+  arr.forEach(function(s){
+    var nf = fotoCount(s);
+    var sub = [];
+    if (s.kopf && (s.kopf.objektText || s.kopf.adresse)) sub.push(s.kopf.objektText || s.kopf.adresse);
+    if (s.kopf && s.kopf.datum) sub.push(dCH(s.kopf.datum));
+    if (nf) sub.push('📷 ' + nf);
+    if (s.updatedAt) sub.push('Stand ' + dCH(s.updatedAt.slice(0,10)));
+    h += '<div class="st-card" onclick="zaOpen(\'' + esc(s.id) + '\')">'
+      + '<div class="st-card-ic">🩺</div>'
+      + '<div class="st-card-main">'
+      + '<div class="st-card-t">' + esc(s.titel || 'Zustandsanalyse') + '</div>'
+      + '<div class="st-card-s">' + esc(sub.join(' · ')) + '</div>'
+      + '</div>'
+      + (canEdit() ? '<button type="button" class="st-card-del" title="Zustandsanalyse löschen" onclick="zaDel(\'' + esc(s.id) + '\',event)">🗑</button>' : '')
+      + '</div>';
+  });
+  host.innerHTML = h;
+}
+
+/* Leere Sektions-Gerüste — auch von zaOpen zur Normalisierung genutzt */
+function neueBereiche(){
+  return BEREICH_DEFAULTS.map(function(n){ return { id: uid(), name: n, zustand: '', fest: {}, frei: [] }; });
+}
+function neueKomponenten(){
+  return KOMP_DEFAULTS.map(function(kd){
+    return { id: uid(), bez: kd.bez, beschrieb: (kd.std && STD[kd.std]) || '', hersteller: '', jahr: '', angaben: '', risiko: '' };
+  });
+}
+function neueMat(){
+  var m = {};
+  for (var mid in MAT_SEED){
+    if (!MAT_SEED.hasOwnProperty(mid)) continue;
+    m[mid] = MAT_SEED[mid].map(function(r){ return { id: uid(), lage: r.lage, material: '', ldId: '', alter: '', risiko: '', lebenserwartung: '' }; });
+  }
+  return m;
+}
+function neueKostenVariante(stdKey){
+  return {
+    text: (stdKey && STD[stdKey]) || '',
+    rows: KOS_BKP.map(function(r){ return { id: uid(), nr: r.nr, bez: r.bez, betrag: '' }; }),
+    hon: KOS_HON.map(function(r){ return { id: uid(), bez: r.bez, betrag: '' }; }),
+    nkPct: '1.0', ne: {}, neFrei: [], zeitraum: ''
+  };
+}
+function neueKosten(){ return { v1: neueKostenVariante('kos_v1'), v2: neueKostenVariante('kos_v2') }; }
+function neueMassnahmen(){ return { kurz: [], mittel: [], lang: [] }; }
+
+window.zaNeu = function(){
+  if (!canEdit()){ toast('Kein Schreibrecht für Zustandsanalysen'); return; }
+  var u = me() || {}, org = myOrg();
+  var a = {};
+  KAP.forEach(function(k){
+    k.felder.forEach(function(f){
+      if (!f.id) return;
+      if (f.def !== undefined) a[f.id] = f.def;
+    });
+  });
+  var s = {
+    id: uid(), orgId: orgId(), titel: 'Zustandsanalyse',
+    kopf: { objektId: '', objektText: '', adresse: '', bauherrschaft: '', verwaltung: '',
+            verfasser: (u.name || '') + (org && org.name ? ', ' + org.name : ''),
+            datum: today() },
+    a: a,
+    bereiche: neueBereiche(),
+    komponenten: neueKomponenten(),
+    mat: neueMat(),
+    kosten: neueKosten(),
+    massnahmen: neueMassnahmen(),
+    fotos: {},
+    erstelltVon: { userId: u.id || '', name: u.name || '' },
+    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+  };
+  saveRecRaw(s);
+  toast('Neue Zustandsanalyse angelegt');
+  zaOpen(s.id);
+};
+
+window.zaOpen = function(id){
+  var arr = poolRead(), src = null, i;
+  for (i = 0; i < arr.length; i++){ if (arr[i] && arr[i].id === id){ src = arr[i]; break; } }
+  if (!src){ toast('Zustandsanalyse nicht gefunden'); return; }
+  if (!_sichtbar(src)){ toast('Kein Zugriff auf diese Zustandsanalyse'); return; }
+  try { cur = JSON.parse(JSON.stringify(src)); } catch(e){ cur = src; }
+  cur.a = cur.a || {}; cur.kopf = cur.kopf || {}; cur.fotos = cur.fotos || {};
+  if (!cur.bereiche || !cur.bereiche.length) cur.bereiche = neueBereiche();
+  if (!cur.komponenten) cur.komponenten = [];
+  cur.mat = cur.mat || {};
+  for (var mid in MAT_SEED){ if (MAT_SEED.hasOwnProperty(mid) && !cur.mat[mid]) cur.mat[mid] = []; }
+  cur.kosten = cur.kosten || neueKosten();
+  if (!cur.kosten.v1) cur.kosten.v1 = neueKostenVariante('kos_v1');
+  if (!cur.kosten.v2) cur.kosten.v2 = neueKostenVariante('kos_v2');
+  cur.massnahmen = cur.massnahmen || neueMassnahmen();
+  MSN_GRP.forEach(function(g){ if (!cur.massnahmen[g.k]) cur.massnahmen[g.k] = []; });
+  _acked = sigOf(cur);
+  try { if (window.GemaEditLock && canEdit()) GemaEditLock.watch({ key: 'za:' + cur.id, label: cur.titel || 'Zustandsanalyse' }); } catch(e){}
+  el('viewListe').style.display = 'none';
+  el('viewStudie').style.display = '';
+  el('footBar').style.display = '';
+  renderStudie();
+  window.scrollTo(0, 0);
+};
+
+window.zaDel = function(id, ev){
+  if (ev){ ev.stopPropagation(); ev.preventDefault(); }
+  if (!canEdit()){ toast('Kein Schreibrecht'); return; }
+  var arr = poolRead(), s = null, i;
+  for (i = 0; i < arr.length; i++){ if (arr[i] && arr[i].id === id){ s = arr[i]; break; } }
+  if (!s) return;
+  function doDel(){
+    poolWrite(poolRead().filter(function(x){ return x && x.id !== id; }));
+    try { if (typeof GemaSync !== 'undefined') GemaSync.deleteRecord(MOD_KEY, PREFIX + id)['catch'](function(){}); } catch(e){}
+    if (cur && cur.id === id){ cur = null; zaZurueck(); } else renderListe();
+    toast('Zustandsanalyse gelöscht');
+  }
+  var files = [];
+  try { if (window.GemaStorage && GemaStorage.collectFiles) files = GemaStorage.collectFiles(s) || []; } catch(e){}
+  if (window.GemaStorage && GemaStorage.confirmDelete){
+    GemaStorage.confirmDelete({
+      files: files, title: 'Zustandsanalyse löschen',
+      message: '«' + (s.titel || 'Zustandsanalyse') + '» wirklich löschen?',
+      zipName: 'Zustandsanalyse_Fotos'
+    }).then(function(ok){
+      if (!ok) return;
+      doDel();
+      try { GemaStorage.deleteFiles(files); } catch(e){}
+    });
+  } else {
+    GemaDialog.confirm({ title: 'Zustandsanalyse löschen', message: '«' + (s.titel || 'Zustandsanalyse') + '» wirklich löschen?', confirmLabel: 'Löschen', danger: true }).then(function(ok){ if (ok) doDel(); });
+  }
+};
+
+window.zaZurueck = function(){
+  flushSave();
+  try { if (window.GemaEditLock) GemaEditLock.stop(); } catch(e){}
+  cur = null;
+  el('viewStudie').style.display = 'none';
+  el('footBar').style.display = 'none';
+  el('viewListe').style.display = '';
+  renderListe();
+  window.scrollTo(0, 0);
+};
+
+window.zaTitel = function(inp){ if (!cur) return; cur.titel = inp.value; scheduleSave(); };
+
+function renderStudie(){
+  if (!cur) return;
+  var t = el('stTitel'); if (t) t.value = cur.titel || '';
+  renderKopf();
+  renderKaps();
+}
+
+/* ── Projektkopf ─────────────────────────────────────────── */
+function renderKopf(){
+  var host = el('kopfBody'); if (!host || !cur) return;
+  var k = cur.kopf || {};
+  var h = '<div class="frage"><div class="frage-lbl">Objekt (GEMA-Stammdaten)</div>'
+    + '<select class="f-inp" id="kopfObjSel" onchange="zaKopfObj(this)"><option value="">— Kein GEMA-Objekt / Freitext —</option></select></div>';
+  h += '<div class="grid2">';
+  h += '<div class="frage"><div class="frage-lbl">Objekt / Bezeichnung</div><input type="text" class="f-inp" value="' + esc(k.objektText || '') + '" placeholder="z.B. MFH Musterstrasse 1–5" oninput="zaKopf(\'objektText\',this)"></div>';
+  h += '<div class="frage"><div class="frage-lbl">Adresse</div><input type="text" class="f-inp" value="' + esc(k.adresse || '') + '" placeholder="Strasse, PLZ Ort" oninput="zaKopf(\'adresse\',this)"></div>';
+  h += '<div class="frage"><div class="frage-lbl">Bauherrschaft</div><input type="text" class="f-inp" value="' + esc(k.bauherrschaft || '') + '" placeholder="Eigentümerschaft" oninput="zaKopf(\'bauherrschaft\',this)"></div>';
+  h += '<div class="frage"><div class="frage-lbl">Verwaltung</div><input type="text" class="f-inp" value="' + esc(k.verwaltung || '') + '" placeholder="Bewirtschaftung / Verwaltung" oninput="zaKopf(\'verwaltung\',this)"></div>';
+  h += '<div class="frage"><div class="frage-lbl">Verfasser</div><input type="text" class="f-inp" value="' + esc(k.verfasser || '') + '" oninput="zaKopf(\'verfasser\',this)"></div>';
+  h += '<div class="frage"><div class="frage-lbl">Datum</div><input type="date" class="f-inp" value="' + esc(k.datum || '') + '" onchange="zaKopf(\'datum\',this)"></div>';
+  h += '</div>';
+  h += fotoSecHtml('kopf', '🖼 Titelbild / Fotos Deckblatt');
+  host.innerHTML = h;
+  fillKopfObjekte();
+}
+function fillKopfObjekte(){
+  var sel = el('kopfObjSel'); if (!sel || !cur) return;
+  var val = (cur.kopf && cur.kopf.objektId) || '';
+  var h = '<option value="">— Kein GEMA-Objekt / Freitext —</option>', found = false;
+  try {
+    if (window.GemaObjekte){
+      (GemaObjekte.getAll() || []).forEach(function(o){
+        if (o.id === val) found = true;
+        h += '<option value="' + esc(o.id) + '">' + esc(GemaObjekte.displayName ? GemaObjekte.displayName(o) : (o.name || o.id)) + '</option>';
+      });
+    }
+  } catch(e){}
+  if (val && !found){
+    h += '<option value="' + esc(val) + '">⚠ ' + esc((cur.kopf.objektText || 'Objekt') + ' (nicht mehr in der Liste)') + '</option>';
+  }
+  sel.innerHTML = h;
+  sel.value = val;
+}
+window.zaKopfObj = function(sel){
+  if (!cur) return;
+  var id = sel.value || '';
+  cur.kopf.objektId = id;
+  if (id && window.GemaObjekte){
+    try {
+      var o = GemaObjekte.getById ? GemaObjekte.getById(id) : null;
+      if (o){
+        cur.kopf.objektText = (GemaObjekte.displayName ? GemaObjekte.displayName(o) : o.name) || cur.kopf.objektText || '';
+        var adr = GemaObjekte.objektAdresse ? GemaObjekte.objektAdresse(o) : '';
+        if (adr) cur.kopf.adresse = adr;
+        if (GemaObjekte.getBeteiligte){
+          var bets = GemaObjekte.getBeteiligte(id) || [];
+          function betName(b){ return (b.firma || '') + (b.name ? (b.firma ? ', ' : '') + b.name : ''); }
+          for (var i = 0; i < bets.length; i++){
+            var b = bets[i] || {};
+            var txt = ((b.rolle || '') + ' ' + (b.funktion || '')).toLowerCase();
+            if (!cur.kopf.bauherrschaft && /bauherr/.test(txt)) cur.kopf.bauherrschaft = betName(b);
+            if (!cur.kopf.verwaltung && /verwaltung|bewirtschaft/.test(txt)) cur.kopf.verwaltung = betName(b);
+          }
+        }
+      }
+    } catch(e){}
+  }
+  renderKopf();
+  scheduleSave();
+};
+window.zaKopf = function(field, elm){ if (!cur) return; cur.kopf[field] = elm.value; scheduleSave(); };
+
+/* ── Kapitel-Akkordeons ──────────────────────────────────── */
+function renderKaps(){
+  var host = el('kapHost'); if (!host || !cur) return;
+  var h = '';
+  KAP.forEach(function(k){
+    h += '<div class="kap' + (_open[k.id] ? ' open' : '') + '" id="kap_' + esc(k.id) + '">'
+      + '<div class="kap-hd" onclick="zaKapToggle(\'' + esc(k.id) + '\')">'
+      + '<div class="kap-nr">' + esc(k.nr) + '</div>'
+      + '<div class="kap-t">' + esc(k.titel) + '</div>'
+      + '<div class="kap-meta">' + kapMetaHtml(k) + '<div class="kap-cx">›</div></div>'
+      + '</div>'
+      + '<div class="kap-bd" id="kapbd_' + esc(k.id) + '">' + kapBodyHtml(k) + '</div>'
+      + '</div>';
+  });
+  host.innerHTML = h;
+}
+function kapAnswerStats(k){
+  var tot = 0, ans = 0, a = (cur && cur.a) || {};
+  k.felder.forEach(function(f){
+    if (!f.id) return;
+    if (f.t === 'head' || f.t === 'info' || f.t === 'bereiche' || f.t === 'komponenten' || f.t === 'mat' || f.t === 'kosten' || f.t === 'massnahmen' || f.t === 'vergleich') return;
+    if (f.wenn && !f.wenn(a)) return;
+    tot++;
+    var v = a[f.id];
+    if (f.t === 'multi'){
+      if (v && typeof v === 'object'){ for (var kk in v){ if (v.hasOwnProperty(kk) && v[kk]){ ans++; return; } } }
+      return;
+    }
+    if (v !== undefined && v !== null && String(v).trim() !== '') ans++;
+  });
+  return { tot: tot, ans: ans };
+}
+function kapMetaHtml(k){
+  var st = kapAnswerStats(k);
+  var nf = (cur.fotos && cur.fotos[k.id]) ? cur.fotos[k.id].length : 0;
+  return '<span class="kap-badge" id="kb_' + esc(k.id) + '">' + st.ans + '/' + st.tot + '</span>'
+    + '<span class="kap-badge foto" id="kbf_' + esc(k.id) + '"' + (nf ? '' : ' style="display:none"') + '>📷 ' + nf + '</span>';
+}
+function updateKapBadge(kapId){
+  var k = kapById(kapId); if (!k || !cur) return;
+  var st = kapAnswerStats(k);
+  var b = el('kb_' + kapId); if (b) b.textContent = st.ans + '/' + st.tot;
+  var nf = (cur.fotos && cur.fotos[kapId]) ? cur.fotos[kapId].length : 0;
+  var bf = el('kbf_' + kapId);
+  if (bf){ bf.textContent = '📷 ' + nf; bf.style.display = nf ? '' : 'none'; }
+}
+function kapBodyHtml(k){
+  var a = cur.a || {}, h = '';
+  k.felder.forEach(function(f){
+    if (f.wenn && !f.wenn(a)) return;
+    h += feldHtml(k, f);
+  });
+  h += fotoSecHtml(k.id);
+  return h;
+}
+function repaintKap(kapId){
+  if (kapId === 'kopf'){ renderKopf(); return; }
+  var k = kapById(kapId); if (!k || !cur) return;
+  var bd = el('kapbd_' + kapId);
+  if (bd) bd.innerHTML = kapBodyHtml(k);
+  updateKapBadge(kapId);
+}
+window.zaKapToggle = function(id){
+  _open[id] = !_open[id];
+  var kk = el('kap_' + id);
+  if (kk) kk.classList.toggle('open', !!_open[id]);
+};
+
+/* ── Feld-Renderer ───────────────────────────────────────── */
+function stdBarHtml(kapId, f){
+  var h = '';
+  if (f.std && STD[f.std] !== undefined){
+    h += '<div class="stdbar"><button type="button" class="act-btn" onclick="zaStd(\'' + esc(kapId) + '\',\'' + esc(f.id) + '\',\'' + esc(f.std) + '\')">↺ Standardtext einsetzen</button></div>';
+  }
+  if (f.vorlagen && f.vorlagen.length){
+    h += '<div class="stdbar">';
+    f.vorlagen.forEach(function(v, i){
+      h += '<button type="button" class="act-btn" onclick="zaVorlage(\'' + esc(kapId) + '\',\'' + esc(f.id) + '\',' + i + ')">📋 ' + esc(v.l) + '</button>';
+    });
+    h += '</div>';
+  }
+  return h;
+}
+function feldHtml(k, f){
+  var a = cur.a || {}, v = a[f.id];
+  if (f.t === 'head') return '<div class="f-head">' + esc(f.l) + '</div>';
+  if (f.t === 'info') return '<div class="f-info">' + esc(f.l) + '</div>';
+  if (f.t === 'bereiche') return bereicheHtml();
+  if (f.t === 'komponenten') return komponentenHtml();
+  if (f.t === 'mat') return '<div class="frage"><div class="frage-lbl">' + esc(f.l || 'Materialisierung') + '</div>' + matHtml(f.mid, f.lageLabel || 'Lage') + '</div>';
+  if (f.t === 'risiko') return risikoHtml(k.id, f.id, f.l || 'Risiko-Einschätzung');
+  if (f.t === 'kosten') return kostenHtml();
+  if (f.t === 'massnahmen') return massnahmenHtml();
+  if (f.t === 'vergleich') return '<div class="frage"><div class="frage-lbl">' + esc(f.l) + '</div>' + vergleichHtml(a) + '</div>';
+  if (f.t === 'seg'){
+    var hint = '', h = '<div class="frage"><div class="frage-lbl">' + esc(f.l) + '</div><div class="seg">';
+    (f.opts || []).forEach(function(o){
+      var on = (v === o.v);
+      if (on && o.hint) hint = o.hint;
+      h += '<button type="button" class="' + (on ? 'on' : '') + '" onclick="zaSeg(\'' + esc(k.id) + '\',\'' + esc(f.id) + '\',\'' + esc(o.v) + '\')">' + (on ? '✓ ' : '') + esc(o.l) + '</button>';
+    });
+    h += '</div>';
+    if (hint) h += '<div class="seg-hint">' + esc(hint) + '</div>';
+    return h + '</div>';
+  }
+  if (f.t === 'multi'){
+    var vv = (v && typeof v === 'object') ? v : {};
+    var h2 = '<div class="frage"><div class="frage-lbl">' + esc(f.l) + '</div><div class="multi">';
+    (f.opts || []).forEach(function(o){
+      var on = !!vv[o.v];
+      h2 += '<button type="button" class="' + (on ? 'on' : '') + '" onclick="zaMulti(\'' + esc(k.id) + '\',\'' + esc(f.id) + '\',\'' + esc(o.v) + '\')">' + (on ? '✓ ' : '') + esc(o.l) + '</button>';
+    });
+    return h2 + '</div></div>';
+  }
+  if (f.t === 'area'){
+    return '<div class="frage"><div class="frage-lbl">' + esc(f.l) + '</div><textarea class="f-area" placeholder="' + esc(f.ph || '') + '" oninput="zaTxt(\'' + esc(k.id) + '\',\'' + esc(f.id) + '\',this)">' + esc(v === undefined ? '' : v) + '</textarea>' + stdBarHtml(k.id, f) + '</div>';
+  }
+  if (f.t === 'date'){
+    return '<div class="frage"><div class="frage-lbl">' + esc(f.l) + '</div><input type="date" class="f-inp" value="' + esc(v || '') + '" onchange="zaTxt(\'' + esc(k.id) + '\',\'' + esc(f.id) + '\',this)"></div>';
+  }
+  if (f.t === 'zahl'){
+    var inner = '<input type="text" inputmode="decimal" class="f-inp" value="' + esc(v === undefined ? '' : v) + '" placeholder="' + esc(f.ph || '') + '" oninput="zaTxt(\'' + esc(k.id) + '\',\'' + esc(f.id) + '\',this)" onblur="fixLeadingZero(this);zaTxt(\'' + esc(k.id) + '\',\'' + esc(f.id) + '\',this)">';
+    if (f.unit) return '<div class="frage"><div class="frage-lbl">' + esc(f.l) + '</div><div class="f-row">' + inner + '<span class="f-unit">' + esc(f.unit) + '</span></div></div>';
+    return '<div class="frage"><div class="frage-lbl">' + esc(f.l) + '</div>' + inner + '</div>';
+  }
+  return '<div class="frage"><div class="frage-lbl">' + esc(f.l) + '</div><input type="text" class="f-inp" value="' + esc(v === undefined ? '' : v) + '" placeholder="' + esc(f.ph || '') + '" oninput="zaTxt(\'' + esc(k.id) + '\',\'' + esc(f.id) + '\',this)"></div>';
+}
+
+/* ── Antwort-Handler (Fokus-Regel: Texte NIE neu rendern) ── */
+window.zaSeg = function(kapId, fid, v){
+  if (!cur) return;
+  cur.a[fid] = (cur.a[fid] === v ? '' : v);
+  repaintKap(kapId);
+  scheduleSave();
+};
+window.zaMulti = function(kapId, fid, v){
+  if (!cur) return;
+  var m = (cur.a[fid] && typeof cur.a[fid] === 'object') ? cur.a[fid] : {};
+  if (m[v]) delete m[v]; else m[v] = true;
+  cur.a[fid] = m;
+  repaintKap(kapId);
+  scheduleSave();
+};
+window.zaTxt = function(kapId, fid, elm){
+  if (!cur) return;
+  cur.a[fid] = elm.value;
+  updateKapBadge(kapId);
+  scheduleSave();
+};
+window.zaStd = function(kapId, fid, stdKey){
+  if (!cur) return;
+  var neu = STD[stdKey]; if (neu === undefined) return;
+  var alt = cur.a[fid] || '';
+  function setzen(){
+    cur.a[fid] = neu;
+    repaintKap(kapId); scheduleSave();
+  }
+  if (alt && alt !== neu){
+    GemaDialog.confirm({ title: 'Standardtext einsetzen', message: 'Der bestehende Text wird durch den Standardtext ersetzt. Fortfahren?', confirmLabel: 'Ersetzen' }).then(function(ok){ if (ok && cur) setzen(); });
+  } else setzen();
+};
+window.zaVorlage = function(kapId, fid, idx){
+  if (!cur) return;
+  var k = kapById(kapId); if (!k) return;
+  var f = null, i;
+  for (i = 0; i < k.felder.length; i++){ if (k.felder[i].id === fid){ f = k.felder[i]; break; } }
+  if (!f || !f.vorlagen || !f.vorlagen[idx]) return;
+  var neu = f.vorlagen[idx].txt, alt = cur.a[fid] || '';
+  function setzen(){
+    cur.a[fid] = neu;
+    repaintKap(kapId); scheduleSave();
+  }
+  if (alt && alt !== neu){
+    GemaDialog.confirm({ title: 'Vorlage einsetzen', message: 'Der bestehende Text wird durch die Vorlage «' + f.vorlagen[idx].l + '» ersetzt. Fortfahren?', confirmLabel: 'Ersetzen' }).then(function(ok){ if (ok && cur) setzen(); });
+  } else setzen();
+};
+/* ============ P4: Spezial-Widgets (Bereiche, Komponenten, Material, Risiko, Kosten, Massnahmen, Vergleich) ============ */
+
+/* ── Risiko-Buttons (geteilter Baustein — eine Wahl steuert Risiko UND Handlungsbedarf) ── */
+function riskSeg(val, cb){
+  var h = '<div class="risk">';
+  RISIKO.forEach(function(o){
+    var on = (val === o.v);
+    h += '<button type="button" class="' + o.c + (on ? ' on' : '') + '" onclick="' + cb.replace('%v', o.v) + '">' + esc(o.l) + '<small>Handlungsbedarf ' + esc(HB[o.v]) + '</small></button>';
+  });
+  return h + '</div>';
+}
+
+/* Kapitel-Risiko (Wert liegt in cur.a[fid] — zählt im Kapitel-Badge mit) */
+function risikoHtml(kapId, fid, label){
+  var v = ((cur && cur.a) || {})[fid] || '';
+  return '<div class="frage"><div class="risk-lbl">' + esc(label) + '</div>' + riskSeg(v, "zaRisiko('" + esc(kapId) + "','" + esc(fid) + "','%v')") + '</div>';
+}
+window.zaRisiko = function(kapId, fid, v){
+  if (!cur) return;
+  cur.a[fid] = (cur.a[fid] === v ? '' : v);
+  repaintKap(kapId);
+  scheduleSave();
+};
+
+/* ── Optischer Eindruck: Bereiche mit Zustand + Feststellungen ── */
+function berById(id){
+  var arr = (cur && cur.bereiche) || [];
+  for (var i = 0; i < arr.length; i++){ if (arr[i].id === id) return arr[i]; }
+  return null;
+}
+function bereicheHtml(){
+  var h = '<div class="f-info">Je Bereich: Gesamtzustand antippen und die zutreffenden Feststellungen anhaken — eigene Feststellungen als freie Zeilen.</div>';
+  ((cur && cur.bereiche) || []).forEach(function(b){
+    h += '<div class="ber-box" id="ber_' + esc(b.id) + '">'
+      + '<div class="ber-hd"><input type="text" class="f-inp" value="' + esc(b.name || '') + '" placeholder="Bereich (z.B. Technikraum Sanitär)" oninput="zaBerName(\'' + esc(b.id) + '\',this)">'
+      + '<button type="button" class="mw-del" title="Bereich löschen" onclick="zaBerDel(\'' + esc(b.id) + '\')">✕</button></div>';
+    h += '<div class="zseg">';
+    ZUSTAND.forEach(function(o){
+      var on = (b.zustand === o.v);
+      h += '<button type="button" class="' + o.c + (on ? ' on' : '') + '" onclick="zaBerZustand(\'' + esc(b.id) + '\',\'' + o.v + '\')">Zustand ' + esc(o.l) + '</button>';
+    });
+    h += '</div>';
+    h += '<div class="risk-lbl">Feststellungen (antippen = trifft zu)</div><div class="fest">';
+    FEST.forEach(function(t, i){
+      var on = !!(b.fest && b.fest[i]);
+      h += '<button type="button" class="' + (on ? 'on' : '') + '" onclick="zaBerFest(\'' + esc(b.id) + '\',' + i + ')">' + esc(t) + '</button>';
+    });
+    h += '</div>';
+    (b.frei || []).forEach(function(t, fi){
+      h += '<div class="zl-row"><input type="text" class="f-inp" value="' + esc(t || '') + '" placeholder="Eigene Feststellung" oninput="zaBerFrei(\'' + esc(b.id) + '\',' + fi + ',this)">'
+        + '<button type="button" class="mw-del" title="Zeile löschen" onclick="zaBerFreiDel(\'' + esc(b.id) + '\',' + fi + ')">✕</button></div>';
+    });
+    h += '<div class="stdbar"><button type="button" class="act-btn" onclick="zaBerFreiAdd(\'' + esc(b.id) + '\')">＋ Eigene Feststellung</button></div>';
+    h += '</div>';
+  });
+  h += '<div class="stdbar"><button type="button" class="act-btn" onclick="zaBerAdd()">＋ Bereich</button></div>';
+  return h;
+}
+window.zaBerName = function(id, elm){ var b = berById(id); if (!b) return; b.name = elm.value; scheduleSave(); };
+window.zaBerZustand = function(id, v){
+  var b = berById(id); if (!b) return;
+  b.zustand = (b.zustand === v ? '' : v);
+  repaintKap('eindruck');
+  scheduleSave();
+};
+window.zaBerFest = function(id, idx){
+  var b = berById(id); if (!b) return;
+  b.fest = b.fest || {};
+  if (b.fest[idx]) delete b.fest[idx]; else b.fest[idx] = true;
+  repaintKap('eindruck');
+  scheduleSave();
+};
+window.zaBerFrei = function(id, fi, elm){ var b = berById(id); if (!b || !b.frei) return; b.frei[fi] = elm.value; scheduleSave(); };
+window.zaBerFreiAdd = function(id){
+  var b = berById(id); if (!b) return;
+  b.frei = b.frei || []; b.frei.push('');
+  repaintKap('eindruck');
+  scheduleSave();
+};
+window.zaBerFreiDel = function(id, fi){
+  var b = berById(id); if (!b || !b.frei) return;
+  b.frei.splice(fi, 1);
+  repaintKap('eindruck');
+  scheduleSave();
+};
+window.zaBerAdd = function(){
+  if (!cur) return;
+  cur.bereiche.push({ id: uid(), name: '', zustand: '', fest: {}, frei: [] });
+  repaintKap('eindruck');
+  scheduleSave();
+};
+window.zaBerDel = function(id){
+  if (!cur) return;
+  GemaDialog.confirm({ title: 'Bereich löschen', message: 'Diesen Bereich samt Zustand und Feststellungen wirklich löschen?', confirmLabel: 'Löschen', danger: true }).then(function(ok){
+    if (!ok || !cur) return;
+    cur.bereiche = cur.bereiche.filter(function(b){ return b.id !== id; });
+    repaintKap('eindruck');
+    scheduleSave();
+  });
+};
+
+/* ── Kapitel 1: Komponenten (Speicher, Zirkulationspumpe, Hebeanlage …) ── */
+function kompById(id){
+  var arr = (cur && cur.komponenten) || [];
+  for (var i = 0; i < arr.length; i++){ if (arr[i].id === id) return arr[i]; }
+  return null;
+}
+function komponentenHtml(){
+  var h = '<div class="f-info">Je Komponente: Beschrieb (vorbelegter Text als Vorlage), Kennwerte und Risiko — der Handlungsbedarf folgt automatisch der Risikostufe.</div>';
+  ((cur && cur.komponenten) || []).forEach(function(kp){
+    h += '<div class="komp-box" id="komp_' + esc(kp.id) + '">'
+      + '<div class="komp-hd"><input type="text" class="f-inp" value="' + esc(kp.bez || '') + '" placeholder="Komponente (z.B. Warmwasserspeicher)" oninput="zaKompTxt(\'' + esc(kp.id) + '\',\'bez\',this)">'
+      + '<button type="button" class="mw-del" title="Komponente löschen" onclick="zaKompDel(\'' + esc(kp.id) + '\')">✕</button></div>';
+    h += '<div class="grid2">'
+      + '<div class="frage"><div class="frage-lbl">Hersteller / Fabrikat</div><input type="text" class="f-inp" value="' + esc(kp.hersteller || '') + '" oninput="zaKompTxt(\'' + esc(kp.id) + '\',\'hersteller\',this)"></div>'
+      + '<div class="frage"><div class="frage-lbl">Baujahr</div><input type="text" inputmode="numeric" class="f-inp" value="' + esc(kp.jahr || '') + '" placeholder="z.B. 2007" oninput="zaKompTxt(\'' + esc(kp.id) + '\',\'jahr\',this)"></div>'
+      + '</div>';
+    h += '<div class="frage"><div class="frage-lbl">Kennwerte (z.B. Volumen, Material)</div><input type="text" class="f-inp" value="' + esc(kp.angaben || '') + '" placeholder="z.B. 830 Liter · V4A" oninput="zaKompTxt(\'' + esc(kp.id) + '\',\'angaben\',this)"></div>';
+    h += '<div class="frage"><div class="frage-lbl">Beschrieb / Feststellungen</div><textarea class="f-area" oninput="zaKompTxt(\'' + esc(kp.id) + '\',\'beschrieb\',this)">' + esc(kp.beschrieb || '') + '</textarea></div>';
+    h += '<div class="risk-lbl">Risiko-Einschätzung</div>' + riskSeg(kp.risiko || '', "zaKompRisiko('" + esc(kp.id) + "','%v')");
+    h += '</div>';
+  });
+  h += '<div class="stdbar"><button type="button" class="act-btn" onclick="zaKompAdd()">＋ Komponente</button></div>';
+  return h;
+}
+window.zaKompTxt = function(id, field, elm){ var kp = kompById(id); if (!kp) return; kp[field] = elm.value; scheduleSave(); };
+window.zaKompRisiko = function(id, v){
+  var kp = kompById(id); if (!kp) return;
+  kp.risiko = (kp.risiko === v ? '' : v);
+  repaintKap('k1');
+  scheduleSave();
+};
+window.zaKompAdd = function(){
+  if (!cur) return;
+  cur.komponenten.push({ id: uid(), bez: '', beschrieb: '', hersteller: '', jahr: '', angaben: '', risiko: '' });
+  repaintKap('k1');
+  scheduleSave();
+};
+window.zaKompDel = function(id){
+  if (!cur) return;
+  GemaDialog.confirm({ title: 'Komponente löschen', message: 'Diese Komponente samt Beschrieb und Risiko wirklich löschen?', confirmLabel: 'Löschen', danger: true }).then(function(ok){
+    if (!ok || !cur) return;
+    cur.komponenten = cur.komponenten.filter(function(kp){ return kp.id !== id; });
+    repaintKap('k1');
+    scheduleSave();
+  });
+};
+
+/* ── Materialisierungs-Tabellen (Lebensdauer-Katalog + Rest-Ampel) ── */
+function matRows(mid){
+  if (!cur) return [];
+  cur.mat = cur.mat || {};
+  cur.mat[mid] = cur.mat[mid] || [];
+  return cur.mat[mid];
+}
+function matRowById(mid, rid){
+  var arr = matRows(mid);
+  for (var i = 0; i < arr.length; i++){ if (arr[i].id === rid) return arr[i]; }
+  return null;
+}
+function matResHtml(mid, r){
+  if (!r.ldId) return '<span class="mw-pill n">Kein Katalog-Material verknüpft — Rest-Ampel wird nicht gerechnet</span>';
+  var e = LD ? LD.byId(r.ldId) : null;
+  if (!e) return '<span class="mw-chip">⚠ Katalog-Eintrag nicht gefunden<span class="mc-x" onclick="zaMatUnlink(\'' + esc(mid) + '\',\'' + esc(r.id) + '\')" title="Verknüpfung lösen">✕</span></span>';
+  var h = '<span class="mw-chip" title="Lebensdauer-Katalog: ' + esc(LD.quelleLabel ? (LD.quelleLabel(e.quelle) || '') : '') + '">⏳ ' + esc(e.name) + ' · ' + e.jahre + ' J.'
+    + '<span class="mc-x" onclick="zaMatUnlink(\'' + esc(mid) + '\',\'' + esc(r.id) + '\')" title="Verknüpfung lösen">✕</span></span>';
+  var alter = parseInt(String(r.alter === undefined || r.alter === null ? '' : r.alter).trim(), 10);
+  if (!isNaN(alter) && alter >= 0){
+    var rest = e.jahre - alter;
+    var cls = rest <= 0 ? 'r' : (rest <= e.jahre * 0.33 ? 'a' : 'g');
+    var restTxt = rest > 0 ? ('Restlebensdauer ~' + rest + ' J.') : ('Lebensdauer überschritten seit ' + (-rest) + ' J.');
+    h += ' <span class="mw-pill ' + cls + '">' + restTxt + '</span>';
+  }
+  return h;
+}
+function matHtml(mid, lageLabel){
+  var h = '<div class="f-info">🔍 verknüpft den Lebensdauer-Katalog — Lebenserwartung wird vorgeschlagen und die Rest-Ampel aus Alter und Katalog-Lebensdauer gerechnet; alle Felder bleiben überschreibbar.</div>';
+  matRows(mid).forEach(function(r){
+    h += '<div class="mtb-row" id="mtbrow_' + esc(mid) + '_' + esc(r.id) + '">'
+      + '<div class="mtb-g">'
+      + '<div class="mtb-f"><label>' + esc(lageLabel) + '</label><input type="text" class="f-inp" value="' + esc(r.lage || '') + '" oninput="zaMatSet(\'' + esc(mid) + '\',\'' + esc(r.id) + '\',\'lage\',this)"></div>'
+      + '<div class="mtb-f"><label>Typ / Material</label><div class="mtb-mat"><input type="text" class="f-inp" value="' + esc(r.material || '') + '" placeholder="z.B. Chromstahl" oninput="zaMatSet(\'' + esc(mid) + '\',\'' + esc(r.id) + '\',\'material\',this)">'
+      + '<button type="button" class="mtb-pick" title="Material aus dem Lebensdauer-Katalog" onclick="zaMatPick(\'' + esc(mid) + '\',\'' + esc(r.id) + '\')">🔍</button></div></div>'
+      + '<div class="mtb-f"><label>Alter [Jahre]</label><input type="text" inputmode="numeric" class="f-inp" value="' + esc(r.alter === undefined ? '' : r.alter) + '" placeholder="z.B. 61" oninput="zaMatSet(\'' + esc(mid) + '\',\'' + esc(r.id) + '\',\'alter\',this)"></div>'
+      + '<div class="mtb-f"><label>Lebenserwartung</label><input type="text" class="f-inp" value="' + esc(r.lebenserwartung || '') + '" placeholder="z.B. 30 – 40 Jahre" oninput="zaMatSet(\'' + esc(mid) + '\',\'' + esc(r.id) + '\',\'lebenserwartung\',this)"></div>'
+      + '</div>';
+    h += '<div class="risk-lbl">Risiko</div>' + riskSeg(r.risiko || '', "zaMatRisiko('" + esc(mid) + "','" + esc(r.id) + "','%v')");
+    h += '<div class="mtb-ft"><div class="mw-result fx" id="zamres_' + esc(mid) + '_' + esc(r.id) + '">' + matResHtml(mid, r) + '</div>'
+      + '<button type="button" class="mw-del" title="Zeile löschen" onclick="zaMatDel(\'' + esc(mid) + '\',\'' + esc(r.id) + '\')">✕</button></div>';
+    h += '</div>';
+  });
+  h += '<div class="stdbar"><button type="button" class="act-btn" onclick="zaMatAdd(\'' + esc(mid) + '\')">＋ Zeile</button></div>';
+  return h;
+}
+window.zaMatSet = function(mid, rid, field, elm){
+  var r = matRowById(mid, rid); if (!r) return;
+  r[field] = elm.value;
+  if (field === 'alter'){
+    var box = el('zamres_' + mid + '_' + rid);
+    if (box) box.innerHTML = matResHtml(mid, r);
+  }
+  scheduleSave();
+};
+window.zaMatRisiko = function(mid, rid, v){
+  var r = matRowById(mid, rid); if (!r) return;
+  r.risiko = (r.risiko === v ? '' : v);
+  repaintKap(MAT_KAP[mid] || mid);
+  scheduleSave();
+};
+window.zaMatAdd = function(mid){
+  if (!cur) return;
+  matRows(mid).push({ id: uid(), lage: '', material: '', ldId: '', alter: '', risiko: '', lebenserwartung: '' });
+  repaintKap(MAT_KAP[mid] || mid);
+  scheduleSave();
+};
+window.zaMatDel = function(mid, rid){
+  if (!cur) return;
+  GemaDialog.confirm({ title: 'Zeile löschen', message: 'Diese Materialzeile wirklich löschen?', confirmLabel: 'Löschen', danger: true }).then(function(ok){
+    if (!ok || !cur) return;
+    cur.mat[mid] = matRows(mid).filter(function(r){ return r.id !== rid; });
+    repaintKap(MAT_KAP[mid] || mid);
+    scheduleSave();
+  });
+};
+window.zaMatUnlink = function(mid, rid){
+  var r = matRowById(mid, rid); if (!r) return;
+  r.ldId = '';
+  repaintKap(MAT_KAP[mid] || mid);
+  scheduleSave();
+};
+
+/* Katalog-Picker (geteiltes Modal — Suche via Lebensdauer-API) */
+var _zamMid = null, _zamRid = null;
+window.zaMatPick = function(mid, rid){
+  _zamMid = mid; _zamRid = rid;
+  var bg = el('mwModalBg'); if (!bg) return;
+  var q = el('mwmSuche'); if (q) q.value = '';
+  mwmFilter();
+  bg.classList.add('open');
+  setTimeout(function(){ try { if (q) q.focus(); } catch(e){} }, 60);
+};
+window.mwModalZu = function(){
+  var bg = el('mwModalBg'); if (bg) bg.classList.remove('open');
+  _zamMid = null; _zamRid = null;
+};
+window.mwmFilter = function(){
+  var host = el('mwmListe'); if (!host) return;
+  if (!LD){ host.innerHTML = '<div class="f-info">Lebensdauer-Katalog nicht geladen.</div>'; return; }
+  var q = (el('mwmSuche') || {}).value || '';
+  var arr = LD.suche(q) || [];
+  var mehr = arr.length > 40 ? arr.length - 40 : 0;
+  arr = arr.slice(0, 40);
+  var h = '';
+  arr.forEach(function(e){
+    var kat = LD.kategorie(e.kat);
+    h += '<div class="mwm-opt" onclick="mwmPick(\'' + esc(e.id) + '\')">'
+      + '<div class="mo-name">' + esc(e.name) + '<small>' + esc((e.gruppe ? e.gruppe + ' · ' : '') + (kat ? kat.label : (e.kat || ''))) + '</small></div>'
+      + '<div class="mwm-jahre">' + e.jahre + ' J.</div>'
+      + '</div>';
+  });
+  if (!arr.length) h = '<div class="f-info">Keine Treffer — Suchbegriff anpassen (z.B. «Chromstahl», «PEX», «Guss»).</div>';
+  if (mehr) h += '<div class="f-info">… und ' + mehr + ' weitere Treffer — Suche verfeinern.</div>';
+  host.innerHTML = h;
+};
+window.mwmPick = function(ldId){
+  var mid = _zamMid, r = matRowById(_zamMid, _zamRid);
+  if (r){
+    r.ldId = ldId;
+    var e = LD ? LD.byId(ldId) : null;
+    if (e){
+      if (!r.material) r.material = e.name;
+      if (!r.lebenserwartung) r.lebenserwartung = e.jahre + ' Jahre';
+    }
+  }
+  mwModalZu();
+  if (mid) repaintKap(MAT_KAP[mid] || mid);
+  scheduleSave();
+};
+
+/* ── Variantenvergleich (Vor-/Nachteile abwählbar + eigene Punkte) ── */
+function vglSecHtml(kapId, cls, titel, items, aus, extraFid, extraVal, extraLbl){
+  var h = '<div class="vgl-sec"><div class="vgl-sec-t ' + cls + '">' + esc(titel) + '</div>';
+  items.forEach(function(it){
+    var off = !!(aus && aus[it.k]);
+    h += '<div class="vgl-item ' + cls + (off ? ' aus' : '') + '" onclick="vgToggle(\'' + kapId + '\',\'' + it.k + '\')" title="' + (off ? 'Punkt wieder aufnehmen' : 'Punkt für den Bericht abwählen') + '">' + esc(it.l) + '</div>';
+  });
+  h += '<div class="vgl-extra"><div class="ve-l">' + esc(extraLbl) + '</div>'
+    + '<textarea oninput="zaVglExtra(\'' + kapId + '\',\'' + extraFid + '\',this)" placeholder="eine Angabe pro Zeile">' + esc(extraVal || '') + '</textarea></div>';
+  return h + '</div>';
+}
+function vergleichHtml(a){
+  var aus = (a.vg_aus && typeof a.vg_aus === 'object') ? a.vg_aus : {};
+  var h = '<div class="vgl-grid">';
+  h += '<div class="vgl-box"><div class="vgl-hd"><div class="vh-t">Variante 1 — Innensanierung</div><div class="vh-s">Sanierung im bestehenden Rohr (Beschichtung / Inliner)</div></div>';
+  h += vglSecHtml('k8', 'vor', 'Vorteile', VGL.v1vor, aus, 'v1_vor_extra', a.v1_vor_extra, 'Eigene Vorteile (eine pro Zeile)');
+  h += vglSecHtml('k8', 'nach', 'Nachteile', VGL.v1nach, aus, 'v1_nach_extra', a.v1_nach_extra, 'Eigene Nachteile (eine pro Zeile)');
+  h += '</div>';
+  h += '<div class="vgl-box"><div class="vgl-hd"><div class="vh-t">Variante 2 — Ersatz Steigzonen</div><div class="vh-s">Kompletter Leitungsersatz — Lebensdauer der Leitungen mehr als 50 Jahre</div></div>';
+  h += vglSecHtml('k8', 'vor', 'Vorteile', VGL.v2vor, aus, 'v2_vor_extra', a.v2_vor_extra, 'Eigene Vorteile (eine pro Zeile)');
+  h += vglSecHtml('k8', 'nach', 'Nachteile', VGL.v2nach, aus, 'v2_nach_extra', a.v2_nach_extra, 'Eigene Nachteile (eine pro Zeile)');
+  h += '</div></div>';
+  h += '<div class="f-info">Antippen entfernt einen Punkt aus dem Bericht (durchgestrichen) — erneutes Antippen nimmt ihn wieder auf.</div>';
+  return h;
+}
+window.vgToggle = function(kapId, key){
+  if (!cur) return;
+  var aus = (cur.a.vg_aus && typeof cur.a.vg_aus === 'object') ? cur.a.vg_aus : {};
+  if (aus[key]) delete aus[key]; else aus[key] = true;
+  cur.a.vg_aus = aus;
+  repaintKap(kapId);
+  scheduleSave();
+};
+window.zaVglExtra = function(kapId, fid, elm){
+  if (!cur) return;
+  cur.a[fid] = elm.value;
+  scheduleSave();
+};
+
+/* ── Grobkostenschätzung (zwei Varianten, Totale automatisch) ── */
+function zaNum(v){
+  var n = parseFloat(String(v === undefined || v === null ? '' : v).replace(/['’\s]/g, '').replace(',', '.'));
+  return isNaN(n) ? 0 : n;
+}
+function zaChf(n){
+  n = Math.round(n);
+  var neg = n < 0, s = String(Math.abs(n)), out = '';
+  while (s.length > 3){ out = "'" + s.slice(-3) + out; s = s.slice(0, -3); }
+  return (neg ? '−' : '') + s + out + '.–';
+}
+function kosVar(v){
+  if (!cur) return null;
+  cur.kosten = cur.kosten || neueKosten();
+  if (!cur.kosten[v]) cur.kosten[v] = neueKostenVariante(v === 'v1' ? 'kos_v1' : 'kos_v2');
+  return cur.kosten[v];
+}
+function kosTotals(kv){
+  var ausf = 0; (kv.rows || []).forEach(function(r){ ausf += zaNum(r.betrag); });
+  var honS = 0; (kv.hon || []).forEach(function(r){ honS += zaNum(r.betrag); });
+  var nk = honS * zaNum(kv.nkPct) / 100;
+  return { ausf: ausf, honSum: honS, nk: nk, honTot: honS + nk, ges: ausf + honS + nk };
+}
+function kosVarHtml(v, titel){
+  var kv = kosVar(v); if (!kv) return '';
+  var t = kosTotals(kv);
+  var h = '<div class="ber-box">';
+  h += '<div class="f-head">' + esc(titel) + '</div>';
+  h += '<div class="frage"><div class="frage-lbl">Beschrieb Sanierungsumfang</div><textarea class="f-area" oninput="zaKosTxt(\'' + v + '\',\'text\',this)">' + esc(kv.text || '') + '</textarea>'
+    + '<div class="stdbar"><button type="button" class="act-btn" onclick="zaKosStd(\'' + v + '\')">↺ Standardtext einsetzen</button></div></div>';
+  h += '<div class="kos-sub">Baukosten (BKP)</div>';
+  (kv.rows || []).forEach(function(r){
+    h += '<div class="kos-row"><div class="kos-nr"><input type="text" class="f-inp" value="' + esc(r.nr || '') + '" placeholder="BKP" oninput="zaKosRow(\'' + v + '\',\'' + esc(r.id) + '\',\'nr\',this)"></div>'
+      + '<div class="kos-bez"><input type="text" class="f-inp" value="' + esc(r.bez || '') + '" placeholder="Position" oninput="zaKosRow(\'' + v + '\',\'' + esc(r.id) + '\',\'bez\',this)"></div>'
+      + '<div class="kos-chf"><input type="text" inputmode="decimal" class="f-inp" value="' + esc(r.betrag === undefined ? '' : r.betrag) + '" placeholder="Fr." oninput="zaKosRow(\'' + v + '\',\'' + esc(r.id) + '\',\'betrag\',this)" onblur="fixLeadingZero(this);zaKosRow(\'' + v + '\',\'' + esc(r.id) + '\',\'betrag\',this)"></div>'
+      + '<button type="button" class="mw-del" title="Position löschen" onclick="zaKosRowDel(\'' + v + '\',\'' + esc(r.id) + '\')">✕</button></div>';
+  });
+  h += '<div class="stdbar"><button type="button" class="act-btn" onclick="zaKosRowAdd(\'' + v + '\')">＋ Position</button></div>';
+  h += '<div class="kos-tot"><div class="kt-l">Total Ausführung inkl. MwSt.</div><div class="kt-v" id="zakos_ausf_' + v + '">Fr. ' + zaChf(t.ausf) + '</div></div>';
+  h += '<div class="kos-sub">Honorare</div>';
+  (kv.hon || []).forEach(function(r){
+    h += '<div class="kos-row"><div class="kos-bez"><input type="text" class="f-inp" value="' + esc(r.bez || '') + '" oninput="zaKosHon(\'' + v + '\',\'' + esc(r.id) + '\',\'bez\',this)"></div>'
+      + '<div class="kos-chf"><input type="text" inputmode="decimal" class="f-inp" value="' + esc(r.betrag === undefined ? '' : r.betrag) + '" placeholder="Fr." oninput="zaKosHon(\'' + v + '\',\'' + esc(r.id) + '\',\'betrag\',this)" onblur="fixLeadingZero(this);zaKosHon(\'' + v + '\',\'' + esc(r.id) + '\',\'betrag\',this)"></div></div>';
+  });
+  h += '<div class="kos-row"><div class="kos-bez" style="display:flex;align-items:center;gap:8px"><span style="font-size:12.5px;font-weight:700;color:var(--txt2)">Nebenkosten</span>'
+    + '<input type="text" inputmode="decimal" class="f-inp" style="width:80px;flex:0 0 auto;text-align:right" value="' + esc(kv.nkPct === undefined ? '' : kv.nkPct) + '" oninput="zaKosNk(\'' + v + '\',this)" onblur="fixLeadingZero(this);zaKosNk(\'' + v + '\',this)"><span class="f-unit">%</span>'
+    + '<span style="font-size:11px;color:var(--mut)">der Honorarsumme</span></div>'
+    + '<div class="kos-chf"><div class="kt-v" style="text-align:right;padding:10px 2px" id="zakos_nk_' + v + '">Fr. ' + zaChf(t.nk) + '</div></div></div>';
+  h += '<div class="kos-tot"><div class="kt-l">Total Honorare inkl. MwSt.</div><div class="kt-v" id="zakos_hontot_' + v + '">Fr. ' + zaChf(t.honTot) + '</div></div>';
+  h += '<div class="kos-tot grand"><div class="kt-l">Gesamttotal inkl. MwSt.</div><div class="kt-v" id="zakos_ges_' + v + '">Fr. ' + zaChf(t.ges) + '</div></div>';
+  h += '<div class="kos-sub">Nicht enthaltene Leistungen</div><div class="fest">';
+  NE_KATALOG.forEach(function(t2, i){
+    var on = !!(kv.ne && kv.ne[i]);
+    h += '<button type="button" class="' + (on ? 'on' : '') + '" onclick="zaKosNe(\'' + v + '\',' + i + ')">' + esc(t2) + '</button>';
+  });
+  h += '</div>';
+  (kv.neFrei || []).forEach(function(t2, fi){
+    h += '<div class="zl-row"><input type="text" class="f-inp" value="' + esc(t2 || '') + '" placeholder="Weitere nicht enthaltene Leistung" oninput="zaKosNeFrei(\'' + v + '\',' + fi + ',this)">'
+      + '<button type="button" class="mw-del" title="Zeile löschen" onclick="zaKosNeFreiDel(\'' + v + '\',' + fi + ')">✕</button></div>';
+  });
+  h += '<div class="stdbar"><button type="button" class="act-btn" onclick="zaKosNeFreiAdd(\'' + v + '\')">＋ Eigene Position</button></div>';
+  h += '<div class="frage" style="margin-top:12px"><div class="frage-lbl">Sanierungszeitraum</div><input type="text" class="f-inp" value="' + esc(kv.zeitraum || '') + '" placeholder="z.B. ca. 3 Monate" oninput="zaKosTxt(\'' + v + '\',\'zeitraum\',this)"></div>';
+  return h + '</div>';
+}
+function kostenHtml(){
+  return '<div class="f-info">Beträge inkl. MwSt. erfassen — die Totale werden automatisch gerechnet. Es sind bewusst keine Beträge vorbelegt: die Schätzung ist projektspezifisch.</div>'
+    + kosVarHtml('v1', 'Variante 1 — Innensanierung') + kosVarHtml('v2', 'Variante 2 — Ersatz Steigzonen');
+}
+function paintKos(v){
+  var kv = kosVar(v); if (!kv) return;
+  var t = kosTotals(kv), map = { ausf: t.ausf, nk: t.nk, hontot: t.honTot, ges: t.ges };
+  for (var key in map){
+    if (!map.hasOwnProperty(key)) continue;
+    var e2 = el('zakos_' + key + '_' + v);
+    if (e2) e2.textContent = 'Fr. ' + zaChf(map[key]);
+  }
+}
+function kosRowById(kv, arr, rid){
+  for (var i = 0; i < arr.length; i++){ if (arr[i].id === rid) return arr[i]; }
+  return null;
+}
+window.zaKosTxt = function(v, field, elm){ var kv = kosVar(v); if (!kv) return; kv[field] = elm.value; scheduleSave(); };
+window.zaKosStd = function(v){
+  var kv = kosVar(v); if (!kv) return;
+  var neu = STD[v === 'v1' ? 'kos_v1' : 'kos_v2'] || '';
+  function setzen(){ kv.text = neu; repaintKap('k9'); scheduleSave(); }
+  if (kv.text && kv.text !== neu){
+    GemaDialog.confirm({ title: 'Standardtext einsetzen', message: 'Der bestehende Beschrieb wird durch den Standardtext ersetzt. Fortfahren?', confirmLabel: 'Ersetzen' }).then(function(ok){ if (ok && cur) setzen(); });
+  } else setzen();
+};
+window.zaKosRow = function(v, rid, field, elm){
+  var kv = kosVar(v); if (!kv) return;
+  var r = kosRowById(kv, kv.rows || [], rid); if (!r) return;
+  r[field] = elm.value;
+  if (field === 'betrag') paintKos(v);
+  scheduleSave();
+};
+window.zaKosRowAdd = function(v){
+  var kv = kosVar(v); if (!kv) return;
+  kv.rows = kv.rows || [];
+  kv.rows.push({ id: uid(), nr: '', bez: '', betrag: '' });
+  repaintKap('k9');
+  scheduleSave();
+};
+window.zaKosRowDel = function(v, rid){
+  var kv = kosVar(v); if (!kv) return;
+  GemaDialog.confirm({ title: 'Position löschen', message: 'Diese Kostenposition wirklich löschen?', confirmLabel: 'Löschen', danger: true }).then(function(ok){
+    if (!ok || !cur) return;
+    kv.rows = (kv.rows || []).filter(function(r){ return r.id !== rid; });
+    paintKos(v);
+    repaintKap('k9');
+    scheduleSave();
+  });
+};
+window.zaKosHon = function(v, rid, field, elm){
+  var kv = kosVar(v); if (!kv) return;
+  var r = kosRowById(kv, kv.hon || [], rid); if (!r) return;
+  r[field] = elm.value;
+  if (field === 'betrag') paintKos(v);
+  scheduleSave();
+};
+window.zaKosNk = function(v, elm){ var kv = kosVar(v); if (!kv) return; kv.nkPct = elm.value; paintKos(v); scheduleSave(); };
+window.zaKosNe = function(v, idx){
+  var kv = kosVar(v); if (!kv) return;
+  kv.ne = kv.ne || {};
+  if (kv.ne[idx]) delete kv.ne[idx]; else kv.ne[idx] = true;
+  repaintKap('k9');
+  scheduleSave();
+};
+window.zaKosNeFrei = function(v, fi, elm){ var kv = kosVar(v); if (!kv || !kv.neFrei) return; kv.neFrei[fi] = elm.value; scheduleSave(); };
+window.zaKosNeFreiAdd = function(v){
+  var kv = kosVar(v); if (!kv) return;
+  kv.neFrei = kv.neFrei || []; kv.neFrei.push('');
+  repaintKap('k9');
+  scheduleSave();
+};
+window.zaKosNeFreiDel = function(v, fi){
+  var kv = kosVar(v); if (!kv || !kv.neFrei) return;
+  kv.neFrei.splice(fi, 1);
+  repaintKap('k9');
+  scheduleSave();
+};
+
+/* ── Massnahmen (drei Zeithorizonte, Vorlagen-Chips) ── */
+function msnRows(grp){
+  if (!cur) return [];
+  cur.massnahmen = cur.massnahmen || neueMassnahmen();
+  cur.massnahmen[grp] = cur.massnahmen[grp] || [];
+  return cur.massnahmen[grp];
+}
+function massnahmenHtml(){
+  var h = '<div class="f-info">Massnahmen je Zeithorizont — leere Gruppen erscheinen im Bericht als «Keine».</div>';
+  MSN_GRP.forEach(function(g){
+    var rows = msnRows(g.k);
+    h += '<div class="kos-sub">' + esc(g.l) + '</div>';
+    rows.forEach(function(r){
+      h += '<div class="zl-row"><input type="text" class="f-inp" value="' + esc(r.text || '') + '" placeholder="Massnahme" oninput="zaMsnSet(\'' + g.k + '\',\'' + esc(r.id) + '\',this)">'
+        + '<button type="button" class="mw-del" title="Massnahme löschen" onclick="zaMsnDel(\'' + g.k + '\',\'' + esc(r.id) + '\')">✕</button></div>';
+    });
+    if (!rows.length) h += '<div class="f-info">Keine Massnahmen erfasst.</div>';
+    h += '<div class="stdbar"><button type="button" class="act-btn" onclick="zaMsnAdd(\'' + g.k + '\')">＋ Massnahme</button>';
+    (MSN_VORLAGEN[g.k] || []).forEach(function(t, i){
+      h += '<button type="button" class="act-btn" onclick="zaMsnVorlage(\'' + g.k + '\',' + i + ')" title="' + esc(t) + '">📋 ' + esc(t.length > 46 ? t.slice(0, 44) + '…' : t) + '</button>';
+    });
+    h += '</div>';
+  });
+  return h;
+}
+window.zaMsnSet = function(grp, rid, elm){
+  var rows = msnRows(grp);
+  for (var i = 0; i < rows.length; i++){ if (rows[i].id === rid){ rows[i].text = elm.value; break; } }
+  scheduleSave();
+};
+window.zaMsnAdd = function(grp){
+  msnRows(grp).push({ id: uid(), text: '' });
+  repaintKap('k10');
+  scheduleSave();
+};
+window.zaMsnDel = function(grp, rid){
+  if (!cur) return;
+  cur.massnahmen[grp] = msnRows(grp).filter(function(r){ return r.id !== rid; });
+  repaintKap('k10');
+  scheduleSave();
+};
+window.zaMsnVorlage = function(grp, idx){
+  var t = (MSN_VORLAGEN[grp] || [])[idx]; if (!t) return;
+  var rows = msnRows(grp);
+  for (var i = 0; i < rows.length; i++){ if ((rows[i].text || '').trim() === t){ return; } }
+  rows.push({ id: uid(), text: t });
+  repaintKap('k10');
+  scheduleSave();
+};
+/* ============ P5 — Fotos pro Kapitel ============ */
+function fotosFor(kapId){
+  if (!cur) return [];
+  cur.fotos = cur.fotos || {};
+  cur.fotos[kapId] = cur.fotos[kapId] || [];
+  return cur.fotos[kapId];
+}
+function fotoSecHtml(kapId, titel){
+  var arr = (cur && cur.fotos && cur.fotos[kapId]) || [];
+  var edit = canEdit();
+  var h = '<div class="foto-sec"><div class="foto-sec-t">' + (titel || '📷 Fotos') + '</div><div class="foto-grid">';
+  arr.forEach(function(f, i){
+    var src = fotoSrc(f);
+    var meta = [f.standort, f.geschoss, f.raum, f.bauteil].filter(function(x){ return x; }).join(' · ');
+    h += '<div class="foto-tile">'
+      + '<img src="' + esc(src) + '" alt="" onclick="zaFotoZoom(\'' + esc(kapId) + '\',' + i + ')">'
+      + (fotoWartet(f) ? '<div class="foto-warte">⏳ wartet auf Upload</div>' : '')
+      + '<div class="foto-cap">' + (f.beschreibung ? '<b>' + esc(f.beschreibung) + '</b>' : '') + (meta ? esc(meta) : (f.beschreibung ? '' : '<span style="color:var(--mut2)">Ohne Beschreibung</span>')) + '</div>'
+      + (edit ? '<div class="foto-acts">'
+          + '<button type="button" title="Nach vorne" onclick="zaFotoMove(\'' + esc(kapId) + '\',' + i + ',-1)">◀</button>'
+          + '<button type="button" title="Nach hinten" onclick="zaFotoMove(\'' + esc(kapId) + '\',' + i + ',1)">▶</button>'
+          + '<button type="button" title="Angaben bearbeiten" onclick="zaFotoEdit(\'' + esc(kapId) + '\',' + i + ')">✎</button>'
+          + '<button type="button" class="del" title="Löschen" onclick="zaFotoDel(\'' + esc(kapId) + '\',' + i + ')">✕</button>'
+        + '</div>' : '')
+      + '</div>';
+  });
+  if (edit){
+    h += '<div class="photo-add-split">'
+      + '<button type="button" class="pa-half" onclick="zaFotoAdd(\'' + esc(kapId) + '\',\'kamera\')"><span class="pa-ic">📷</span>Foto aufnehmen</button>'
+      + '<button type="button" class="pa-half" onclick="zaFotoAdd(\'' + esc(kapId) + '\',\'galerie\')"><span class="pa-ic">🖼</span>Aus Mediathek</button>'
+      + '</div>';
+  } else if (!arr.length){
+    h += '<div class="f-info">Keine Fotos erfasst.</div>';
+  }
+  h += '</div></div>';
+  return h;
+}
+function zaResize(file, cb){
+  var rd = new FileReader();
+  rd.onload = function(){
+    var img = new Image();
+    img.onload = function(){
+      try {
+        var MAX = 1600, w = img.width, h = img.height;
+        if (w > MAX || h > MAX){
+          var f = MAX / Math.max(w, h);
+          w = Math.round(w * f); h = Math.round(h * f);
+        }
+        var cv = document.createElement('canvas');
+        cv.width = w; cv.height = h;
+        cv.getContext('2d').drawImage(img, 0, 0, w, h);
+        cb(cv.toDataURL('image/jpeg', 0.82));
+      } catch(e){ cb(null); }
+    };
+    img.onerror = function(){ cb(null); };
+    img.src = rd.result;
+  };
+  rd.onerror = function(){ cb(null); };
+  rd.readAsDataURL(file);
+}
+window.zaFotoAdd = function(kapId, quelle){
+  if (!cur || !canEdit()) return;
+  // KRITISCH (iOS-GC-Bug): der File-Input MUSS im DOM hängen + global referenziert sein,
+  // sonst räumt WebKit ihn weg, während Kamera/Mediathek offen sind — change feuert nie.
+  try { if (window._zaFotoInp && window._zaFotoInp.parentNode) window._zaFotoInp.parentNode.removeChild(window._zaFotoInp); } catch(e){}
+  var inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = 'image/*';
+  if (quelle === 'kamera') inp.setAttribute('capture', 'environment');
+  else inp.multiple = true;
+  inp.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0';
+  document.body.appendChild(inp);
+  window._zaFotoInp = inp;
+  inp.onchange = function(){
+    var files = Array.prototype.slice.call(inp.files || []);
+    try { if (inp.parentNode) inp.parentNode.removeChild(inp); } catch(e){}
+    if (window._zaFotoInp === inp) window._zaFotoInp = null;
+    if (!files.length || !cur) return;
+    var dazu = 0, kein = 0, gross = 0, fehler = 0, neu = [];
+    function fertig(){
+      if (!cur) return;
+      repaintKap(kapId);
+      scheduleSave();
+      fqRun();
+      var msg = dazu ? (dazu + (dazu === 1 ? ' Foto' : ' Fotos') + ' hinzugefügt') : 'Kein Foto übernommen';
+      if (kein) msg += ' · ' + kein + ' Datei(en) übersprungen (kein Bild erkannt)';
+      if (gross) msg += ' · ' + gross + ' über 10 MB übersprungen';
+      if (fehler) msg += ' · ' + fehler + ' nicht lesbar';
+      toast(msg);
+      // Kamera-Weg: genau ein Bild → direkt die Angaben erfassen
+      if (quelle === 'kamera' && neu.length === 1){
+        var arr = fotosFor(kapId), ix = arr.indexOf(neu[0]);
+        if (ix >= 0) window.zaFotoEdit(kapId, ix);
+      }
+    }
+    function next(i){
+      if (i >= files.length){ fertig(); return; }
+      var f = files[i];
+      // Leerer MIME-Typ = «unbekannt», nicht «kein Bild» (iCloud-Mediathek liefert oft type '')
+      if (f.type && f.type.indexOf('image') !== 0){ kein++; next(i + 1); return; }
+      if (f.size > 10 * 1024 * 1024){ gross++; next(i + 1); return; }
+      zaResize(f, function(dataUrl){
+        if (!dataUrl){ fehler++; next(i + 1); return; }
+        if (!cur){ return; }
+        var foto = { id: uid(), beschreibung: '', standort: '', geschoss: '', raum: '', bauteil: '', ts: new Date().toISOString() };
+        if (fq) foto.pendingId = fq.put(dataUrl);
+        else foto.dataUrl = dataUrl;
+        fotosFor(kapId).push(foto);
+        neu.push(foto);
+        dazu++;
+        next(i + 1);
+      });
+    }
+    next(0);
+  };
+  try { inp.click(); } catch(e){ toast('Dateiauswahl konnte nicht geöffnet werden'); }
+};
+var _fmKap = null, _fmIdx = -1;
+window.zaFotoEdit = function(kapId, idx){
+  if (!cur || !canEdit()) return;
+  var arr = fotosFor(kapId), f = arr[idx];
+  if (!f) return;
+  _fmKap = kapId; _fmIdx = idx;
+  var img = el('fmImg'); if (img) img.src = fotoSrc(f);
+  el('fmBeschreibung').value = f.beschreibung || '';
+  el('fmStandort').value = f.standort || '';
+  el('fmGeschoss').value = f.geschoss || '';
+  el('fmRaum').value = f.raum || '';
+  el('fmBauteil').value = f.bauteil || '';
+  var bg = el('fotoModalBg'); if (bg) bg.classList.add('open');
+  setTimeout(function(){ try { el('fmBeschreibung').focus(); } catch(e){} }, 60);
+};
+window.zaFotoModalZu = function(){
+  var bg = el('fotoModalBg'); if (bg) bg.classList.remove('open');
+  _fmKap = null; _fmIdx = -1;
+};
+window.zaFotoModalSave = function(){
+  if (cur && _fmKap !== null){
+    var arr = fotosFor(_fmKap), f = arr[_fmIdx];
+    if (f){
+      f.beschreibung = (el('fmBeschreibung').value || '').trim();
+      f.standort = (el('fmStandort').value || '').trim();
+      f.geschoss = (el('fmGeschoss').value || '').trim();
+      f.raum = (el('fmRaum').value || '').trim();
+      f.bauteil = (el('fmBauteil').value || '').trim();
+    }
+    var kap = _fmKap;
+    window.zaFotoModalZu();
+    repaintKap(kap);
+    scheduleSave();
+    return;
+  }
+  window.zaFotoModalZu();
+};
+window.zaFotoDel = function(kapId, idx){
+  if (!cur || !canEdit()) return;
+  GemaDialog.confirm({ title: 'Foto löschen', message: 'Dieses Foto wirklich aus dem Kapitel entfernen?', confirmLabel: 'Löschen', danger: true }).then(function(ok){
+    if (!ok || !cur) return;
+    var arr = fotosFor(kapId), f = arr[idx];
+    if (!f) return;
+    if (f.pendingId && fq){ try { fq.del(f.pendingId); } catch(e){} }
+    arr.splice(idx, 1);
+    repaintKap(kapId);
+    scheduleSave();
+  });
+};
+window.zaFotoMove = function(kapId, idx, dir){
+  if (!cur || !canEdit()) return;
+  var arr = fotosFor(kapId), zi = idx + dir;
+  if (zi < 0 || zi >= arr.length) return;
+  var t = arr[idx]; arr[idx] = arr[zi]; arr[zi] = t;
+  repaintKap(kapId);
+  scheduleSave();
+};
+window.zaFotoZoom = function(kapId, idx){
+  var arr = (cur && cur.fotos && cur.fotos[kapId]) || [], f = arr[idx];
+  if (!f) return;
+  var img = el('lightboxImg'); if (img) img.src = fotoSrc(f);
+  var lb = el('lightbox'); if (lb) lb.classList.add('open');
+};
+/* ============ P6 — Bericht (Druck/PDF + Word) ============ */
+/* Branding-Helfer (Kanon gema_schaden_pdf — pro Datei dupliziert, Kontrastschutz ≥ 4.5:1 gegen Weiss) */
+function _zaHexRgb(hex){
+  var m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
+  if (!m) return null;
+  var n = parseInt(m[1], 16);
+  return [ (n >> 16) & 255, (n >> 8) & 255, n & 255 ];
+}
+function _zaLum(rgb){
+  var a = rgb.map(function(v){ v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+  return 0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2];
+}
+function _zaKontrastWeiss(rgb){ return 1.05 / (_zaLum(rgb) + 0.05); }
+function _zaDarken(hex, min){
+  var rgb = _zaHexRgb(hex); if (!rgb) return null;
+  var f = 1.0, out = rgb;
+  for (var i = 0; i < 40 && _zaKontrastWeiss(out) < min; i++){
+    f -= 0.03;
+    out = rgb.map(function(v){ return Math.max(0, Math.round(v * f)); });
+  }
+  return '#' + out.map(function(v){ var s = v.toString(16); return s.length < 2 ? '0' + s : s; }).join('');
+}
+function _zaTint(hex, w){
+  var rgb = _zaHexRgb(hex); if (!rgb) return '#eef2fb';
+  var out = rgb.map(function(v){ return Math.round(v * (1 - w) + 255 * w); });
+  return '#' + out.map(function(v){ var s = v.toString(16); return s.length < 2 ? '0' + s : s; }).join('');
+}
+function _zaBrand(){
+  var acc = '#1d4ed8';
+  try {
+    var org = myOrg();
+    var pf = org && org.settings && org.settings.pdfFarben;
+    if (pf && pf.primary){ var d = _zaDarken(pf.primary, 4.5); if (d) acc = d; }
+  } catch(e){}
+  return { acc: acc, tint: _zaTint(acc, 0.92) };
+}
+function _zaLogoHtml(){
+  try {
+    var org = myOrg();
+    var src = org && (org.logoVector || org.logo);
+    if (src) return '<img src="' + esc(src) + '" style="max-height:44px;max-width:190px;object-fit:contain" alt="">';
+    return '<div style="font-weight:900;font-size:19px;letter-spacing:.5px;color:#0f172a">GEMA</div>';
+  } catch(e){ return '<div style="font-weight:900;font-size:19px;color:#0f172a">GEMA</div>'; }
+}
+function _cssStr(s){ return '"' + String(s || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\r\n]+/g, ' ') + '"'; }
+function _datei(name){
+  var s = String(name || 'Zustandsanalyse');
+  s = s.replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/Ä/g, 'Ae').replace(/Ö/g, 'Oe').replace(/Ü/g, 'Ue').replace(/ß/g, 'ss');
+  s = s.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  return s || 'Zustandsanalyse';
+}
+function _bTxt(t){
+  return '<div class="btxt">' + esc(String(t || '')).replace(/\n/g, '<br>') + '</div>';
+}
+function _bRow(l, v, hint){
+  return '<div class="brow"><div class="brl">' + esc(l) + '</div><div class="brv">' + v + (hint ? '<div class="brh">' + esc(hint) + '</div>' : '') + '</div></div>';
+}
+/* ── Bericht-Bausteine der Spezial-Widgets (JEDER Feld-Typ braucht seinen Zweig — sonst fehlt er still im Bericht) ── */
+function _bRisikoZeilen(val){
+  if (!val) return '';
+  var h = '<table class="btbl brisk"><tbody><tr><td class="bkopf">Risiko</td>';
+  RISIKO.forEach(function(o){
+    var on = (o.v === val);
+    h += '<td class="' + (on ? 'on ' + o.c : '') + '">' + (on ? '☒' : '☐') + ' ' + esc(o.l) + '</td>';
+  });
+  h += '</tr><tr><td class="bkopf">Handlungsbedarf</td>';
+  RISIKO.forEach(function(o){
+    var on = (o.v === val);
+    h += '<td class="' + (on ? 'on ' + o.c : '') + '">' + esc(HB[o.v]) + '</td>';
+  });
+  h += '</tr></tbody></table>';
+  return h;
+}
+function _bRisiko(a, f){
+  var val = a[f.id];
+  if (!val) return '';
+  return '<div class="bsub">' + esc(f.l || 'Risiko-Einschätzung') + '</div>' + _bRisikoZeilen(val);
+}
+function _bBereiche(mat){
+  var arr = (mat.bereiche || []).filter(function(b){
+    var hatFest = false;
+    if (b.fest){ for (var kk in b.fest){ if (b.fest.hasOwnProperty(kk) && b.fest[kk]){ hatFest = true; break; } } }
+    var hatFrei = (b.frei || []).some(function(t){ return String(t || '').trim(); });
+    return b.zustand || hatFest || hatFrei;
+  });
+  if (!arr.length) return '';
+  var h = '';
+  arr.forEach(function(b){
+    h += '<div class="bber"><h3 class="bh">' + esc(b.name || 'Bereich') + '</h3>';
+    if (b.zustand){
+      h += '<div class="bz-row">';
+      ZUSTAND.forEach(function(o){
+        var on = (b.zustand === o.v);
+        h += '<span class="bz' + (on ? ' on ' + o.c : '') + '">' + (on ? '☒' : '☐') + ' ' + esc(o.l) + '</span>';
+      });
+      h += '</div>';
+    }
+    var items = [];
+    FEST.forEach(function(t, i){ if (b.fest && b.fest[i]) items.push(t); });
+    (b.frei || []).forEach(function(t){ t = String(t || '').trim(); if (t) items.push(t); });
+    if (items.length) h += '<ul class="bul">' + items.map(function(t){ return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>';
+    h += '</div>';
+  });
+  return h;
+}
+function _bKomp(mat){
+  var arr = (mat.komponenten || []).filter(function(kp){
+    return String(kp.beschrieb || '').trim() || kp.hersteller || kp.jahr || kp.angaben || kp.risiko;
+  });
+  if (!arr.length) return '';
+  var h = '';
+  arr.forEach(function(kp){
+    h += '<div class="bber"><h3 class="bh">' + esc(kp.bez || 'Komponente') + '</h3>';
+    var kw = [];
+    if (kp.hersteller) kw.push('Hersteller ' + kp.hersteller);
+    if (kp.jahr) kw.push('Baujahr ' + kp.jahr);
+    if (kp.angaben) kw.push(kp.angaben);
+    if (kw.length) h += '<div class="bkw">' + esc(kw.join(' · ')) + '</div>';
+    if (String(kp.beschrieb || '').trim()) h += _bTxt(kp.beschrieb);
+    h += _bRisikoZeilen(kp.risiko);
+    h += '</div>';
+  });
+  return h;
+}
+function _bMat(mat, f){
+  var rows = ((mat.mat || {})[f.mid] || []).filter(function(r){
+    return String(r.material || '').trim() || r.ldId || String(r.alter === undefined || r.alter === null ? '' : r.alter).trim() || r.risiko || String(r.lebenserwartung || '').trim();
+  });
+  if (!rows.length) return '';
+  var h = '<div class="bsub">' + esc(f.l || 'Materialisierung') + '</div>'
+    + '<table class="btbl"><thead><tr><th>' + esc(f.lageLabel || 'Lage') + '</th><th>Typ / Material</th><th>Alter</th><th>Risiko</th><th>Lebenserwartung</th></tr></thead><tbody>';
+  rows.forEach(function(r){
+    var e = (LD && r.ldId) ? LD.byId(r.ldId) : null;
+    var matTxt = esc(r.material || (e ? e.name : '—'));
+    if (e) matTxt += '<br><small>' + esc('Lebensdauer-Katalog: ' + e.jahre + ' Jahre' + (LD.quelleLabel && LD.quelleLabel(e.quelle) ? ' · ' + LD.quelleLabel(e.quelle) : '')) + '</small>';
+    var alterRoh = String(r.alter === undefined || r.alter === null ? '' : r.alter).trim();
+    var alter = parseInt(alterRoh, 10);
+    var alterTxt = alterRoh ? esc(alterRoh + (/[a-z]/i.test(alterRoh) ? '' : ' Jahre')) : '—';
+    if (e && !isNaN(alter) && alter >= 0){
+      var rest = e.jahre - alter;
+      alterTxt += '<br><small>' + esc(rest > 0 ? 'Restlebensdauer ~' + rest + ' J.' : 'Lebensdauer überschritten seit ' + (-rest) + ' J.') + '</small>';
+    }
+    var ri = risikoInfo(r.risiko);
+    var riTd = ri
+      ? '<td class="bri ' + ri.c + '">' + esc(ri.l) + '<br><small>Handlungsbedarf ' + esc(HB[r.risiko] || '') + '</small></td>'
+      : '<td>—</td>';
+    var lw = String(r.lebenserwartung || '').trim() || (e ? e.jahre + ' Jahre' : '—');
+    h += '<tr><td>' + esc(r.lage || '—') + '</td><td>' + matTxt + '</td><td>' + alterTxt + '</td>' + riTd + '<td>' + esc(lw) + '</td></tr>';
+  });
+  return h + '</tbody></table>';
+}
+function _bVglSec(cls, titel, items, aus, extra){
+  var kept = items.filter(function(it){ return !(aus && aus[it.k]); }).map(function(it){ return it.l; });
+  String(extra || '').split('\n').forEach(function(z){ z = z.trim(); if (z) kept.push(z); });
+  if (!kept.length) return '';
+  return '<div class="bv-t ' + cls + '">' + esc(titel) + '</div><ul class="bv-ul">' + kept.map(function(t){ return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>';
+}
+function _bVergleich(a){
+  var aus = (a.vg_aus && typeof a.vg_aus === 'object') ? a.vg_aus : {};
+  var h = '<div class="bvgl">';
+  h += '<div class="bv-box"><div class="bv-hd">Variante 1 — Innensanierung<small>Sanierung im bestehenden Rohr (Beschichtung / Inliner)</small></div>'
+    + _bVglSec('vor', 'Vorteile', VGL.v1vor, aus, a.v1_vor_extra)
+    + _bVglSec('nach', 'Nachteile', VGL.v1nach, aus, a.v1_nach_extra) + '</div>';
+  h += '<div class="bv-box"><div class="bv-hd">Variante 2 — Ersatz Steigzonen<small>Kompletter Leitungsersatz — Lebensdauer der Leitungen mehr als 50 Jahre</small></div>'
+    + _bVglSec('vor', 'Vorteile', VGL.v2vor, aus, a.v2_vor_extra)
+    + _bVglSec('nach', 'Nachteile', VGL.v2nach, aus, a.v2_nach_extra) + '</div>';
+  h += '</div>';
+  return '<div class="bsub">Vor- und Nachteile im Vergleich</div>' + h;
+}
+function _bKostenVar(kos, v, titel){
+  var kv = kos[v]; if (!kv) return '';
+  var t = kosTotals(kv);
+  var ne = [];
+  NE_KATALOG.forEach(function(t2, i){ if (kv.ne && kv.ne[i]) ne.push(t2); });
+  (kv.neFrei || []).forEach(function(t2){ t2 = String(t2 || '').trim(); if (t2) ne.push(t2); });
+  var hatBetraege = t.ausf > 0 || t.honSum > 0;
+  if (!hatBetraege && !String(kv.text || '').trim() && !ne.length && !String(kv.zeitraum || '').trim()) return '';
+  var h = '<div class="bber"><h3 class="bh">' + esc(titel) + '</h3>';
+  if (String(kv.text || '').trim()) h += _bTxt(kv.text);
+  if (hatBetraege){
+    h += '<table class="btbl bkos"><tbody>';
+    (kv.rows || []).forEach(function(r){
+      if (!String(r.betrag === undefined || r.betrag === null ? '' : r.betrag).trim()) return;
+      h += '<tr><td class="bknr">' + esc(r.nr || '') + '</td><td>' + esc(r.bez || '') + '</td><td class="bkchf">Fr. ' + zaChf(zaNum(r.betrag)) + '</td></tr>';
+    });
+    h += '<tr class="bktot"><td></td><td>Total Ausführung inkl. MwSt.</td><td class="bkchf">Fr. ' + zaChf(t.ausf) + '</td></tr>';
+    (kv.hon || []).forEach(function(r){
+      if (!String(r.betrag === undefined || r.betrag === null ? '' : r.betrag).trim()) return;
+      h += '<tr><td></td><td>' + esc(r.bez || '') + '</td><td class="bkchf">Fr. ' + zaChf(zaNum(r.betrag)) + '</td></tr>';
+    });
+    if (t.nk > 0) h += '<tr><td></td><td>Nebenkosten ' + esc(String(kv.nkPct || '')) + ' %</td><td class="bkchf">Fr. ' + zaChf(t.nk) + '</td></tr>';
+    h += '<tr class="bktot"><td></td><td>Total Honorare inkl. MwSt.</td><td class="bkchf">Fr. ' + zaChf(t.honTot) + '</td></tr>';
+    h += '<tr class="bkgrand"><td></td><td>Gesamttotal inkl. MwSt.</td><td class="bkchf">Fr. ' + zaChf(t.ges) + '</td></tr>';
+    h += '</tbody></table>';
+  }
+  if (ne.length) h += '<div class="bsub">Nicht enthaltene Leistungen</div><ul class="bul">' + ne.map(function(t2){ return '<li>' + esc(t2) + '</li>'; }).join('') + '</ul>';
+  if (String(kv.zeitraum || '').trim()) h += _bRow('Sanierungszeitraum', esc(kv.zeitraum));
+  return h + '</div>';
+}
+function _bKosten(mat){
+  var kos = mat.kosten || {};
+  return _bKostenVar(kos, 'v1', 'Variante 1 — Innensanierung') + _bKostenVar(kos, 'v2', 'Variante 2 — Ersatz Steigzonen');
+}
+function _bMassnahmen(mat){
+  var msn = mat.massnahmen || {}, h = '';
+  MSN_GRP.forEach(function(g){
+    var rows = (msn[g.k] || []).map(function(r){ return String(r.text || '').trim(); }).filter(function(t){ return t; });
+    h += '<div class="bsub">' + esc(g.l) + '</div>';
+    if (rows.length) h += '<ul class="bul">' + rows.map(function(t){ return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>';
+    else h += '<div class="btxt">Keine</div>';
+  });
+  return h;
+}
+function _bFotos(mat, kapId){
+  var arr = (mat.fotos && mat.fotos[kapId]) || [];
+  if (!arr.length) return '';
+  var h = '<div class="bsub">Fotos</div><div class="bfg">';
+  arr.forEach(function(f){
+    var src = (f.url || f.dataUrl || '');
+    if (!src) return;
+    var meta = [f.standort, f.geschoss, f.raum, f.bauteil].filter(function(x){ return x; }).join(' · ');
+    h += '<div class="bft"><img src="' + esc(src) + '" alt=""><div class="bfc">' + (f.beschreibung ? '<b>' + esc(f.beschreibung) + '</b>' : '') + esc(meta) + '</div></div>';
+  });
+  h += '</div>';
+  return h;
+}
+function _bFeld(f, a, mat){
+  if (f.wenn && !f.wenn(a)) return '';
+  if (f.t === 'head') return '<h3 class="bh">' + esc(f.l) + '</h3>';
+  if (f.t === 'info') return '';
+  if (f.t === 'bereiche') return _bBereiche(mat);
+  if (f.t === 'komponenten') return _bKomp(mat);
+  if (f.t === 'mat') return _bMat(mat, f);
+  if (f.t === 'risiko') return _bRisiko(a, f);
+  if (f.t === 'kosten') return _bKosten(mat);
+  if (f.t === 'massnahmen') return _bMassnahmen(mat);
+  if (f.t === 'vergleich') return _bVergleich(a);
+  var v = a[f.id];
+  if (f.t === 'multi'){
+    if (!v || typeof v !== 'object') return '';
+    var kept = (f.opts || []).filter(function(o){ return v[o.v]; }).map(function(o){ return o.l; });
+    if (!kept.length) return '';
+    return _bRow(f.l, '<ul class="bul">' + kept.map(function(t){ return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>');
+  }
+  if (v === undefined || v === null || String(v).trim() === '') return '';
+  if (f.t === 'seg'){
+    var opt = null;
+    (f.opts || []).forEach(function(o){ if (o.v === v) opt = o; });
+    if (!opt) return '';
+    return _bRow(f.l, '<b>' + esc(opt.l) + '</b>', opt.hint || '');
+  }
+  if (f.t === 'area') return '<div class="brow"><div class="brl">' + esc(f.l) + '</div><div class="brv">' + _bTxt(v) + '</div></div>';
+  if (f.t === 'date') return _bRow(f.l, esc(dCH(v)));
+  if (f.t === 'zahl') return _bRow(f.l, esc(String(v)) + (f.unit ? ' ' + esc(f.unit) : ''));
+  return _bRow(f.l, esc(String(v)));
+}
+function berichtBody(mat){
+  var a = mat.a || {}, k = mat.kopf || {};
+  var kopfFotos = (mat.fotos && mat.fotos.kopf) || [];
+  var tb = kopfFotos.length ? (kopfFotos[0].url || kopfFotos[0].dataUrl || '') : '';
+  var h = '<div class="cover">'
+    + '<div class="cv-top"><div>' + _zaLogoHtml() + '</div><div class="cv-org">' + esc((myOrg() || {}).name || '') + '</div></div>'
+    + '<div class="cv-bar"></div>'
+    + '<div class="cv-eyebrow">Zustandsanalyse · BKP 250 Sanitäranlagen</div>'
+    + '<h1>' + esc(mat.titel || 'Zustandsanalyse') + '</h1>'
+    + (k.objektText || k.adresse ? '<div class="cv-sub">' + esc([k.objektText, k.adresse].filter(function(x){ return x; }).join(' — ')) + '</div>' : '')
+    + (tb ? '<div class="cv-img"><img src="' + esc(tb) + '" alt=""></div>' : '')
+    + '<table class="meta"><tbody>';
+  [['Objekt', k.objektText], ['Adresse', k.adresse], ['Bauherrschaft', k.bauherrschaft], ['Verwaltung', k.verwaltung], ['Verfasser', k.verfasser], ['Datum', dCH(k.datum)]].forEach(function(p){
+    if (!p[1]) return;
+    h += '<tr><td class="ml">' + esc(p[0]) + '</td><td>' + esc(p[1]) + '</td></tr>';
+  });
+  h += '</tbody></table>';
+  if (kopfFotos.length > 1){
+    var rest = { fotos: { kopf: kopfFotos.slice(1) } };
+    h += _bFotos(rest, 'kopf');
+  }
+  h += '</div>';
+  KAP.forEach(function(kap){
+    var body = '';
+    kap.felder.forEach(function(f){ body += _bFeld(f, a, mat); });
+    var fotos = _bFotos(mat, kap.id);
+    if (!body && !fotos) return;
+    h += '<div class="bsec"><h2>' + esc((kap.nr ? kap.nr + ' ' : '') + kap.titel) + '</h2>' + body + fotos + '</div>';
+  });
+  return h;
+}
+function berichtCss(brand){
+  return 'body{font-family:"DM Sans",ui-sans-serif,system-ui,sans-serif;font-optical-sizing:auto;font-variation-settings:"opsz" 14;color:#0f172a;font-size:10.5pt;line-height:1.5;margin:0;padding:0}'
+    + '.cover{margin-bottom:26px}'
+    + '.cv-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}'
+    + '.cv-org{font-size:10pt;font-weight:700;color:#475569}'
+    + '.cv-bar{height:5px;border-radius:3px;background:' + brand.acc + ';margin-bottom:18px}'
+    + '.cv-eyebrow{font-size:9pt;font-weight:800;text-transform:uppercase;letter-spacing:1.2px;color:' + brand.acc + ';margin-bottom:5px}'
+    + 'h1{font-size:21pt;font-weight:900;margin:0 0 6px;line-height:1.25}'
+    + '.cv-sub{font-size:12pt;color:#475569;margin-bottom:16px}'
+    + '.meta{border-collapse:collapse;width:100%;margin-top:6px}'
+    + '.meta td{border-bottom:1px solid #e2e8f0;padding:5px 8px;vertical-align:top}'
+    + '.meta td.ml{width:34%;font-weight:800;color:#475569}'
+    + '.bsec{margin-bottom:22px}'
+    + 'h2{font-size:13pt;font-weight:900;color:' + brand.acc + ';border-bottom:2px solid ' + brand.acc + ';padding-bottom:4px;margin:20px 0 10px;break-after:avoid;page-break-after:avoid}'
+    + 'h3.bh{font-size:11pt;font-weight:900;margin:14px 0 6px;break-after:avoid;page-break-after:avoid}'
+    + '.brow{display:flex;gap:12px;border-bottom:1px solid #eef1f6;padding:4px 0;break-inside:avoid;page-break-inside:avoid}'
+    + '.brl{width:34%;flex:0 0 34%;font-weight:700;color:#475569;font-size:9.5pt;padding-top:1px}'
+    + '.brv{flex:1;min-width:0}'
+    + '.brh{font-size:9pt;color:#64748b;margin-top:2px}'
+    + '.btxt{white-space:pre-wrap}'
+    + '.bul{margin:2px 0 2px 18px;padding:0}'
+    + '.bsub{font-size:10pt;font-weight:900;text-transform:uppercase;letter-spacing:.6px;color:#475569;margin:14px 0 6px;break-after:avoid;page-break-after:avoid}'
+    + '.btbl{border-collapse:collapse;width:100%;font-size:9.5pt}'
+    + '.btbl th,.btbl td{border:1px solid #cbd5e1;padding:5px 7px;text-align:left;vertical-align:top}'
+    + '.btbl thead{display:table-header-group}'
+    + '.btbl th{background:' + brand.tint + ';color:' + brand.acc + ';font-weight:900}'
+    + '.btbl tr{break-inside:avoid;page-break-inside:avoid}'
+    + '.btbl small{color:#64748b;font-weight:400}'
+    + '.cv-img img{width:100%;height:85mm;object-fit:cover;border-radius:6px;margin:12px 0 4px;display:block}'
+    + '.bber{break-inside:avoid;page-break-inside:avoid;margin-bottom:12px}'
+    + '.bkw{font-size:9.5pt;color:#475569;font-weight:700;margin:2px 0 5px}'
+    + '.bz-row{display:flex;gap:14px;flex-wrap:wrap;font-size:9.5pt;margin:2px 0 5px}'
+    + '.bz{color:#94a3b8}'
+    + '.bz.on{font-weight:900}'
+    + '.bz.on.z0{color:#15803d}.bz.on.z1{color:#b45309}.bz.on.z2{color:#ea580c}.bz.on.z3{color:#b91c1c}'
+    + '.brisk td.bkopf{font-weight:800;color:#475569;width:26%}'
+    + '.brisk td{color:#64748b}'
+    + '.brisk td.on{font-weight:900}'
+    + '.brisk td.on.r0{color:#15803d;background:#f0fdf4}'
+    + '.brisk td.on.r1{color:#b45309;background:#fffbeb}'
+    + '.brisk td.on.r2{color:#ea580c;background:#fff7ed}'
+    + '.brisk td.on.r3{color:#b91c1c;background:#fef2f2}'
+    + 'td.bri{font-weight:900;white-space:nowrap}'
+    + 'td.bri small{font-weight:400;white-space:normal}'
+    + 'td.bri.r0{color:#15803d}td.bri.r1{color:#b45309}td.bri.r2{color:#ea580c}td.bri.r3{color:#b91c1c}'
+    + '.bkos .bknr{width:48px;font-weight:800;color:#475569}'
+    + '.bkos .bkchf{text-align:right;white-space:nowrap;width:118px}'
+    + '.bkos tr.bktot td{font-weight:800;background:#f8fafc}'
+    + '.bkos tr.bkgrand td{font-weight:900;background:' + brand.tint + ';color:' + brand.acc + '}'
+    + '.bvgl{display:flex;gap:14px}'
+    + '.bv-box{flex:1;border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px;break-inside:avoid;page-break-inside:avoid}'
+    + '.bv-hd{font-weight:900;font-size:10.5pt;margin-bottom:6px}'
+    + '.bv-hd small{display:block;font-weight:400;color:#64748b;font-size:8.5pt}'
+    + '.bv-t{font-size:9pt;font-weight:900;text-transform:uppercase;letter-spacing:.5px;margin:8px 0 3px}'
+    + '.bv-t.vor{color:#15803d}.bv-t.nach{color:#b91c1c}'
+    + '.bv-ul{margin:0 0 4px 16px;padding:0;font-size:9.5pt}'
+    + '.bfg{display:grid;grid-template-columns:1fr 1fr;gap:10px}'
+    + '.bft{border:1px solid #cbd5e1;border-radius:8px;overflow:hidden;break-inside:avoid;page-break-inside:avoid}'
+    + '.bft img{width:100%;max-height:85mm;height:auto;object-fit:contain;display:block;background:#f8fafc}'
+    + '.bfc{padding:5px 8px;font-size:8.5pt;color:#475569;line-height:1.4}'
+    + '.bfc b{display:block;font-size:9pt;color:#0f172a}'
+    + 'p,ul{orphans:3;widows:3}';
+}
+window.zaBericht = function(){
+  if (!cur) return;
+  flushSave();
+  var mat = cur;
+  try { if (fq && fq.materialize) mat = fq.materialize(cur); } catch(e){}
+  var brand = _zaBrand();
+  var k = mat.kopf || {};
+  var titel = (k.objektText || mat.titel || 'Zustandsanalyse') + ' – Zustandsanalyse';
+  var firma = (myOrg() || {}).name || 'GEMA';
+  var w = window.open('', '_blank');
+  if (!w){ toast('Pop-up blockiert — bitte Pop-ups für GEMA erlauben'); return; }
+  var html = '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><title>' + esc(titel) + '</title>'
+    + '<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,700;9..40,900&display=swap" rel="stylesheet">'
+    + '<style>'
+    + '@page{size:A4;margin:22mm 16mm 20mm;'
+      + '@top-right{content:' + _cssStr(titel) + ' " — Seite " counter(page) " / " counter(pages);font-size:8pt;color:#94a3b8}'
+      + '@bottom-left{content:' + _cssStr(firma) + ';font-size:8pt;color:#94a3b8}'
+    + '}'
+    + '@page:first{@top-right{content:none}}'
+    + berichtCss(brand)
+    + '.no-print{position:fixed;top:10px;right:12px;display:flex;gap:8px;z-index:50}'
+    + '.no-print button{border:none;border-radius:9px;padding:10px 16px;font-weight:800;font-size:13px;cursor:pointer;font-family:inherit;box-shadow:0 4px 14px rgba(15,23,42,.18)}'
+    + '.np-p{background:' + brand.acc + ';color:#fff}'
+    + '.np-s{background:#fff;color:#0f172a;border:1px solid #cbd5e1!important}'
+    + '@media print{.no-print{display:none!important}}'
+    + '@media screen{body{background:#e9edf3;padding:24px}main{background:#fff;max-width:210mm;margin:0 auto;padding:22mm 16mm;box-shadow:0 8px 30px rgba(15,23,42,.14);border-radius:6px}}'
+    + '</style></head><body>'
+    + '<div class="no-print"><button type="button" class="np-p" onclick="window.print()">🖨 Drucken / Als PDF speichern</button><button type="button" class="np-s" onclick="window.close()">✕ Schliessen</button></div>'
+    + '<main>' + berichtBody(mat) + '</main>'
+    + '</body></html>';
+  w.document.write(html);
+  w.document.close();
+};
+window.zaBerichtWord = function(){
+  if (!cur) return;
+  flushSave();
+  var mat = cur;
+  try { if (fq && fq.materialize) mat = fq.materialize(cur); } catch(e){}
+  var brand = _zaBrand();
+  var k = mat.kopf || {};
+  var titel = (k.objektText || mat.titel || 'Zustandsanalyse') + ' – Zustandsanalyse';
+  var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">'
+    + '<head><meta charset="utf-8"><title>' + esc(titel) + '</title>'
+    + '<style>' + berichtCss(brand) + '.bvgl{display:block}.bv-box{margin-bottom:12px}</style>'
+    + '</head><body>' + berichtBody(mat) + '</body></html>';
+  var blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = _datei(k.objektText || mat.titel) + '_Zustandsanalyse.doc';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function(){ try { URL.revokeObjectURL(a.href); if (a.parentNode) a.parentNode.removeChild(a); } catch(e){} }, 800);
+  toast('Word-Datei wird heruntergeladen');
+};
+/* ============ P7 — Boot (Stale-while-revalidate + Deep-Link) ============ */
+document.addEventListener('DOMContentLoaded', function(){
+  // 1) Sofort aus dem lokalen Cache rendern — kein «leerer Bestand»-Flash
+  renderListe();
+  // 2) Cloud-Pull (blockiert die Anzeige nicht)
+  var bindP = null;
+  if (typeof GemaSync !== 'undefined' && GemaSync.bindCollection){
+    bindP = Promise.race([
+      GemaSync.bindCollection(MOD_KEY, POOL, PREFIX, 'id')['catch'](function(){}),
+      new Promise(function(res){ setTimeout(res, 6000); })
+    ]).then(function(){
+      _cloudLoaded = true;
+      if (!cur) renderListe();
+    });
+  } else {
+    _cloudLoaded = true;
+    renderListe();
+  }
+  // 3) Lebensdauer-Katalog nachziehen (Beschichtungssysteme, Materialwahl)
+  if (LD && LD.bind){
+    LD.bind().then(function(){
+      // Nie in eine laufende Eingabe hineinrendern
+      var ae = document.activeElement;
+      var tippt = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA');
+      if (cur){ if (!tippt) renderKaps(); }
+      else renderListe();
+    })['catch'](function(){});
+  }
+  // 4) Offline-Foto-Warteschlange automatisch nachsenden
+  if (fq && fq.auto){ try { fq.auto(fqRun); } catch(e){} }
+  // 5) Deep-Link ?s=<id>
+  try {
+    var m = /[?&]s=([^&]+)/.exec(location.search || '');
+    if (m){
+      var sid = decodeURIComponent(m[1]);
+      var go = function(){
+        if (cur) return;
+        var arr = poolRead();
+        for (var i = 0; i < arr.length; i++){ if (arr[i] && arr[i].id === sid){ zaOpen(sid); return; } }
+      };
+      if (bindP) bindP.then(function(){ setTimeout(go, 100); });
+      setTimeout(go, 800);
+    }
+  } catch(e){}
+  // 6) Objekt-Stammdaten treffen nach dem Boot ein → Kopf-Dropdown nachziehen
+  document.addEventListener('gema-objekte-loaded', function(){
+    if (cur) fillKopfObjekte();
+  });
+});
+window.addEventListener('pagehide', function(){ flushSave(); });
+document.addEventListener('visibilitychange', function(){ if (document.hidden) flushSave(); });
+})();
+</script>
+
+<script>document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('zustandsanalyse', 'Zustandsanalyse');});</script>
+
+<script src="gema_scroll.js"></script>
+<script src="gema_mobile_menu.js"></script>
+</body>
+</html>
