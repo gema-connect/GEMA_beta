@@ -248,9 +248,13 @@ ok(/addEventListener\('beforeunload', flushSave\)/.test(beta)
 // ── G: Die Wipe-Falle in gema_feedback.js ─────────────────────
 console.log('■ G: gema_feedback — String-Payload darf die Historie nicht löschen');
 {
-  const fn = (fbjs.match(/var existing = await _GemaDB\.loadFromModule\(BETA_KEY, dataKey\)[\s\S]*?if \(!Array\.isArray\(existing\)\) existing = \[\];/) || [''])[0];
-  ok(/typeof existing === 'string'/.test(fn) && /JSON\.parse\(existing\)/.test(fn),
+  // Seit der Zustell-Warteschlange (21.08.2026) liegt das Lesen in _leseModul.
+  const fn = (fbjs.match(/async function _leseModul\([\s\S]*?\n  \}/) || [''])[0];
+  ok(/typeof v === 'string'/.test(fn) && /JSON\.parse\(v\)/.test(fn),
     'ein gespeicherter JSON-String wird geparst statt verworfen', fn.slice(0, 260));
+  // Und die schaerfere Regel: ein gescheiterter LESE-Vorgang ist nicht «leer».
+  ok(/return null;/.test(fn) && /if \(vorhanden === null\) return false;/.test(fbjs),
+    'ein gescheiterter Lesevorgang schreibt gar nicht (statt die Historie zu ueberschreiben)');
 }
 {
   // Verhalten nachspielen: Board schreibt stringify → nächstes Absenden darf

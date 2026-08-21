@@ -35,6 +35,21 @@
     _ensureHtml2canvas();
     _injectHTML();
     _bindEvents();
+    _obStart();
+  }
+
+  // ── Rueckstand nachsenden: beim Seitenstart + sobald wieder Netz da ist ──
+  // KRITISCH: ohne diesen Haken bleibt ein einmal gescheitertes Feedback
+  // fuer immer in der Warteschlange liegen (genau die Falle, die es zu
+  // beheben galt). Verzoegert, damit der Boot nicht ausgebremst wird.
+  var _obGestartet = false;
+  function _obStart() {
+    if (_obGestartet) return;
+    _obGestartet = true;
+    setTimeout(function () { _obFlush(); }, 2500);
+    try {
+      w.addEventListener('online', function () { setTimeout(_obFlush, 800); });
+    } catch (e) { }
   }
 
   // ── Load html2canvas if not present ──
@@ -945,6 +960,188 @@
     _snipRect = null;
   }
 
+  /* ═══════════════════════════════════════════════════════════════════
+     Zustellung des Feedbacks — Ausgangs-Warteschlange (Bugreport 21.08.2026
+     «Feedback als Monteur abgesendet, im Beta-Board nicht angezeigt»).
+
+     Bis dahin fiel ein fehlgeschlagener Cloud-Save STILL auf localStorage
+     zurueck und meldete trotzdem «✓ gespeichert». sys_beta liest aber
+     ausschliesslich die Cloud (_GemaDB.c) — der Eintrag war damit fuer
+     JEDEN unsichtbar, auch fuer den Admin auf demselben Geraet, und wurde
+     nie nachgesendet: ein schwarzes Loch (im Browser reproduziert).
+
+     Haeufigste Ursache des fehlgeschlagenen Saves ist die GROESSE: eine
+     Modul-Zeile haelt bis zu 100 Eintraege, und jeder Screenshot lag als
+     Base64 (bis 400'000 Zeichen) IM Eintrag. Da submit() liest-aendert-
+     schreibt, wandert bei jedem neuen Feedback die ganze Historie samt
+     aller Screenshots erneut durch die Leitung — die Zeile waechst, bis
+     jeder weitere Save scheitert («hat immer geklappt und jetzt nicht
+     mehr»). Gegenmassnahme: der Screenshot geht wie ueberall sonst
+     ZUERST in den Bucket, im Eintrag steht nur noch die URL
+     (Kanon «erst Bucket, dann Record»); Base64 bleibt reiner Fallback.
+
+     Drei Bausteine:
+       1. _shotAuslagern  — Screenshot → GemaStorage, Eintrag bleibt klein
+       2. _obLegen/_obFlush — was nicht ankam, wartet und wird nachgesendet
+       3. ehrliche Meldung — «noch nicht uebermittelt» statt «gespeichert»
+     ═══════════════════════════════════════════════════════════════════ */
+  const OUTBOX_KEY = 'gema_feedback_outbox_v1';
+  var _obFlushLaeuft = false, _storageP = null;
+
+  // gema_storage.js liegt nur auf 23 von 112 Feedback-Seiten — bei Bedarf
+  // nachladen (Muster: gema_anlagenwahl laedt gema_pumpenkennlinie lazy).
+  function _ensureStorage() {
+    if (w.GemaStorage && w.GemaStorage.uploadDataUrl) return Promise.resolve(w.GemaStorage);
+    if (_storageP) return _storageP;
+    _storageP = new Promise(function (res) {
+      var fertig = function () { res((w.GemaStorage && w.GemaStorage.uploadDataUrl) ? w.GemaStorage : null); };
+      var s = document.createElement('script');
+      s.src = 'gema_storage.js'; s.async = true;
+      s.onload = fertig; s.onerror = function () { res(null); };
+      document.head.appendChild(s);
+      setTimeout(fertig, 6000);
+    });
+    return _storageP;
+  }
+
+  function _orgOrdner() {
+    try {
+      var u = (w.GemaAuth && GemaAuth.getCurrentUser) ? GemaAuth.getCurrentUser() : null;
+      return 'feedback/' + ((u && u.orgId) ? u.orgId : 'org_unbekannt');
+    } catch (e) { return 'feedback/org_unbekannt'; }
+  }
+
+  /* Screenshot in den Bucket auslagern (Kanon «erst Bucket, dann Record»).
+     Klappt das nicht (kein Bucket, offline), bleibt Base64 als Fallback —
+     aber nur bis SHOT_MAX_B64: ein groesseres Bild im Record laesst die
+     Modul-Zeile wachsen, bis JEDES weitere Feedback am Payload-Limit
+     scheitert (genau die Ursache des Feedback-Verlusts). Faellt es weg,
+     wird das BENANNT (`screenshotWeg`), nie stillschweigend. */
+  const SHOT_MAX_B64 = 400000;
+  async function _shotAuslagern(entry) {
+    var shot = entry && entry.screenshot;
+    if (!shot || typeof shot !== 'string' || shot.indexOf('data:image') !== 0) return entry;
+    try {
+      var st = await _ensureStorage();
+      if (st) {
+        var r = await st.uploadDataUrl(shot, _orgOrdner());
+        if (r && r.url) {
+          entry.screenshotUrl = r.url;
+          entry.screenshot = null;
+          delete entry.screenshotWeg;
+          return entry;
+        }
+      }
+    } catch (e) { /* Base64-Fallback unten */ }
+    if (shot.length > SHOT_MAX_B64) { entry.screenshot = null; entry.screenshotWeg = true; }
+    return entry;
+  }
+
+  // ── Warteschlange ──────────────────────────────────────────────────
+  function _obLesen() {
+    try { var o = JSON.parse(localStorage.getItem(OUTBOX_KEY) || '{}'); return (o && typeof o === 'object') ? o : {}; }
+    catch (e) { return {}; }
+  }
+  function _obSchreiben(box) {
+    try { localStorage.setItem(OUTBOX_KEY, JSON.stringify(box)); return true; } catch (e) { return false; }
+  }
+  function _obLegen(modulId, entry) {
+    var box = _obLesen();
+    var liste = box[modulId] || [];
+    liste.push(entry);
+    if (liste.length > 50) liste = liste.slice(-50);
+    box[modulId] = liste;
+    return _obSchreiben(box);
+  }
+  function _obAnzahl() {
+    var box = _obLesen(), n = 0;
+    for (var k in box) if (Object.prototype.hasOwnProperty.call(box, k)) n += (box[k] || []).length;
+    return n;
+  }
+  /* Altbestand: die frueheren Fallback-Keys `gema_feedback_<modul>` sind
+     genau die verlorenen Eintraege (localStorage wurde NUR bei
+     fehlgeschlagenem Cloud-Save beschrieben). Einmalig in die
+     Warteschlange heben — damit kommt auch schon vermisstes Feedback
+     nachtraeglich im Board an. */
+  function _obMigriereAlt() {
+    var box = _obLesen(), alt = [];
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && k.indexOf('gema_feedback_') === 0 && k !== OUTBOX_KEY) alt.push(k);
+      }
+    } catch (e) { return; }
+    if (!alt.length) return;
+    alt.forEach(function (k) {
+      var id = k.slice('gema_feedback_'.length);
+      try {
+        var liste = JSON.parse(localStorage.getItem(k) || '[]');
+        if (Array.isArray(liste) && liste.length) box[id] = (box[id] || []).concat(liste);
+      } catch (e) { }
+      try { localStorage.removeItem(k); } catch (e) { }
+    });
+    _obSchreiben(box);
+  }
+
+  function _gleicherEintrag(a, b) {
+    return a && b && a.ts === b.ts && a.text === b.text && (a.author || '') === (b.author || '');
+  }
+
+  // Modul-Zeile lesen — der gespeicherte Wert ist NICHT immer ein Array:
+  // das Board (sys_beta) schreibt bei Status-/Haken-Aenderungen einen
+  // String. Erst parsen, nur bei wirklich Unbrauchbarem leer starten.
+  async function _leseModul(modulId) {
+    try {
+      var v = await _GemaDB.loadFromModule(BETA_KEY, 'feedback_' + modulId);
+      if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { v = []; } }
+      return Array.isArray(v) ? v : [];
+    } catch (e) { return null; }   // null = Leseweg kaputt (nicht «leer»!)
+  }
+
+  // Eintraege an die Modul-Zeile anhaengen. Rueckgabe: true = in der Cloud.
+  async function _zurCloud(modulId, neue) {
+    if (typeof _GemaDB === 'undefined' || !_GemaDB.loadFromModule) return false;
+    var vorhanden = await _leseModul(modulId);
+    /* KRITISCH — ein gescheiterter LESE-Vorgang darf NIE als «leer»
+       durchgehen: wir wuerden die ganze Modul-Historie mit unseren paar
+       Eintraegen ueberschreiben. Dann lieber gar nicht schreiben und es
+       spaeter erneut versuchen. */
+    if (vorhanden === null) return false;
+    var offen = neue.filter(function (e) {
+      return !vorhanden.some(function (v) { return _gleicherEintrag(v, e); });
+    });
+    if (!offen.length) return true;                 // steht schon drin
+    var liste = offen.slice().reverse().concat(vorhanden);   // neuste zuoberst
+    if (liste.length > 100) liste = liste.slice(0, 100);
+    try { return !!(await _GemaDB.saveToModule(BETA_KEY, 'feedback_' + modulId, liste)); }
+    catch (e) { return false; }
+  }
+
+  // Wartende Eintraege nachsenden. Laeuft beim Seitenstart, bei «online»
+  // und vor jedem neuen Absenden. Gibt die Zahl der zugestellten zurueck.
+  async function _obFlush() {
+    if (_obFlushLaeuft) return 0;
+    if (typeof _GemaDB === 'undefined' || !_GemaDB.loadFromModule) return 0;
+    _obFlushLaeuft = true;
+    var zugestellt = 0;
+    try {
+      _obMigriereAlt();
+      var box = _obLesen();
+      var ids = Object.keys(box).filter(function (k) { return (box[k] || []).length; });
+      for (var i = 0; i < ids.length; i++) {
+        var id = ids[i], warten = box[id] || [];
+        // Wartende Screenshots jetzt auslagern — heilt auch Alteintraege,
+        // die genau wegen ihrer Groesse nie durchkamen.
+        for (var j = 0; j < warten.length; j++) warten[j] = await _shotAuslagern(warten[j]);
+        if (await _zurCloud(id, warten)) { zugestellt += warten.length; delete box[id]; }
+        else { box[id] = warten; }                 // ausgelagerte Fassung behalten
+      }
+      _obSchreiben(box);
+    } catch (e) { /* naechster Anlauf */ }
+    _obFlushLaeuft = false;
+    return zugestellt;
+  }
+
   async function submit() {
     var text   = (document.getElementById('gfb-text')?.value || '').trim();
     var type   = document.getElementById('gfb-type')?.value || 'kommentar';
@@ -959,7 +1156,7 @@
     });
     var entry = {
       type: type, author: author, text: text,
-      screenshot: (_screenshotDataUrl && _screenshotDataUrl.length < 400000) ? _screenshotDataUrl : null,
+      screenshot: _screenshotDataUrl || null,
       ts: ts, source: _moduleName, moduleId: _moduleId
     };
     var kontext = _rollenKontext();
@@ -976,52 +1173,31 @@
       if (_istAdmin(kontext)) entry.umsetzen = true;
     }
 
-    var ok = false;
-    var dataKey = 'feedback_' + _moduleId;
+    // Screenshot zuerst in den Bucket — der Eintrag bleibt damit klein.
+    entry = await _shotAuslagern(entry);
 
-    // Try GemaDB first
-    if (typeof _GemaDB !== 'undefined' && _GemaDB.loadFromModule) {
-      try {
-        var existing = await _GemaDB.loadFromModule(BETA_KEY, dataKey) || [];
-        /* KRITISCH — der gespeicherte Wert ist NICHT immer ein Array: das
-           Board (sys_beta) schreibt bei jeder Status-/Haken-Aenderung
-           `JSON.stringify(fb)`, also einen String. Ein blosses
-           `if(!Array.isArray) = []` warf damit beim naechsten Absenden die
-           GANZE Modul-Historie weg (stiller Datenverlust). Darum erst
-           parsen — und nur bei wirklich unbrauchbarem Inhalt leer starten. */
-        if (typeof existing === 'string') {
-          try { var _p = JSON.parse(existing); existing = Array.isArray(_p) ? _p : []; }
-          catch (e) { existing = []; }
-        }
-        if (!Array.isArray(existing)) existing = [];
-        existing.unshift(entry);
-        if (existing.length > 100) existing = existing.slice(0, 100);
-        ok = await _GemaDB.saveToModule(BETA_KEY, dataKey, existing);
-      } catch(e) { console.warn('[GemaFeedback] GemaDB save error:', e); }
-    }
-
-    // Fallback: localStorage
-    if (!ok) {
-      try {
-        var lsKey = 'gema_feedback_' + _moduleId;
-        var existing = JSON.parse(localStorage.getItem(lsKey) || '[]');
-        existing.unshift(entry);
-        if (existing.length > 50) existing = existing.slice(0, 50);
-        localStorage.setItem(lsKey, JSON.stringify(existing));
-        ok = true;
-      } catch(e) { console.warn('[GemaFeedback] localStorage save error:', e); }
-    }
+    await _obFlush();                       // Rueckstand zuerst zustellen
+    var ok = await _zurCloud(_moduleId, [entry]);
+    var wartet = false;
+    if (!ok) wartet = _obLegen(_moduleId, entry);
 
     if (btn) { btn.disabled = false; btn.textContent = '📤 Feedback senden'; }
-    if (ok) {
+    if (ok || wartet) {
       var taEl = document.getElementById('gfb-text');
       if (taEl) taEl.value = '';
       // Name bewusst NICHT leeren — er wird beim nächsten Öffnen sonst als
       // «leer» wahrgenommen (Feedback 14.07.); Prefill greift nur bei leerem Feld.
       close();
-      _toast('✓ Feedback gespeichert');
+    }
+    if (ok) {
+      _toast(entry.screenshotWeg
+        ? '✓ Feedback gespeichert — Screenshot war zu gross und ist nicht dabei'
+        : '✓ Feedback gespeichert');
+    } else if (wartet) {
+      // Kein «gespeichert» behaupten, was nicht angekommen ist.
+      _toast('⏳ Noch nicht übermittelt — lokal gesichert, wird nachgesendet');
     } else {
-      _toast('⚠ Fehler beim Speichern');
+      _toast('⚠ Fehler beim Speichern — bitte erneut versuchen');
     }
   }
 
@@ -1066,7 +1242,11 @@
     commitText: _commitTextInput,
     screenshot: function() { return _screenshotDataUrl; },
     rollenKontext: _rollenKontext,
-    istAdmin: _istAdmin
+    istAdmin: _istAdmin,
+    outbox: _obLesen,
+    outboxAnzahl: _obAnzahl,
+    outboxFlush: _obFlush,
+    outboxKey: OUTBOX_KEY
   };
 
 })(window);

@@ -229,6 +229,7 @@ body.beta-mine-only .fbp-input{display:none}
 .fb-shot{margin-top:9px}
 .fb-shot img{max-width:100%;max-height:380px;border-radius:9px;border:1px solid var(--brd);background:var(--bg2);cursor:zoom-in;display:block}
 .fb-shot-hint{font-size:10px;color:var(--mut2);margin-top:3px}
+    .fb-shot-weg{margin-top:8px;padding:7px 10px;border:1px dashed var(--amb-bd,#fcd34d);background:var(--amb-bg,#fffbeb);border-radius:8px;font-size:12px;color:var(--amb,#b45309);}
 .fbp-input{border:1px solid var(--brd);border-radius:10px;margin-top:8px;background:var(--sur2)}
 
 /* Lightbox (Screenshot gross) */
@@ -1441,9 +1442,14 @@ const renderComments = (id) => {
         </label>`
       : '';
 
-    const screenshot = c.screenshot
-      ? `<div class="fb-shot"><img src="${c.screenshot}" loading="lazy" alt="Screenshot" onclick="fbLightbox(this.src)"/><div class="fb-shot-hint">🔍 Klicken zum Vergrössern</div></div>`
-      : '';
+    // Screenshot: ausgelagerte Storage-URL zuerst, Base64 nur als Fallback
+    // (gema_feedback.js legt neue Bilder in den Bucket und setzt screenshotUrl)
+    const shotSrc = c.screenshotUrl || c.screenshot;
+    const screenshot = shotSrc
+      ? `<div class="fb-shot"><img src="${escHtml(shotSrc)}" loading="lazy" alt="Screenshot" onclick="fbLightbox(this.src)"/><div class="fb-shot-hint">🔍 Klicken zum Vergrössern</div></div>`
+      : (c.screenshotWeg
+          ? `<div class="fb-shot-weg">🖼 Screenshot war zu gross und konnte nicht mitgesendet werden</div>`
+          : '');
     return `
     <div class="fb-card ${ciCls}${_fbSel[key]?' sel':''}${umsetzen?' fb-um':''}${_betaIsMine(c.author)?' fb-mine':''}" data-fbcard="${key}">
       <input type="checkbox" class="fb-check" data-fbkey="${key}" ${_fbSel[key]?'checked':''} onchange="fbSelToggle(this)" title="Punkt markieren — Status gemeinsam wechseln"/>
@@ -2251,10 +2257,11 @@ function _exGenerate(filtered, withScreenshots){
       lines.push('');
       lines.push(_exQuote(it.text || ''));
       lines.push('');
-      if(withScreenshots && it.screenshot){
+      var shotQ = it.screenshotUrl || it.screenshot;
+      if(withScreenshots && shotQ){
         lines.push('**Screenshot:**');
         lines.push('');
-        lines.push('![Screenshot](' + it.screenshot + ')');
+        lines.push('![Screenshot](' + shotQ + ')');
         lines.push('');
       }
       lines.push('---');

@@ -354,14 +354,6 @@ body {
 .empty-icon { font-size: 48px; margin-bottom: 12px; }
 .empty h3 { font-size: 17px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
 
-/* ── FOOTER ── */
-.footer {
-  background: #0f172a; color: rgba(255,255,255,.45);
-  padding: 36px 24px; text-align: center; font-size: 12.5px;
-}
-.footer a { color: rgba(255,255,255,.6); text-decoration: none; margin: 0 8px; }
-.footer a:hover { color: #fff; }
-
 /* ── RESPONSIVE ── */
 @media(max-width:900px) {
   .hero { padding: 18px 20px 20px; }
@@ -836,7 +828,10 @@ body {
         </div>
       </a>
 
-      <div class="mod-card disabled">
+      <!-- Ausblick nur fuer den Kreis, der die Kapazitaeten auch plant
+           (write auf einsatzplan = Planer/Admin/AL/Magaziner). Ein Monteur
+           hat dort nur Leserecht und sieht die Kachel darum nicht. -->
+      <div class="mod-card disabled" data-soon-fuer="einsatzplan" data-soon-recht="write">
         <div class="accent-line" style="background:#e2e7f0;"></div>
         <div class="mod-card-top">
           <div class="mod-icon-box ico-plan">📊</div>
@@ -1896,21 +1891,7 @@ body {
 
 </main>
 
-<!-- ── FOOTER ── -->
-<footer class="footer">
-  <div style="margin-bottom:12px;">
-    <span style="font-size:13px;font-weight:700;color:rgba(255,255,255,.7);">GEMA connect GmbH</span>
-  </div>
-  <div>
-    <a href="#"><span class="__cf_email__" data-cfemail="1970777f76597e7c7478347a7677777c7a6d377a71">[email&#160;protected]</span></a>
-    <a href="#">Impressum</a>
-    <a href="#">Datenschutz</a>
-    <a href="#">Cookies</a>
-  </div>
-  <div style="margin-top:10px;">Lindenstrasse 14 · 4057 Basel · © 2026 GEMA connect GmbH</div>
-</footer>
-
-<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
+<script>
 // ── FAVOURITES (pro User, Cloud-synchron über alle Geräte) ──────────
 // Storage: per-Record in der Cloud (moduleKey 'favoriten', dataKey
 // 'fav_<userId>', data={userId,keys[],updatedAt}) via GemaSync. Zusätzlich
@@ -2199,6 +2180,20 @@ function filterModules() {
       // Der Klick ist unterbunden; die harte Sperre bleibt der
       // Permission-Check beim Öffnen des Moduls selbst.
       if(_freeUser){ _lockCard(card); return; }
+      card.style.display='none'; card.setAttribute('data-perm-hidden','1');
+    }
+  });
+
+  /* «Bald»-Ausblicke: Platzhalter haben kein data-module (das Modul gibt es
+     noch nicht) und liefen darum an der Filterung vorbei — ein Monteur sah
+     z.B. die Auslastungsplanung. Wer einen Ausblick sehen soll, steht als
+     Stellvertreter-Modul im Markup (data-soon-fuer [+ data-soon-recht,
+     Default read). Ohne die Angabe bleibt der Ausblick wie bisher fuer alle
+     sichtbar — nichts wird stillschweigend verborgen. */
+  document.querySelectorAll('.mod-card[data-soon-fuer]').forEach(function(card){
+    var key   = card.getAttribute('data-soon-fuer');
+    var recht = card.getAttribute('data-soon-recht') || 'read';
+    if(!GemaAuth.can(recht, key)){
       card.style.display='none'; card.setAttribute('data-perm-hidden','1');
     }
   });
