@@ -268,6 +268,10 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 .wz-lchip.amber{background:var(--amb-bg);color:var(--amb);border-color:var(--amb-bd)}
 .wz-lchip.green{background:var(--grn-bg);color:var(--grn);border-color:var(--grn-bd)}
 .wz-lchip.blue{background:#eef2ff;color:#3730a3;border-color:#e0e7ff}
+/* Klickbarer Chip (Sprung in den Koffer) — ein <button> erbt die Schrift nicht */
+button.wz-lchip{font-family:inherit;cursor:pointer;line-height:1.35}
+.wz-lchip.koffer{background:#fefce8;color:#854d0e;border-color:#fde047}
+button.wz-lchip.koffer:hover{background:#fef9c3}
 .wz-lgo{flex-shrink:0;color:var(--mut2);font-size:19px;line-height:1;padding-left:2px}
 .wz-lcb{width:26px;height:26px;flex-shrink:0;border:1.5px solid var(--brd2);border-radius:7px;display:grid;place-items:center;font-size:14px;font-weight:800;color:var(--plan);background:var(--sur)}
 .wz-lrow.wz-bulk-sel .wz-lcb{background:var(--plan);border-color:var(--plan);color:#fff}
@@ -3275,7 +3279,7 @@ function renderCard(t){
     ${(!isMonteur&&t.pruefAnfrage)?`<div style="padding:6px 14px;background:${t.pruefAnfrage.status==='erledigt'?'#f0fdf4':t.pruefAnfrage.status==='quittiert'?'#eff6ff':'#fff7ed'};border-top:1px solid ${t.pruefAnfrage.status==='erledigt'?'#bbf7d0':t.pruefAnfrage.status==='quittiert'?'#bfdbfe':'#fed7aa'};font-size:11px;color:${t.pruefAnfrage.status==='erledigt'?'#16a34a':t.pruefAnfrage.status==='quittiert'?'#2563eb':'#c2410c'};display:flex;align-items:center;gap:5px"><span>📋</span>${t.pruefAnfrage.status==='angefordert'?'Prüfung angefordert':t.pruefAnfrage.status==='quittiert'?'Lieferant quittiert':'Prüfung erledigt'} · ${esc(t.pruefAnfrage.lieferantFirma||'')}</div>`:''}
     ${(!isMonteur&&t.ersatzAnfragen&&t.ersatzAnfragen.length)?`<div style="padding:6px 14px;background:#fdf4ff;border-top:1px solid #e9d5ff;font-size:11px;color:#7c3aed;display:flex;align-items:center;gap:5px"><span>🔄</span>${t.ersatzAnfragen.filter(a=>a.status==='offen').length} Ersatzanfrage${t.ersatzAnfragen.filter(a=>a.status==='offen').length!==1?'n':''} offen</div>`:''}
     ${_wzIsKoffer(t)?(function(){var ki=_wzKofferItems(t);return `<div style="padding:8px 14px;background:#fefce8;border-top:1px solid #fde047;font-size:11.5px;color:#854d0e;display:flex;align-items:center;gap:6px;min-width:0"><span>🧰</span><strong style="flex-shrink:0">${ki.length} Teil${ki.length!==1?'e':''}</strong>${ki.length?`<span style="color:#a16207;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">· ${esc(ki.slice(0,3).map(function(x){return x.name;}).join(', '))}${ki.length>3?' …':''}</span>`:''}<button onclick="event.stopPropagation();openKofferInhalt('${t.id}')" style="margin-left:auto;padding:4px 10px;border-radius:6px;border:1px solid #fde047;background:#fff;color:#854d0e;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;flex-shrink:0">🧰 Inhalt</button></div>`;})():''}
-    ${(!_wzIsKoffer(t)&&_wzKofferOf(t.id))?`<div style="padding:6px 14px;background:#fefce8;border-top:1px solid #fde047;font-size:11px;color:#a16207;display:flex;align-items:center;gap:5px"><span>🧰</span>Im Koffer <strong>${esc(_wzKofferOf(t.id).name)}</strong></div>`:''}
+    ${(!_wzIsKoffer(t)&&_wzKofferOf(t.id))?(function(){var ko=_wzKofferOf(t.id);return `<div style="padding:6px 14px;background:#fefce8;border-top:1px solid #fde047;font-size:11px;color:#a16207;display:flex;align-items:center;gap:6px;min-width:0"><span style="flex-shrink:0">🧰</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">Im Koffer <strong>${esc(ko.name)}</strong></span><button onclick="event.stopPropagation();_wzKofferSpringen('${t.id}')" title="Koffer «${esc(ko.name)}» öffnen" style="margin-left:auto;padding:4px 10px;border-radius:6px;border:1px solid #fde047;background:#fff;color:#854d0e;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;flex-shrink:0">→ Zum Koffer</button></div>`;})():''}
     <!-- Personen-Banner (Ausgeliehen/Zugewiesen/Einbuchung) via margin-top:auto
          immer ganz unten direkt vor tc-foot — so klebt der Zugewiesenen-Balken
          auch bei im Grid hochgezogenen Karten unten (siehe Issue: 'Zugewiesener
@@ -3390,6 +3394,40 @@ function _wzCanEditKoffer(k){
   return !!(u && k && k.zugewiesenAn && k.zugewiesenAn.typ!=='platz' && k.zugewiesenAn.userId===u.id);
 }
 
+// Vom TEIL direkt in SEINEN Koffer springen (User-Wunsch 22.08.2026).
+// Ein Koffer ist ein normaler Werkzeug-Datensatz — der Sprung fuehrt darum in
+// dessen DETAILANSICHT, von der aus jede Koffer-Funktion (Inhalt, Ausleihe,
+// Kontrolle, QR) erreichbar ist. Alle Ansichten (Karte, Liste, Tabelle,
+// Detail, Scan, natives Sheet) rufen NUR diese eine Funktion — sonst laufen
+// Ziel und Schichtung auseinander.
+// KRITISCH — Schichtung: das Scan-Overlay liegt auf z-index 10000, das
+// Detail-Modal (.modal-bg) auf 500; der Sprung schliesst deshalb einen
+// offenen Scan, sonst oeffnete sich der Koffer unsichtbar dahinter.
+function _wzKofferSpringen(toolId){
+  var k=_wzKofferOf(toolId);
+  if(!k){
+    // Kein stiller Nulleffekt: der Koffer kann inzwischen geloescht sein
+    // oder das Teil wurde daraus entfernt — das wird gesagt.
+    var msg='Dieses Werkzeug liegt in keinem Koffer (mehr).';
+    if(typeof GemaDialog!=='undefined') GemaDialog.alert({title:'Kein Koffer',message:msg});
+    else alert(msg);
+    return;
+  }
+  function zeigen(){
+    try{ openViewTool(k.id); }catch(e){ console.warn('[wz] Koffer-Sprung:',e&&e.message); return; }
+    // openViewTool zeichnet IN das (evtl. schon offene) Modal — ohne Reset
+    // bliebe der Scroll-Stand des Teils stehen und der Koffer erschiene
+    // mittendrin statt oben.
+    var bd=document.getElementById('vm_body'); if(bd) bd.scrollTop=0;
+  }
+  // Ein offener Scan MUSS zuerst weg (Schichtung, s.o.); danach kurz warten,
+  // bis das Overlay wirklich abgebaut ist.
+  if(document.getElementById('wzScanOverlay')){ _wzCloseScan(); setTimeout(zeigen,200); return; }
+  // Sonst direkt — ein bereits offenes Detail wird in place neu gezeichnet
+  // (kein Schliessen, kein Flackern), sonst oeffnet openViewTool es.
+  zeigen();
+}
+
 // ──────────────────────────────────────
 // KOMPAKTE LISTENZEILE (Handy-tauglich)
 // ──────────────────────────────────────
@@ -3410,6 +3448,9 @@ function renderListeRow(t){
   if(t.ausgeliehenAn)chips.push('<span class="wz-lchip amber">🔄 '+esc(t.ausgeliehenAn.name||'—')+'</span>');
   else if(t.zugewiesenAn)chips.push('<span class="wz-lchip blue">'+(t.zugewiesenAn.typ==='platz'?'📍 ':'👷 ')+esc(t.zugewiesenAn.name||'—')+'</span>');
   if(_wzIsKoffer(t)){var ki=_wzKofferItems(t);chips.push('<span class="wz-lchip">🧰 '+ki.length+' Teil'+(ki.length!==1?'e':'')+'</span>');}
+  // Teil in einem Koffer → Sprung-Chip (im Bulk-Modus nicht: dort waehlt der
+  // Zeilen-Tap aus, ein stopPropagation-Knopf darin waere widerspruechlich).
+  else if(!_wzBulkMode){var ko=_wzKofferOf(t.id); if(ko) chips.push('<button class="wz-lchip koffer" title="Koffer «'+esc(ko.name)+'» öffnen" onclick="event.stopPropagation();_wzKofferSpringen(\''+t.id+'\')">🧰 '+esc(ko.name)+' →</button>');}
   var meta=[t.brand,t.model].filter(Boolean).map(esc).join(' ');
   if(t.serial)meta+=(meta?' · ':'')+'SN '+esc(t.serial);
   if(!meta)meta=esc(cat.label);else meta=esc(cat.label)+' · '+meta;
@@ -3438,6 +3479,9 @@ function renderListeRow(t){
 function renderRow(t){
   const cat=CATS[t.cat]||CATS.sonstige;
   const wd=worstDays(t); const wdc=dc(wd);
+  // EINMAL aufloesen: _wzKofferOf scannt alle Werkzeuge — zweimal pro Zeile
+  // waere ueber die ganze Tabelle quadratisch.
+  const rowKof=_wzIsKoffer(t)?null:_wzKofferOf(t.id);
   const pill=(d,label)=>d?`<span class="pill ${badgeC(daysFrom(d))}">${fmt(d)}</span>`:`<span style="color:var(--mut2)">—</span>`;
   const hasPruef=t.hasElec||t.hasLeiter;
   return`<tr>
@@ -3451,6 +3495,7 @@ function renderRow(t){
     <td style="white-space:nowrap">
       <button class="tc-act" onclick="openQR('${t.id}')">🔲</button>
       <button class="tc-act" onclick="openBerichte('${t.id}')" title="Berichte">📝</button>
+      ${rowKof?`<button class="tc-act" style="background:#fefce8;color:#854d0e;border-color:#fde047" onclick="_wzKofferSpringen('${t.id}')" title="Im Koffer «${esc(rowKof.name)}» — öffnen">🧰</button>`:''}
       ${_wzCanReportDefect()?`<button class="tc-act" style="background:#fff7ed;color:#c2410c;border-color:#fed7aa" onclick="openDefektMelden('${t.id}')" title="Defekt melden">⚠</button>`:''}
       ${(_wzCanAssign()&&!_wzIsPendingEinbuchung(t))?`<button class="tc-act" style="background:#eef2ff;color:#3730a3;border-color:#e0e7ff" onclick="openZuweisung('${t.id}')" title="Zuweisen">👷</button>`:''}
       ${(_wzCanEdit()&&!_wzIsPendingEinbuchung(t))?`<button class="tc-act" style="background:#fefce8;color:#92400e;border-color:#fde68a" onclick="_wzOpenAusleihe('${t.id}')" title="Ausleihen">🔄</button>`:''}
@@ -5088,6 +5133,14 @@ function _wzScanAusleihe(toolId){
   }
   if(_wzIsKoffer(t)&&_wzCanEditKoffer(t)){
     vwBtns.push('<button onclick="openKofferInhalt(\''+toolId+'\')" style="'+vwBtnS+';border:1.5px solid #854d0e;background:#fffbeb;color:#854d0e">🧰 Inhalt bearbeiten</button>');
+  }
+  // Teil in einem Koffer → direkt in den Koffer springen (User-Wunsch
+  // 22.08.2026). Bewusst fuer JEDE Rolle: wer das Teil scannen darf, darf
+  // auch sehen, in welchem Koffer es liegt. _wzKofferSpringen schliesst den
+  // Scan selbst (Schichtung).
+  var scanKof=_wzIsKoffer(t)?null:_wzKofferOf(toolId);
+  if(scanKof){
+    vwBtns.push('<button onclick="_wzKofferSpringen(\''+toolId+'\')" style="'+vwBtnS+';border:1.5px solid #fde047;background:#fefce8;color:#854d0e">🧰 Zum Koffer '+esc(scanKof.name)+'</button>');
   }
   var verwaltenRow=vwBtns.length?('<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'+vwBtns.join('')+'</div>'):'';
 
@@ -7781,6 +7834,21 @@ function openViewTool(id){
       +'</div>';
   }
 
+  // Umgekehrter Weg: das TEIL zeigt seinen Koffer und springt hinein
+  // (User-Wunsch 22.08.2026). Bis dahin war der Koffer von einem Teil aus
+  // nirgends erreichbar — die Karte nannte nur seinen Namen als Text.
+  var vmKof=_wzIsKoffer(t)?null:_wzKofferOf(t.id);
+  if(vmKof){
+    var vmKofTeile=_wzKofferItems(vmKof).length;
+    html+='<div id="vm_kofferOfBox" style="margin:10px 0;padding:10px 14px;background:#fefce8;border:1.5px solid #fde047;border-radius:10px;display:flex;align-items:center;gap:9px;min-width:0">'
+      +'<span style="font-size:19px;flex-shrink:0">🧰</span>'
+      +'<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:800;color:#854d0e;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Im Koffer '+esc(vmKof.name)+'</div>'
+      +'<div style="font-size:11.5px;color:#a16207">'+vmKofTeile+' Teil'+(vmKofTeile!==1?'e':'')+' insgesamt'+(vmKof.internKennung?' · 🏷 '+esc(vmKof.internKennung):'')+'</div>'
+      +'</div>'
+      +'<button onclick="_wzKofferSpringen(\''+t.id+'\')" style="padding:10px 15px;border-radius:9px;border:1.5px solid #854d0e;background:#fff;color:#854d0e;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;flex-shrink:0;min-height:42px">→ Zum Koffer</button>'
+      +'</div>';
+  }
+
   // Ausstehende Lieferanten-Einbuchung: Akzeptieren/Ablehnen direkt hier
   // (Notifikations-Deep-Link ?view=ID landet in diesem Modal)
   if(_wzIsPendingEinbuchung(t)){
@@ -8627,6 +8695,8 @@ try{
     if(t.serial) rows+=natKv('Seriennummer',t.serial);
     if(t.notes) rows+=natKv('Standort / Notiz',t.notes);
     if(t.zugewiesenAn) rows+=natKv(t.zugewiesenAn.typ==='platz'?'Platz':'Zugewiesen an',t.zugewiesenAn.name||'—');
+    var natKof=null; try{ natKof=_wzKofferOf(id); }catch(e){}
+    if(natKof) rows+=natKv('Im Koffer',natKof.name||'—');
     if(t.bought) rows+=natKv('Kaufdatum',fmt(t.bought));
     if(t.warranty) rows+=natKv('Garantie bis',fmt(t.warranty));
     try{
@@ -8638,6 +8708,9 @@ try{
     }catch(e){}
     if(rows) info+='<div class="gn-list" style="margin-bottom:14px">'+rows+'</div>';
     var acts='';
+    // Sprung in den Koffer (User-Wunsch 22.08.2026) — fuer jede Rolle, ganz
+    // oben: der Koffer ist der Kontext des Teils, nicht eine Bearbeitung.
+    if(natKof) acts+=natAct('koffer','🧰 Zum Koffer '+NE(natKof.name||''));
     if(pend&&canEdit){
       acts+=natAct('einAkzept','✓ Einbuchung akzeptieren');
       acts+=natAct('einAblehn','✕ Einbuchung ablehnen',true);
@@ -8667,7 +8740,8 @@ try{
       var a=b.getAttribute('data-nats');
       nat.closeSheet();
       setTimeout(function(){ try{
-        if(a==='edit') openToolForm(id);
+        if(a==='koffer') _wzKofferSpringen(id);
+        else if(a==='edit') openToolForm(id);
         else if(a==='ausleihe') openAusleiheSheet(id);
         else if(a==='zuweisen') openZuwSheet(id);
         else if(a==='rueckgabe') _wzReturnTool(id);
