@@ -153,6 +153,60 @@ try {
     f.value = new Date().toISOString().slice(0, 10); f.dispatchEvent(new Event('change', { bubbles: true }));
   });
 
+  // ─────────── Datum TIPPEN: die 📌-Spiegelung darf nie dazwischenfunken ───────────
+  // Gemeldet 22.08.2026: «01» + «.» + Monat → der Tag sprang auf «10».
+  // Ursache: _smlSyncVorgaben schrieb die Vorgabe bei JEDEM input-Event zurück —
+  // eine angefangene Segment-Eingabe macht den Wert kurz LEER, und das
+  // programmatische Setzen von .value stellte den Segment-Cursor auf das ERSTE
+  // Segment zurück; die nächste Ziffer landete wieder dort («0»,«1» → «10»).
+  console.log('— A2) Datum tippen (Fokus-Regel) —');
+  const KEYS_DATUM = ['0', '1', '.', '0', '8', '2', '0', '2', '6'];
+  const teileSort = v => String(v || '').split('-').sort().join(',');
+  async function tippeDatum(sel, keys) {
+    await page.locator(sel).scrollIntoViewIfNeeded();
+    const bb = await page.locator(sel).boundingBox();
+    // Klick ganz LINKS ins Feld — ein Klick in die Mitte landet je nach
+    // Browser-Locale im Jahres-Segment und würde am Fehlerbild vorbeitippen.
+    await page.mouse.click(bb.x + 10, bb.y + bb.height / 2);
+    for (const k of keys) { await page.keyboard.press(k); await page.waitForTimeout(70); }
+    await page.waitForTimeout(120);
+    return page.evaluate(s => document.querySelector(s).value, sel);
+  }
+  // Gegenprobe: nacktes <input type=date> im SELBEN Browser (gleiche Locale,
+  // gleiche Segment-Reihenfolge) — so hängt der Check an keiner Sprachannahme.
+  await page.evaluate(() => {
+    const i = document.createElement('input');
+    i.type = 'date'; i.id = '_refDate'; i.value = '2026-08-22';
+    i.style.cssText = 'position:fixed;left:24px;bottom:24px;z-index:99999';
+    document.body.appendChild(i);
+  });
+  const refWert = await tippeDatum('#_refDate', KEYS_DATUM);
+  const rowDateSel = '#smlTbody tr.sml-row:first-child [data-smlrowcol="bought"]';
+  const zeileWert = await tippeDatum(rowDateSel, KEYS_DATUM);
+  ok(teileSort(zeileWert) === '01,08,2026',
+    'getipptes «01 . 08 2026» ergibt genau 01/08/2026 — kein «10» aus «01» (' + zeileWert + ')');
+  ok(teileSort(refWert) === teileSort(zeileWert),
+    'identisch zum nackten date-Feld im selben Browser (Gegenprobe ' + refWert + ')');
+  ok(await page.evaluate(s => document.querySelector(s).getAttribute('data-fromfix'), rowDateSel) === null,
+    'eigene Eingabe löst die 📌-Spiegelung (data-fromfix entfernt)');
+  const nameSel = '#smlTbody tr.sml-row:first-child [data-smlrowcol="name"]';
+  await page.click(nameSel); await page.waitForTimeout(150);
+  ok(await page.evaluate(s => document.querySelector(s).value, rowDateSel) === zeileWert,
+    'eigener Wert überlebt das Verlassen des Feldes');
+  // Leeren + verlassen → die Vorgabe greift wieder (Spiegelung kommt zurück)
+  await page.evaluate(s => {
+    const el = document.querySelector(s);
+    el.focus(); el.value = ''; el.dispatchEvent(new Event('input', { bubbles: true }));
+  }, rowDateSel);
+  await page.click(nameSel); await page.waitForTimeout(220);
+  const nachLeer = await page.evaluate(s => {
+    const el = document.querySelector(s);
+    return { v: el.value, f: el.getAttribute('data-fromfix') };
+  }, rowDateSel);
+  ok(nachLeer.v === HEUTE && nachLeer.f === '1',
+    'leer gelassenes Feld nimmt die 📌-Vorgabe wieder auf (' + nachLeer.v + ')');
+  await page.evaluate(() => { const r = document.getElementById('_refDate'); if (r) r.remove(); });
+
   const colState = await page.evaluate(() => {
     const vis = id => document.querySelector('#smlTable thead th[data-smlcol="' + id + '"]').style.display !== 'none';
     return { name: vis('name'), zuw: vis('zuw'), warranty: vis('warranty'), supplier: vis('supplier'), service: vis('service') };

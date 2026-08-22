@@ -77,9 +77,13 @@ function handleSb(route) {
 const T_BOHR = { id: 't_1700000000001_aa', name: 'Bohrhammer', cat: 'maschine', brand: 'Hilti', model: 'TE 30', serial: '77812', bought: '2025-01-10', orgId: 'org_t' };
 const T_LADE = { id: 't_1700000000002_bb', name: 'Ladegerät', cat: 'ladegeraet', brand: 'Hilti', model: 'C4/36', serial: '55123', bought: '2025-01-10', orgId: 'org_t' };
 const T_KOFFER = { id: 't_1700000000003_cc', name: 'Koffer Bohren', cat: 'koffer', bought: '2025-01-10', orgId: 'org_t', kofferInhalt: [T_BOHR.id, T_LADE.id] };
+// Zwei freie Werkzeuge (in KEINEM Koffer) für die Inhalt-Suche: eines MIT,
+// eines OHNE Serien-Nr. — die Suche muss beide unterscheidbar anzeigen.
+const T_FREI = { id: 't_1700000000004_dd', name: 'Bohrhammer klein', cat: 'maschine', brand: 'Bosch', model: 'GBH 2-26', serial: 'B-99001', bought: '2025-02-01', orgId: 'org_t' };
+const T_OHNE = { id: 't_1700000000005_ee', name: 'Bohrer-Set', cat: 'werkzeug', brand: 'Bosch', bought: '2025-02-01', orgId: 'org_t' };
 function seedStore() {
   store.clear();
-  [T_BOHR, T_LADE, T_KOFFER].forEach(t => store.set('werkzeugmanagement|tool:' + t.id, { data: JSON.parse(JSON.stringify(t)), _lm: '2026-07-01T00:00:00Z' }));
+  [T_BOHR, T_LADE, T_KOFFER, T_FREI, T_OHNE].forEach(t => store.set('werkzeugmanagement|tool:' + t.id, { data: JSON.parse(JSON.stringify(t)), _lm: '2026-07-01T00:00:00Z' }));
   // Aktivitäten: zwei Einträge für den Bohrhammer, einer fürs Ladegerät
   const logs = [
     { id: 'log_1', ts: '2026-07-10T08:00:00Z', orgId: 'org_t', modul: 'werkzeug', modulRecordId: T_BOHR.id, modulRecordName: 'Bohrhammer', aktion: 'erfasst', beschreibung: 'Gerät erfasst', userName: 'Magaziner M' },
@@ -256,6 +260,118 @@ console.log('— 5) Aktivitäten pro Werkzeug (recordId-Filter) —');
   const all = await page.evaluate(() => document.querySelectorAll('#gema-actlog-modal #actlogBody tbody tr').length);
   ok(all === 3, 'globales Aktivitäten-Modal zeigt weiterhin alle Einträge (' + all + ')');
   ok(page.errs.length === 0, 'keine pageerrors');
+  await ctx.close();
+}
+
+console.log('— 6) Koffer-Inhalt-Suche zeigt die Serien-Nr. —');
+{
+  seedStore();
+  const { ctx, page } = await openPage('u_mag', '');
+  await page.evaluate(id => window.openKofferInhalt(id), T_KOFFER.id);
+  await page.waitForSelector('#kofSearch', { timeout: 5000 });
+  ok(/Serien-Nr/.test(await page.evaluate(() => document.getElementById('kofSearch').placeholder)),
+    'Suchfeld nennt die Serien-Nr. als Suchkriterium');
+  // «Bohr» trifft das freie Werkzeug MIT SN und das Set OHNE SN
+  const suche = (q, kid) => page.evaluate(a => {
+    document.getElementById('kofSearch').value = a.q;
+    window._wzKofferSearch(a.kid);
+  }, { q, kid });
+  await suche('Bohr', T_KOFFER.id);
+  await page.waitForTimeout(150);
+  const tr = await page.evaluate(() => {
+    const r = document.getElementById('kofSearchRes');
+    return { txt: r ? r.textContent : '', n: r ? r.querySelectorAll('button').length : 0 };
+  });
+  ok(/SN B-99001/.test(tr.txt), 'Treffer zeigt die Serien-Nr. («SN B-99001»)');
+  ok(/ohne SN/.test(tr.txt), 'Treffer ohne Serien-Nr. wird als «ohne SN» ausgewiesen');
+  ok(tr.n >= 2, 'beide freien Werkzeuge als Treffer mit «+»-Button (' + tr.n + ')');
+  // Suche über die Serien-Nr. selbst findet genau das eine Werkzeug
+  await suche('B-99001', T_KOFFER.id);
+  await page.waitForTimeout(150);
+  const sn = await page.evaluate(() => {
+    const r = document.getElementById('kofSearchRes');
+    return { txt: r.textContent, n: r.querySelectorAll('button').length };
+  });
+  ok(sn.n === 1 && /Bohrhammer klein/.test(sn.txt), 'Suche NACH der Serien-Nr. findet genau das Werkzeug');
+  ok(page.errs.length === 0, 'keine pageerrors');
+  await ctx.close();
+}
+
+console.log('— 7) Scan-Ansicht: Details / Bearbeiten / Koffer-Inhalt (Magaziner) —');
+{
+  seedStore();
+  const { ctx, page } = await openPage('u_mag', '?scan=' + T_KOFFER.id);
+  const btns = () => page.evaluate(() => {
+    const o = document.getElementById('wzScanOverlay');
+    return o ? Array.from(o.querySelectorAll('button')).map(b => b.textContent.trim()) : [];
+  });
+  const b1 = await btns();
+  ok(b1.some(t => /📋 Details/.test(t)), 'Koffer-Scan bietet «📋 Details»');
+  ok(b1.some(t => /✏️ Bearbeiten/.test(t)), 'Koffer-Scan bietet «✏️ Bearbeiten»');
+  ok(b1.some(t => /Inhalt bearbeiten/.test(t)), 'Koffer-Scan bietet «🧰 Inhalt bearbeiten»');
+  ok(await page.evaluate(id => document.getElementById('wzScanOverlay').getAttribute('data-tool') === id, T_KOFFER.id),
+    'Overlay merkt sich das gescannte Werkzeug (data-tool) für den Refresh');
+  // Inhalt-Editor öffnet ÜBER dem Scan (Scan 10000, Editor 10500)
+  await page.evaluate(() => {
+    const b = Array.from(document.querySelectorAll('#wzScanOverlay button')).find(x => /Inhalt bearbeiten/.test(x.textContent));
+    b.click();
+  });
+  await page.waitForSelector('#kofSearch', { timeout: 5000 });
+  const lay = await page.evaluate(() => {
+    const ov = document.getElementById('_wzModalOverlay'), sc = document.getElementById('wzScanOverlay');
+    return { zOv: ov ? parseInt(getComputedStyle(ov).zIndex, 10) : 0, zSc: sc ? parseInt(getComputedStyle(sc).zIndex, 10) : 0 };
+  });
+  ok(lay.zOv > lay.zSc, 'Inhalt-Editor liegt ÜBER der Scan-Ansicht (z ' + lay.zOv + ' > ' + lay.zSc + ')');
+  // Teil hinzufügen und schliessen → Scan-Checkliste ist aufgefrischt
+  await page.evaluate(a => {
+    document.getElementById('kofSearch').value = a.q;
+    window._wzKofferSearch(a.kid);
+  }, { q: 'B-99001', kid: T_KOFFER.id });
+  await page.waitForTimeout(150);
+  await page.evaluate(() => document.querySelector('#kofSearchRes button').click());
+  await page.waitForTimeout(400);
+  await page.evaluate(() => window._wzKofferInhaltClose());
+  await page.waitForTimeout(500);
+  const nach = await page.evaluate(() => {
+    const sec = document.getElementById('kofCtrlSection');
+    return { editorWeg: !document.getElementById('_wzModalOverlay'), scan: !!document.getElementById('wzScanOverlay'), txt: sec ? sec.textContent : '' };
+  });
+  ok(nach.editorWeg && nach.scan, 'Schliessen des Editors führt zurück in die Scan-Ansicht');
+  ok(/Bohrhammer klein/.test(nach.txt), 'Scan-Checkliste zeigt das neu hinzugefügte Teil');
+  ok(/SN B-99001/.test(nach.txt), 'neues Teil mit Serien-Nr. in der Kontrollliste');
+  // Nicht-Koffer: dieselben Verwalten-Knöpfe (Scan-Ansicht direkt aufgerufen)
+  await page.evaluate(id => { window._wzCloseScan(); window._wzScanAusleihe(id); }, T_BOHR.id);
+  await page.waitForTimeout(300);
+  const b2 = await btns();
+  ok(b2.some(t => /📋 Details/.test(t)) && b2.some(t => /✏️ Bearbeiten/.test(t)),
+    'auch beim Einzel-Werkzeug: Details + Bearbeiten in der Scan-Ansicht');
+  ok(!b2.some(t => /Inhalt bearbeiten/.test(t)), 'kein Koffer → kein «Inhalt bearbeiten»');
+  // «Details» schliesst den Scan (Modals liegen mit z 500 UNTER dem Overlay)
+  await page.evaluate(() => {
+    Array.from(document.querySelectorAll('#wzScanOverlay button')).find(x => /📋 Details/.test(x.textContent)).click();
+  });
+  await page.waitForTimeout(500);
+  const det = await page.evaluate(() => {
+    const vm = document.getElementById('viewModal');
+    return { scanWeg: !document.getElementById('wzScanOverlay'), offen: !!vm && !vm.classList.contains('hidden'), txt: vm ? vm.textContent : '' };
+  });
+  ok(det.scanWeg, '«Details» schliesst die Scan-Ansicht (sonst läge das Modal dahinter)');
+  ok(det.offen && /Bohrhammer/.test(det.txt), 'Detailansicht des gescannten Werkzeugs offen');
+  ok(page.errs.length === 0, 'keine pageerrors');
+  await ctx.close();
+}
+
+console.log('— 8) Monteur: Scan-Ansicht ohne Verwalten-Knöpfe —');
+{
+  seedStore();
+  const { ctx, page } = await openPage('u_mon', '?scan=' + T_KOFFER.id);
+  const txt = await page.evaluate(() => {
+    const o = document.getElementById('wzScanOverlay');
+    return o ? Array.from(o.querySelectorAll('button')).map(b => b.textContent.trim()).join(' | ') : '';
+  });
+  ok(!/📋 Details/.test(txt) && !/✏️ Bearbeiten/.test(txt), 'Monteur sieht weder Details noch Bearbeiten');
+  ok(!/Inhalt bearbeiten/.test(txt), 'Monteur (nicht zugeteilt) darf den Koffer-Inhalt nicht bearbeiten');
+  ok(page.errs.length === 0, 'keine pageerrors (Monteur)');
   await ctx.close();
 }
 
