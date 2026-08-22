@@ -165,6 +165,47 @@ canvas.sig{width:100%;height:150px;background:#fff;display:block;touch-action:no
 /* Garantie (Feedback 07/2026): Dauer-Kästchen + berechnete Frist */
 .garantie-frist{display:inline-flex;align-items:center;gap:6px;padding:8px 13px;border-radius:9px;background:var(--bg2);border:1.5px solid var(--brd2);font-size:13px;font-weight:700;color:var(--txt2)}
 
+/* ══ Nur-Mängel-Sicht (Feedback 22.08.2026, Baran Koc) ══════════════════════
+   «wenn ich der bin, der die mängel beheben soll, kann ich dennoch angaben vom
+    projekt und auch die unterschriften ändern, das darf nicht sein» sowie
+   «… brauch es den gesamten abschnit darunte (neues protokoll erstellen
+    nicht.) dann soll dieser nur die mängel sehen und das projekt um das es
+    geht, sowie die anagaben zum projekt, also planer ertc.»
+   Die Klasse setzt abRenderTasks. Ausgeblendet wird ALLES ausser den Aufgaben
+   (#abTasks) — die Projektangaben stehen kompakt IN der Mängellisten-Karte
+   (abMlProjektHtml), damit der Abarbeiter weiss, worum es geht.
+   Die Sichtbarkeits-Grenze ist Anzeige; die harte Grenze bleiben die
+   Modul-Permissions und abMlDarfKontrollieren. */
+body.ab-nur-maengel .proto-sel,
+body.ab-nur-maengel .tabs-bar,
+body.ab-nur-maengel #view_abnahme,
+body.ab-nur-maengel #view_maengel,
+body.ab-nur-maengel #view_pruefliste,
+body.ab-nur-maengel #view_plaene,
+body.ab-nur-maengel #view_anhang,
+body.ab-nur-maengel .stats-row,
+body.ab-nur-maengel .footer-bar{display:none !important}
+/* Zweite Schicht (Defense in Depth): selbst wenn ein Block sichtbar bliebe,
+   ist er nicht bedienbar — Unterschriften-Pads eingeschlossen. */
+body.ab-nur-maengel #view_abnahme input,
+body.ab-nur-maengel #view_abnahme select,
+body.ab-nur-maengel #view_abnahme textarea,
+body.ab-nur-maengel #view_abnahme button,
+body.ab-nur-maengel #view_abnahme canvas.sig,
+body.ab-nur-maengel #view_maengel input,
+body.ab-nur-maengel #view_maengel select,
+body.ab-nur-maengel #view_maengel textarea,
+body.ab-nur-maengel #view_maengel button{pointer-events:none !important}
+/* Projektangaben in der Mängellisten-Karte — reine Anzeige, kein Feld. */
+.ab-projinfo{border:1.5px solid var(--brd2);border-radius:10px;background:var(--bg2);padding:11px 13px;margin-bottom:12px;font-size:12.5px;line-height:1.5}
+.ab-projinfo-hd{font-size:11px;font-weight:900;letter-spacing:.04em;color:var(--mut);margin-bottom:5px}
+.ab-projinfo-obj b{font-size:14px}
+.ab-projinfo-obj span{color:var(--txt2)}
+.ab-projinfo-meta{margin-top:5px;color:var(--mut);font-size:12px}
+.ab-projinfo-bet{margin-top:8px;padding-top:8px;border-top:1px solid var(--brd);display:grid;gap:3px}
+.ab-projinfo-bet span{display:inline-block;min-width:112px;color:var(--mut);font-weight:700}
+.ab-projinfo-alt{border-color:#fcd34d;background:#fffbeb;color:#92400e}
+
 /* Checkliste Installationswände (Feedback 24.07.2026) */
 .cw-row{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--brd)}
 .cw-row:last-of-type{border-bottom:none}
@@ -1037,8 +1078,12 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       return {x:(t?t.clientX:e.clientX)-rect.left, y:(t?t.clientY:e.clientY)-rect.top};
     };
 
-    // Bestätigte Unterschrift ist EINGEFROREN (Feedback 07/2026) — kein Zeichnen mehr
-    const start = e => { if(state.abnahme.sig[storeKey].bestaetigt) return; drawing=true; const p=pos(e); ctx.beginPath(); ctx.moveTo(p.x,p.y); e.preventDefault(); };
+    // Bestätigte Unterschrift ist EINGEFROREN (Feedback 07/2026) — kein Zeichnen mehr.
+    // Ebenso in der Nur-Mängel-Sicht (22.08.2026): «kann ich dennoch angaben
+    // vom projekt und auch die unterschriften ändern, das darf nicht sein».
+    const start = e => { if(state.abnahme.sig[storeKey].bestaetigt) return;
+      if(document.body.classList.contains('ab-nur-maengel')) return;
+      drawing=true; const p=pos(e); ctx.beginPath(); ctx.moveTo(p.x,p.y); e.preventDefault(); };
     const move  = e => { if(!drawing)return; const p=pos(e); ctx.lineTo(p.x,p.y); ctx.stroke(); e.preventDefault(); };
     const end   = e => {
       if(!drawing)return; drawing=false;
@@ -2188,6 +2233,11 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
   }
   function scheduleSave(immediate){
     if(!_abBootDone||_abAdopting) return;
+    // Nur-Mängel-Sicht (22.08.2026): wer bloss Mängel abarbeitet, darf das
+    // Protokoll NIE verändern — dritte Schicht nach Ausblenden (CSS) und
+    // pointer-events. Die Mängellisten-Karte speichert über ihre eigenen
+    // Handler (abMlItemToggle etc.) in den ML-Pool, nicht hierüber.
+    if(document.body.classList.contains('ab-nur-maengel')) return;
     _abLockArm();
     if(activeProtocolId) _abDirty[activeProtocolId]=1;
     _abSavePending=true;
@@ -4243,6 +4293,76 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       return '<img src="'+esc(src)+'" style="width:'+(klein?34:46)+'px;height:'+(klein?34:46)+'px;object-fit:cover;border-radius:7px;border:1px solid var(--brd2);cursor:zoom-in" onclick="openLightbox(this.src)"/>';
     }).join('');
   }
+  // ══ Nur-Mängel-Sicht (Feedback 22.08.2026, Baran Koc) ══════════════════
+  // «wenn ich der bin, der die mängel beheben soll, kann ich dennoch angaben
+  //  vom projekt und auch die unterschriften ändern, das darf nicht sein»
+  // «… brauch es den gesamten abschnit darunte (neues protokoll erstellen
+  //  nicht.) dann soll dieser nur die mängel sehen und das projekt um das es
+  //  geht, sowie die anagaben zum projekt, also planer ertc.»
+  //
+  // WER: nur wer eine OFFENE Mängelliste zugewiesen hat UND das Protokoll
+  // nicht selbst verantwortet (der Fachplaner kann beides sein — er behält
+  // die volle Sicht). Der Modus ist eine reine ANZEIGE-Grenze; die harte
+  // Grenze bleiben die Modul-Permissions und abMlDarfKontrollieren.
+  function abIstMeineMl(r){
+    var u=abUser();if(!u||!r)return false;
+    if(r.monteurUserId===u.id)return true;
+    if(!r.monteurEmail)return false;
+    return abMeineMails().indexOf(String(r.monteurEmail).toLowerCase())>=0;
+  }
+  function abNurMaengelModus(){
+    var u=abUser();if(!u)return false;
+    var pool=abPoolRead(ML_POOL);
+    var meine=pool.filter(function(r){return r.status==='offen'&&abIstMeineMl(r);});
+    if(!meine.length)return false;
+    // Wer selbst kontrollieren darf, ist nicht bloss Abarbeiter.
+    return !meine.some(function(r){return abMlDarfKontrollieren(r);});
+  }
+  // Projektangaben, die der Abarbeiter braucht — beim ÜBERGEBEN in den
+  // ML-Record kopiert (cross-org: er kann das Protokoll nicht lesen).
+  function abMlProjektInfo(){
+    var A=state.abnahme||{},bt=A.bauobjektTeile||{};
+    var bet=[];
+    var add=function(rolle,name,firma){
+      var t=[firma,name].map(function(s){return (s||'').trim();}).filter(Boolean).join(', ');
+      if(t)bet.push({rolle:rolle,text:t});
+    };
+    add('Bauherrschaft',A.bauherrName,A.bauherrFirma);
+    add('Bauleitung',A.bauleitungName,A.bauleitungFirma);
+    add('Unternehmer',A.unternehmerName,A.unternehmerFirma);
+    (A.weitereBeteiligte||[]).forEach(function(b){add(b.funktion||'Beteiligte',b.name,b.firma);});
+    return {gebaeude:bt.gebaeude||A.bauobjekt||'',adresse:bt.adresse||'',plzOrt:bt.plzOrt||'',
+      arbeitsgattung:A.arbeitsgattung||'',gepruefterTeil:A.gepruefterTeil||'',datum:A.datum||'',
+      beteiligte:bet};
+  }
+  // Kompakter, NUR-LESEN-Block in der Mängellisten-Karte. Fehlt das Feld
+  // (Liste aus der Zeit vor 22.08.2026), wird das gesagt statt still nichts
+  // anzuzeigen — der Abarbeiter soll wissen, dass die Angaben fehlen.
+  function abMlProjektHtml(ml){
+    var p=ml.projekt;
+    if(!p) return '<div class="ab-projinfo ab-projinfo-alt">ℹ️ Zu dieser Mängelliste wurden keine Projektangaben mitgegeben '
+      +'(vor der Umstellung übergeben). Bitte bei '+esc((ml.verantwortlich&&ml.verantwortlich.name)||'der verantwortlichen Person')+' nachfragen.</div>';
+    var adr=[p.adresse,p.plzOrt].filter(Boolean).join(', ');
+    var z=[];
+    if(p.arbeitsgattung)z.push('Arbeitsgattung: '+esc(p.arbeitsgattung));
+    if(p.gepruefterTeil)z.push('Geprüfter Teil: '+esc(p.gepruefterTeil));
+    if(p.datum)z.push('Abnahme: '+esc(p.datum));
+    return '<div class="ab-projinfo">'
+      +'<div class="ab-projinfo-hd">🏗 Projekt</div>'
+      +'<div class="ab-projinfo-obj"><b>'+esc(p.gebaeude||ml.objektName||'—')+'</b>'
+      +(adr?'<br><span>'+esc(adr)+'</span>':'')+'</div>'
+      +(z.length?'<div class="ab-projinfo-meta">'+z.join(' · ')+'</div>':'')
+      +((p.beteiligte||[]).length
+        ? '<div class="ab-projinfo-bet">'+p.beteiligte.map(function(b){
+            // tolerant: neue Records tragen {rolle,text}, ältere/fremde
+            // {rolle,name,firma} — beides wird gerendert.
+            var t=b.text||[b.firma,b.name].map(function(s){return (s||'').trim();}).filter(Boolean).join(', ');
+            if(!t)return '';
+            return '<div><span>'+esc(b.rolle||'Beteiligte')+'</span> '+esc(t)+'</div>';
+          }).join('')+'</div>'
+        : '')
+      +'</div>';
+  }
   function abRenderTasks(){
     var host=document.getElementById('abTasks');if(!host)return;
     var u=abUser();if(!u){host.innerHTML='';return;}
@@ -4263,13 +4383,12 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     // 2) Meine Mängellisten (Monteur ODER externe Person) — Zuweisung matcht
     // über die userId UND zusätzlich über die E-Mail (externe Übergaben: die
     // E-Mail ist der stabile Anker, falls das Konto neu angelegt/gemergt wurde).
-    var mails=abMeineMails();
-    var istMeineMl=function(r){return r.monteurUserId===u.id||(r.monteurEmail&&mails.indexOf(String(r.monteurEmail).toLowerCase())>=0);};
-    var meineMl=abPoolRead(ML_POOL).filter(function(r){return istMeineMl(r)&&(r.status==='offen');});
+    var meineMl=abPoolRead(ML_POOL).filter(function(r){return abIstMeineMl(r)&&(r.status==='offen');});
     meineMl.forEach(function(ml){
       var items=ml.items||[];var done=items.filter(function(x){return x.status==='erledigt';}).length;
       var vonWem=esc((ml.verantwortlich&&ml.verantwortlich.name)||'')+((ml.verantwortlich&&ml.verantwortlich.firma)?' ('+esc(ml.verantwortlich.firma)+')':'');
       h+='<div class="card" style="margin-bottom:14px;border-color:#93c5fd"><div class="card-hd"><div class="card-hd-ic">📋</div><div><div class="card-hd-title">Mängelliste — '+esc(ml.objektName||'')+'</div><div class="card-hd-sub">'+esc(ml.protoName||'')+' · von '+vonWem+' · '+done+'/'+items.length+' erledigt</div></div></div><div class="card-body">'
+        +abMlProjektHtml(ml)
         +items.map(function(it){
           var zg=it.status==='zurueckgewiesen';
           return '<div style="padding:9px 2px;border-bottom:1px solid var(--brd)'+(zg?';background:#fef2f2':'')+'">'
@@ -4311,6 +4430,11 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
         +'</div></div></div>';
     });
     host.innerHTML=h;
+    // Nur-Mängel-Modus als BODY-Klasse: Protokoll-Verwaltung, Tabs, Karten
+    // und Fusszeile werden per CSS ausgeblendet (EINE Wahrheit — kein Sweep
+    // über einzelne Elemente, der bei jedem neuen Feld nachgezogen werden
+    // müsste). Die Eingabe-Sperre haengt an derselben Klasse.
+    document.body.classList.toggle('ab-nur-maengel', abNurMaengelModus());
   }
 
   // ── Mängel übergeben — ans eigene Team ODER extern per E-Mail (20.08.2026) ──
@@ -4387,6 +4511,12 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       // additiv (20.08.2026): E-Mail als zweiter Zustell-Anker + Herkunfts-
       // Transparenz für beide Seiten. Alt-Leser ignorieren die Felder.
       monteurEmail:String((m.profile&&m.profile.email)||m.username||'').toLowerCase(),
+      // additiv (22.08.2026): «dann soll dieser nur die mängel sehen und das
+      // projekt um das es geht, sowie die anagaben zum projekt, also planer
+      // ertc.» — die Angaben werden BEIM ÜBERGEBEN kopiert, weil der
+      // Empfaenger typisch in einer FREMDEN Org sitzt und weder das Protokoll
+      // noch GemaObjekte.getBeteiligte() lesen kann.
+      projekt:abMlProjektInfo(),
       verantwortlich:{userId:u.id,name:u.name,firma:abOrgNameOf(u.orgId)},status:'offen',erstelltAm:new Date().toISOString(),
       items:offene.map(function(it){return {id:uid(),itemId:it.id,ort:it.ort||'',mangel:it.mangel||'',erledigungBis:it.erledigungBis||'',
         fotos:(it.photos||[]).map(function(p){return {url:p.url||'',dataUrl:p.url?'':(p.dataUrl||''),name:p.name||''};}),
@@ -4444,6 +4574,9 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
   // Externe Übergabe (20.08.2026) — der Drift-Guard prüft die Regeln funktional
   window._abMlDarfKontrollieren=abMlDarfKontrollieren;
   window._abKannAbnahmeLesen=abKannAbnahmeLesen;
+  window._abNurMaengelModus=abNurMaengelModus;
+  window._abIstMeineMl=abIstMeineMl;
+  window._abMlProjektInfo=abMlProjektInfo;
   window._abFindUserByEmailAlle=abFindUserByEmailAlle;
 
   // ── Cloud-Pull der Protokoll-/Freigabe-/Mängellisten-Pools (non-blocking) ──

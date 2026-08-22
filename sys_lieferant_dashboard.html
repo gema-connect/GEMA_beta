@@ -42,6 +42,16 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
 .fl{font-size:11px;font-weight:700;color:var(--txt2);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px}
 .fg{margin-bottom:12px}
 
+/* ── Suche je Rubrik (Feedback 19.08.2026: «für alle rubriken soll es ein
+   suchfeld geben, live filterung») ────────────────────────────────────
+   Das Suchfeld steht IMMER AUSSERHALB des Listen-Containers, den der
+   Renderer neu zeichnet — nur so überlebt es den Tastendruck (Fokus-Regel).
+   `.fc` ist width:100% — die Breitenbegrenzung gehört deshalb hierher. */
+.filterbar{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.suchfeld{max-width:260px}
+.suchleer{padding:16px;color:var(--mut);font-size:13px}
+.suchleer button{background:none;border:none;color:var(--acc);font:inherit;font-weight:700;cursor:pointer;padding:0;text-decoration:underline}
+
 /* ── Floating Labels im Produkt-Editor (Feedback 20.08.2026) ───────────
    Die Feldbeschriftung ruht als Platzhalter IM Feld und wandert bei Fokus
    oder vorhandenem Inhalt verkleinert auf die Rahmenkante.
@@ -273,16 +283,7 @@ try{
 
   <!-- Tab: Übersicht -->
   <div class="tab-body active" id="tb-uebersicht">
-    <!-- Berechnungen des eigenen Sortiments: der Lieferant soll selbst
-         durchrechnen koennen, wie GEMA seine Anlagen auslegt. -->
-    <div class="card" style="margin-top:0" id="cardMeineBerechnungen">
-      <div class="card-hd">
-        <h3>🧮 Berechnungen zu meinem Sortiment</h3>
-        <button class="btn btn-s btn-sm" onclick="_liefBerechnungenRefresh()" title="Sortiment neu auswerten">↻ Aktualisieren</button>
-      </div>
-      <div class="card-bd" id="meineBerechnungen"></div>
-    </div>
-    <div class="card">
+    <div class="card" style="margin-top:0">
       <div class="card-hd"><h3>Letzte Offertanfragen</h3></div>
       <div class="card-bd" id="recentOA"></div>
     </div>
@@ -290,11 +291,23 @@ try{
       <div class="card-hd"><h3>Produkte zum Verifizieren</h3></div>
       <div class="card-bd" id="unverifiedProds"></div>
     </div>
+    <!-- Berechnungen des eigenen Sortiments: der Lieferant soll selbst
+         durchrechnen koennen, wie GEMA seine Anlagen auslegt.
+         Steht bewusst ZULETZT (Feedback 19.08.2026 «dieser kontainer ganz
+         unten») — das Tagesgeschaeft sind Anfragen und Produkte. -->
+    <div class="card" id="cardMeineBerechnungen">
+      <div class="card-hd">
+        <h3>🧮 Berechnungen zu meinem Sortiment</h3>
+        <button class="btn btn-s btn-sm" onclick="_liefBerechnungenRefresh()" title="Sortiment neu auswerten">↻ Aktualisieren</button>
+      </div>
+      <div class="card-bd" id="meineBerechnungen"></div>
+    </div>
   </div>
 
   <!-- Tab: Produkte -->
   <div class="tab-body" id="tb-produkte">
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+    <div class="filterbar">
+      <input class="fc suchfeld" id="suchProd" type="search" placeholder="🔎 Produkt suchen…" oninput="renderProdukte()" title="Sucht in Bezeichnung, Serie, Modell, Familie und Kategorie">
       <select class="fc" id="prodKatFilter" style="max-width:200px" onchange="renderProdukte()">
         <option value="">Alle Kategorien</option>
       </select>
@@ -318,7 +331,8 @@ try{
 
   <!-- Tab: Offertanfragen -->
   <div class="tab-body" id="tb-anfragen">
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+    <div class="filterbar">
+      <input class="fc suchfeld" id="suchOa" type="search" placeholder="🔎 Anfrage suchen…" oninput="renderAnfragen()" title="Sucht in Anlage, Projekt, Absender und Nachricht">
       <select class="fc" id="oaFilter" style="max-width:160px" onchange="renderAnfragen()">
         <option value="">Alle</option>
         <option value="offen">Offen</option>
@@ -332,7 +346,8 @@ try{
 
   <!-- Tab: Bestellungen (Anlagen — vom Gewinner-Unternehmer nach Zuschlag) -->
   <div class="tab-body" id="tb-bestellungen">
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+    <div class="filterbar">
+      <input class="fc suchfeld" id="suchBest" type="search" placeholder="🔎 Bestellung suchen…" oninput="renderBestellungen()" title="Sucht in Bestell-Nr., Anlage, Besteller, Projekt und Lieferadresse">
       <select class="fc" id="bestFilter" style="max-width:170px" onchange="renderBestellungen()">
         <option value="">Alle</option>
         <option value="offen">Offen</option>
@@ -351,6 +366,7 @@ try{
       <div class="card-hd"><h3>📑 Anfragen: Revisions-Unterlagen</h3></div>
       <div class="card-bd" style="padding:14px">
         <p style="font-size:12.5px;color:var(--mut);margin-bottom:12px">Planer fordern für ihre Übergabedossiers fehlende Unterlagen (Datenblätter, Bedienungs-/Wartungsanleitungen, Konformitätserklärungen) an. Laden Sie die Unterlagen direkt beim betroffenen Produkt hoch — so stehen sie für alle künftigen Projekte bereit.</p>
+        <div class="filterbar"><input class="fc suchfeld" id="suchRev" type="search" placeholder="🔎 Anfrage suchen…" oninput="renderRevisionen()" title="Sucht in Produkt, Projekt, Anforderer und Nachricht"></div>
         <div id="revAnfragenList"><p style="color:var(--mut);font-size:13px">Wird geladen…</p></div>
       </div>
     </div>
@@ -358,6 +374,7 @@ try{
 
   <!-- Tab: Rohrsysteme & Armaturen -->
   <div class="tab-body" id="tb-rohrsysteme">
+    <div class="filterbar"><input class="fc suchfeld" id="suchRs" type="search" placeholder="🔎 Rohrsystem oder Armatur suchen…" oninput="renderRohrsysteme()" title="Sucht in Serie, Material, Typ und Dimensionen"></div>
     <div class="card">
       <div class="card-hd"><h3>🔧 Meine Rohrsysteme</h3></div>
       <div class="card-bd" id="rsListe" style="padding:0">
@@ -374,6 +391,7 @@ try{
 
   <!-- Tab: Werkzeuge (Prüfer + Lieferanten) -->
   <div class="tab-body" id="tb-werkzeuge">
+    <div class="filterbar"><input class="fc suchfeld" id="suchWz" type="search" placeholder="🔎 Werkzeug oder Auftraggeber suchen…" oninput="_dwzSuchen()" title="Filtert alle Werkzeug-Listen: Bezeichnung, Kennung, Hersteller, Modell und Auftraggeber"></div>
     <div class="card">
       <div class="card-hd"><h3>📋 Prüfaufträge</h3></div>
       <div class="card-bd" id="wzPruefAuftraege">
@@ -415,6 +433,7 @@ try{
 
   <!-- Tab: Mitarbeiter -->
   <div class="tab-body" id="tb-mitarbeiter">
+    <div class="filterbar"><input class="fc suchfeld" id="suchMa" type="search" placeholder="🔎 Mitarbeiter suchen…" oninput="renderLiefUsers()" title="Sucht in Name, E-Mail und Rolle"></div>
     <div class="card">
       <div class="card-hd"><h3>👥 Mitarbeiter</h3><button class="btn btn-p btn-sm" id="liefInviteBtn" onclick="_liefInviteUser()">+ Mitarbeiter einladen</button></div>
       <div class="card-bd" id="liefUserList" style="padding:0"></div>
@@ -1054,7 +1073,16 @@ function renderRevisionen(){
   var list=_revMyAnfragen();
   var offen=list.filter(function(a){return a.status==='offen';}).length;
   var badge=document.getElementById('revBadge'); if(badge){ badge.textContent=offen; badge.style.display=offen>0?'':'none'; }
-  if(!list.length){ box.innerHTML='<p style="color:var(--mut);font-size:13px">Keine Anfragen. Sobald ein Planer für ein Übergabedossier Unterlagen anfragt, erscheinen sie hier.</p>'; return; }
+  var q=_sq('suchRev');
+  if(q)list=list.filter(function(a){
+    var v=a.angefordertVon||{};
+    return _trifft(q,[a.produktName,a.objektName,v.firma,v.name,a.nachricht,a.status,(a.dokTypen||[]).map(_revDokLabel).join(' ')]);
+  });
+  if(!list.length){
+    box.innerHTML = q ? _suchLeer(q,'suchRev')
+      : '<p style="color:var(--mut);font-size:13px">Keine Anfragen. Sobald ein Planer für ein Übergabedossier Unterlagen anfragt, erscheinen sie hier.</p>';
+    return;
+  }
   box.innerHTML=list.map(function(a){
     var stCol={offen:'#ea580c',beantwortet:'#16a34a',abgelehnt:'#dc2626'}[a.status]||'#64748b';
     var stLbl={offen:'Offen',beantwortet:'Erledigt',abgelehnt:'Abgelehnt'}[a.status]||a.status;
@@ -1116,6 +1144,41 @@ function revAblehnen(id){
   });
 }
 
+/* ── Suche je Rubrik (Feedback 19.08.2026) ─────────────────────────────
+   EINE Wahrheit für alle Rubriken: `_sq` liest das Suchfeld defensiv (die
+   Felder existieren je nach Lieferanten-Typ nicht in jedem Tab), `_trifft`
+   prüft die Heuhaufen-Felder. Mehrere Wörter sind UND-verknüpft, damit
+   «bwt osmose» beides verlangt statt irgendeines von beidem.
+   Bei einem neuen Renderer: `_sq('such…')` lesen, Liste mit `_trifft`
+   filtern und den Leerzustand mit `_suchLeer` beschriften — was
+   weggefiltert wird, muss benannt werden (No-silent-caps-Regel). */
+function _sq(id){ var el=document.getElementById(id); return el?String(el.value||'').trim().toLowerCase():''; }
+function _trifft(q, felder){
+  if(!q) return true;
+  var heu = felder.filter(Boolean).join(' ').toLowerCase();
+  return q.split(/\s+/).every(function(w){ return heu.indexOf(w)>=0; });
+}
+/* Leerzustand MIT Filterbezug: sagt, dass gefiltert wird, und bietet den
+   Weg zurück an — statt «nichts vorhanden» zu behaupten. */
+function _suchLeer(q, feldId, was){
+  if(!q) return '';
+  return '<p class="suchleer">Keine Treffer für «'+E(q)+'».'
+    +' <button type="button" onclick="_suchReset(\''+feldId+'\')">Suche zurücksetzen</button></p>';
+}
+function _suchReset(feldId){
+  var el=document.getElementById(feldId); if(!el) return;
+  el.value=''; el.focus();
+  try{ el.dispatchEvent(new Event('input',{bubbles:true})); }catch(e){}
+}
+window._suchReset=_suchReset;
+/* Werkzeug-Tab: EIN Suchfeld für fünf Teillisten. */
+function _dwzSuchen(){
+  ['renderWzPruefauftraege','renderWerkzeuge','renderWzDefekte','renderWzErsatz','renderMandate'].forEach(function(fn){
+    try{ if(typeof window[fn]==='function') window[fn](); }catch(e){}
+  });
+}
+window._dwzSuchen=_dwzSuchen;
+
 // ── KPIs ──
 /* KPI-Kachel als Filter-Button (Feedback 11.08.2026 #7): Klick springt in
    den passenden Tab und setzt dort den Status-Filter. Tab-Existenz-Guard
@@ -1125,8 +1188,13 @@ function _kpiGo(tabId, filterId, val){
   if(!document.getElementById('tb-'+tabId)) return;
   var f=document.getElementById(filterId);
   if(f){ f.value=val||''; }
+  // Eine Suche des vorherigen Besuchs würde die KPI-Zahl nicht mehr
+  // decken — die Kachel verspricht «N Stück», also Suchfeld leeren.
+  var s=document.getElementById({produkte:'suchProd',anfragen:'suchOa',bestellungen:'suchBest'}[tabId]||'');
+  if(s) s.value='';
   if(tabId==='produkte'){ var k=document.getElementById('prodKatFilter'); if(k)k.value=''; try{renderProdukte();}catch(e){} }
   if(tabId==='anfragen'){ try{renderAnfragen();}catch(e){} }
+  if(tabId==='bestellungen'){ try{renderBestellungen();}catch(e){} }
   switchToTab(tabId);
 }
 window._kpiGo=_kpiGo;
@@ -1365,11 +1433,18 @@ function renderProdukte(){
   // "+ Neues Produkt" nur fuer Rollen mit Produktpflege-Recht.
   var canEdit = _liefCanEditProdukte();
   var nb = document.getElementById('btnNewProd'); if(nb) nb.style.display = canEdit ? '' : 'none';
-  var kat = document.getElementById('prodKatFilter').value;
-  var st = document.getElementById('prodStatusFilter').value;
+  var kat = (document.getElementById('prodKatFilter')||{}).value||'';
+  var st = (document.getElementById('prodStatusFilter')||{}).value||'';
   var prods = getMyProdukte(kat||null, st||null);
+  var q = _sq('suchProd');
+  if(q) prods = prods.filter(function(p){
+    var d=p.daten||{}, k=GemaProdukte.getKategorie(p.kategorie)||{};
+    return _trifft(q,[d.serie,d.modell,d.bezeichnung,d.familie,d.hersteller,p.kategorie,k.name,(GemaProdukte.STATUS_LABELS[p.status]||{}).label]);
+  });
   if(!prods.length){
-    document.getElementById('prodList').innerHTML='<div style="padding:32px;text-align:center;color:var(--mut)"><div style="font-size:28px;margin-bottom:8px">📦</div>Keine Produkte gefunden.'+(canEdit?'<br><button class="btn btn-p btn-sm" onclick="openProdEditor(null)" style="margin-top:12px">+ Neues Produkt</button>':'')+'</div>';
+    document.getElementById('prodList').innerHTML = q
+      ? _suchLeer(q,'suchProd')
+      : '<div style="padding:32px;text-align:center;color:var(--mut)"><div style="font-size:28px;margin-bottom:8px">📦</div>Keine Produkte gefunden.'+(canEdit?'<br><button class="btn btn-p btn-sm" onclick="openProdEditor(null)" style="margin-top:12px">+ Neues Produkt</button>':'')+'</div>';
     return;
   }
   // Feedback 19.08.2026 (workspace #2): IMMER ein Bild-Slot links (Produkt-
@@ -1903,10 +1978,17 @@ function delProd(){
 
 // ── Offertanfragen ──
 function renderAnfragen(){
-  var status = document.getElementById('oaFilter').value;
+  var status = (document.getElementById('oaFilter')||{}).value||'';
   var list = status ? getMyAnfragen(status) : getMyAnfragen();
+  var q = _sq('suchOa');
+  if(q) list = list.filter(function(a){
+    var pr=a.projekt||{};
+    return _trifft(q,[a.produktName,a.kategorie,a.absenderName,a.absenderFirma,a.nachricht,a.bkp,pr.name,pr.nummer,pr.adresse,a.status]);
+  });
   if(!list.length){
-    document.getElementById('oaList').innerHTML='<div style="padding:32px;text-align:center;color:var(--mut)"><div style="font-size:28px;margin-bottom:8px">📭</div>Keine Offertanfragen.</div>';
+    document.getElementById('oaList').innerHTML = q
+      ? _suchLeer(q,'suchOa')
+      : '<div style="padding:32px;text-align:center;color:var(--mut)"><div style="font-size:28px;margin-bottom:8px">📭</div>Keine Offertanfragen.</div>';
     return;
   }
   document.getElementById('oaList').innerHTML = list.map(renderOaCard).join('');
@@ -2521,9 +2603,15 @@ function renderBestellungen(){
   }
   var filter=(document.getElementById('bestFilter')||{}).value||'';
   if(filter)list=list.filter(function(b){return b.status===filter;});
+  var q=_sq('suchBest');
+  if(q)list=list.filter(function(b){
+    return _trifft(q,[b.nr,b.produktName,b.kategorie,b.bestellerFirma,b.bestellerName,b.bestellerEmail,b.objektName,b.lieferadresse,b.bemerkung,b.status]);
+  });
   list.sort(function(a,b){return String(b.bestelltAm||'').localeCompare(String(a.bestelltAm||''));});
   if(!list.length){
-    el.innerHTML='<div class="card" style="padding:22px;text-align:center;color:var(--mut);font-size:13px">🛒 Keine Bestellungen'+(filter?' mit diesem Status':'')+'.<br><span style="font-size:12px">Hier erscheinen Anlagen-Bestellungen von Unternehmern nach dem Ausschreibungs-Zuschlag.</span></div>';
+    el.innerHTML = q
+      ? '<div class="card">'+_suchLeer(q,'suchBest')+'</div>'
+      : '<div class="card" style="padding:22px;text-align:center;color:var(--mut);font-size:13px">🛒 Keine Bestellungen'+(filter?' mit diesem Status':'')+'.<br><span style="font-size:12px">Hier erscheinen Anlagen-Bestellungen von Unternehmern nach dem Ausschreibungs-Zuschlag.</span></div>';
     return;
   }
   el.innerHTML=list.map(renderBestCard).join('');
@@ -2716,6 +2804,22 @@ function _dwzFirma(){
   return (_lief&&_lief.firma)||(u&&u.profile&&u.profile.firma)||(u&&u.name)||'Lieferant';
 }
 function _dwzToolById(id){ return _dwzAllTools().find(function(t){return t.id===id;})||null; }
+/* EIN Suchfeld für alle fünf Werkzeug-Listen (Prüfaufträge, Werkzeuge,
+   fällige Prüfungen, Defekte, Ersatzanfragen) — die Rubrik ist EIN Tab,
+   also gibt es auch nur EINE Suche. */
+function _dwzFiltern(items){
+  var q=_sq('suchWz');
+  if(!q)return items;
+  return items.filter(function(t){
+    return _trifft(q,[t.name,t.internKennung,t.brand,t.model,t.serial,t.cat,_dwzOrgName(t.orgId)]);
+  });
+}
+/* Leerzustand der Werkzeug-Listen: bei aktiver Suche NIE «keine vorhanden»
+   behaupten (die Liste ist nur gefiltert). */
+function _dwzLeer(normal){
+  var q=_sq('suchWz');
+  return q?_suchLeer(q,'suchWz'):normal;
+}
 function _dwzFmtD(d){ if(!d)return '—'; var p=String(d).split('T')[0].split('-'); return p.length===3?(p[2]+'.'+p[1]+'.'+p[0]):String(d); }
 // Einzelnes Tool sichern: lokalen Cache aktualisieren + genau EINE Cloud-Row
 // schreiben (GemaSync.saveRecord) — kein Diff ueber den ganzen Pool, damit
@@ -2778,11 +2882,11 @@ function renderWzPruefauftraege(){
   var el=document.getElementById('wzPruefAuftraege');if(!el)return;
   var myIds=_dwzMyIds();
   if(!myIds.length){el.innerHTML='';return;}
-  var items=_dwzAllTools().filter(function(t){
+  var items=_dwzFiltern(_dwzAllTools().filter(function(t){
     return t.pruefAnfrage&&myIds.indexOf(t.pruefAnfrage.lieferantId)>=0&&t.pruefAnfrage.status!=='erledigt';
-  });
+  }));
   if(!items.length){
-    el.innerHTML='<p style="color:var(--mut);font-size:13px">'+(_dwzLoaded?'✓ Keine offenen Prüfaufträge.':'Wird geladen…')+'</p>';
+    el.innerHTML=_dwzLeer('<p style="color:var(--mut);font-size:13px">'+(_dwzLoaded?'✓ Keine offenen Prüfaufträge.':'Wird geladen…')+'</p>');
     return;
   }
   el.innerHTML=items.map(function(t){
@@ -3187,19 +3291,19 @@ function renderWerkzeuge(){
   if(ebBtn)ebBtn.style.display='';
 
   var myIds=_dwzMyIds();
-  var mine=_dwzAllTools().filter(function(t){
+  var mine=_dwzFiltern(_dwzAllTools().filter(function(t){
     if(t.supplierId&&myIds.indexOf(t.supplierId)>=0)return true;
     if(t.pruefAnfrage&&myIds.indexOf(t.pruefAnfrage.lieferantId)>=0)return true;
     if((t.ersatzAnfragen||[]).some(function(a){return myIds.indexOf(a.lieferantId)>=0;}))return true;
     return false;
-  });
+  }));
 
   var pruefEl=document.getElementById('wzPruefungen');
   if(!mine.length){
-    el.innerHTML='<p style="color:var(--mut);font-size:12px">'+(_dwzLoaded
+    el.innerHTML=_dwzLeer('<p style="color:var(--mut);font-size:12px">'+(_dwzLoaded
       ?'Ihnen sind noch keine Werkzeuge zugewiesen. Auftraggeber verknüpfen Sie im Modul Werkzeugmanagement als Lieferant oder fordern Prüfungen an.'
-      :'Wird geladen…')+'</p>';
-    if(pruefEl)pruefEl.innerHTML='<p style="color:var(--mut);font-size:13px">✓ Keine fälligen Prüfungen.</p>';
+      :'Wird geladen…')+'</p>');
+    if(pruefEl)pruefEl.innerHTML=_dwzLeer('<p style="color:var(--mut);font-size:13px">✓ Keine fälligen Prüfungen.</p>');
     return;
   }
 
@@ -3232,7 +3336,7 @@ function renderWerkzeuge(){
     pruefEl.innerHTML='<div style="color:#d97706;font-size:13px;font-weight:700;margin-bottom:8px">⚠ '+faellig.length+' Prüfung(en) fällig</div>'+
       faellig.map(function(x){return '<div style="padding:6px 0;border-bottom:1px solid var(--brd);font-size:12px"><strong>'+E(x.t.name||'Werkzeug')+'</strong> ('+E(_dwzOrgName(x.t.orgId))+') — fällig seit '+_dwzFmtD(x.due)+'</div>';}).join('');
   } else {
-    pruefEl.innerHTML='<p style="color:var(--mut);font-size:13px">✓ Keine fälligen Prüfungen.</p>';
+    pruefEl.innerHTML=_dwzLeer('<p style="color:var(--mut);font-size:13px">✓ Keine fälligen Prüfungen.</p>');
   }
 }
 
@@ -3245,9 +3349,11 @@ function renderMandate(){
   var alleMandate=GemaAuth.getMandate().filter(function(m){
     return m.lieferantUserId===user.id||m.lieferantFirma===(_lief?_lief.firma:'');
   });
+  var mq=_sq('suchWz');
+  if(mq)alleMandate=alleMandate.filter(function(m){return _trifft(mq,[m.unternehmerFirma,m.typ,(m.kategorien||[]).join(' ')]);});
 
   if(!alleMandate.length){
-    el.innerHTML='<p style="color:var(--mut);font-size:12px">Noch keine Auftraggeber. Unternehmer können Ihnen Werkzeuge zur Verwaltung zuweisen.</p>';
+    el.innerHTML=_dwzLeer('<p style="color:var(--mut);font-size:12px">Noch keine Auftraggeber. Unternehmer können Ihnen Werkzeuge zur Verwaltung zuweisen.</p>');
     return;
   }
 
@@ -3282,7 +3388,7 @@ function renderWzDefekte(){
   if(!myIds.length){el.innerHTML='';return;}
   // An mich gemeldete, offene Defekte auf Werkzeugen mit meiner Verknuepfung
   var meineDefekte=[];
-  _dwzAllTools().forEach(function(t){
+  _dwzFiltern(_dwzAllTools()).forEach(function(t){
     if(!t.supplierId||myIds.indexOf(t.supplierId)<0)return;
     (t.berichte||[]).forEach(function(b){
       if(b.typ==='defekt'&&!b.erledigt&&b.anLieferantGemeldet){
@@ -3291,7 +3397,7 @@ function renderWzDefekte(){
     });
   });
   if(!meineDefekte.length){
-    el.innerHTML='<p style="color:var(--mut);font-size:13px">'+(_dwzLoaded?'✓ Keine offenen Defektmeldungen.':'Wird geladen…')+'</p>';
+    el.innerHTML=_dwzLeer('<p style="color:var(--mut);font-size:13px">'+(_dwzLoaded?'✓ Keine offenen Defektmeldungen.':'Wird geladen…')+'</p>');
     return;
   }
   el.innerHTML=meineDefekte.map(function(d){
@@ -3331,7 +3437,7 @@ function renderWzErsatz(){
   var myIds=_dwzMyIds();
   if(!myIds.length){el.innerHTML='';return;}
   var meineAnfragen=[];
-  _dwzAllTools().forEach(function(t){
+  _dwzFiltern(_dwzAllTools()).forEach(function(t){
     if(!t.ersatzAnfragen)return;
     t.ersatzAnfragen.forEach(function(a){
       if(myIds.indexOf(a.lieferantId)>=0&&(a.status==='offen'||a.status==='beantwortet')){
@@ -3340,7 +3446,7 @@ function renderWzErsatz(){
     });
   });
   if(!meineAnfragen.length){
-    el.innerHTML='<p style="color:var(--mut);font-size:13px">'+(_dwzLoaded?'✓ Keine offenen Ersatzanfragen.':'Wird geladen…')+'</p>';
+    el.innerHTML=_dwzLeer('<p style="color:var(--mut);font-size:13px">'+(_dwzLoaded?'✓ Keine offenen Ersatzanfragen.':'Wird geladen…')+'</p>');
     return;
   }
   // Offene zuerst
@@ -3379,12 +3485,19 @@ function renderRohrsysteme(){
   // Formstücke
   var fs=[];
   if(typeof GemaProdukte!=='undefined'){fs=GemaProdukte.getProdukte('formstuecke').filter(function(p){return p.lieferantId===_lief?.id||p.lieferantFirma===_lief?.firma;});}
+  var q=_sq('suchRs');
+  if(q){
+    rs=rs.filter(function(p){var d=p.daten||{};return _trifft(q,[d.serie,d.material,d.rauhigkeit,d.bezeichnung,p.lieferantFirma]);});
+    fs=fs.filter(function(p){var d=p.daten||{};return _trifft(q,[d.serie,d.fittingTyp,d.rohrsystem,d.bezeichnung]);});
+  }
   var h='';
   if(rs.length){
     h+=rs.map(function(p){
       var d=p.daten||{};
       return '<div style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--brd)"><div style="flex:1"><strong style="font-size:13px">'+(d.serie||p.lieferantFirma)+'</strong><div style="font-size:11px;color:var(--mut)">'+(d.material||'')+(d.rauhigkeit?' · k='+d.rauhigkeit+' mm':'')+'</div></div><span style="font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700;'+(p.status==='verifiziert'?'background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0':'background:#fef2f2;color:#dc2626;border:1px solid #fecaca')+'">'+(p.status==='verifiziert'?'✓ Verifiziert':'⚠ Prüfen')+'</span></div>';
     }).join('');
+  } else if(q){
+    h=_suchLeer(q,'suchRs');
   } else {
     h='<div style="padding:16px;text-align:center;color:var(--mut);font-size:13px">Noch keine Rohrsysteme erfasst. Erfassen Sie diese unter «Meine Produkte» mit Kategorie «Rohrsystem».</div>';
   }
@@ -3408,8 +3521,13 @@ function renderArmaturen(){
   var addBtn=document.getElementById('armAddBtn');
   if(addBtn)addBtn.style.display=(_liefCanEditProdukte()&&!(_lief&&_lief.status==='inaktiv'))?'':'none';
   var armH='';
+  var armQ=_sq('suchRs');
   if(typeof GemaArmaturen!=='undefined'&&_lief){
     var myArm=GemaArmaturen.getForLieferant(_lief.id,_lief.firma);
+    if(armQ)myArm=myArm.filter(function(a){
+      var dims=Object.keys(a.zeta||{}).concat(Object.keys(a.kvs||{}));
+      return _trifft(armQ,[a.name,_armTypName(a.typ),a.serie,a.hersteller,dims.join(' ')]);
+    });
     if(myArm.length){
       armH+=myArm.map(function(a){
         var dims=Object.keys(a.zeta||{});
@@ -3427,6 +3545,8 @@ function renderArmaturen(){
           +' · '+dims.length+' Dim.'+(hasKvs?' · <b style="color:#2563eb">kvs</b>':'')+(hasDiag?' · 📈 Diagramm':'')+'</div></div>'
           +btns+'</div>';
       }).join('');
+    } else if(armQ){
+      armH=_suchLeer(armQ,'suchRs');
     } else {
       armH='<div style="padding:16px;text-align:center;color:var(--mut);font-size:13px">Noch keine Armaturen erfasst.'+(_liefCanEditProdukte()?' Mit «+ Armatur erfassen» legen Sie ζ-/kvs-Werte pro Dimension und das Druckverlustdiagramm an — die Planer nutzen diese direkt in den Druckverlustberechnungen.':'')+'</div>';
     }
@@ -3601,10 +3721,11 @@ function renderLiefUsers(){
   var orgId=_lief.orgId||'';
   var users=[];
   try{users=GemaAuth.getOrgUsers?GemaAuth.getOrgUsers(orgId):(GemaAuth.getUsers()||[]).filter(function(u){return u.orgId===orgId;});}catch(e){}
-  if(!users.length){el.innerHTML='<div style="padding:20px;color:var(--mut);font-size:13px;text-align:center">Keine Mitarbeiter.</div>';return;}
   var roles=[];try{roles=GemaAuth.getRoles()||[];}catch(e){}
   var me=null;try{me=GemaAuth.getCurrentUser();}catch(e){}
   // Org-Admin nur fuer DIESE Lieferanten-Org (vorher: irgendeine Org).
+  // Steht VOR dem Leer-Return: eine Suche ohne Treffer darf den
+  // Einladen-Knopf nicht in seinem letzten Zustand einfrieren.
   var canManage=false;try{
     var globalAdmin = me&&me.roleIds&&me.roleIds.indexOf('role_admin')>=0;
     var sameOrgAdmin = GemaAuth.isOrgAdmin && GemaAuth.isOrgAdmin(me.id) && me.orgId && _lief && me.orgId===_lief.orgId;
@@ -3613,6 +3734,16 @@ function renderLiefUsers(){
   // Deaktivierter Lieferant: keine Mitarbeiter-Verwaltung (Einladen/Rollen).
   var inaktiv=_lief&&_lief.status==='inaktiv';
   var invBtn=document.getElementById('liefInviteBtn');if(invBtn)invBtn.style.display=(canManage&&!inaktiv)?'':'none';
+  var q=_sq('suchMa');
+  if(q)users=users.filter(function(u){
+    var rn=(u.roleIds||[]).map(function(rid){var r=roles.find(function(x){return x.id===rid;});return r?r.name:'';});
+    return _trifft(q,[u.name,u.username,(u.profile||{}).email,rn.join(' ')]);
+  });
+  if(!users.length){
+    el.innerHTML = q ? _suchLeer(q,'suchMa')
+      : '<div style="padding:20px;color:var(--mut);font-size:13px;text-align:center">Keine Mitarbeiter.</div>';
+    return;
+  }
   el.innerHTML=users.map(function(u){
     var rNames=(u.roleIds||[]).map(function(rid){var r=roles.find(function(x){return x.id===rid;});return r?r.name:'';}).filter(Boolean).join(', ');
     var isMe=me&&me.id===u.id;

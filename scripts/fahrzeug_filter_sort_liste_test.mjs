@@ -264,6 +264,66 @@ console.log('— B) Sortierbare Tabelle —');
 }
 
 // ══════════════════════════════════════════════════════════════════
+// Die KARTEN-Ansicht ist auf dem Desktop der Standard — dort gab es bis
+// 22.08.2026 keinen Weg, die Sortierung zu aendern (der Select lag in der
+// Listen-Leiste, die Kopfzeile gehoert der Tabelle). Ohne diesen Zugang
+// wirkt «Liste muss sortierbar sein» aus der Standard-Ansicht heraus
+// unerfuellt, obwohl die Sortierung darunter laengst greift.
+console.log('— B2) Sortierung in der Karten-Ansicht —');
+{
+  seedStore();
+  const { ctx, page } = await openPage();
+  await page.evaluate(() => _fzSetView('cards'));
+  await page.waitForTimeout(250);
+
+  const top = await page.evaluate(() => {
+    const s = document.getElementById('fzSortSelTop');
+    if (!s) return { da: false };
+    const r = s.getBoundingClientRect();
+    return { da: true, sichtbar: r.width > 0 && r.height > 0, opts: s.options.length, val: s.value };
+  });
+  ok(top.da && top.sichtbar, 'Die Karten-Ansicht traegt eine Sortier-Auswahl in der Toolbar');
+  ok(top.opts >= 12, 'Sie kennt alle Kriterien (' + (top.opts || 0) + ')');
+  ok(top.val === 'nr:asc', 'Sie zeigt die aktive Sortierung (' + top.val + ')');
+
+  await page.selectOption('#fzSortSelTop', 'km:desc');
+  await page.waitForTimeout(250);
+  const kartenNr = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('#cardsView .v-card')).map(el => {
+      const m = String(el.getAttribute('onclick') || '').match(/'([^']+)'/);
+      const v = m && _fzPermHooks.vehicles().find(x => x.id === m[1]);
+      return v ? v.nr : '?';
+    }));
+  ok(kartenNr.join(',') === '10,30,20,40', 'Die Karten folgen der gewaehlten Sortierung (' + kartenNr.join(',') + ')');
+
+  // Keine zwei Bedienelemente fuer dasselbe: in Liste/Tabelle tritt der
+  // Toolbar-Select beiseite (dort gibt es den eigenen Zugang).
+  const woSichtbar = await page.evaluate(async () => {
+    const sicht = v => {
+      _fzSetView(v);
+      const s = document.getElementById('fzSortSelTop');
+      const r = s.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    };
+    return { liste: sicht('list'), tabelle: sicht('table'), karten: sicht('cards') };
+  });
+  ok(!woSichtbar.liste && !woSichtbar.tabelle, 'In Liste und Tabelle tritt der Toolbar-Select beiseite');
+  ok(woSichtbar.karten, 'In der Karten-Ansicht ist er wieder da');
+
+  // Beide Zugaenge zeigen denselben Stand — eine Sortier-Wahrheit.
+  await page.evaluate(() => { _fzSetView('list'); _fzSortFromSelect('driver:asc'); _fzSetView('cards'); });
+  await page.waitForTimeout(250);
+  const gleich = await page.evaluate(() => ({
+    top: (document.getElementById('fzSortSelTop') || {}).value || '',
+    liste: (document.getElementById('fzSortSel') || {}).value || ''
+  }));
+  ok(gleich.top === 'driver:asc' && gleich.liste === 'driver:asc',
+    'Beide Sortier-Auswahlen zeigen denselben Stand (' + gleich.top + ' / ' + gleich.liste + ')');
+  ok(page.errs.length === 0, 'Keine JS-Fehler (' + (page.errs[0] || '—') + ')');
+  await ctx.close();
+}
+
+// ══════════════════════════════════════════════════════════════════
 console.log('— C) Kompakte Listenansicht (klassisch, Handy) —');
 {
   seedStore();
