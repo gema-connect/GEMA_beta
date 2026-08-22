@@ -2825,19 +2825,236 @@ function _fzKatalogAutofill(){
 window._fzKatalogAutofill = _fzKatalogAutofill;
 
 /* ═══════════════════════════════
-   CSV EXPORT
-   ═══════════════════════════════ */
+   CSV-VOLLEXPORT (Bestandsliste + Detail-Tabellen)
+   ═══════════════════════════════
+   GEMA-Kanon fuer Excel-Export: Semikolon + UTF-8-BOM, keine Bibliothek,
+   laeuft offline. JEDE Zelle wird gequotet — frueher war nur «Notizen»
+   gequotet, ein Semikolon im Modell oder ein Zeilenumbruch in der
+   Ausruestung zerriss damit die ganze Zeile.
+
+   «Komplett alle Daten»:
+    (1) BESTANDSLISTE — eine Zeile pro Fahrzeug mit ALLEN flachen Feldern;
+        Unterlisten (Ereignisse, Service, Tankkarten …) stehen dort als
+        lesbare Zusammenfassung in ihrer Zelle.
+    (2) DETAIL-TABELLEN — eine Zeile pro Ereignis / Service-Eintrag /
+        Folgetermin / Tankkarte, fuer die Auswertung.
+*/
+function _fzCsvZelle(v){
+  if(v===null||v===undefined)return '""';
+  if(v===true)return '"Ja"'; if(v===false)return '"Nein"';
+  return '"'+String(v).replace(/"/g,'""')+'"';
+}
+function _fzCsvTabelle(kopf,zeilen){
+  var out=[kopf.map(_fzCsvZelle).join(';')];
+  zeilen.forEach(function(z){ out.push(z.map(_fzCsvZelle).join(';')); });
+  return '\uFEFF'+out.join('\r\n')+'\r\n';  // BOM sichtbar als Escape — ein literales U+FEFF verliert man beim Kopieren
+}
+function _fzCsvDat(v){
+  if(!v)return '';
+  var s=String(v);
+  if(/^\d{4}-\d{2}-\d{2}T/.test(s))return s.slice(0,10)+' '+s.slice(11,16);
+  return s;
+}
+function _fzCsvDownload(dateiname,text){
+  var blob=new Blob([text],{type:'text/csv;charset=utf-8;'});
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download=dateiname;
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },4000);
+}
+var _FZ_EVT_LABEL={ausleihe:'Ausleihe',rueckgabe:'Rückgabe',defekt:'Defekt',kosten:'Kosten',reifen:'Reifen',
+  zuweisung:'Zuweisung',garage:'Garage',reparatur:'Reparatur',parkk:'Parkkarte'};
+/* ── Bestandsliste ── */
+var _FZ_CSV_BESTAND_KOPF=['ID','Nr.','Kennzeichen','Marke/Modell','Jahrgang','Treibstoff','Farbe','Typ',
+  'Zuteilung','Fahrer','Abteilung','Status','Ausbau','Ausrüstung',
+  'km-Stand','km aktualisiert','Service alle km','Service alle Monate','Letzter Service','Letzter Service km','Nächster Service','MFK',
+  'Garage / Werkstatt','Garagist-Konto','Versicherung für Garagist freigegeben',
+  'In Garage seit','In Garage eingebucht von','In Garage Werkstatt','In Garage Grund',
+  'Stellplatz','Tankkarten','Reifen','Reifen Saison','Reifen Lagerung','Reifenwechsel am',
+  'Beleg Rechnungs-Nr.','Beleg Betrag','Beleg Bestell-Nr.','Beleg Lieferdatum',
+  'Versicherung Gesellschaft','Police-Nr.','Deckung','Versicherung Ablauf',
+  'Ausgeliehen an','Ausgeliehen seit',
+  'AHK','Dachträger','Navi','Rückfahrkamera','Beschriftung',
+  'Notizen','Defekte offen','Ereignisse gesamt','Ereignisse','Service-Einträge','Service-Historie',
+  'Folgetermine offen','Folgetermine','Org-ID','Erfasst am','Geändert am'];
+function _fzCsvBestandZeile(v){
+  var gs=(v.garageStatus&&typeof v.garageStatus==='object')?v.garageStatus:{};
+  var kb=v.kaufbeleg||{}, ve=v.versicherung||{}, al=v.ausgeliehenAn||{};
+  var ev=Array.isArray(v.events)?v.events:[];
+  var sh=Array.isArray(v.serviceHistorie)?v.serviceHistorie:[];
+  var fu=Array.isArray(v.followUps)?v.followUps:[];
+  var tk=Array.isArray(v.tankkarten)?v.tankkarten:[];
+  var ns=null; try{ ns=nextServiceDate(v); }catch(e){}
+  var offen=ev.filter(function(e){return e&&e.type==='defekt'&&!e.resolved;});
+  return [v.id||'', v.nr||'', v.plate||'', v.model||'', v.year||'', v.fuel||'', v.color||'',
+    (typeof typeLabel==='function'?typeLabel(v.type):(v.type||'')),
+    v.assignment==='fix'?'Fix':(v.assignment==='sharing'?'Sharing':(v.assignment||'')),
+    v.driver||'', v.dept||'',
+    (typeof statusLabel==='function'?statusLabel(v.status):(v.status||'')),
+    v.buildout||'', v.equipment||'',
+    v.km||'', _fzCsvDat(v.kmUpdatedAt||''), v.serviceKm||'', v.serviceMonths||'',
+    v.lastService||'', v.lastServiceKm||'',
+    ns&&!isNaN(ns.getTime())?ns.toISOString().slice(0,10):'', v.mfk||'',
+    (typeof v.garage==='string'?v.garage:''), v.garagistUserId||'', !!v.versicherungFreiFuerGaragist,
+    _fzCsvDat(gs.eingebuchtAm||''), gs.eingebuchtVonName||'', gs.werkstatt||'', gs.grund||'',
+    v.stellplatz||'',
+    tk.map(function(k){ return [k&&k.nr,k&&k.netz].filter(Boolean).join(' · '); }).filter(Boolean).join('\n'),
+    v.tires||'', v.tiresSeason||'', v.tireStorage||'', v.tireChangeDate||'',
+    kb.rechnungsNr||'', kb.betrag||'', kb.bestellNr||'', kb.lieferdatum||'',
+    ve.gesellschaft||'', ve.policeNr||'', ve.deckung||'', ve.ablauf||'',
+    al.name||'', al.seit||'',
+    !!v.hasAHK, !!v.hasRoof, !!v.hasNav, !!v.hasCam, !!v.hasLabel,
+    v.notes||'', offen.length, ev.length,
+    ev.map(function(e){
+      return [_fzCsvDat(e.date||''),(_FZ_EVT_LABEL[e.type]||e.type||''),e.label||'',
+        (e.type==='defekt'?(e.resolved?'behoben':'offen'):'')].filter(Boolean).join(' · ');
+    }).join('\n'),
+    sh.length,
+    sh.map(function(e){
+      return [e.datum||'',e.art||'',e.km?e.km+' km':'',e.werkstatt||'',e.kosten?'CHF '+e.kosten:''].filter(Boolean).join(' · ');
+    }).join('\n'),
+    fu.filter(function(f){return f&&!f.completed;}).length,
+    fu.map(function(f){
+      return [f.dueDate||'',f.beschreibung||'',(f.completed?'erledigt':'offen')].filter(Boolean).join(' · ');
+    }).join('\n'),
+    v.orgId||'', _fzCsvDat(v.createdAt||''), _fzCsvDat(v.updatedAt||'')];
+}
+/* ── Detail-Tabellen ── */
+function _fzCsvTabEreignisse(list){
+  var kopf=['Fahrzeug-ID','Nr.','Kennzeichen','Datum','Typ','Bezeichnung','Detail','Priorität',
+    'Behoben','Behoben am','Behoben von','Bemerkung zur Behebung'];
+  var z=[];
+  list.forEach(function(v){
+    (Array.isArray(v.events)?v.events:[]).forEach(function(e){
+      z.push([v.id||'',v.nr||'',v.plate||'',_fzCsvDat(e.date||''),(_FZ_EVT_LABEL[e.type]||e.type||''),
+        e.label||'',e.detail||'',e.prio||'',
+        e.type==='defekt'?(e.resolved?'Ja':'Nein'):'',
+        _fzCsvDat(e.resolvedAt||''), e.resolvedByName||'', e.resolvedNote||'']);
+    });
+  });
+  return {kopf:kopf,zeilen:z};
+}
+function _fzCsvTabService(list){
+  var kopf=['Fahrzeug-ID','Nr.','Kennzeichen','Eintrag-ID','Datum','km','Art','Beschreibung','Kosten','Werkstatt',
+    'Erledigt von','Erfasst am','Fotos'];
+  var z=[];
+  list.forEach(function(v){
+    (Array.isArray(v.serviceHistorie)?v.serviceHistorie:[]).forEach(function(e){
+      z.push([v.id||'',v.nr||'',v.plate||'',e.id||'',e.datum||'',e.km||'',e.art||'',e.beschreibung||'',
+        e.kosten||'',e.werkstatt||'',e.erledigtVonName||'',_fzCsvDat(e.erstelltAm||''),
+        (Array.isArray(e.photos)?e.photos.length:0)]);
+    });
+  });
+  return {kopf:kopf,zeilen:z};
+}
+function _fzCsvTabFollowUps(list){
+  var kopf=['Fahrzeug-ID','Nr.','Kennzeichen','Termin-ID','Fällig am','Beschreibung','Erledigt',
+    'Geplant am','Geplant von','Aus Service-Eintrag'];
+  var z=[];
+  list.forEach(function(v){
+    (Array.isArray(v.followUps)?v.followUps:[]).forEach(function(f){
+      z.push([v.id||'',v.nr||'',v.plate||'',f.id||'',f.dueDate||'',f.beschreibung||'',f.completed?'Ja':'Nein',
+        _fzCsvDat(f.plannedAt||''),f.plannedByName||'',f.plannedFromEntryId||'']);
+    });
+  });
+  return {kopf:kopf,zeilen:z};
+}
+function _fzCsvTabTankkarten(list){
+  var kopf=['Fahrzeug-ID','Nr.','Kennzeichen','Karten-Nr.','Netz'];
+  var z=[];
+  list.forEach(function(v){
+    (Array.isArray(v.tankkarten)?v.tankkarten:[]).forEach(function(k){
+      z.push([v.id||'',v.nr||'',v.plate||'',(k&&k.nr)||'',(k&&k.netz)||'']);
+    });
+  });
+  return {kopf:kopf,zeilen:z};
+}
+function _fzCsvTabellen(list){
+  var t=[];
+  t.push({name:'01_Bestand.csv',text:_fzCsvTabelle(_FZ_CSV_BESTAND_KOPF,list.map(_fzCsvBestandZeile)),
+          label:'Bestandsliste',anzahl:list.length});
+  [['02_Ereignisse.csv','Ereignisse & Defekte',_fzCsvTabEreignisse(list)],
+   ['03_Servicehistorie.csv','Service-Historie',_fzCsvTabService(list)],
+   ['04_Folgetermine.csv','Folgetermine',_fzCsvTabFollowUps(list)],
+   ['05_Tankkarten.csv','Tankkarten',_fzCsvTabTankkarten(list)]
+  ].forEach(function(e){
+    // Leere Detail-Tabelle wird NICHT weggelassen — eine fehlende Datei
+    // liest sich wie ein Fehler, eine leere Tabelle sagt «gibt es nicht».
+    t.push({name:e[0],text:_fzCsvTabelle(e[2].kopf,e[2].zeilen),label:e[1],anzahl:e[2].zeilen.length});
+  });
+  return t;
+}
+/* ── Export-Dialog ── */
+var _fzCsvAlle=false;
+function _fzCsvListe(){
+  if(_fzCsvAlle)return vehicles.slice();
+  try{ return getFiltered(); }catch(e){ return vehicles.slice(); }
+}
+function _fzCsvSetAlle(v){ _fzCsvAlle=!!v; exportCSV(); }
+window._fzCsvSetAlle=_fzCsvSetAlle;
+function _fzCsvDateiBasis(){ return 'GEMA_Fahrzeuge_'+new Date().toISOString().slice(0,10); }
 function exportCSV(){
-  if(vehicles.length===0){ showToast("Keine Fahrzeuge zum Exportieren."); return; }
-  const headers=["Nr","Kennzeichen","Marke/Modell","Jahrgang","Treibstoff","Farbe","Typ","Zuteilung","Fahrer","Abteilung","Status","Ausbau","km-Stand","Service-km","Service-Mon.","Letzter Service","MFK","Notizen"];
-  const rows=vehicles.map(v=>[v.nr,v.plate,v.model,v.year,v.fuel,v.color,typeLabel(v.type),v.assignment==="fix"?"Fix":"Sharing",v.driver,v.dept,statusLabel(v.status),v.buildout,v.km,v.serviceKm,v.serviceMonths,v.lastService,v.mfk,'"'+((v.notes||"").replace(/"/g,'""'))+'"']);
-  const csv="\uFEFF"+[headers.join(";"),...rows.map(r=>r.join(";"))].join("\n");
-  const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
-  const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
-  a.download=`GEMA_Fahrzeuge_${new Date().toISOString().slice(0,10)}.csv`; a.click();
-  showToast("CSV exportiert ✓");
+  if(!vehicles.length){ showToast('Keine Fahrzeuge zum Exportieren.'); return; }
+  var list=_fzCsvListe(), tabs=_fzCsvTabellen(list);
+  var gefiltert=vehicles.length!==list.length||_fzCsvAlle;
+  var zeilen=tabs.map(function(t){
+    return '<div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid #f1f5f9;font-size:12.5px">'
+      +'<span style="color:#334155">'+esc(t.label)+'</span>'
+      +'<span style="color:#64748b;font-weight:700;white-space:nowrap">'+t.anzahl+(t.anzahl===1?' Zeile':' Zeilen')+'</span></div>';
+  }).join('');
+  var scope=gefiltert
+    ? '<label style="display:flex;align-items:center;gap:8px;margin:10px 0 0;font-size:12.5px;color:#334155;cursor:pointer">'
+      +'<input type="checkbox" '+(_fzCsvAlle?'checked':'')+' onchange="_fzCsvSetAlle(this.checked)" style="width:16px;height:16px;cursor:pointer">'
+      +'<span>Alle '+vehicles.length+' Fahrzeuge exportieren (aktuelle Filter/Suche ignorieren)</span></label>'
+    : '';
+  _fzCsvModal('<h3 style="margin:0 0 4px;font-size:17px;font-weight:800">📥 CSV-Export</h3>'
+    +'<div style="font-size:12.5px;color:#64748b;margin-bottom:10px">'
+      +(_fzCsvAlle?'Ganzer Bestand':'Aktuelle Ansicht')+' — <strong>'+list.length+'</strong> von '+vehicles.length+' Fahrzeugen · Semikolon + UTF-8 (öffnet direkt in Excel)</div>'
+    +'<div style="border:1px solid #e2e8f0;border-radius:10px;padding:4px 12px 8px;background:#f8fafc">'+zeilen+'</div>'
+    +scope
+    +'<div style="font-size:11.5px;color:#64748b;margin-top:10px;line-height:1.5">Die <strong>Bestandsliste</strong> enthält alle Angaben — Unterlisten stehen dort als Zusammenfassung in ihrer Zelle. Die <strong>Detail-Tabellen</strong> haben eine Zeile pro Ereignis, Service-Eintrag, Folgetermin bzw. Tankkarte.</div>'
+    +'<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;flex-wrap:wrap">'
+      +'<button onclick="_fzCsvClose()" style="padding:9px 16px;border-radius:8px;border:1.5px solid #e5e7eb;background:#fff;color:#64748b;cursor:pointer;font-weight:700;font-family:inherit">Abbrechen</button>'
+      +'<button onclick="_fzExportBestand()" style="padding:9px 16px;border-radius:8px;border:1.5px solid #cbd5e1;background:#fff;color:#334155;cursor:pointer;font-weight:700;font-family:inherit">📄 Nur Bestandsliste</button>'
+      +'<button onclick="_fzExportAlles()" style="padding:9px 18px;border-radius:8px;border:none;background:#2563eb;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">📦 Alles (ZIP)</button>'
+    +'</div>');
 }
 window.exportCSV = exportCSV;
+function _fzCsvModal(inner){
+  _fzCsvClose();
+  var ov=document.createElement('div');
+  ov.id='_fzCsvOverlay';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10500;display:flex;align-items:center;justify-content:center;overflow:auto;'
+    +'padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))';
+  ov.innerHTML='<div style="background:#fff;border-radius:16px;padding:20px;max-width:460px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.3);font-family:inherit">'+inner+'</div>';
+  document.body.appendChild(ov);
+}
+function _fzCsvClose(){ var o=document.getElementById('_fzCsvOverlay'); if(o)o.remove(); }
+window._fzCsvClose=_fzCsvClose;
+function _fzExportBestand(){
+  var list=_fzCsvListe();
+  if(!list.length){ showToast('Keine Fahrzeuge zum Exportieren.'); return; }
+  _fzCsvDownload(_fzCsvDateiBasis()+'.csv',_fzCsvTabelle(_FZ_CSV_BESTAND_KOPF,list.map(_fzCsvBestandZeile)));
+  _fzCsvClose(); showToast('CSV exportiert ✓');
+}
+window._fzExportBestand=_fzExportBestand;
+function _fzExportAlles(){
+  var list=_fzCsvListe();
+  if(!list.length){ showToast('Keine Fahrzeuge zum Exportieren.'); return; }
+  var tabs=_fzCsvTabellen(list), basis=_fzCsvDateiBasis();
+  if(typeof GemaStorage!=='undefined'&&GemaStorage.zipTexte&&GemaStorage.zipTexte(tabs,basis)){
+    _fzCsvClose(); showToast(tabs.length+' Tabellen als ZIP exportiert ✓'); return;
+  }
+  // Ohne ZIP-Helfer: jede Tabelle einzeln — nichts faellt weg, der Nutzer
+  // erfaehrt aber, dass mehrere Dateien kommen.
+  _fzCsvClose();
+  tabs.forEach(function(t,i){ setTimeout(function(){ _fzCsvDownload(basis+'_'+t.name,t.text); }, i*400); });
+  showToast(tabs.length+' CSV-Dateien werden heruntergeladen …');
+}
+window._fzExportAlles=_fzExportAlles;
+/* Test-Hooks: das Modul ist eine async-IIFE — von aussen (Drift-Guard,
+   Konsole) ist NUR erreichbar, was hier an window haengt. Muster _fzPermHooks. */
+window._fzCsvHooks={tabelle:_fzCsvTabelle,zelle:_fzCsvZelle,kopf:_FZ_CSV_BESTAND_KOPF,zeile:_fzCsvBestandZeile,tabellen:_fzCsvTabellen,liste:_fzCsvListe};
 
 /* ═══════════════════════════════
    DEMO-CLEANUP
@@ -5026,6 +5243,7 @@ window.openBerichte = openBerichte;
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>
 <script src="gema_dialog.js"></script>
+<script src="gema_storage.js"></script>
 <script src="gema-native.js"></script>
 <script src="gema_native_mobil.js"></script>
 <script>

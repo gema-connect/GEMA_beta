@@ -396,6 +396,27 @@
   }
 
   /**
+   * Bietet mehrere TEXT-Dateien (z. B. CSV-Tabellen) als EIN ZIP an —
+   * ohne Bibliothek, ohne Netz, ueber denselben STORE-Schreiber wie
+   * zipDownload (eine Wahrheit). dateien = [{name, text}].
+   * Liefert true, wenn der Download angestossen wurde.
+   */
+  function zipTexte(dateien, zipName){
+    var enc = new TextEncoder();
+    var entries = (dateien || [])
+      .filter(function(d){ return d && d.name; })
+      .map(function(d){ return { name: d.name, bytes: enc.encode(String(d.text == null ? '' : d.text)) }; });
+    if(!entries.length) return false;
+    var blob = _zipBlob(entries);
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = (_safeName(zipName) || 'GEMA-Export') + '.zip';
+    document.body.appendChild(a); a.click();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+    return true;
+  }
+
+  /**
    * Bestaetigungs-Dialog vor dem Loeschen eines Datensatzes: nennt die
    * Anzahl der zugehoerigen Dateien, listet sie auf und bietet an, sie
    * vorher als ZIP zu sichern. Muster wie die Objekt-Loeschung in
@@ -461,6 +482,7 @@
     collectFiles: collectFiles,
     deleteFiles: deleteFiles,
     zipDownload: zipDownload,
+    zipTexte: zipTexte,
     confirmDelete: confirmDelete,
     _zipFromDialog: _zipFromDialog
   };
