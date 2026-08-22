@@ -137,7 +137,10 @@ console.log('— Werkzeug (Liste/Badges/Filter/Toggle) —');
     rows: document.querySelectorAll('.gn--page [data-nat-list] .gn-row').length,
     badges: Array.from(document.querySelectorAll('.gn--page .gn-badge')).map(b => b.textContent)
   }));
-  ok(w.sub.indexOf('3 Geräte') >= 0 && w.sub.indexOf('1 Prüfungen fällig') >= 0, 'Zähler echt («' + w.sub + '»)');
+  // Untertitel bewusst gekürzt («1 fällig» statt «1 Prüfungen fällig»): die
+  // Werkzeug-Toolbar trägt Zurück + Titel + 3 Aktionen + Avatar — der lange
+  // Text schob den Avatar aus dem Bild (Feedback «schon gar nicht horizontal»).
+  ok(w.sub.indexOf('3 Geräte') >= 0 && w.sub.indexOf('1 fällig') >= 0, 'Zähler echt («' + w.sub + '»)');
   ok(w.rows === 3, 'alle 3 Werkzeuge gelistet');
   ok(w.badges.some(b => /Ausgeliehen/.test(b)) && w.badges.some(b => /Prüfung überfällig/.test(b)) && w.badges.some(b => /Verfügbar/.test(b)), 'Status-Badges (Verfügbar/Ausgeliehen/Prüfung)');
   // ‹ Zurück-Taste — zentral injiziert (Toolbar + Kompakt-Leiste)

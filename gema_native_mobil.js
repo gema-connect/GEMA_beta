@@ -132,6 +132,11 @@
       '.gn .gn-back svg{stroke:var(--gn-accent)}' +
       '.gn .gn-back-c{position:absolute;left:6px;bottom:2px;width:38px;height:38px;border:none;background:transparent;' +
       'display:flex;align-items:center;justify-content:center;pointer-events:auto;cursor:pointer;-webkit-tap-highlight-color:transparent}' +
+      /* Die Kompakt-Leiste ist bis zum Scrollen unsichtbar (opacity:0) und
+         selbst pointer-events:none — ihre Zurueck-Taste war es NICHT und fing
+         darum Taps auf alles ab, was darunter liegt (bei kompakter Toolbar die
+         Zurueck-Taste der Toolbar selbst). Unsichtbar heisst nicht tippbar. */
+      '.gn [data-gn-compact]:not(.is-visible) .gn-back-c{pointer-events:none}' +
       '.gn .gn-back-c svg{width:21px;height:21px;stroke:var(--gn-accent);fill:none}' +
       '.gn .gn-back-c:active,.gn .gn-back:active{transform:scale(.92)}' +
       /* ── Benutzeravatar + Konto-/Einstellungs-Menü (zentral injiziert) ──
