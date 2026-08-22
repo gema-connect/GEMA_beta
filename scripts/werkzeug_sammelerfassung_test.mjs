@@ -335,9 +335,15 @@ try {
     window.__ptrHit = false;
     el.__gnRefresh = function () { window.__ptrHit = true; return orig ? orig() : Promise.resolve(); };
   });
-  await pn.mouse.move(195, 120);
+  // Startpunkt AUS DEM LAYOUT holen: eine feste y-Koordinate landet je nach
+  // Toolbar-Hoehe auf dem Segment-Umschalter und filtert dann die Liste weg.
+  const zugY = await pn.evaluate(() => {
+    const l = document.querySelector('[data-nat-list]');
+    return Math.round((l ? l.getBoundingClientRect().top : 160) + 12);
+  });
+  await pn.mouse.move(195, zugY);
   await pn.mouse.down();
-  await pn.mouse.move(195, 200, { steps: 8 });
+  await pn.mouse.move(195, zugY + 80, { steps: 8 });
   await pn.mouse.up();
   await pn.waitForFunction(() => window.__ptrHit === true, null, { timeout: 4000 }).catch(() => {});
   ok(await pn.evaluate(() => window.__ptrHit === true), 'Zug-Geste (80px nach unten) löst den Refresh aus');
