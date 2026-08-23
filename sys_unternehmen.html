@@ -640,24 +640,65 @@ function renderGaeste(){
       '<div style="flex:1"><strong>'+E(u.name||u.username)+'</strong> '+statusBadge+
       '<div style="font-size:11px;color:var(--mut)">'+E(u.profile?.firma||'')+' · seit '+E(g.erstelltAm?.split('T')[0]||'')+(g.gueltigBis?' · bis '+g.gueltigBis:'')+'</div></div>'+
       (g.status==='angefragt'?'<button class="btn btn-p btn-sm" onclick="bewilligeGast(\''+u.id+'\')">✓ Bewilligen</button>':'')+
-      (g.status==='aktiv'?'<button class="btn btn-d btn-sm" onclick="GemaAuth.deaktivierGast(\''+u.id+'\',\''+_org.id+'\');renderGaeste();toast(\'Gast deaktiviert\')">Deaktivieren</button>':'')+
-      (g.status==='deaktiviert'?'<button class="btn btn-sm" onclick="GemaAuth.bewilligeGast(\''+u.id+'\',\''+_org.id+'\',null,\''+_user.id+'\');renderGaeste();toast(\'Gast reaktiviert\')">Reaktivieren</button>':'')+
+      (g.status==='aktiv'?'<button class="btn btn-d btn-sm" onclick="gastDeaktivieren(\''+u.id+'\')">Deaktivieren</button>':'')+
+      (g.status==='deaktiviert'?'<button class="btn btn-sm" onclick="gastReaktivieren(\''+u.id+'\')">Reaktivieren</button>':'')+
     '</div>';
   }).join('');
 }
+/* KRITISCH — die Server-Antwort abwarten, bevor «gespeichert» gemeldet wird.
+   Auth-Writes laufen über die gema-auth-Function mit serverseitiger
+   Rechteprüfung: ein Org-Admin darf nur User seiner EIGENEN Org schreiben.
+   Holt er jemanden aus einer fremden Firma als Gast herein, lehnt der Server
+   ab — bisher erschien trotzdem der grüne Toast und der Eintrag war nach dem
+   nächsten Laden wieder weg (Muster «Auth-Saves melden Erfolg erst nach der
+   Server-Antwort»). */
+function _gastFertig(p,okText){
+  return Promise.resolve(p).then(function(res){
+    renderGaeste();
+    if(res&&res.ok===false){
+      GemaDialog.alert({title:'Gastzugang',message:(res.denied?'⛔ ':'⚠ ')+(res.error||'Speichern fehlgeschlagen')+'\n\nHinweis: Nur der GEMA-Admin kann eine Person einer fremden Firma zuordnen (Benutzer-Verwaltung → «Weitere Organisationen»).'});
+      return false;
+    }
+    toast(okText);
+    return true;
+  });
+}
 function bewilligeGast(userId){
-  var bis=prompt('Gültig bis (leer = unbefristet):','');
-  GemaAuth.bewilligeGast(userId,_org.id,bis||null,_user.id);
-  renderGaeste();toast('Gast bewilligt');
+  GemaDialog.prompt({title:'Gast bewilligen',message:'Gültig bis (leer = unbefristet)',placeholder:'JJJJ-MM-TT',defaultValue:''}).then(function(bis){
+    if(bis===null)return;
+    bis=String(bis||'').trim();
+    if(bis&&!/^\d{4}-\d{2}-\d{2}$/.test(bis)){GemaDialog.alert({title:'Gast bewilligen',message:'Bitte das Datum als JJJJ-MM-TT angeben (z.B. 2027-03-31) oder leer lassen.'});return;}
+    _gastFertig(GemaAuth.bewilligeGast(userId,_org.id,bis||null,_user.id),'Gast bewilligt');
+  });
+}
+function gastReaktivieren(userId){
+  _gastFertig(GemaAuth.bewilligeGast(userId,_org.id,null,_user.id),'Gast reaktiviert');
+}
+function gastDeaktivieren(userId){
+  _gastFertig(GemaAuth.deaktivierGast(userId,_org.id),'Gast deaktiviert');
 }
 function addGast(){
-  var email=prompt('E-Mail oder Username des Gastbenutzers:');if(!email)return;
-  var allUsers=GemaAuth.getUsers()||[];
-  var u=allUsers.find(function(x){return x.username===email||x.profile?.email===email;});
-  if(!u){toast('Benutzer nicht gefunden. Der Gast muss bereits ein GEMA-Konto haben.');return;}
-  GemaAuth.requestGastZugang(u.id,_org.id);
-  GemaAuth.bewilligeGast(u.id,_org.id,null,_user.id);
-  renderGaeste();toast('Gast hinzugefügt und bewilligt');
+  GemaDialog.prompt({title:'Gast hinzufügen',message:'E-Mail des Gastbenutzers — die Person braucht bereits ein GEMA-Konto.',placeholder:'name@firma.ch',defaultValue:''}).then(function(email){
+    if(email===null)return;
+    email=String(email||'').trim().toLowerCase();
+    if(!email)return;
+    var allUsers=GemaAuth.getUsers()||[];
+    var u=allUsers.find(function(x){
+      return String(x.username||'').toLowerCase()===email
+        ||String((x.profile&&x.profile.email)||'').toLowerCase()===email;
+    });
+    if(!u){GemaDialog.alert({title:'Gast hinzufügen',message:'Kein GEMA-Konto mit dieser E-Mail gefunden. Der Gast muss zuerst ein Konto haben — ein GEMA-Admin kann eines anlegen.'});return;}
+    if(String(u.orgId||'')===String(_org.id)){GemaDialog.alert({title:'Gast hinzufügen',message:'«'+E(u.name||u.username)+'» gehört bereits zu dieser Firma — ein Gastzugang wäre gegenstandslos.'});return;}
+    var vorhanden=(u.gastZugaenge||[]).find(function(g){return g&&String(g.orgId)===String(_org.id);});
+    if(vorhanden){
+      _gastFertig(GemaAuth.bewilligeGast(u.id,_org.id,null,_user.id),'Gastzugang aktiviert');
+      return;
+    }
+    var gast=GemaAuth.requestGastZugang(u.id,_org.id);
+    Promise.resolve(gast&&gast.gespeichert).then(function(){
+      _gastFertig(GemaAuth.bewilligeGast(u.id,_org.id,null,_user.id),'Gast hinzugefügt und bewilligt');
+    });
+  });
 }
 
 document.addEventListener('DOMContentLoaded',init);

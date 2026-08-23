@@ -1089,6 +1089,27 @@ input::placeholder{color:#cbd5e1}
     return '<div class="ws-avatar" style="width:'+size+'px;height:'+size+'px;background:'+color+';font-size:'+(size*.4)+'px">'+esc(initials)+'</div>';
   }
 
+  /* ── Profilbild statt Initialen (Feedback 23.08.2026) ─────────────────
+     «foto von profil soll avatar mit buchstaben oben links im workspace
+     ersetzen». Das Bild liegt in user.avatar bzw. user.profile.avatar —
+     dasselbe Feld, das sys_profil über GemaAvatar schreibt. gema_avatar.js
+     wird dafür bewusst NICHT geladen (nur ein Feld-Lesen; Kanon aus
+     gema_native_mobil.js/gema_mobile_menu.js).
+     KRITISCH: die Initialen bleiben als TEXT im Kreis stehen und werden vom
+     Bild bloss überdeckt — lädt die Datei nicht (defekter Base64-String),
+     kommen sie von selbst wieder zum Vorschein. Kein onerror-Handler, kein
+     leerer Kreis. */
+  function _wsFotoVon(u){ return (u&&(u.avatar||(u.profile&&u.profile.avatar)))||''; }
+  function _wsAvatarIch(u,initials,size,color){
+    size=size||40;color=color||'#0c4a2e';
+    var src=_wsFotoVon(u);
+    if(!src) return avatar(initials,size,color);
+    return '<div class="ws-avatar" style="width:'+size+'px;height:'+size+'px;background:'+color+';font-size:'+(size*.4)+'px;position:relative;overflow:hidden">'
+      +esc(initials)
+      +'<img src="'+esc(src)+'" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block">'
+      +'</div>';
+  }
+
   function avatarCluster(members,size){
     size=size||22;
     var html='<span class="ws-cluster">';
@@ -1847,9 +1868,70 @@ input::placeholder{color:#cbd5e1}
     toast('Modul hinzugefügt','plus');
   };
 
+  /* ── Automatische Klassen-Eimer entfernen (Feedback 23.08.2026) ────────
+     Wer darf: eine Dozentin/ein Dozent DIESER Klasse bzw. der GEMA-Admin —
+     nicht jede Studierende darf den Eimer der ganzen Klasse wegräumen.
+     Erfasst wird das ganze PAKET: der geteilte Klassen-Eimer plus die
+     Übungs-Eimer ALLER Mitglieder (`ws_ue_<klasseId>_*`).
+     KRITISCH — Wiederauferstehung: `_wsKlassenProvision()` legt die Eimer
+     bei JEDEM Workspace-Boot neu an, solange die Klasse existiert. Blosses
+     Löschen genügt darum nicht; die Klasse bekommt `wsEimer:false`
+     (cloud-synct über den schule-Pool), und die Provisionierung überspringt
+     sie danach — auf JEDEM Gerät. Rückgängig über die Klassen-Stammdaten.
+     Die Auto-OBJEKTE (`obj_ws_*`) werden NIE gelöscht — an ihnen hängen die
+     Übungs-Berechnungen (gleiche Regel wie `_wsScrubEverywhere` in
+     pm_objekte); der Dialog sagt das. */
+  function _wsKlassenEimerLoeschbar(b){
+    if(!b||b.autoTyp!=='klasse')return false;
+    try{ if(typeof GemaAuth!=='undefined'&&GemaAuth.getCurrentUser){
+      var u=GemaAuth.getCurrentUser();
+      if(u&&u.roleIds&&u.roleIds.indexOf('role_admin')>=0)return true;
+    } }catch(e){}
+    var k=_wsKlasseVon(b);
+    if(!k)return false;
+    return Array.isArray(k.dozentIds)&&k.dozentIds.indexOf(_curUserId())>=0;
+  }
+  function _wsKlassenPaket(b){
+    var pre='ws_ue_'+(b.autoKlasseId||'')+'_';
+    var ue=b.autoKlasseId?buckets.filter(function(x){return x.autoTyp==='uebung'&&x.id.indexOf(pre)===0;}):[];
+    return {klasse:b,uebung:ue,ids:[b.id].concat(ue.map(function(x){return x.id;}))};
+  }
+  // `wsEimer` an der Klasse setzen (false = keine Auto-Eimer mehr).
+  // Nur saveRecord — der schule-Pool ist org-übergreifend.
+  function _wsKlasseFlag(klasseId,wert){
+    var key='gema_schule_klassen_pool_v1';
+    try{
+      var arr=(typeof GemaSync!=='undefined'&&GemaSync.getCached&&GemaSync.getCached(key))||null;
+      if(!Array.isArray(arr)||!arr.length){ var r=localStorage.getItem(key); arr=r?JSON.parse(r):[]; }
+      if(!Array.isArray(arr))arr=[];
+      var k=arr.find(function(x){return x&&x.id===klasseId;});
+      if(!k)return false;
+      k.wsEimer=wert;
+      try{ localStorage.setItem(key,JSON.stringify(arr)); }catch(e){}
+      if(typeof GemaSync!=='undefined'&&GemaSync.saveRecord)
+        GemaSync.saveRecord('schule','sklasse:'+klasseId,k).catch(function(){});
+      return true;
+    }catch(e){ return false; }
+  }
+
   // ── Delete Bucket ──
   window._wsConfirmDelete=function(id){
     var b=buckets.find(function(x){return x.id===id;});if(!b)return;
+    if(b.autoTyp==='klasse'&&_wsKlassenEimerLoeschbar(b)){
+      var pk=_wsKlassenPaket(b);
+      var body='<p class="ws-confirm-text">Die automatischen Eimer der Klasse „'+esc(b.name)+'“ entfernen?</p>'
+        +'<ul class="ws-confirm-text" style="margin:0 0 10px 18px;padding:0">'
+        +'<li>der geteilte Klassen-Eimer</li>'
+        +(pk.uebung.length?'<li>'+pk.uebung.length+' Übungs-Eimer der Mitglieder</li>':'')
+        +'</ul>'
+        +'<p class="ws-confirm-text">Die <b>Projekte samt Berechnungen bleiben erhalten</b> — nur die Eimer verschwinden. Die Klasse selbst, ihre Lernmittel und Prüfungen sind nicht betroffen.</p>'
+        +'<p class="ws-confirm-text">Die Eimer werden danach nicht mehr automatisch angelegt; in den Klassen-Stammdaten lässt sich das wieder einschalten.</p>'
+        +'<div class="ws-form-actions"><button class="ws-btn ws-btn-ghost" onclick="_wsCloseModal()">Abbrechen</button>'
+        +'<button class="ws-btn ws-btn-danger" onclick="_wsDoDeleteKlasse(\''+id+'\')">Eimer entfernen</button></div>';
+      openModal('Eimer der Klasse entfernen',body,470);
+      return;
+    }
+    if(b.autoTyp==='uebung'){toast('Dieser Übungs-Eimer gehört zur Klasse — er wird mit dem Klassen-Eimer entfernt','lock');return;}
     if(b.autoTyp){toast('Dieser Eimer wird automatisch von deiner Klasse verwaltet','lock');return;}
     var body='<p class="ws-confirm-text">Eimer „'+esc(b.name)+'“ wirklich löschen? Alle Module und Notizen gehen verloren.</p>'
       +'<div class="ws-form-actions"><button class="ws-btn ws-btn-ghost" onclick="_wsCloseModal()">Abbrechen</button>'
@@ -1864,6 +1946,20 @@ input::placeholder{color:#cbd5e1}
     if(activeTab===id)activeTab=openTabs[0]||null;
     _wsCloseModal();save();render();
     toast('Eimer „'+name+'“ gelöscht','x');
+  };
+  window._wsDoDeleteKlasse=function(id){
+    var b=buckets.find(function(x){return x.id===id;});
+    if(!b||!_wsKlassenEimerLoeschbar(b)){_wsCloseModal();return;}
+    var pk=_wsKlassenPaket(b), name=b.name, weg={};
+    pk.ids.forEach(function(x){weg[x]=1;});
+    // Zuerst die Klasse markieren — sonst legt der nächste Boot alles neu an.
+    _wsKlasseFlag(b.autoKlasseId,false);
+    buckets=buckets.filter(function(x){return !weg[x.id];});
+    openTabs=openTabs.filter(function(t){return !weg[t];});
+    if(weg[activeTab])activeTab=openTabs[0]||null;
+    _wsCloseModal();save();render();
+    try{ if(window._wsNatRefresh)window._wsNatRefresh(); }catch(e){}
+    toast('Eimer der Klasse „'+name+'“ entfernt ('+pk.ids.length+')','x');
   };
 
   // ── Tab / Open Bucket ──
@@ -1987,6 +2083,13 @@ input::placeholder{color:#cbd5e1}
       else if(_wsElternKandidaten(b).length)items.push({ic:'grad',label:'Bei einer Klasse einordnen …',fn:function(){window._wsSubOfPick(id);}});
       items.push({sep:true});
       items.push({ic:'x',label:'Löschen',danger:true,fn:function(){window._wsConfirmDelete(id);}});
+    }else if(_wsKlassenEimerLoeschbar(b)){
+      // Feedback 23.08.2026: «die eimer, die automatisiert erstellt werden
+      // mit allen klassenmitgliedern auch wieder gelöscht werden können».
+      // Nur über den KLASSEN-Eimer und nur für eine Dozentin/einen Dozenten
+      // der Klasse — die Übungs-Eimer der Mitglieder gehen als Paket mit.
+      items.push({sep:true});
+      items.push({ic:'x',label:'Eimer der Klasse entfernen',danger:true,fn:function(){window._wsConfirmDelete(id);}});
     }
     return _wsCtxShow(ev,items);
   };
@@ -2577,7 +2680,7 @@ input::placeholder{color:#cbd5e1}
     // Rollen-Zeile folgt der gewählten Organisation (19.08.2026)
     var role=_wsRolleAnzeige(u)||'Mitglied';
     var initials=name.split(' ').map(function(s){return s[0]||'';}).join('').slice(0,2).toUpperCase()||'??';
-    document.getElementById('wsUser').innerHTML=avatar(initials,40,'#0c4a2e')
+    document.getElementById('wsUser').innerHTML=_wsAvatarIch(u,initials,40,'#0c4a2e')
       +'<div class="ws-user-meta"><div class="ws-user-name">'+esc(name)+'</div><div class="ws-user-role">'+esc(role)+'</div></div>';
   }
 
@@ -4098,9 +4201,16 @@ input::placeholder{color:#cbd5e1}
     var u=_curUser();
     return !!(u&&u.roleIds&&u.roleIds.indexOf('role_student')>=0&&u.roleIds.indexOf('role_admin')<0);
   }
-  function _wsOrgAdresse(){
+  // orgId optional: der Übungs-Eimer einer Klasse trägt die Adresse der
+  // KLASSEN-Org, nicht die der Haupt-Org des Öffnenden — eine Dozentin kann
+  // per Gastzugang in mehreren Firmen arbeiten (Feedback 23.08.2026).
+  function _wsOrgAdresse(orgId){
     try{
-      var o=(typeof GemaAuth!=='undefined'&&GemaAuth.getCurrentOrg&&GemaAuth.getCurrentOrg())||null;
+      var o=null;
+      if(orgId&&typeof GemaAuth!=='undefined'&&GemaAuth.getOrgs){
+        o=(GemaAuth.getOrgs()||[]).find(function(x){return x.id===orgId;})||null;
+      }
+      if(!o)o=(typeof GemaAuth!=='undefined'&&GemaAuth.getCurrentOrg&&GemaAuth.getCurrentOrg())||null;
       if(!o)return {name:'Übungsobjekt',strasse:'',plz:'',ort:'',hat:false};
       var a=o.adresse||{};
       var label=[a.strasse,[a.plz,a.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ');
@@ -4170,8 +4280,8 @@ input::placeholder{color:#cbd5e1}
   // (b) Übungs-Eimer je Studentin/Student, eingerückt unter der Klasse
   function _wsUebungsEimer(k,u,parentId){
     var changed=false, now=new Date().toISOString();
-    var adr=_wsOrgAdresse();
     var oid=k.orgId||u.orgId||'org_default';
+    var adr=_wsOrgAdresse(oid);
     var id='ws_ue_'+k.id+'_'+u.id;
     var b=buckets.find(function(x){return x.id===id;});
     if(!b){
@@ -4243,6 +4353,10 @@ input::placeholder{color:#cbd5e1}
       try{
         var meine=(klassen||[]).filter(function(k){
           if(!k||!k.id||k.archiviert)return false;
+          // Eimer bewusst entfernt (Feedback 23.08.2026) — sonst legte sie
+          // dieser Boot sofort wieder an. NUR das ausdrückliche `false`
+          // sperrt; ein fehlendes Feld ist der Normalfall.
+          if(k.wsEimer===false)return false;
           var st=Array.isArray(k.studentIds)&&k.studentIds.indexOf(u.id)>=0;
           var doz=Array.isArray(k.dozentIds)&&k.dozentIds.indexOf(u.id)>=0;
           return st||doz;
@@ -4590,6 +4704,11 @@ input::placeholder{color:#cbd5e1}
     sichtListen:_wsSichtListen, orgs:_getOrgs, orgAktiv:_wsOrgAktiv,
     setOrg:function(id){_wsSetOrg(id);}, privatSichtbar:_wsPrivatSichtbar,
     orgRollen:_wsRollenInOrg, orgModOk:_wsOrgModOk, rolleAnzeige:_wsRolleAnzeige,
+    // Profilbild im User-Block (23.08.2026)
+    fotoVon:_wsFotoVon, avatarIch:_wsAvatarIch,
+    // Klassen-Eimer entfernen (23.08.2026)
+    klEimerLoeschbar:_wsKlassenEimerLoeschbar, klPaket:_wsKlassenPaket,
+    klFlag:_wsKlasseFlag, klasseVon:_wsKlasseVon,
     // Rubrik-Sprungzeilen (19.08.2026)
     rubriken:_wsRubriken, rubrikTab:function(){return _wsRubrikTab;},
     templates:{load:function(){return loadTemplates();}, save:function(t){saveTemplates(t);}} };

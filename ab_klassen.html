@@ -375,14 +375,94 @@ function renderList(){
   }).join('')+'</div>';
 }
 
+// ── Organisationen, in denen eine Klasse liegen kann ─────────────────
+/* Feedback 23.08.2026: «wenn man eine klasse erstellt, soll man wählen
+   können, wo diese erstellt wird». Eine Person kann zu mehreren Firmen
+   gehören (Haupt-Org + Gastzugänge, siehe sys_admin «Weitere
+   Organisationen») — eine Dozentin arbeitet z.B. in einer Firma UND an
+   einer Schule. Die Klasse gehört dann in die Schule, nicht in die Firma.
+   KRITISCH: die Org der Klasse entscheidet, wo alles Weitere landet —
+   der Server registriert Studierende beim Klassencode-Beitritt in
+   `klasse.orgId` (gema-auth actionRegisterStudent), und die Auto-Eimer im
+   Workspace tragen sie als ownerOrgId. */
+function klOrgs(){
+  var u=me();if(!u)return[];
+  var orgs=(typeof GemaAuth!=='undefined'&&GemaAuth.getOrgs)?(GemaAuth.getOrgs()||[]):[];
+  var nameVon=function(id){var o=orgs.find(function(x){return x.id===id;});return (o&&o.name)||id;};
+  var liste=[];var seen={};
+  if(u.orgId){liste.push({id:u.orgId,name:nameVon(u.orgId),haupt:true});seen[u.orgId]=1;}
+  var gast=(typeof GemaAuth!=='undefined'&&GemaAuth.getGastOrgs)?(GemaAuth.getGastOrgs(u.id)||[]):[];
+  gast.forEach(function(g){
+    if(!g||!g.orgId||seen[g.orgId])return;
+    seen[g.orgId]=1;
+    liste.push({id:g.orgId,name:g.orgName||nameVon(g.orgId),haupt:false});
+  });
+  return liste;
+}
+function klOrgName(orgId){
+  var t=klOrgs().find(function(o){return o.id===orgId;});
+  if(t)return t.name;
+  var orgs=(typeof GemaAuth!=='undefined'&&GemaAuth.getOrgs)?(GemaAuth.getOrgs()||[]):[];
+  var o=orgs.find(function(x){return x.id===orgId;});
+  return (o&&o.name)||orgId||'—';
+}
+/* Org-Wahl als eigener Schritt NACH dem Namen: der Namens-Prompt bleibt
+   unangetastet (schule_klasse_persistenz_test tippt in `.gema-dlg-input`),
+   und wer nur EINE Org hat, sieht die Wahl gar nicht erst. */
+function klOrgWaehlen(titel,vorgabe){
+  var liste=klOrgs();
+  if(liste.length<2)return Promise.resolve(liste.length?liste[0].id:(me()&&me().orgId)||'');
+  return new Promise(function(res){
+    var bg=document.createElement('div');
+    bg.className='gema-dlg-bg';
+    bg.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:12800;display:flex;align-items:center;justify-content:center;padding:16px';
+    var zeilen=liste.map(function(o){
+      var sel=(o.id===vorgabe)?' style="border-color:var(--teal);background:#f0fdfa"':'';
+      return '<button type="button" class="klorg-opt" data-oid="'+esc(o.id)+'"'+sel+'>'+
+        '<span style="font-weight:800">'+esc(o.name)+'</span>'+
+        '<span style="font-size:11px;color:var(--mut)">'+(o.haupt?'Meine Organisation':'Gastzugang')+'</span>'+
+      '</button>';
+    }).join('');
+    bg.innerHTML='<div style="background:#fff;border-radius:16px;max-width:460px;width:100%;box-shadow:0 20px 50px rgba(15,23,42,.25);overflow:hidden">'+
+      '<div style="padding:16px 18px;border-bottom:1px solid var(--bd);font-weight:800">'+esc(titel)+'</div>'+
+      '<div style="padding:14px 18px;display:flex;flex-direction:column;gap:8px">'+zeilen+
+        '<div style="font-size:12px;color:var(--mut);margin-top:4px">Studierende, die über den Klassencode beitreten, werden in dieser Organisation angelegt.</div>'+
+      '</div>'+
+      '<div style="padding:12px 18px;border-top:1px solid var(--bd);display:flex;justify-content:flex-end">'+
+        '<button type="button" class="btn ghost sm" data-klorg-cancel>Abbrechen</button>'+
+      '</div>'+
+    '</div>';
+    var style=document.getElementById('klOrgStyle');
+    if(!style){
+      style=document.createElement('style');style.id='klOrgStyle';
+      style.textContent='.klorg-opt{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;padding:10px 12px;border:1.5px solid var(--bd);border-radius:10px;background:#fff;cursor:pointer;font-family:inherit}.klorg-opt:hover{border-color:var(--teal)}';
+      document.head.appendChild(style);
+    }
+    var fertig=function(val){try{bg.remove();}catch(e){}res(val);};
+    bg.addEventListener('click',function(ev){
+      if(ev.target===bg){fertig(null);return;}
+      var c=ev.target.closest&&ev.target.closest('[data-klorg-cancel]');
+      if(c){fertig(null);return;}
+      var o=ev.target.closest&&ev.target.closest('.klorg-opt');
+      if(o){fertig(o.getAttribute('data-oid'));}
+    });
+    document.body.appendChild(bg);
+  });
+}
+
 // ── Klasse anlegen / beitreten ───────────────────────────────────────
 window.klNeu=function(){
   GemaDialog.prompt({title:'Neue Klasse',placeholder:'z.B. Kaltwasser HF_GT 2026',defaultValue:''}).then(function(name){
     if(name===null)return;
     name=String(name).trim();
     if(!name){GemaDialog.alert({title:'Klasse',message:'Bitte einen Namen eingeben.'});return;}
-    var k={name:name,lehrgang:'',module:[],studentIds:[],archiviert:false};
-    S.saveKlasse(k).then(function(){renderList();klOpen(k.id);}).catch(function(){renderList();klOpen(k.id);});
+    var u=me();
+    klOrgWaehlen('Wo soll die Klasse «'+name+'» liegen?',(u&&u.orgId)||'').then(function(orgId){
+      if(orgId===null)return;
+      var k={name:name,lehrgang:'',module:[],studentIds:[],archiviert:false};
+      if(orgId)k.orgId=orgId;
+      S.saveKlasse(k).then(function(){renderList();klOpen(k.id);}).catch(function(){renderList();klOpen(k.id);});
+    });
   });
 };
 window.klBeitreten=function(code){
@@ -474,6 +554,7 @@ function detailDozentHtml(k){
          '<div class="fg"><label>Klassenname</label><input class="inp" id="klName" value="'+esc(k.name)+'" onblur="klStammSave()"/></div>'+
          '<div class="fg"><label>Lehrgang</label><input class="inp" id="klLehrgang" value="'+esc(k.lehrgang||'')+'" placeholder="z.B. HF Gebäudetechnik" onblur="klStammSave()"/></div>'+
        '</div>'+
+       klOrgZeileHtml(k)+
      '</div></div>';
   // Einladung
   h+='<div class="panel"><div class="panel-hd"><span>✉️</span><span class="panel-hd-title">Einladung & Klassencode</span></div>'+
@@ -585,6 +666,81 @@ function detailStudentHtml(k){
   return h;
 }
 
+// Organisation der Klasse: immer sichtbar (auch mit nur EINER Org — man
+// muss wissen, wo die Klasse liegt), wechselbar nur bei mehreren.
+function klOrgZeileHtml(k){
+  var mehr=klOrgs().length>1;
+  return '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--bd)">'+
+    '<span style="font-size:12px;color:var(--mut)">Organisation</span>'+
+    '<b style="font-size:13px">🏢 '+esc(klOrgName(k.orgId))+'</b>'+
+    (mehr?'<button class="btn ghost sm" onclick="klOrgWechseln()">Wechseln</button>':'')+
+    '<span style="font-size:11px;color:var(--mut);flex-basis:100%">Studierende, die über den Klassencode beitreten, werden hier angelegt. Die automatischen Workspace-Eimer der Klasse liegen ebenfalls in dieser Organisation.</span>'+
+    klWsEimerZeileHtml(k)+
+  '</div>';
+}
+/* Workspace-Eimer der Klasse (Feedback 23.08.2026) — der Gegenpart zum
+   «Eimer der Klasse entfernen» im Workspace: `wsEimer:false` sperrt die
+   automatische Neuanlage, hier lässt sie sich wieder einschalten. Nur das
+   ausdrückliche `false` sperrt; ein fehlendes Feld ist der Normalfall. */
+function klWsEimerZeileHtml(k){
+  var aus=(k.wsEimer===false);
+  return '<span style="flex-basis:100%;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;margin-top:6px">'+
+    '<span style="color:var(--mut)">Workspace-Eimer</span>'+
+    (aus
+      ?'<b style="color:var(--mut)">entfernt</b><button class="btn ghost sm" onclick="klWsEimer(true)">↻ Wieder anlegen</button>'+
+       '<span style="flex-basis:100%;color:var(--mut);font-size:11px">Die Klasse erscheint derzeit in keinem Workspace. Beim nächsten Öffnen des Workspace werden Klassen- und Übungs-Eimer neu angelegt.</span>'
+      :'<b style="color:var(--teal)">aktiv</b>'+
+       '<span style="flex-basis:100%;color:var(--mut);font-size:11px">Klassen- und Übungs-Eimer entstehen automatisch, sobald ein Mitglied den Workspace öffnet. Entfernen lassen sie sich dort über das Kontextmenü des Klassen-Eimers.</span>')+
+  '</span>';
+}
+window.klWsEimer=function(on){
+  var k=klAktuell();if(!k)return;
+  if(on){ delete k.wsEimer; } else { k.wsEimer=false; }
+  S.saveKlasse(k).catch(function(){});
+  renderDetail();
+  if(on)GemaDialog.alert({title:'Workspace-Eimer',message:'Die Eimer werden beim nächsten Öffnen des Workspace wieder angelegt.'});
+};
+/* Beim Löschen der Klasse verschwinden auch ihre automatischen Eimer —
+   sonst blieben sie als tote Hüllen stehen (die Provisionierung könnte sie
+   nicht mehr pflegen, weil die Klasse weg ist). Cross-Modul-Write in den
+   Workspace-Pool: NUR deleteRecord — der Pool ist org-übergreifend. Die
+   Auto-OBJEKTE (`obj_ws_*`) bleiben bewusst stehen, an ihnen hängen die
+   Übungs-Berechnungen (Regel aus pm_objekte `_wsScrubEverywhere`). */
+function klWsEimerWeg(klasseId){
+  var key='gema_ws_pool_v1';
+  try{
+    var arr=(typeof GemaSync!=='undefined'&&GemaSync.getCached&&GemaSync.getCached(key))||null;
+    if(!Array.isArray(arr)){ var r=localStorage.getItem(key); arr=r?JSON.parse(r):[]; }
+    if(!Array.isArray(arr))return;
+    var pre='ws_ue_'+klasseId+'_';
+    var weg=arr.filter(function(b){
+      return b&&(b.id==='ws_kl_'+klasseId||(b.autoTyp==='uebung'&&String(b.id).indexOf(pre)===0));
+    });
+    if(!weg.length)return;
+    var ids={};weg.forEach(function(b){ids[b.id]=1;});
+    try{ localStorage.setItem(key,JSON.stringify(arr.filter(function(b){return !ids[b.id];}))); }catch(e){}
+    if(typeof GemaSync!=='undefined'&&GemaSync.deleteRecord)
+      weg.forEach(function(b){ GemaSync.deleteRecord('workspace','ws:'+b.id).catch(function(){}); });
+  }catch(e){}
+}
+window.klOrgWechseln=function(){
+  var k=klAktuell();if(!k)return;
+  klOrgWaehlen('Organisation der Klasse «'+k.name+'»',k.orgId||'').then(function(orgId){
+    if(orgId===null||!orgId||orgId===k.orgId)return;
+    var alt=klOrgName(k.orgId);
+    GemaDialog.confirm({
+      title:'Organisation wechseln',
+      message:'Die Klasse «'+k.name+'» von «'+alt+'» nach «'+klOrgName(orgId)+'» verschieben?\n\nDie automatischen Workspace-Eimer der Klasse wandern beim nächsten Öffnen des Workspace mit. Bereits registrierte Studierende behalten ihr Konto in der bisherigen Organisation — nur neue Beitritte über den Klassencode landen künftig in der neuen.',
+      confirmLabel:'Verschieben'
+    }).then(function(ok){
+      if(!ok)return;
+      k.orgId=orgId;
+      S.saveKlasse(k).catch(function(){});
+      renderDetail();
+    });
+  });
+};
+
 // ── Aktionen: Stammdaten / Code / Studierende ────────────────────────
 window.klStammSave=function(){
   var k=klAktuell();if(!k)return;
@@ -604,9 +760,10 @@ window.klArchiv=function(on){
 };
 window.klLoeschen=function(){
   var k=klAktuell();if(!k)return;
-  GemaDialog.confirm({title:'Klasse löschen',message:'Klasse «'+k.name+'» endgültig löschen? Lernmittel dieser Klasse werden ebenfalls gelöscht. Prüfungen bleiben im Prüfungs-Cockpit erhalten.',confirmLabel:'Löschen',danger:true}).then(function(ok){
+  GemaDialog.confirm({title:'Klasse löschen',message:'Klasse «'+k.name+'» endgültig löschen? Lernmittel dieser Klasse und ihre automatischen Workspace-Eimer werden ebenfalls gelöscht. Prüfungen und die Übungs-Projekte samt Berechnungen bleiben erhalten.',confirmLabel:'Löschen',danger:true}).then(function(ok){
     if(!ok)return;
     S.materialForKlasse(k.id).forEach(function(m){S.deleteMaterial(m.id);});
+    klWsEimerWeg(k.id);
     S.deleteKlasse(k.id).catch(function(){});
     klClose();
   });
@@ -1251,6 +1408,9 @@ document.addEventListener('DOMContentLoaded',function(){
   if(typeof GemaFeedback!=='undefined')GemaFeedback.init('klassen','Klassen & Lernmittel');
 });
 window.renderList=renderList;
+// Test-Hooks (Drift-Guard feedback_20260823_1_test) — das Modul ist eine
+// IIFE, von aussen ist sonst nur erreichbar, was an window haengt.
+window._klHooks={ orgs:klOrgs, orgName:klOrgName, wsEimerWeg:klWsEimerWeg, aktuell:klAktuell };
 })();
 </script>
 <script src="gema_scroll.js"></script>
