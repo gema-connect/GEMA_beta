@@ -5104,9 +5104,19 @@ function _wzScanAusleihe(toolId){
     var kofBtn=kofCanRet?'✓ Zurückgeben':'✓ Kontrolle bestätigen';
     // Bei ausgeliehenem Koffer ohne Rueckgaberecht nur reine Kontrolle
     var showBtn=ki.length||kofRet;
+    // ── Prüfung mit Scannen (User-Wunsch 23.08.2026) ──
+    // Die Checkliste darunter beantwortet nur «ist alles DA?». Beim Scannen
+    // erkennt GEMA zusaetzlich, was NICHT hierher gehoert (falscher Koffer,
+    // fremder Besitzer, veraltete Ausleihe) und schreibt einen Bericht mit
+    // konkreten Handlungsanweisungen. Nur fuer Magaziner/Admin.
+    var kofPruefBtn=_wzCanEdit()
+      ? '<button onclick="_wzStartKofferPruef(\''+t.id+'\')" style="width:100%;margin-bottom:14px;padding:14px;border-radius:12px;border:none;background:#1e3a5f;color:#fff;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 14px rgba(30,58,95,.25)">▶ Prüfung starten (scannen)</button>'
+        +'<div style="font-size:11px;color:#94a3b8;text-align:center;margin:-8px 0 14px">Jedes Teil scannen — GEMA meldet falsch einsortiertes und fremdes Werkzeug und erstellt einen Bericht mit Handlungsanweisungen.</div>'
+      : '';
     kofferKontrolle='<div id="kofCtrlSection" style="background:#fff;border-radius:16px;border:1.5px solid #fde047;padding:16px;margin-bottom:20px">'
       +'<div style="font-size:15px;font-weight:800;color:#854d0e;margin-bottom:4px">'+kofTitel+'</div>'
       +'<div style="font-size:12.5px;color:#64748b;margin-bottom:14px">'+kofSub+'</div>'
+      +kofPruefBtn
       +'<div style="display:flex;flex-direction:column;gap:6px'+(ki.length>6?';max-height:44vh;overflow-y:auto':'')+'">'+itemsHtml+'</div>'
       +(showBtn?'<button onclick="_wzKofferKontrolleSave(\''+t.id+'\')" style="width:100%;margin-top:14px;padding:14px;border-radius:12px;border:none;background:#16a34a;color:#fff;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px">'+kofBtn+'</button>':'')
       // Was der Button macht — sonst wirkt «Kontrolle bestätigen» wie eine Pflicht
@@ -6144,6 +6154,175 @@ window._wzSaveSettings = _wzSaveSettings;
 
 // ══════════════════════════════════════════════════════════════
 var _pruefSession=null;
+
+/*PRUEF-ENGINE-START*/
+// ──────────────────────────────────────────────────────────────────
+// PRÜF-ENGINE — «liegt das Richtige am richtigen Ort?» (Feedback 23.08.2026)
+// Reine Datenlogik, DOM-frei und darum vom Drift-Guard direkt aufrufbar.
+// Jede Funktion nimmt den Bestand als Parameter (Default: das globale
+// `tools`), damit sie isoliert prüfbar bleibt.
+// ──────────────────────────────────────────────────────────────────
+
+// Der Koffer, in den ein Teil laut Erfassung GEHÖRT (Soll-Ort) — unabhängig
+// davon, wo es beim Prüfen tatsächlich gefunden wurde.
+function _wzSollKoffer(toolId,alle){
+  var a=alle||tools;
+  return a.find(function(k){return _wzIsKoffer(k)&&Array.isArray(k.kofferInhalt)&&k.kofferInhalt.indexOf(toolId)>=0;})||null;
+}
+
+// Wem gehört das Werkzeug faktisch? Ausleihe schlägt Zuweisung; ein Teil OHNE
+// eigene Zuteilung erbt sie von seinem Koffer (KRITISCH — sonst meldete jedes
+// Koffer-Teil «niemandem zugeteilt», obwohl der Koffer einer Person gehört).
+// Platz-Zuweisungen sind KEINE Person und zählen hier nicht.
+function _wzHalter(t,alle,_tief){
+  if(!t) return null;
+  if(t.ausgeliehenAn&&t.ausgeliehenAn.userId)
+    return {userId:t.ausgeliehenAn.userId,name:t.ausgeliehenAn.name||'',art:'ausleihe',viaKoffer:t.ausgeliehenAn.viaKoffer||'',ueberKoffer:''};
+  if(t.zugewiesenAn&&t.zugewiesenAn.typ!=='platz'&&t.zugewiesenAn.userId)
+    return {userId:t.zugewiesenAn.userId,name:t.zugewiesenAn.name||'',art:'zuweisung',viaKoffer:'',ueberKoffer:''};
+  if(_tief) return null;                       // nur EINE Ebene — kein Koffer im Koffer
+  var k=_wzSollKoffer(t.id,alle);
+  if(k){
+    var hk=_wzHalter(k,alle,true);
+    if(hk){ hk=Object.assign({},hk); hk.ueberKoffer=k.name||''; return hk; }
+  }
+  return null;
+}
+
+// Befunde eines GEFUNDENEN Werkzeugs.
+// ctx = {kofferId, kofferName, personId, personName}
+//   kofferId  = Koffer, IN dem es gefunden wurde ('' = lose / im Lager)
+//   personId  = Person, BEI der geprüft wird ('' = Lager/Magazin)
+// Liefert ein Array — ein Werkzeug kann gleichzeitig am falschen Ort liegen
+// UND einen veralteten Ausleih-Stand haben.
+function _wzBefunde(t,ctx,alle){
+  var a=alle||tools, c=ctx||{}, out=[];
+  if(!t) return out;
+  var soll=_wzIsKoffer(t)?null:_wzSollKoffer(t.id,a);
+  var kof=c.kofferId?a.find(function(x){return x.id===c.kofferId;}):null;
+  var kofName=kof?(kof.name||''):(c.kofferName||'');
+
+  // ── 1) Ort: liegt es dort, wo es hingehört? ──
+  if(kof&&!_wzIsKoffer(t)){
+    if(soll&&soll.id===kof.id){ /* am richtigen Platz */ }
+    else if(soll) out.push({art:'falscher_koffer',schwere:'warn',
+      text:'Liegt in Koffer «'+kofName+'», gehört aber in Koffer «'+(soll.name||'')+'».',
+      massnahme:'Aus Koffer «'+kofName+'» nehmen und in Koffer «'+(soll.name||'')+'» legen.'});
+    else out.push({art:'nicht_im_koffer',schwere:'warn',
+      text:'Liegt in Koffer «'+kofName+'», ist dort aber nicht erfasst.',
+      massnahme:'Aus Koffer «'+kofName+'» nehmen — oder im Koffer-Inhalt erfassen, wenn es dorthin gehört.'});
+  }else if(soll){
+    out.push({art:'lose',schwere:'warn',
+      text:'Gehört in Koffer «'+(soll.name||'')+'», wurde aber einzeln gefunden.',
+      massnahme:'In Koffer «'+(soll.name||'')+'» zurücklegen.'});
+  }
+
+  // ── 2) Besitz: gehört es der Person, bei der geprüft wird? ──
+  var h=_wzHalter(t,a);
+  var erwartet=c.personId||'';
+  var zugId=(t.zugewiesenAn&&t.zugewiesenAn.typ!=='platz')?(t.zugewiesenAn.userId||''):'';
+  if(h&&h.userId!==erwartet){
+    // Steht das Gerät der geprüften Person ohnehin zu und ist NUR die Ausleihe
+    // nicht zurückgebucht? Dann ist es ein Daten-, kein Besitzproblem — genau
+    // der Fall «ist wieder beim richtigen Monteur, GEMA sagt aber ausgeliehen».
+    var veraltet = h.art==='ausleihe' && (erwartet ? zugId===erwartet : true);
+    if(veraltet) out.push({art:'ausleihe_veraltet',schwere:'hinweis',
+      text:(erwartet?'Ist bei '+(c.personName||'der geprüften Person')+', ':'Liegt hier, ')+'in GEMA aber noch an '+(h.name||'jemanden')+' ausgeliehen.',
+      massnahme:'In GEMA zurückbuchen — die Ausleihe an '+(h.name||'—')+' ist erledigt.',
+      aktion:'rueckbuchen'});
+    else out.push({art:'fremder_besitzer',schwere:'warn',
+      text:'Gehört '+(h.name||'einer anderen Person')+(h.ueberKoffer?' (über Koffer «'+h.ueberKoffer+'»)':'')+' — '+(h.art==='ausleihe'?'ausgeliehen':'zugewiesen')+'.',
+      massnahme:'An '+(h.name||'die richtige Person')+' zurückgeben oder ins Lager bringen.'});
+  }else if(!h&&erwartet){
+    out.push({art:'nicht_zugeteilt',schwere:'hinweis',
+      text:'Ist niemandem zugeteilt (Lagerbestand), wurde aber bei '+(c.personName||'der geprüften Person')+' gefunden.',
+      massnahme:'Ins Lager zurückbringen oder '+(c.personName||'der Person')+' zuweisen.'});
+  }
+  return out;
+}
+
+// Gliederung einer Prüfliste nach Koffer (User-Wunsch: «das Material
+// gegliedert sehen, also pro Koffer»). Reihenfolge: Koffer in der Reihenfolge
+// ihres Auftretens, «Einzelne Werkzeuge» zuletzt. Ein Koffer erscheint als
+// Gruppen-KOPF und nie zusätzlich als eigene Zeile.
+function _wzPruefGruppen(liste,alle){
+  var a=alle||tools, grp=[], byId={};
+  function hol(k){
+    var id=k?k.id:'_einzel';
+    if(!byId[id]){ byId[id]={id:id,koffer:k||null,titel:k?(k.name||'Koffer'):'Einzelne Werkzeuge',items:[]}; grp.push(byId[id]); }
+    return byId[id];
+  }
+  // Erst die Koffer selbst — so bleibt ihre Reihenfolge stabil
+  liste.forEach(function(t){ if(_wzIsKoffer(t)) hol(t); });
+  liste.forEach(function(t){
+    if(_wzIsKoffer(t)) return;                 // Koffer sind Gruppen-KOPF, nie Zeile
+    hol(_wzSollKoffer(t.id,a)).items.push(t);
+  });
+  // «Einzelne Werkzeuge» ans Ende
+  var ez=grp.filter(function(g){return !g.koffer;});
+  grp=grp.filter(function(g){return g.koffer;}).concat(ez);
+  return grp.filter(function(g){return g.koffer||g.items.length;});
+}
+
+// Prüfliste einer Person: alles was ihr direkt gehört PLUS der Inhalt ihrer
+// Koffer (die Teile sind meist nur über den Koffer zugeteilt — ohne sie liesse
+// sich gar nicht prüfen, ob im Koffer das Richtige liegt).
+function _wzPruefListe(personId,alle){
+  var a=alle||tools, out=[], seen={};
+  function add(t){ if(t&&!seen[t.id]){seen[t.id]=1;out.push(t);} }
+  a.forEach(function(t){
+    var zug=t.zugewiesenAn&&t.zugewiesenAn.typ!=='platz'&&t.zugewiesenAn.userId===personId;
+    var aus=t.ausgeliehenAn&&t.ausgeliehenAn.userId===personId;
+    if(zug||aus) add(t);
+  });
+  out.slice().forEach(function(t){ if(_wzIsKoffer(t)) _wzKofferItems(t).forEach(add); });
+  return out;
+}
+
+// Auswertung einer Prüfung → Grundlage für Anzeige UND Protokoll.
+function _wzPruefAuswertung(s,alle){
+  var a=alle||tools;
+  var funde=s.funde||{};
+  var liste=(s.checklist||[]).slice();
+  var inListe={}; liste.forEach(function(t){inListe[t.id]=1;});
+  var gefunden=[], zusatz=[], massnahmen=[];
+  Object.keys(funde).forEach(function(id){
+    var t=a.find(function(x){return x.id===id;});
+    if(!t) return;
+    var f=funde[id];
+    var ctx={kofferId:f.kofferId||'',personId:s.personId||'',personName:s.personName||''};
+    var bf=_wzBefunde(t,ctx,a);
+    var eintrag={tool:t,am:f.am,kofferId:f.kofferId||'',befunde:bf};
+    gefunden.push(eintrag);
+    if(!inListe[id]) zusatz.push(eintrag);
+    bf.forEach(function(b){ massnahmen.push({tool:t,befund:b}); });
+  });
+  var fehlend=liste.filter(function(t){return !funde[t.id];});
+  fehlend.forEach(function(t){
+    massnahmen.push({tool:t,befund:{art:'fehlt',schwere:'warn',
+      text:'Wurde bei der Prüfung nicht gefunden.',
+      massnahme:'Suchen — sonst als verloren melden oder ausbuchen.'}});
+  });
+  return {
+    gefunden:gefunden, fehlend:fehlend, zusatz:zusatz, massnahmen:massnahmen,
+    unbekannt:(s.unbekannt||[]).slice(),
+    warn:massnahmen.filter(function(m){return m.befund.schwere==='warn';}).length,
+    hinweis:massnahmen.filter(function(m){return m.befund.schwere==='hinweis';}).length
+  };
+}
+/*PRUEF-ENGINE-END*/
+
+var _WZ_BEFUND_FARBE={
+  falscher_koffer:{bg:'#fff7ed',bd:'#fed7aa',ink:'#c2410c',ic:'🧰'},
+  nicht_im_koffer:{bg:'#fff7ed',bd:'#fed7aa',ink:'#c2410c',ic:'🧰'},
+  lose:{bg:'#fff7ed',bd:'#fed7aa',ink:'#c2410c',ic:'🧰'},
+  fremder_besitzer:{bg:'#fef2f2',bd:'#fecaca',ink:'#b91c1c',ic:'👤'},
+  ausleihe_veraltet:{bg:'#eff6ff',bd:'#bfdbfe',ink:'#1d4ed8',ic:'↩'},
+  nicht_zugeteilt:{bg:'#f8fafc',bd:'#cbd5e1',ink:'#475569',ic:'📦'},
+  fehlt:{bg:'#fef2f2',bd:'#fecaca',ink:'#b91c1c',ic:'✕'}
+};
+function _wzBefundFarbe(art){return _WZ_BEFUND_FARBE[art]||{bg:'#f8fafc',bd:'#cbd5e1',ink:'#475569',ic:'•'};}
+
 function _wzPruefModus(){
   if(!_wzCanEdit())return;
   var monteure=[];
@@ -6160,13 +6339,18 @@ function _wzPruefModus(){
   }
   var opts='<option value="">— Monteur wählen —</option>';
   monteure.forEach(function(m){opts+='<option value="'+esc(m.id)+'">'+esc(m.name||m.username)+'</option>';});
+  var koffer=tools.filter(_wzIsKoffer);
+  var kopts='<option value="">— Koffer wählen —</option>';
+  koffer.forEach(function(k){kopts+='<option value="'+esc(k.id)+'">'+esc(k.name||'')+' ('+_wzKofferItems(k).length+' Teile)</option>';});
   var html='<div style="background:#fff;border-radius:16px;padding:24px;max-width:480px;width:100%;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
     +'<h3 style="margin:0 0 4px;font-size:18px;font-weight:900;color:var(--plan)">📋 Prüfmodus starten</h3>'
-    +'<div style="font-size:12px;color:#64748b;margin-bottom:16px">Werkzeuge per QR/NFC scannen und Anwesenheit prüfen</div>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:16px">Werkzeuge scannen und prüfen, ob das Richtige am richtigen Ort ist</div>'
     +'<div style="display:flex;flex-direction:column;gap:14px">'
-    +'  <label style="display:flex;align-items:center;gap:10px;padding:12px;background:#eff4ff;border:1.5px solid #bfdbfe;border-radius:10px;cursor:pointer"><input type="radio" name="pmMode" value="monteur" checked style="accent-color:var(--plan)"/> <div><strong style="font-size:13px">Monteur-Prüfung</strong><div style="font-size:11px;color:#64748b;margin-top:2px">Alle Werkzeuge eines Monteurs als Checkliste</div></div></label>'
+    +'  <label style="display:flex;align-items:center;gap:10px;padding:12px;background:#eff4ff;border:1.5px solid #bfdbfe;border-radius:10px;cursor:pointer"><input type="radio" name="pmMode" value="monteur" checked style="accent-color:var(--plan)"/> <div><strong style="font-size:13px">Monteur-Prüfung</strong><div style="font-size:11px;color:#64748b;margin-top:2px">Material gegliedert pro Koffer — inkl. Kofferinhalt</div></div></label>'
+    +'  <label style="display:flex;align-items:center;gap:10px;padding:12px;background:#fefce8;border:1.5px solid #fde047;border-radius:10px;cursor:pointer"><input type="radio" name="pmMode" value="koffer" style="accent-color:var(--plan)"/> <div><strong style="font-size:13px">Koffer prüfen</strong><div style="font-size:11px;color:#64748b;margin-top:2px">Ein Koffer: ist alles und nur das Richtige drin?</div></div></label>'
     +'  <label style="display:flex;align-items:center;gap:10px;padding:12px;background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:10px;cursor:pointer"><input type="radio" name="pmMode" value="sammlung" style="accent-color:var(--plan)"/> <div><strong style="font-size:13px">Sammelliste</strong><div style="font-size:11px;color:#64748b;margin-top:2px">Beliebige Werkzeuge scannen und sammeln</div></div></label>'
     +'  <div id="pmMonteurRow"><label class="dlg-lbl">Monteur</label><select id="pmMonteur" class="dlg-inp">'+opts+'</select></div>'
+    +'  <div id="pmKofferRow" style="display:none"><label class="dlg-lbl">Koffer</label><select id="pmKoffer" class="dlg-inp">'+kopts+'</select></div>'
     +'</div>'
     +'<div class="dlg-row">'
     +'  <button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button>'
@@ -6174,61 +6358,171 @@ function _wzPruefModus(){
     +'</div></div>';
   _wzShowModal(html);
   document.querySelectorAll('[name="pmMode"]').forEach(function(r){
-    r.addEventListener('change',function(){document.getElementById('pmMonteurRow').style.display=r.value==='monteur'?'':'none';});
+    r.addEventListener('change',function(){
+      var v=document.querySelector('[name="pmMode"]:checked').value;
+      document.getElementById('pmMonteurRow').style.display=v==='monteur'?'':'none';
+      document.getElementById('pmKofferRow').style.display=v==='koffer'?'':'none';
+    });
   });
 }
 
 function _wzStartPruef(){
   var mode=document.querySelector('[name="pmMode"]:checked').value;
-  var monteurId='',monteurName='';
-  var checklist=[];
+  if(mode==='koffer'){
+    var kid=document.getElementById('pmKoffer').value;
+    if(!kid){alert('Bitte einen Koffer wählen');return;}
+    _wzCloseModal();
+    _wzStartKofferPruef(kid);
+    return;
+  }
+  var monteurId='',monteurName='',checklist=[];
   if(mode==='monteur'){
     monteurId=document.getElementById('pmMonteur').value;
     if(!monteurId){alert('Bitte einen Monteur wählen');return;}
     monteurName=document.getElementById('pmMonteur').selectedOptions[0].textContent;
-    checklist=tools.filter(function(t){return t.zugewiesenAn&&t.zugewiesenAn.userId===monteurId;});
-    if(!checklist.length){alert('Diesem Monteur sind keine Werkzeuge zugewiesen.');return;}
+    checklist=_wzPruefListe(monteurId);
+    if(!checklist.length){alert('Diesem Monteur sind keine Werkzeuge zugewiesen oder ausgeliehen.');return;}
   }
   _wzCloseModal();
-  _pruefSession={mode:mode,monteurId:monteurId,monteurName:monteurName,checklist:checklist,scanned:{},startedAt:new Date().toISOString()};
+  _pruefSession={mode:mode,personId:monteurId,personName:monteurName,checklist:checklist,
+    funde:{},unbekannt:[],aktKoffer:'',startedAt:new Date().toISOString()};
   _wzRenderPruefUI();
+}
+
+// Prüfung eines EINZELNEN Koffers — Einstieg aus dem Scan (Magaziner scannt
+// den Kofferdeckel) und aus dem Prüfmodus-Dialog. Der Koffer ist dabei sofort
+// der Kontext: jedes danach gescannte Teil wird gegen IHN geprüft.
+window._wzStartKofferPruef=function(kofferId){
+  var k=tools.find(function(x){return x.id===kofferId;});
+  if(!k){alert('Koffer nicht gefunden');return;}
+  if(document.getElementById('wzScanOverlay')) _wzCloseScan();
+  var teile=_wzKofferItems(k);
+  // Bei einem ausgeliehenen Koffer ist der Ausleiher die «geprüfte Person» —
+  // sonst gälte jedes mit ihm ausgeliehene Teil als fehl am Platz.
+  var hal=k.ausgeliehenAn&&k.ausgeliehenAn.userId?k.ausgeliehenAn:((k.zugewiesenAn&&k.zugewiesenAn.typ!=='platz'&&k.zugewiesenAn.userId)?k.zugewiesenAn:null);
+  _pruefSession={mode:'koffer',personId:hal?hal.userId:'',personName:hal?(hal.name||''):'',
+    kofferId:k.id,kofferName:k.name||'',checklist:teile,
+    funde:{},unbekannt:[],aktKoffer:k.id,startedAt:new Date().toISOString()};
+  setTimeout(_wzRenderPruefUI,document.getElementById('wzScanOverlay')?220:0);
+};
+
+// Kontext-Koffer wechseln — beim Prüfen nimmt man einen Koffer nach dem
+// anderen; alles danach Gescannte wird gegen DIESEN Koffer geprüft.
+window._wzPruefKontext=function(kofferId){
+  if(!_pruefSession)return;
+  _pruefSession.aktKoffer=kofferId||'';
+  _wzRenderPruefUI();
+};
+
+window._wzPruefRueckbuchen=function(toolId){
+  if(!_wzCanEdit()){alert('Nur Magaziner/Admin dürfen die Ausleihe aufheben.');return;}
+  var t=tools.find(function(x){return x.id===toolId;});
+  if(!t||!t.ausgeliehenAn)return;
+  var alt=t.ausgeliehenAn.name||'';
+  delete t.ausgeliehenAn;
+  save();renderList();
+  _wzActLog('rueckgabe','Bei der Prüfung zurückgebucht (war noch ausgeliehen an '+alt+')',t);
+  _wzRenderPruefUI();
+};
+
+function _wzPruefUiListe(s,aus){
+  var gruppen=s.mode==='sammlung'
+    ? [{id:'_einzel',koffer:null,titel:'Gescannte Werkzeuge',items:aus.gefunden.map(function(g){return g.tool;})}]
+    : _wzPruefGruppen(s.checklist);
+  // Zusätzlich Gefundenes, das nicht auf der Liste steht, sichtbar machen —
+  // genau dort steckt der «da liegt etwas Falsches drin»-Fall.
+  var extra=aus.zusatz.map(function(g){return g.tool;});
+  if(extra.length&&s.mode!=='sammlung') gruppen=gruppen.concat([{id:'_extra',koffer:null,titel:'⚠ Zusätzlich gefunden (nicht auf der Liste)',items:extra,extra:true}]);
+  var fundById={}; aus.gefunden.forEach(function(g){fundById[g.tool.id]=g;});
+
+  return gruppen.map(function(g){
+    var items=g.items||[];
+    var kopfTeile=items.length;
+    var kopfDone=items.filter(function(t){return fundById[t.id];}).length;
+    var aktiv=g.koffer&&s.aktKoffer===g.koffer.id;
+    var kopf='';
+    if(g.koffer||g.extra||gruppen.length>1){
+      var kf=g.koffer?fundById[g.koffer.id]:null;
+      kopf='<div '+(g.koffer?'onclick="_wzPruefKontext(\''+esc(g.koffer.id)+'\')" style="cursor:pointer;"':'style="')
+        +'display:flex;align-items:center;gap:9px;padding:11px 14px;background:'+(aktiv?'#fefce8':'#f8fafc')+';border-top:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0;'+(aktiv?'box-shadow:inset 3px 0 0 #ca8a04;':'')+'">'
+        +'<span style="font-size:16px;flex-shrink:0">'+(g.koffer?(kf?'✅':'🧰'):(g.extra?'⚠':'🔧'))+'</span>'
+        +'<span style="flex:1;min-width:0;font-size:13px;font-weight:800;color:'+(g.extra?'#b45309':'#0f172a')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(g.titel)+'</span>'
+        +(g.koffer?'<span style="font-size:11px;font-weight:700;color:'+(kopfDone===kopfTeile&&kopfTeile?'#16a34a':'#64748b')+';flex-shrink:0">'+kopfDone+'/'+kopfTeile+'</span>':'')
+        +(aktiv?'<span style="font-size:10px;font-weight:800;color:#854d0e;background:#fde68a;padding:2px 7px;border-radius:6px;flex-shrink:0">wird geprüft</span>':(g.koffer?'<span style="font-size:10px;color:#94a3b8;flex-shrink:0">antippen</span>':''))
+        +'</div>';
+    }
+    var zeilen=items.map(function(t){
+      var f=fundById[t.id];
+      var bf=f?f.befunde:[];
+      var warn=bf.length>0;
+      var cat=CATS[t.cat]||CATS.sonstige;
+      var bfHtml=bf.map(function(b){
+        var c=_wzBefundFarbe(b.art);
+        return '<div style="margin-top:5px;padding:7px 9px;border-radius:8px;background:'+c.bg+';border:1px solid '+c.bd+';font-size:11.5px;color:'+c.ink+';font-weight:600">'+c.ic+' '+esc(b.text)
+          +'<div style="margin-top:3px;font-weight:700">→ '+esc(b.massnahme)+'</div>'
+          +(b.aktion==='rueckbuchen'&&_wzCanEdit()?'<button onclick="_wzPruefRueckbuchen(\''+esc(t.id)+'\')" style="margin-top:6px;padding:6px 11px;border-radius:7px;border:1.5px solid '+c.ink+';background:#fff;color:'+c.ink+';font-size:11.5px;font-weight:800;cursor:pointer;font-family:inherit">↩ Jetzt zurückbuchen</button>':'')
+          +'</div>';
+      }).join('');
+      return '<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 14px;border-bottom:1px solid #f1f5f9;'+(f?(warn?'background:#fffbeb':'background:#f0fdf4'):'')+'">'
+        +'<span style="font-size:19px;flex-shrink:0;line-height:1.3">'+(f?(warn?'⚠':'✅'):'⬜')+'</span>'
+        +'<div style="flex:1;min-width:0">'
+        +'<div style="font-size:13px;font-weight:700;'+(f&&!warn?'color:#16a34a':'')+'">'+esc(t.name)+(t.internKennung?' <span style="font-size:10.5px;color:#94a3b8;font-weight:600">🏷 '+esc(t.internKennung)+'</span>':'')+'</div>'
+        +'<div style="font-size:11px;color:#64748b">'+esc([t.brand,t.model].filter(Boolean).join(' '))+' · '+esc(cat.label)+(t.serial?' · SN: '+esc(t.serial):'')+'</div>'
+        +bfHtml
+        +'</div></div>';
+    }).join('');
+    if(!zeilen&&g.koffer) zeilen='<div style="padding:10px 14px 12px 44px;font-size:11.5px;color:#94a3b8">Für diesen Koffer ist kein Inhalt erfasst.</div>';
+    return kopf+zeilen;
+  }).join('');
 }
 
 function _wzRenderPruefUI(){
   var s=_pruefSession;if(!s)return;
-  var me=_wzGetUser()||{};
-  var scannedList=Object.keys(s.scanned);
-  var isMonteur=s.mode==='monteur';
-  var total=isMonteur?s.checklist.length:scannedList.length;
-  var done=isMonteur?s.checklist.filter(function(t){return s.scanned[t.id];}).length:scannedList.length;
+  var aus=_wzPruefAuswertung(s);
+  var isSammlung=s.mode==='sammlung';
+  var total=isSammlung?aus.gefunden.length:s.checklist.length;
+  var done=isSammlung?aus.gefunden.length:s.checklist.filter(function(t){return aus.gefunden.some(function(g){return g.tool.id===t.id;});}).length;
 
-  var listHtml='';
-  if(isMonteur){
-    listHtml=s.checklist.map(function(t){
-      var checked=!!s.scanned[t.id];
-      var cat=CATS[t.cat]||CATS.sonstige;
-      return '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #f1f5f9;'+(checked?'background:#f0fdf4':'')+'"><span style="font-size:20px;flex-shrink:0">'+(checked?'✅':'⬜')+'</span><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700;'+(checked?'color:#16a34a':'')+'">'+esc(t.name)+'</div><div style="font-size:11px;color:#64748b">'+esc(t.brand||'')+' '+(t.model||'')+' · '+cat.label+(t.serial?' · SN: '+esc(t.serial):'')+'</div></div>'+(checked?'<span style="font-size:10px;color:#16a34a;font-weight:700">'+fmt(s.scanned[t.id].split('T')[0])+'</span>':'')+'</div>';
-    }).join('');
-  } else {
-    listHtml=scannedList.map(function(id){
-      var t=tools.find(function(x){return x.id===id;});
-      if(!t)return '<div style="padding:10px 14px;font-size:12px;color:#64748b">ID: '+esc(id)+' (nicht gefunden)</div>';
-      var cat=CATS[t.cat]||CATS.sonstige;
-      return '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #f1f5f9;background:#f0fdf4"><span style="font-size:20px">✅</span><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700;color:#16a34a">'+esc(t.name)+'</div><div style="font-size:11px;color:#64748b">'+esc(t.brand||'')+' '+(t.model||'')+' · '+cat.label+'</div></div></div>';
-    }).join('');
-    if(!listHtml)listHtml='<div style="padding:30px;text-align:center;color:#94a3b8;font-size:13px">Noch keine Werkzeuge gescannt.<br/>QR-Code oder NFC-Tag scannen.</div>';
+  var titel='📋 Prüfmodus';
+  if(s.mode==='monteur') titel+=' — '+esc(s.personName||'');
+  if(s.mode==='koffer')  titel+=' — 🧰 '+esc(s.kofferName||'');
+
+  var listHtml=_wzPruefUiListe(s,aus);
+  if(!listHtml) listHtml='<div style="padding:30px;text-align:center;color:#94a3b8;font-size:13px">Noch nichts gescannt.<br/>QR-Code oder NFC-Tag scannen.</div>';
+
+  // Kontext-Wahl: welcher Koffer wird gerade geöffnet geprüft?
+  var kofferInListe=_wzPruefGruppen(s.checklist).filter(function(g){return g.koffer;});
+  var ktx='';
+  if(s.mode!=='sammlung'&&kofferInListe.length){
+    ktx='<div style="padding:9px 14px;background:#fff;border-bottom:1px solid #e2e7f0;display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
+      +'<span style="font-size:11px;color:#64748b;font-weight:700;flex-shrink:0">Geöffnet:</span>'
+      +'<button onclick="_wzPruefKontext(\'\')" style="padding:5px 10px;border-radius:7px;border:1.5px solid '+(!s.aktKoffer?'#ca8a04':'#e2e8f0')+';background:'+(!s.aktKoffer?'#fefce8':'#fff')+';color:'+(!s.aktKoffer?'#854d0e':'#64748b')+';font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit">kein Koffer</button>'
+      +kofferInListe.map(function(g){
+        var on=s.aktKoffer===g.koffer.id;
+        return '<button onclick="_wzPruefKontext(\''+esc(g.koffer.id)+'\')" style="padding:5px 10px;border-radius:7px;border:1.5px solid '+(on?'#ca8a04':'#e2e8f0')+';background:'+(on?'#fefce8':'#fff')+';color:'+(on?'#854d0e':'#64748b')+';font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🧰 '+esc(g.koffer.name||'')+'</button>';
+      }).join('')
+      +'</div>';
   }
 
-  var html='<div style="background:#fff;border-radius:16px;max-width:560px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
-    +'<div style="padding:16px 20px;border-bottom:1px solid #e2e7f0;flex-shrink:0">'
-    +'  <div style="display:flex;align-items:center;gap:10px"><h3 style="flex:1;margin:0;font-size:17px;font-weight:900">📋 Prüfmodus'+(isMonteur?' — '+esc(s.monteurName):'')+'</h3><button onclick="_wzEndPruef()" style="background:#f4f6fb;border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:#6b7280">✕</button></div>'
-    +'  <div style="margin-top:8px;display:flex;gap:8px;align-items:center"><div style="flex:1;height:6px;background:#e2e7f0;border-radius:3px;overflow:hidden"><div style="height:100%;background:var(--plan);border-radius:3px;width:'+(total?Math.round(done/total*100):0)+'%;transition:.3s"></div></div><span style="font-size:12px;font-weight:800;color:var(--plan)">'+done+'/'+total+'</span></div>'
+  var unbHtml=aus.unbekannt.length
+    ? '<div style="padding:10px 14px;background:#fef2f2;border-top:1px solid #fecaca;font-size:11.5px;color:#b91c1c;font-weight:600">⚠ '+aus.unbekannt.length+' gescannte'+(aus.unbekannt.length===1?'r Code gehört':' Codes gehören')+' zu keinem Werkzeug dieser Firma: '+aus.unbekannt.map(esc).join(', ')+'</div>'
+    : '';
+
+  var badge=(aus.warn+aus.hinweis)
+    ? '<span style="font-size:11px;font-weight:800;color:'+(aus.warn?'#b91c1c':'#1d4ed8')+';background:'+(aus.warn?'#fef2f2':'#eff6ff')+';border:1px solid '+(aus.warn?'#fecaca':'#bfdbfe')+';padding:3px 8px;border-radius:7px">'+(aus.warn?'⚠ '+aus.warn+' zu erledigen':'ℹ '+aus.hinweis+' Hinweis'+(aus.hinweis!==1?'e':''))+'</span>'
+    : '';
+
+  var html='<div style="background:#fff;border-radius:16px;max-width:580px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
+    +'<div style="padding:16px 20px 12px;border-bottom:1px solid #e2e7f0;flex-shrink:0">'
+    +'  <div style="display:flex;align-items:center;gap:10px"><h3 style="flex:1;margin:0;font-size:16.5px;font-weight:900;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+titel+'</h3><button onclick="_wzEndPruef()" style="background:#f4f6fb;border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:#6b7280;flex-shrink:0">✕</button></div>'
+    +'  <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><div style="flex:1;min-width:90px;height:6px;background:#e2e7f0;border-radius:3px;overflow:hidden"><div style="height:100%;background:var(--plan);border-radius:3px;width:'+(total?Math.round(done/total*100):0)+'%;transition:.3s"></div></div><span style="font-size:12px;font-weight:800;color:var(--plan)">'+done+'/'+total+'</span>'+badge+'</div>'
     +'</div>'
-    +'<div style="flex:1;overflow-y:auto;min-height:0">'+listHtml+'</div>'
-    +'<div style="padding:14px 20px;border-top:1px solid #e2e7f0;flex-shrink:0;display:flex;gap:8px;flex-wrap:wrap">'
-    +'  <button onclick="_wzPruefScan(\'qr\')" style="flex:1;padding:10px;border-radius:10px;border:1.5px solid var(--plan);background:var(--plan);color:#fff;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit">📷 QR scannen</button>'
-    +'  <button onclick="_wzPruefScan(\'nfc\')" id="pmNfcBtn" style="flex:1;padding:10px;border-radius:10px;border:1.5px solid #1d4ed8;background:#eff6ff;color:#1d4ed8;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;display:'+('NDEFReader' in window?'':'none')+'">📡 NFC scannen</button>'
-    +'  <button onclick="_wzPruefPDF()" style="flex:1;padding:10px;border-radius:10px;border:1.5px solid #16a34a;background:#f0fdf4;color:#16a34a;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit"'+(done>0?'':' disabled style="opacity:.4;pointer-events:none"')+'>📄 Protokoll</button>'
+    +ktx
+    +'<div style="flex:1;overflow-y:auto;min-height:0">'+listHtml+unbHtml+'</div>'
+    +'<div style="padding:14px 20px calc(14px + env(safe-area-inset-bottom));border-top:1px solid #e2e7f0;flex-shrink:0;display:flex;gap:8px;flex-wrap:wrap">'
+    +'  <button onclick="_wzPruefScan(\'qr\')" style="flex:1 1 120px;padding:10px;border-radius:10px;border:1.5px solid var(--plan);background:var(--plan);color:#fff;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit">📷 QR scannen</button>'
+    +'  <button onclick="_wzPruefScan(\'nfc\')" id="pmNfcBtn" style="flex:1 1 120px;padding:10px;border-radius:10px;border:1.5px solid #1d4ed8;background:#eff6ff;color:#1d4ed8;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;display:'+('NDEFReader' in window?'':'none')+'">📡 NFC scannen</button>'
+    +'  <button onclick="_wzPruefPDF()" style="flex:1 1 120px;padding:10px;border-radius:10px;border:1.5px solid #16a34a;background:#f0fdf4;color:#16a34a;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit">📄 Report</button>'
     +'</div></div>';
   _wzShowModal(html);
 }
@@ -6240,8 +6534,9 @@ function _wzPruefScan(method){
     GemaQR.scan(function(code){
       var id=code;
       if(code.indexOf('?view=')>=0)id=code.split('view=')[1];
+      if(code.indexOf('?scan=')>=0)id=code.split('scan=')[1];
       if(code.indexOf('GEMA:WZ:')===0)id=code.replace('GEMA:WZ:','');
-      id=decodeURIComponent(id);
+      id=decodeURIComponent(id).split('&')[0];
       _wzPruefRegister(id);
     });
   } else {
@@ -6261,9 +6556,8 @@ function _wzPruefScan(method){
       if(!url)return;
       // Single-Shot: erste gueltige Lesung beendet die Session
       _wzScanNewSession();
-      var id=url;
-      if(url.indexOf('?view=')>=0)id=url.split('view=')[1];
-      id=decodeURIComponent(id);
+      var id=_wzNfcIdAus?_wzNfcIdAus({message:{records:[{recordType:'url',data:new TextEncoder().encode(url)}]}}):url;
+      if(!id){ id=url; if(url.indexOf('?view=')>=0)id=url.split('view=')[1]; if(url.indexOf('?scan=')>=0)id=url.split('scan=')[1]; id=decodeURIComponent(id).split('&')[0]; }
       _wzPruefRegister(id);
     }).catch(function(e){
       if(gen!==_wzScanGen)return;
@@ -6273,43 +6567,96 @@ function _wzPruefScan(method){
   }
 }
 
+// Einen Fund registrieren. Ein gescannter KOFFER wechselt den Kontext (man
+// nimmt beim Prüfen einen Koffer nach dem anderen zur Hand) und gilt zugleich
+// als gefunden.
 function _wzPruefRegister(id){
   if(!_pruefSession)return;
+  var s=_pruefSession;
   var t=tools.find(function(x){return x.id===id;});
-  if(!t){alert('Werkzeug nicht gefunden: '+id);_wzRenderPruefUI();return;}
-  if(_pruefSession.scanned[id]){_wzRenderPruefUI();return;}
+  if(!t){
+    // Kein stiller Verlust: unbekannte Codes stehen im Report.
+    if(s.unbekannt.indexOf(id)<0) s.unbekannt.push(id);
+    _wzRenderPruefUI();
+    return;
+  }
   if(navigator.vibrate)navigator.vibrate([100,50,100]);
-  _pruefSession.scanned[id]=new Date().toISOString();
+  if(!s.funde[t.id]) s.funde[t.id]={am:new Date().toISOString(),kofferId:_wzIsKoffer(t)?'':(s.aktKoffer||'')};
+  if(_wzIsKoffer(t)) s.aktKoffer=t.id;
   _wzRenderPruefUI();
 }
 
 function _wzPruefPDF(){
   if(!_pruefSession)return;
   var s=_pruefSession;
+  var aus=_wzPruefAuswertung(s);
   var me=_wzGetUser()||{};
-  var isMonteur=s.mode==='monteur';
-  var liste=isMonteur?s.checklist:Object.keys(s.scanned).map(function(id){return tools.find(function(x){return x.id===id;});}).filter(Boolean);
-  var rows=liste.map(function(t){
-    var checked=!!s.scanned[t.id];
+  var kopf=s.mode==='monteur'?('Monteur-Prüfung: '+esc(s.personName||'—'))
+          :s.mode==='koffer'?('Koffer-Prüfung: '+esc(s.kofferName||'—')+(s.personName?' (bei '+esc(s.personName)+')':' (Lager)'))
+          :'Sammelliste';
+
+  function zeile(t,f){
     var cat=CATS[t.cat]||CATS.sonstige;
-    return '<tr><td style="padding:6px 8px;border:1px solid #ddd">'+(checked?'✅':'❌')+'</td><td style="padding:6px 8px;border:1px solid #ddd">'+esc(t.name)+'</td><td style="padding:6px 8px;border:1px solid #ddd">'+esc(t.brand||'')+' '+esc(t.model||'')+'</td><td style="padding:6px 8px;border:1px solid #ddd">'+esc(t.serial||'—')+'</td><td style="padding:6px 8px;border:1px solid #ddd">'+cat.label+'</td><td style="padding:6px 8px;border:1px solid #ddd">'+(checked?fmt(s.scanned[t.id].split('T')[0]):'Fehlt')+'</td></tr>';
+    var soll=_wzSollKoffer(t.id);
+    var status=f?(f.befunde.length?'⚠':'✅'):'❌';
+    return '<tr><td>'+status+'</td><td>'+esc(t.name)+(t.internKennung?' <span class="mut">🏷 '+esc(t.internKennung)+'</span>':'')+'</td>'
+      +'<td>'+esc([t.brand,t.model].filter(Boolean).join(' '))+'</td><td>'+esc(t.serial||'—')+'</td>'
+      +'<td>'+esc(soll?soll.name:'—')+'</td>'
+      +'<td>'+(f?fmt((f.am||'').split('T')[0]):'nicht gefunden')+'</td></tr>';
+  }
+  var fundById={}; aus.gefunden.forEach(function(g){fundById[g.tool.id]=g;});
+  var gruppen=s.mode==='sammlung'
+    ? [{titel:'Gescannte Werkzeuge',items:aus.gefunden.map(function(g){return g.tool;}),koffer:null}]
+    : _wzPruefGruppen(s.checklist);
+  if(aus.zusatz.length&&s.mode!=='sammlung') gruppen=gruppen.concat([{titel:'Zusätzlich gefunden (nicht auf der Liste)',items:aus.zusatz.map(function(g){return g.tool;}),koffer:null}]);
+
+  var body=gruppen.map(function(g){
+    var rows=(g.items||[]).map(function(t){return zeile(t,fundById[t.id]);}).join('');
+    if(!rows) rows='<tr><td colspan="6" class="mut">— kein Inhalt erfasst —</td></tr>';
+    var kf=g.koffer?fundById[g.koffer.id]:null;
+    return '<tr class="grp"><td colspan="6">'+(g.koffer?'🧰 ':'')+esc(g.titel)
+      +(g.koffer?' <span class="mut">'+(kf?'Koffer gescannt':'Koffer nicht gescannt')+'</span>':'')+'</td></tr>'+rows;
   }).join('');
-  var fehlend=isMonteur?s.checklist.filter(function(t){return!s.scanned[t.id];}):[];
+
+  var mass=aus.massnahmen.map(function(m){
+    return '<li><strong>'+esc(m.tool.name)+'</strong>'+(m.tool.internKennung?' (🏷 '+esc(m.tool.internKennung)+')':'')+(m.tool.serial?' <span class="mut">SN '+esc(m.tool.serial)+'</span>':'')
+      +'<br/>'+esc(m.befund.text)+'<br/><span class="tun">→ '+esc(m.befund.massnahme)+'</span></li>';
+  }).join('');
+
   var w=window.open('','_blank');
   if(!w)return;
-  w.document.write('<html><head><title>Prüfprotokoll</title><style>body{font-family:"DM Sans",system-ui,sans-serif;padding:32px;color:#111}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#f1f5f9;padding:8px;border:1px solid #ddd;text-align:left;font-size:11px;text-transform:uppercase}h1{font-size:20px}h2{font-size:14px;color:#475569;margin-top:4px}.meta{font-size:12px;color:#64748b;margin:8px 0 20px}.warn{color:#dc2626;font-weight:700}@media print{button{display:none}}</style></head><body>'
-    +'<h1>Prüfprotokoll Werkzeuge</h1>'
-    +'<h2>'+(isMonteur?'Monteur-Prüfung: '+esc(s.monteurName):'Sammelliste')+'</h2>'
-    +'<div class="meta">Prüfer: '+esc(me.name||'—')+' · Datum: '+fmt(new Date().toISOString().split('T')[0])+' · Geprüft: '+Object.keys(s.scanned).length+'/'+liste.length+'</div>'
-    +'<table><thead><tr><th></th><th>Bezeichnung</th><th>Hersteller / Modell</th><th>Seriennummer</th><th>Kategorie</th><th>Gescannt</th></tr></thead><tbody>'+rows+'</tbody></table>'
-    +(fehlend.length?'<div style="margin-top:20px;padding:12px;background:#fef2f2;border:1.5px solid #fecaca;border-radius:8px"><div class="warn">⚠ '+fehlend.length+' Werkzeug(e) fehlen:</div><ul style="margin:8px 0 0 16px;font-size:12px">'+fehlend.map(function(t){return '<li>'+esc(t.name)+' (SN: '+esc(t.serial||'—')+')</li>';}).join('')+'</ul></div>':'')+
-    '<button onclick="window.print()" style="margin-top:24px;padding:10px 24px;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">🖨 Drucken</button>'
+  w.document.write('<html><head><title>Prüfbericht Werkzeuge</title><style>'
+    +'body{font-family:"DM Sans",system-ui,sans-serif;padding:32px;color:#111;font-optical-sizing:auto;font-variation-settings:"opsz" 14}'
+    +'table{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px}'
+    +'th{background:#f1f5f9;padding:7px 8px;border:1px solid #ddd;text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.03em}'
+    +'td{padding:6px 8px;border:1px solid #ddd;vertical-align:top}'
+    +'tr.grp td{background:#f8fafc;font-weight:800;font-size:12.5px}'
+    +'h1{font-size:20px;margin:0 0 2px}h2{font-size:14px;color:#475569;margin:0 0 4px;font-weight:700}'
+    +'h3{font-size:14px;margin:22px 0 6px}'
+    +'.meta{font-size:12px;color:#64748b;margin:8px 0 18px}'
+    +'.mut{color:#94a3b8;font-weight:400}'
+    +'.tun{color:#b45309;font-weight:700}'
+    +'.box{margin-top:16px;padding:12px 14px;border-radius:8px}'
+    +'.warn{background:#fef2f2;border:1.5px solid #fecaca}'
+    +'.ok{background:#f0fdf4;border:1.5px solid #bbf7d0;color:#15803d;font-weight:700}'
+    +'ul{margin:8px 0 0 18px;font-size:12px;padding:0}li{margin-bottom:9px}'
+    +'@media print{button{display:none}}</style></head><body>'
+    +'<h1>Prüfbericht Werkzeuge</h1>'
+    +'<h2>'+kopf+'</h2>'
+    +'<div class="meta">Prüfer: '+esc(me.name||me.username||'—')+' · Datum: '+fmt(new Date().toISOString().split('T')[0])
+      +' · Gefunden: '+aus.gefunden.length+(s.mode!=='sammlung'?' von '+s.checklist.length:'')
+      +' · Zu erledigen: '+aus.massnahmen.length+'</div>'
+    +'<table><thead><tr><th></th><th>Bezeichnung</th><th>Hersteller / Modell</th><th>Serien-Nr.</th><th>Gehört in Koffer</th><th>Gefunden</th></tr></thead><tbody>'+body+'</tbody></table>'
+    +'<h3>Zu erledigen</h3>'
+    +(mass?'<div class="box warn"><ul>'+mass+'</ul></div>':'<div class="box ok">✓ Nichts zu erledigen — alles am richtigen Ort.</div>')
+    +(aus.unbekannt.length?'<div class="box warn"><strong>Unbekannte Codes ('+aus.unbekannt.length+')</strong><div style="font-size:12px;margin-top:4px">'+aus.unbekannt.map(esc).join(', ')+' — gehören zu keinem Werkzeug dieser Firma.</div></div>':'')
+    +'<button onclick="window.print()" style="margin-top:24px;padding:10px 24px;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">🖨 Drucken</button>'
     +'<\/body><\/html>');
   w.document.close();
 }
 
 function _wzEndPruef(){
-  if(_pruefSession&&Object.keys(_pruefSession.scanned).length>0){
+  if(_pruefSession&&Object.keys(_pruefSession.funde||{}).length>0){
     if(!confirm('Prüfmodus beenden? Nicht gespeicherte Daten gehen verloren.'))return;
   }
   _pruefSession=null;
