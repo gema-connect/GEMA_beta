@@ -5,8 +5,8 @@
  *                           der Linie · S#3 Abscheideraum ab UK Auslauf +
  *                           Einlauf links + «Verschiedene Einläufe / Tiefster»
  *                           · S#4 alles lesbar · S#5 «+ Einlauf» hängt ans ENDE
- *                           · S#6 Trennstrich vor dem KPI-Grid entfernt
- *   sb_niederschlag.html    N#1 Bedienung raus aus dem PDF · N#2 einklappbare
+ *                           · S#6 Tauchbogen-Stich aus der Skizze entfernt
+ *   sb_niederschlag.html    N#1 Toggle-Leiste raus aus dem PDF · N#2 einklappbare
  *                           Visualisierung je Schlammsammler · N#3 Abgangs-Ø
  *                           wählbar, Frost setzt die Auslauftiefe · N#4/N#5
  *                           WAR-Code lesbar bzw. nicht abgeschnitten
@@ -66,17 +66,31 @@ const TEXTE = (sel) => `(() => {
   ok(errs.length === 0, 'sa: keine pageerrors', errs);
   ok(!!(await page.$('#skizzeHost svg')), 'sa: Skizze gerendert');
 
-  /* ── S#6 «dieser strich entfernen» ─────────────────────────────
-     Der Trennstrich sass unmittelbar vor dem KPI-Grid und trennte
-     Eingabe von Ergebnis ohne Not. Der Strich VOR den Einläufen bleibt. */
+  /* ── S#6 «der strich bei der schlammsammler visualisierung entfernen»
+     Gemeint ist der Tauchbogen-Stich IN der Skizze: die alte statische
+     Zeichnung führte den Auslauf als abknickenden Bogen zurück
+     (`M372 285 L342 285 L342 352 L378 352`) — der zurücklaufende Stummel
+     unter der Auslaufsohle war der markierte Strich. Die geteilte Skizze
+     zeichnet den Auslauf als geraden Stutzen; jeder ihrer sichtbaren Pfade
+     ist eine EINFACHE Linie (genau ein L). Ein abknickender Pfad wäre also
+     ein Rückfall — der Marker-Pfeil in <defs> (gefüllt, endet auf z) zählt
+     bewusst nicht mit. Gegenprobe: der Trennstrich vor dem KPI-Grid gehört
+     zum Aufbau der SEITE und bleibt (er war NIE gemeint). */
   const strich = await page.evaluate(() => {
+    const svg = document.querySelector('#skizzeHost svg');
+    const knick = [...(svg ? svg.querySelectorAll('path') : [])]
+      .filter(p => !p.closest('defs'))
+      .map(p => p.getAttribute('d') || '')
+      .filter(d => !/z\s*$/i.test(d) && (d.match(/L/gi) || []).length >= 2);
     const grid = document.querySelector('.g-kpi-grid');
     let p = grid && grid.previousElementSibling;
     while (p && p.nodeType === 1 && !p.offsetHeight && !p.className) p = p.previousElementSibling;
-    return { vorGrid: !!(p && p.classList && p.classList.contains('g-divider')),
-             anzahl: document.querySelectorAll('.g-divider').length };
+    return { knick, vorGrid: !!(p && p.classList && p.classList.contains('g-divider')),
+             text: /Tauchbogen/i.test(document.body.textContent || '') };
   });
-  ok(!strich.vorGrid, 'S#6 kein Trennstrich mehr vor dem KPI-Grid', strich);
+  ok(strich.knick.length === 0, 'S#6 kein zurücklaufender Stich mehr in der Skizze', strich.knick);
+  ok(!strich.text, 'S#6 kein Tauchbogen-Hinweis mehr auf der Seite');
+  ok(strich.vorGrid, 'S#6 Trennstrich vor dem KPI-Grid bleibt (war nie gemeint)');
 
   /* ── S#1 «diese toggles lassen sich nicht switchen» ──────────── */
   const segVor = await page.evaluate(() => document.querySelectorAll('.g-seg.active').length);
@@ -321,17 +335,32 @@ const TEXTE = (sel) => `(() => {
   ok(await page.evaluate(() => document.querySelector('.ss-vis')?.classList.contains('open')),
      'N#2 Auf-Zustand überlebt den Re-Render');
 
-  /* ── N#1 «bei pdf export ausblenden» ────────────────────────── */
+  /* ── N#1 «Diese toggles im pdf export ausblenden» ─────────────
+     Die Toggle-Leiste (Einheit l/s ⇄ m³/h · R-Wert auto · Erweitert) ist
+     reine Bedienung: die Einheit steht bei JEDEM Wert, der R-Wert in der
+     Detailzeile — im Bericht wäre sie eine tote Schalterreihe. Gemessen
+     wird der gerenderte display-Wert, nicht die Klasse im Markup. */
   await page.evaluate(() => document.querySelector('.ss-vis').classList.remove('open'));
   await page.emulateMedia({ media: 'print' });
   await page.waitForTimeout(200);
-  const dr = await page.evaluate(() => ({
-    bd:   getComputedStyle(document.querySelector('.ss-vis-bd')).display,
-    hd:   getComputedStyle(document.querySelector('.ss-vis-hd')).display,
-    link: getComputedStyle(document.querySelector('#ssSection .g-card-hd a')).display
-  }));
+  const dr = await page.evaluate(() => {
+    const tg = document.querySelector('.nb-toggles');
+    return {
+      bd:      getComputedStyle(document.querySelector('.ss-vis-bd')).display,
+      hd:      getComputedStyle(document.querySelector('.ss-vis-hd')).display,
+      toggles: tg ? getComputedStyle(tg).display : 'fehlt',
+      // Gegenprobe: die Schalter DARIN dürfen am Bildschirm nicht mit weg sein
+      schalter: tg ? tg.querySelectorAll('input[type=checkbox]').length : 0,
+      link:    getComputedStyle(document.querySelector('#ssSection .g-card-hd a')).display
+    };
+  });
   await page.emulateMedia({ media: 'screen' });
-  ok(dr.link === 'none', 'N#1 «→ Einzelauslegung» ist im Druck ausgeblendet', dr.link);
+  const sicht = await page.evaluate(() =>
+    getComputedStyle(document.querySelector('.nb-toggles')).display);
+  ok(dr.toggles === 'none', 'N#1 Toggle-Leiste ist im Druck ausgeblendet', dr.toggles);
+  ok(dr.schalter === 3, 'N#1 alle drei Schalter stecken in dieser Leiste', dr.schalter);
+  ok(sicht !== 'none', 'N#1 am Bildschirm bleibt die Leiste bedienbar', sicht);
+  ok(dr.link === 'none', 'N#1 auch der Sprung «→ Einzelauslegung» bleibt aus dem Druck', dr.link);
   ok(dr.bd === 'block' && dr.hd === 'none',
      'N#2 Druck zeigt die Skizze ohne den Fold-Kopf', dr);
 
