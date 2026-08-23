@@ -279,6 +279,26 @@ button.wz-lchip.koffer:hover{background:#fef9c3}
   .wz-lrow{padding:11px 13px}
   .wz-lsort,.wz-lfilt{min-height:42px}
 }
+/* ── KOFFER-BUENDELUNG (Anzeige-Gruppierung, User-Wunsch 23.08.2026) ──
+   Teile eines Koffers haengen unter ihrem Koffer statt lose im Bestand. Der
+   Koffer traegt den Auf-/Zuklapp-Knopf; zugeklappt sieht man nur ihn und die
+   Teilezahl. Rein visuell — Filter, Suche und Sortierung bleiben unberuehrt. */
+.wz-kgrp{grid-column:1/-1;border:1.5px solid #fde047;border-radius:16px;background:#fffdf6;padding:10px;display:flex;flex-direction:column;gap:11px}
+.wz-kgrp-bd{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;padding:0 2px 2px}
+.wz-kgrp-bd .tc-kofchip{display:none}
+.wz-kgrp-leer{font-size:12px;color:#a16207;padding:0 4px 4px;font-weight:600}
+/* Auf-/Zuklappen: einheitlicher Knopf in Karte, Liste und Tabelle */
+.wz-koftg{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:6px;border:1px solid #fde047;background:#fff;color:#854d0e;font-family:inherit;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;flex-shrink:0}
+.wz-koftg:hover{background:#fef9c3}
+.wz-koftg .cx{display:inline-block;font-size:10px;line-height:1;transition:transform .15s}
+/* Kompakte Liste: Teile eingerueckt mit Koffer-Kante */
+.wz-lrow.wz-lsub{padding-left:36px;background:#fffdf6;box-shadow:inset 4px 0 0 #fde047}
+.wz-lrow.wz-lsub:hover{background:#fef9c3}
+.wz-lrow.wz-lsub .wz-lkof{display:none}
+/* Tabelle: Teile eingerueckt mit Koffer-Kante */
+tr.wz-tsub>td{background:#fffdf6}
+tr.wz-tsub>td:first-child{box-shadow:inset 5px 0 0 #fde047;padding-left:26px}
+tr.wz-tsub .wz-tkof{display:none}
 .pill{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:7px;font-size:11.5px;font-weight:700;white-space:nowrap}
 
 /* EMPTY */
@@ -504,7 +524,7 @@ tr.sml-err td{background:#fef2f2}
 .cat-sonstige    {background:var(--bg2);color:var(--mut);border:1px solid var(--brd2)}
 
 @media(max-width:1000px){.stats-row{grid-template-columns:repeat(3,1fr)}}
-@media(max-width:640px){.stats-row{grid-template-columns:1fr 1fr}.card-grid{grid-template-columns:1fr}.tc-dates{grid-template-columns:1fr}}
+@media(max-width:640px){.stats-row{grid-template-columns:1fr 1fr}.card-grid{grid-template-columns:1fr}.wz-kgrp-bd{grid-template-columns:1fr}.tc-dates{grid-template-columns:1fr}}
 /* Phone: gepaarte Formularfelder untereinander statt nebeneinander.
    (Die generische Regel in gema_responsive.css greift nicht — .fg-row ist
    flex, nicht grid.) width:0 aus der Desktop-Regel zuruecksetzen! */
@@ -3173,14 +3193,14 @@ function renderList(){
       :_wzIsMonteurView()
       ?('<div class="empty-state"><div class="ei">🔒</div><h3>Keine Werkzeuge zugewiesen</h3><p>'+_wzMonteurEmptyText(true)+'</p><button class="nbtn primary" onclick="_wzScanWithCamera()" style="margin-top:8px">📷 Werkzeug scannen &amp; ausleihen</button></div>')
       :'<div class="empty-state"><div class="ei">🔧</div><h3>Keine Geräte gefunden</h3><p>Passen Sie den Filter an oder erfassen Sie ein neues Gerät.</p><button class="nbtn primary" onclick="openAdd()">+ Gerät hinzufügen</button></div>';
-    grid.innerHTML = showLoading ? _WZ_LOADING_HTML : (f.length?f.map(renderCard).join(''):emptyMsg);
+    grid.innerHTML = showLoading ? _WZ_LOADING_HTML : (f.length?_wzKartenHtml(f):emptyMsg);
   } else if(currentView==='list'){
     var leer=_wzIsPartnerView()
       ? '<div class="empty-state"><div class="ei">📋</div><h3>Keine Prüfaufträge</h3><p>'+_wzPartnerEmptyText(true)+'</p></div>'
       : _wzIsMonteurView()
       ? '<div class="empty-state"><div class="ei">🔒</div><h3>Keine Werkzeuge zugewiesen</h3><p>'+_wzMonteurEmptyText(true)+'</p></div>'
       : '<div class="empty-state"><div class="ei">🔧</div><h3>Keine Geräte gefunden</h3><p>Passen Sie Suche oder Filter an.</p></div>';
-    if(lhost)lhost.innerHTML = showLoading ? _WZ_LOADING_HTML : (f.length?f.map(renderListeRow).join(''):leer);
+    if(lhost)lhost.innerHTML = showLoading ? _WZ_LOADING_HTML : (f.length?_wzListeHtml(f):leer);
     var ct=document.getElementById('wzListCount');
     if(ct)ct.textContent=showLoading?'':(f.length+' Gerät'+(f.length!==1?'e':''));
     var lf=document.getElementById('wzListFilter'), lfc=document.getElementById('wzListFilterCt');
@@ -3195,7 +3215,7 @@ function renderList(){
       : `<tr><td colspan="8" style="padding:44px;text-align:center;color:var(--mut)">Keine Geräte gefunden</td></tr>`;
     tbody.innerHTML = showLoading
       ? `<tr><td colspan="8" style="padding:44px;text-align:center;color:var(--mut)">Wird geladen …</td></tr>`
-      : (f.length?f.map(renderRow).join(''):emptyRow);
+      : (f.length?_wzTabelleHtml(f):emptyRow);
   }
   _wzPaintSortHead();
   updateStats();
@@ -3224,7 +3244,38 @@ function _wzCardClick(e,id){
   if(e.target.closest('button,a,.tc-act'))return;
   openViewTool(id);
 }
-function renderCard(t){
+// ── Gebuendelte Ausgabe der drei klassischen Ansichten ──
+// Jede baut ihre Zeilen weiterhin ueber den bestehenden Einzel-Renderer; die
+// Buendelung ordnet nur an und rueckt die Teile ein. Ist die Buendelung
+// abgeschaltet, liefert _wzGruppen die flache Liste und alles rendert exakt
+// wie bisher.
+function _wzKartenHtml(f){
+  return _wzGruppen(f).map(function(g){
+    if(g.typ!=='koffer'||!g.gesamt) return renderCard(g.tool);
+    return '<div class="wz-kgrp">'
+      + renderCard(g.tool,g)
+      + _wzKofLeerHint(g)
+      + ((g.offen&&g.items.length)?'<div class="wz-kgrp-bd">'+g.items.map(function(t){return renderCard(t);}).join('')+'</div>':'')
+      + '</div>';
+  }).join('');
+}
+function _wzListeHtml(f){
+  return _wzGruppen(f).map(function(g){
+    if(g.typ!=='koffer') return renderListeRow(g.tool);
+    var out=renderListeRow(g.tool,false,g);
+    if(g.offen) out += g.items.map(function(t){return renderListeRow(t,true);}).join('');
+    return out;
+  }).join('');
+}
+function _wzTabelleHtml(f){
+  return _wzGruppen(f).map(function(g){
+    if(g.typ!=='koffer') return renderRow(g.tool);
+    var out=renderRow(g.tool,false,g);
+    if(g.offen) out += g.items.map(function(t){return renderRow(t,true);}).join('');
+    return out;
+  }).join('');
+}
+function renderCard(t,grp){
   const cat=CATS[t.cat]||CATS.sonstige;
   const wd=worstDays(t); const wdc=dc(wd);
   const barCls=wdc==='red'?'red':wdc==='amber'?'amber':wdc==='neutral'?'neutral':'green';
@@ -3278,8 +3329,8 @@ function renderCard(t){
     ${(!isMonteur&&t.berichte&&t.berichte.length)?`<div style="padding:6px 14px;background:#fff7ed;border-top:1px solid #fed7aa;font-size:11px;color:#c2410c;display:flex;align-items:center;gap:5px"><span>📝</span>${t.berichte.length} Bericht${t.berichte.length>1?'e':''}${_wzBadDefect(t)?' · <span style="font-weight:800">⚠ Defekt offen</span>':''}</div>`:''}
     ${(!isMonteur&&t.pruefAnfrage)?`<div style="padding:6px 14px;background:${t.pruefAnfrage.status==='erledigt'?'#f0fdf4':t.pruefAnfrage.status==='quittiert'?'#eff6ff':'#fff7ed'};border-top:1px solid ${t.pruefAnfrage.status==='erledigt'?'#bbf7d0':t.pruefAnfrage.status==='quittiert'?'#bfdbfe':'#fed7aa'};font-size:11px;color:${t.pruefAnfrage.status==='erledigt'?'#16a34a':t.pruefAnfrage.status==='quittiert'?'#2563eb':'#c2410c'};display:flex;align-items:center;gap:5px"><span>📋</span>${t.pruefAnfrage.status==='angefordert'?'Prüfung angefordert':t.pruefAnfrage.status==='quittiert'?'Lieferant quittiert':'Prüfung erledigt'} · ${esc(t.pruefAnfrage.lieferantFirma||'')}</div>`:''}
     ${(!isMonteur&&t.ersatzAnfragen&&t.ersatzAnfragen.length)?`<div style="padding:6px 14px;background:#fdf4ff;border-top:1px solid #e9d5ff;font-size:11px;color:#7c3aed;display:flex;align-items:center;gap:5px"><span>🔄</span>${t.ersatzAnfragen.filter(a=>a.status==='offen').length} Ersatzanfrage${t.ersatzAnfragen.filter(a=>a.status==='offen').length!==1?'n':''} offen</div>`:''}
-    ${_wzIsKoffer(t)?(function(){var ki=_wzKofferItems(t);return `<div style="padding:8px 14px;background:#fefce8;border-top:1px solid #fde047;font-size:11.5px;color:#854d0e;display:flex;align-items:center;gap:6px;min-width:0"><span>🧰</span><strong style="flex-shrink:0">${ki.length} Teil${ki.length!==1?'e':''}</strong>${ki.length?`<span style="color:#a16207;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">· ${esc(ki.slice(0,3).map(function(x){return x.name;}).join(', '))}${ki.length>3?' …':''}</span>`:''}<button onclick="event.stopPropagation();openKofferInhalt('${t.id}')" style="margin-left:auto;padding:4px 10px;border-radius:6px;border:1px solid #fde047;background:#fff;color:#854d0e;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;flex-shrink:0">🧰 Inhalt</button></div>`;})():''}
-    ${(!_wzIsKoffer(t)&&_wzKofferOf(t.id))?(function(){var ko=_wzKofferOf(t.id);return `<div style="padding:6px 14px;background:#fefce8;border-top:1px solid #fde047;font-size:11px;color:#a16207;display:flex;align-items:center;gap:6px;min-width:0"><span style="flex-shrink:0">🧰</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">Im Koffer <strong>${esc(ko.name)}</strong></span><button onclick="event.stopPropagation();_wzKofferSpringen('${t.id}')" title="Koffer «${esc(ko.name)}» öffnen" style="margin-left:auto;padding:4px 10px;border-radius:6px;border:1px solid #fde047;background:#fff;color:#854d0e;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;flex-shrink:0">→ Zum Koffer</button></div>`;})():''}
+    ${_wzIsKoffer(t)?(function(){var ki=_wzKofferItems(t);return `<div style="padding:8px 14px;background:#fefce8;border-top:1px solid #fde047;font-size:11.5px;color:#854d0e;display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:wrap"><span>🧰</span><strong style="flex-shrink:0">${ki.length} Teil${ki.length!==1?'e':''}</strong>${ki.length?`<span style="color:#a16207;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">· ${esc(ki.slice(0,3).map(function(x){return x.name;}).join(', '))}${ki.length>3?' …':''}</span>`:''}<span style="margin-left:auto;display:flex;gap:6px;flex-shrink:0">${grp?_wzKofTgBtn(grp):''}<button onclick="event.stopPropagation();openKofferInhalt('${t.id}')" style="padding:4px 10px;border-radius:6px;border:1px solid #fde047;background:#fff;color:#854d0e;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">🧰 Inhalt</button></span></div>`;})():''}
+    ${(!_wzIsKoffer(t)&&_wzKofferOf(t.id))?(function(){var ko=_wzKofferOf(t.id);return `<div class="tc-kofchip" style="padding:6px 14px;background:#fefce8;border-top:1px solid #fde047;font-size:11px;color:#a16207;display:flex;align-items:center;gap:6px;min-width:0"><span style="flex-shrink:0">🧰</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">Im Koffer <strong>${esc(ko.name)}</strong></span><button onclick="event.stopPropagation();_wzKofferSpringen('${t.id}')" title="Koffer «${esc(ko.name)}» öffnen" style="margin-left:auto;padding:4px 10px;border-radius:6px;border:1px solid #fde047;background:#fff;color:#854d0e;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;flex-shrink:0">→ Zum Koffer</button></div>`;})():''}
     <!-- Personen-Banner (Ausgeliehen/Zugewiesen/Einbuchung) via margin-top:auto
          immer ganz unten direkt vor tc-foot — so klebt der Zugewiesenen-Balken
          auch bei im Grid hochgezogenen Karten unten (siehe Issue: 'Zugewiesener
@@ -3394,6 +3445,107 @@ function _wzCanEditKoffer(k){
   return !!(u && k && k.zugewiesenAn && k.zugewiesenAn.typ!=='platz' && k.zugewiesenAn.userId===u.id);
 }
 
+// ══════════════════════════════════════════════════════════════
+// KOFFER-BUENDELUNG (User-Wunsch 23.08.2026)
+// ══════════════════════════════════════════════════════════════
+// Teile eines Koffers erscheinen nicht mehr lose im Bestand, sondern
+// GEBUENDELT unter ihrem Koffer — auf- und zuklappbar; zugeklappt sieht man
+// nur den Koffer und wie viele Teile darin sind.
+//
+// Drei Grundsaetze:
+//  (1) Die Buendelung ist reine ANZEIGE. getFiltered()/_wzSortList bleiben
+//      unangetastet (eine Sortier-Wahrheit) — _wzGruppen ordnet die bereits
+//      gefilterte, sortierte Liste nur um.
+//  (2) Ein Teil verschwindet NIE. Gebuendelt wird nur, wenn der Koffer in
+//      derselben gefilterten Liste steht; sonst bleibt das Teil normal im
+//      Fluss (mit seinem bestehenden Koffer-Sprung-Chip).
+//  (3) Ist ein Teil weggefiltert, sagt der Koffer das («4 von 6 Teilen»)
+//      statt stillschweigend eine zu kleine Zahl zu zeigen.
+//
+// Standard (aufgeklappt ja/nein, Buendelung ja/nein) kommt org-weit aus den
+// Einstellungen; der Auf-/Zu-Zustand pro Koffer ist Geraete-UI und liegt im
+// localStorage — NIE am Datensatz.
+var _WZ_KOF_FOLD_LS='gema_wz_kofferfold_v1';
+var _wzKofFold={};   // {kofferId:true|false} — NUR bewusst angefasste Koffer
+function _wzKofFoldLoad(){
+  try{ var o=JSON.parse(localStorage.getItem(_WZ_KOF_FOLD_LS)||'null'); if(o&&typeof o==='object') _wzKofFold=o; }catch(e){}
+}
+function _wzKofFoldSave(){ try{ localStorage.setItem(_WZ_KOF_FOLD_LS,JSON.stringify(_wzKofFold)); }catch(e){} }
+// Org-Standards. Beide Defaults sind das gewuenschte Startverhalten:
+// gebuendelt UND aufgeklappt — eine Organisation ohne Einstellung bekommt
+// also die Buendelung, ohne etwas tun zu muessen.
+function _wzKofBuendeln(){ try{ return _wzGetOrgSettings().kofferBuendeln!==false; }catch(e){ return true; } }
+function _wzKofStdOffen(){ try{ return _wzGetOrgSettings().kofferOffen!==false; }catch(e){ return true; } }
+// Kein Eintrag = Org-Standard (Fold-Kanon aller GEMA-Module).
+function _wzKofOffen(id){ var v=_wzKofFold[id]; return (v===true||v===false)?v:_wzKofStdOffen(); }
+window._wzKofToggle=function(id,ev){
+  if(ev&&ev.stopPropagation)ev.stopPropagation();
+  if(!id)return;
+  _wzKofFold[id]=!_wzKofOffen(id);
+  _wzKofFoldSave();
+  // renderList() ist im Handy-Modus gewrappt (nat.refresh()) — der native
+  // Screen zieht damit ohne Zusatz-Aufruf nach.
+  try{ renderList(); }catch(e){}
+};
+// Rueckwaerts-Index toolId → Koffer. EINMAL pro Render statt _wzKofferOf je
+// Zeile (das scannt jedes Mal den ganzen Bestand — ueber eine lange Liste
+// waere das quadratisch).
+function _wzKofIndex(alle){
+  var a=alle||tools||[], idx={};
+  a.forEach(function(k){
+    if(!_wzIsKoffer(k)||!Array.isArray(k.kofferInhalt))return;
+    k.kofferInhalt.forEach(function(id){ if(id&&!idx[id]) idx[id]=k; });
+  });
+  return idx;
+}
+// Anzeige-Reihenfolge: [{typ:'koffer',tool,items[],gesamt,offen} | {typ:'tool',tool}]
+// Der Koffer steht dort, wo ihn die Sortierung hinstellt; seine sichtbaren
+// Teile folgen ihm in genau derselben Sortier-Reihenfolge.
+function _wzGruppen(list,alle){
+  var l=list||[];
+  if(!_wzKofBuendeln()) return l.map(function(t){ return {typ:'tool',tool:t}; });
+  var idx=_wzKofIndex(alle), sicht={}, kinder={};
+  l.forEach(function(t){ if(_wzIsKoffer(t)) sicht[t.id]=1; });
+  l.forEach(function(t){
+    if(_wzIsKoffer(t))return;
+    var k=idx[t.id];
+    if(k&&sicht[k.id]) (kinder[k.id]=kinder[k.id]||[]).push(t);
+  });
+  var out=[];
+  l.forEach(function(t){
+    if(_wzIsKoffer(t)){
+      out.push({typ:'koffer',tool:t,items:(kinder[t.id]||[]),gesamt:_wzKofferItems(t).length,offen:_wzKofOffen(t.id)});
+      return;
+    }
+    var k=idx[t.id];
+    if(k&&sicht[k.id])return;            // haengt an seiner Gruppe
+    out.push({typ:'tool',tool:t});
+  });
+  return out;
+}
+// Beschriftung des Auf-/Zu-Knopfs. Weicht die Zahl der sichtbaren Teile von
+// der Gesamtzahl ab (Filter/Suche/Archiv), wird BEIDES genannt.
+function _wzKofTgLabel(g){
+  var n=g.items.length, ges=g.gesamt;
+  var txt = (n===ges) ? (ges+' Teil'+(ges!==1?'e':'')) : (n+' von '+ges+' Teilen');
+  return (g.offen?'▾ ':'▸ ')+txt;
+}
+function _wzKofTgBtn(g,cls){
+  if(!g.gesamt) return '';
+  var tip=g.offen?'Teile ausblenden':'Teile anzeigen';
+  return '<button type="button" class="wz-koftg'+(cls?' '+cls:'')+'" title="'+esc(tip)+'"'
+    +' onclick="event.stopPropagation();_wzKofToggle(\''+g.tool.id+'\',event)">'
+    +'<span class="cx">'+(g.offen?'▾':'▸')+'</span>'+esc(_wzKofTgLabel(g).replace(/^[▾▸]\s*/,''))+'</button>';
+}
+// Hinweis, wenn der Koffer aufgeklappt ist, aber kein Teil durch den Filter
+// kommt — sonst sieht ein aufgeklappter Koffer wie ein leerer aus.
+function _wzKofLeerHint(g){
+  if(!g.offen||g.items.length)return '';
+  return g.gesamt
+    ? '<div class="wz-kgrp-leer">🧰 '+g.gesamt+' Teil'+(g.gesamt!==1?'e':'')+' im Koffer — durch Suche/Filter aktuell keines sichtbar.</div>'
+    : '<div class="wz-kgrp-leer">🧰 Koffer ist leer — noch kein Teil hinterlegt.</div>';
+}
+
 // Vom TEIL direkt in SEINEN Koffer springen (User-Wunsch 22.08.2026).
 // Ein Koffer ist ein normaler Werkzeug-Datensatz — der Sprung fuehrt darum in
 // dessen DETAILANSICHT, von der aus jede Koffer-Funktion (Inhalt, Ausleihe,
@@ -3434,7 +3586,7 @@ function _wzKofferSpringen(toolId){
 // Max. 3 Textzeilen, jede mit Ellipsis — die Zeile waechst NIE ueber die
 // Breite hinaus, es gibt also nichts horizontal zu scrollen. Klick oeffnet
 // die Detailansicht (dort liegen seit dem Scan-Umbau alle Aktionen).
-function renderListeRow(t){
+function renderListeRow(t,sub,grp){
   var cat=CATS[t.cat]||CATS.sonstige;
   var wd=worstDays(t), wdc=dc(wd);
   var lc=t.lifecycleStatus||'aktiv';
@@ -3447,15 +3599,20 @@ function renderListeRow(t){
   if(_wzIsPendingEinbuchung(t))chips.push('<span class="wz-lchip amber">📥 Ausstehend</span>');
   if(t.ausgeliehenAn)chips.push('<span class="wz-lchip amber">🔄 '+esc(t.ausgeliehenAn.name||'—')+'</span>');
   else if(t.zugewiesenAn)chips.push('<span class="wz-lchip blue">'+(t.zugewiesenAn.typ==='platz'?'📍 ':'👷 ')+esc(t.zugewiesenAn.name||'—')+'</span>');
-  if(_wzIsKoffer(t)){var ki=_wzKofferItems(t);chips.push('<span class="wz-lchip">🧰 '+ki.length+' Teil'+(ki.length!==1?'e':'')+'</span>');}
+  if(_wzIsKoffer(t)){
+    // Gebuendelt ist der Chip der Auf-/Zu-Knopf, sonst bleibt er die reine Anzeige.
+    if(grp&&grp.gesamt) chips.push(_wzKofTgBtn(grp,'wz-lchip koffer'));
+    else {var ki=_wzKofferItems(t);chips.push('<span class="wz-lchip">🧰 '+ki.length+' Teil'+(ki.length!==1?'e':'')+'</span>');}
+  }
   // Teil in einem Koffer → Sprung-Chip (im Bulk-Modus nicht: dort waehlt der
   // Zeilen-Tap aus, ein stopPropagation-Knopf darin waere widerspruechlich).
-  else if(!_wzBulkMode){var ko=_wzKofferOf(t.id); if(ko) chips.push('<button class="wz-lchip koffer" title="Koffer «'+esc(ko.name)+'» öffnen" onclick="event.stopPropagation();_wzKofferSpringen(\''+t.id+'\')">🧰 '+esc(ko.name)+' →</button>');}
+  else if(!_wzBulkMode){var ko=_wzKofferOf(t.id); if(ko) chips.push('<button class="wz-lchip koffer wz-lkof" title="Koffer «'+esc(ko.name)+'» öffnen" onclick="event.stopPropagation();_wzKofferSpringen(\''+t.id+'\')">🧰 '+esc(ko.name)+' →</button>');}
   var meta=[t.brand,t.model].filter(Boolean).map(esc).join(' ');
   if(t.serial)meta+=(meta?' · ':'')+'SN '+esc(t.serial);
   if(!meta)meta=esc(cat.label);else meta=esc(cat.label)+' · '+meta;
   var sel=_wzBulkSelected[t.id]?' wz-bulk-sel':'';
   var dim=(lc==='ausgemustert'||lc==='verkauft')?' dim':'';
+  var subCls=sub?' wz-lsub':'';
   var lead=_wzBulkMode
     ? '<div class="wz-lcb">'+(_wzBulkSelected[t.id]?'✓':'')+'</div>'
     : (t.bildUrl
@@ -3464,7 +3621,7 @@ function renderListeRow(t){
   var click=_wzBulkMode
     ? 'onclick="_wzBulkToggle(\''+t.id+'\',event)"'
     : 'onclick="_wzCardClick(event,\''+t.id+'\')"';
-  return '<div class="wz-lrow'+sel+dim+'" data-bulk-id="'+t.id+'" '+click+'>'
+  return '<div class="wz-lrow'+sel+dim+subCls+'" data-bulk-id="'+t.id+'" '+click+'>'
     +lead
     +'<div class="wz-lmain">'
     +'<div class="wz-l1"><span class="wz-lname">'+esc(t.name)+'</span>'
@@ -3476,7 +3633,7 @@ function renderListeRow(t){
     +'</div>';
 }
 
-function renderRow(t){
+function renderRow(t,sub,grp){
   const cat=CATS[t.cat]||CATS.sonstige;
   const wd=worstDays(t); const wdc=dc(wd);
   // EINMAL aufloesen: _wzKofferOf scannt alle Werkzeuge — zweimal pro Zeile
@@ -3484,8 +3641,9 @@ function renderRow(t){
   const rowKof=_wzIsKoffer(t)?null:_wzKofferOf(t.id);
   const pill=(d,label)=>d?`<span class="pill ${badgeC(daysFrom(d))}">${fmt(d)}</span>`:`<span style="color:var(--mut2)">—</span>`;
   const hasPruef=t.hasElec||t.hasLeiter;
-  return`<tr>
-    <td><strong style="font-size:14px">${esc(t.name)}</strong>${t.internKennung?` <span style="font-weight:600;color:var(--mut);font-size:11.5px">· 🏷 ${esc(t.internKennung)}</span>`:''}${_wzIsPendingEinbuchung(t)?` <span class="pill" style="background:#fffbeb;color:#92400e;border:1px solid #fcd34d">📥 Ausstehend</span>`:''}<br><span style="font-size:11.5px;color:var(--mut)">${t.brand||''} ${t.model||''}${t.supplier?' · '+esc(t.supplier):''}</span></td>
+  const kofTg=(grp&&grp.gesamt)?_wzKofTgBtn(grp)+' ':'';
+  return`<tr class="${sub?'wz-tsub':''}">
+    <td>${kofTg}<strong style="font-size:14px">${esc(t.name)}</strong>${t.internKennung?` <span style="font-weight:600;color:var(--mut);font-size:11.5px">· 🏷 ${esc(t.internKennung)}</span>`:''}${_wzIsPendingEinbuchung(t)?` <span class="pill" style="background:#fffbeb;color:#92400e;border:1px solid #fcd34d">📥 Ausstehend</span>`:''}<br><span style="font-size:11.5px;color:var(--mut)">${t.brand||''} ${t.model||''}${t.supplier?' · '+esc(t.supplier):''}</span></td>
     <td><span class="pill ${cat.cls}">${cat.icon} ${cat.label}</span></td>
     <td style="font-family:var(--mono);font-size:12.5px">${fmt(t.bought)}</td>
     <td>${pill(t.warranty)}</td>
@@ -3495,7 +3653,7 @@ function renderRow(t){
     <td style="white-space:nowrap">
       <button class="tc-act" onclick="openQR('${t.id}')">🔲</button>
       <button class="tc-act" onclick="openBerichte('${t.id}')" title="Berichte">📝</button>
-      ${rowKof?`<button class="tc-act" style="background:#fefce8;color:#854d0e;border-color:#fde047" onclick="_wzKofferSpringen('${t.id}')" title="Im Koffer «${esc(rowKof.name)}» — öffnen">🧰</button>`:''}
+      ${rowKof?`<button class="tc-act wz-tkof" style="background:#fefce8;color:#854d0e;border-color:#fde047" onclick="_wzKofferSpringen('${t.id}')" title="Im Koffer «${esc(rowKof.name)}» — öffnen">🧰</button>`:''}
       ${_wzCanReportDefect()?`<button class="tc-act" style="background:#fff7ed;color:#c2410c;border-color:#fed7aa" onclick="openDefektMelden('${t.id}')" title="Defekt melden">⚠</button>`:''}
       ${(_wzCanAssign()&&!_wzIsPendingEinbuchung(t))?`<button class="tc-act" style="background:#eef2ff;color:#3730a3;border-color:#e0e7ff" onclick="openZuweisung('${t.id}')" title="Zuweisen">👷</button>`:''}
       ${(_wzCanEdit()&&!_wzIsPendingEinbuchung(t))?`<button class="tc-act" style="background:#fefce8;color:#92400e;border-color:#fde68a" onclick="_wzOpenAusleihe('${t.id}')" title="Ausleihen">🔄</button>`:''}
@@ -5963,6 +6121,8 @@ function _wzOpenSettings(){
   var requireMag = !!s.requireMagazinerReturn;
   var lockOnWrite = !!s.nfcLockOnWrite;
   var etikName = (s.etiketteName==='immer'||s.etiketteName==='fragen')?s.etiketteName:'nie';
+  var kofBuend = s.kofferBuendeln!==false;   // Standard: gebündelt
+  var kofOffen  = s.kofferOffen!==false;      // Standard: aufgeklappt
   var opt = _wzGetOptFelder();
   var cats = _wzGetCats();
 
@@ -6007,6 +6167,25 @@ function _wzOpenSettings(){
             + '<option value="fragen"'+(etikName==='fragen'?' selected':'')+'>Vor dem Druck wählen</option>'
           + '</select>'
           + '<div style="font-size:11.5px;color:#64748b;margin-top:6px;line-height:1.4">Gilt für Werkzeuge UND Koffer. Beim Einzel-Druck steuert die Checkbox im Etiketten-Dialog (nach dieser Einstellung vorbelegt); beim Sammelexport wird bei «Vor dem Druck wählen» einmal pro Export gefragt. Die Kennung wird immer so gross wie möglich dargestellt.</div>'
+        + '</div>'
+      + '</section>'
+      // 1d. Koffer-Ansicht
+      + '<section>'
+        + '<div style="font-size:12px;font-weight:800;color:#3730a3;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Koffer in der Liste</div>'
+        + '<div style="padding:11px 13px;border:1.5px solid #e5e7eb;border-radius:9px;background:#fff">'
+          + '<div style="font-size:13px;font-weight:700;color:#0f172a;margin-bottom:6px">Anordnung der Werkzeuge</div>'
+          + '<select id="wzs_kofferBuendeln" onchange="_wzSettKofSync()" style="width:100%;padding:8px 10px;border:1.5px solid #dbe2ee;border-radius:8px;font:inherit;font-size:13px;background:#fff">'
+            + '<option value="1"'+(kofBuend?' selected':'')+'>Nach Koffer gebündelt — Teile hängen unter ihrem Koffer</option>'
+            + '<option value="0"'+(kofBuend?'':' selected')+'>Ohne Bündelung — Standard-Reihenfolge (neuestes Werkzeug zuoberst)</option>'
+          + '</select>'
+          + '<div style="font-size:11.5px;color:#64748b;margin-top:6px;line-height:1.4">Gilt für Karten, Tabelle, kompakte Liste und die Handy-Ansicht. Gebündelt wird nur, wenn der Koffer selbst im Filter steht — ein Teil verschwindet nie: fällt sein Koffer durch Suche oder Filter weg, bleibt es normal in der Liste.</div>'
+          + '<div style="height:1px;background:#eef2f7;margin:12px 0"></div>'
+          + '<div style="font-size:13px;font-weight:700;color:#0f172a;margin-bottom:6px">Koffer beim Öffnen der Liste</div>'
+          + '<select id="wzs_kofferOffen" style="width:100%;padding:8px 10px;border:1.5px solid #dbe2ee;border-radius:8px;font:inherit;font-size:13px;background:#fff"'+(kofBuend?'':' disabled')+'>'
+            + '<option value="1"'+(kofOffen?' selected':'')+'>Aufgeklappt — Teile sind sofort sichtbar</option>'
+            + '<option value="0"'+(kofOffen?'':' selected')+'>Zugeklappt — nur Koffer und Teilezahl</option>'
+          + '</select>'
+          + '<div style="font-size:11.5px;color:#64748b;margin-top:6px;line-height:1.4">Nur der <strong>Startwert</strong>. Jeder Koffer lässt sich in der Liste einzeln auf- und zuklappen; diese Wahl merkt sich das Gerät und geht der Vorgabe vor.</div>'
         + '</div>'
       + '</section>'
       // 2. Optionale Felder
@@ -6099,6 +6278,19 @@ function _wzSettCatMove(btn, dir){
     if(btns[1]) btns[1].disabled = (i === rows.length-1);
   });
 }
+// Der Startwert «aufgeklappt/zugeklappt» ist ohne Buendelung gegenstandslos —
+// darum SOFORT sperren/freigeben statt erst nach dem Speichern (sonst wirkt das
+// Feld tot, obwohl die Wahl daneben es gerade wieder sinnvoll gemacht hat).
+function _wzSettKofSync(){
+  var kb = document.getElementById('wzs_kofferBuendeln');
+  var ko = document.getElementById('wzs_kofferOffen');
+  if(!kb || !ko) return;
+  var an = (kb.value === '1');
+  ko.disabled = !an;
+  ko.style.opacity = an ? '' : '.55';
+}
+window._wzSettKofSync = _wzSettKofSync;
+
 window._wzSettAddCat = _wzSettAddCat;
 window._wzSettCatRemove = _wzSettCatRemove;
 window._wzSettCatMove = _wzSettCatMove;
@@ -6117,6 +6309,10 @@ function _wzSaveSettings(){
     wz.nfcLockOnWrite = !!document.getElementById('wzs_nfcLockOnWrite').checked;
     var etikSel = document.getElementById('wzs_etiketteName');
     if(etikSel) wz.etiketteName = etikSel.value;
+    var kbSel = document.getElementById('wzs_kofferBuendeln');
+    if(kbSel) wz.kofferBuendeln = (kbSel.value === '1');
+    var koSel = document.getElementById('wzs_kofferOffen');
+    if(koSel) wz.kofferOffen = (koSel.value === '1');
     // Optionale Felder einsammeln
     var optOut = {};
     document.querySelectorAll('.wzs_opt').forEach(function(cb){
@@ -8640,6 +8836,7 @@ window.addEventListener('DOMContentLoaded',async () => {
 // von anderen Geraeten). Beim allerersten Aufruf (leerer Cache) zeigt
 // renderList eine Ladeanzeige statt eines leeren Bestands.
 try{ _wzSortLoad(); }catch(e){}
+try{ _wzKofFoldLoad(); }catch(e){}
 try{ load(); _wzSyncCatsMap(); _wzApplyOptFelder(); _wzRestoreView(); }catch(e){ try{renderList();}catch(e2){} }
 
 // Cloud-First (DB primaer, localStorage nur Fallback): sowohl die Tools
@@ -8878,13 +9075,42 @@ try{
       }
       return '<div class="gn-label" style="text-transform:none;font-weight:500;padding-top:8px">Keine Geräte gefunden.</div>';
     }
-    return '<div class="gn-list">'+rows.map(function(t){
-      var s=natStatus(t), kof=false; try{ kof=_wzIsKoffer(t); }catch(e){}
-      return '<div class="gn-row gn-row--lg" data-nat-id="'+NE(t.id)+'" data-gn-ctx="'+NE(t.name||'Gerät')+'">'
-        +'<span class="gn-row-ic" style="--gn-row-bg:var(--gn-c-lueftung)">'+(kof?IC_KOF:IC_TOOL)+'</span>'
-        +'<span class="gn-row-body"><span class="gn-row-title">'+NE(t.name||'—')+'</span><span class="gn-row-sub">'+NE(natSub(t))+'</span></span>'
-        +'<span class="gn-badge '+s.cls+'">'+NE(s.lbl)+'</span></div>';
+    // Koffer-Buendelung wie in der klassischen Ansicht (dieselbe Engine
+    // _wzGruppen — eine Wahrheit). Faellt sie aus, bleibt die flache Liste.
+    var grp;
+    try{ grp=_wzGruppen(rows); }catch(e){ grp=rows.map(function(t){ return {typ:'tool',tool:t}; }); }
+    return '<div class="gn-list">'+grp.map(function(g){
+      if(g.typ!=='koffer'||!g.gesamt) return natRow(g.tool,false,null);
+      var out=natRow(g.tool,false,g);
+      if(g.offen){
+        if(g.items.length) out+=g.items.map(function(t){ return natRow(t,true,null); }).join('');
+        else out+='<div style="padding:8px 14px;font-size:12px;font-weight:600;color:#a16207;background:#fffdf6">'
+          +'🧰 '+g.gesamt+' Teil'+(g.gesamt!==1?'e':'')+' im Koffer — durch Suche/Filter aktuell keines sichtbar.</div>';
+      }
+      return out;
     }).join('')+'</div>';
+  }
+  // EINE Zeile der Handy-Liste. sub = Teil eines aufgeklappten Koffers
+  // (eingerueckt), grp = Koffer-Gruppe (bekommt den Auf-/Zu-Knopf).
+  function natRow(t,sub,grp){
+    var s=natStatus(t), kof=false; try{ kof=_wzIsKoffer(t); }catch(e){}
+    var sb=natSub(t);
+    if(grp){
+      // Die Teilezahl steht in der Unterzeile — der Knopf bleibt dadurch klein
+      // (auf 390 px waere ein beschrifteter Knopf neben dem Status zu breit).
+      var n=grp.items.length, ges=grp.gesamt;
+      var kt=(n===ges)?(ges+' Teil'+(ges!==1?'e':'')):(n+' von '+ges+' Teilen');
+      sb='🧰 '+kt+(sb&&sb!=='—'?' · '+sb:'');
+    }
+    var stil=sub?' style="padding-left:26px;background:#fffdf6;box-shadow:inset 4px 0 0 #fde047"':'';
+    var tg=grp?('<button type="button" data-nat-kof="'+NE(t.id)+'" title="'+(grp.offen?'Teile ausblenden':'Teile anzeigen')+'"'
+      +' style="flex-shrink:0;width:32px;height:32px;border:1px solid #fde047;border-radius:8px;background:#fffdf6;color:#854d0e;'
+      +'font-family:inherit;font-size:13px;font-weight:800;line-height:1;cursor:pointer">'+(grp.offen?'▾':'▸')+'</button>'):'';
+    return '<div class="gn-row gn-row--lg" data-nat-id="'+NE(t.id)+'" data-gn-ctx="'+NE(t.name||'Gerät')+'"'+stil+'>'
+      +'<span class="gn-row-ic" style="--gn-row-bg:var(--gn-c-lueftung)">'+(kof?IC_KOF:IC_TOOL)+'</span>'
+      +'<span class="gn-row-body" style="min-width:0"><span class="gn-row-title">'+NE(t.name||'—')+'</span><span class="gn-row-sub">'+NE(sb)+'</span></span>'
+      +tg
+      +'<span class="gn-badge '+s.cls+'">'+NE(s.lbl)+'</span></div>';
   }
   // Kategorie-Chips (Pendant zur klassischen catFilterBar — datengetrieben,
   // nur vorhandene Kategorien, mit Zähler; < 2 Kategorien = keine Leiste)
@@ -8957,6 +9183,18 @@ try{
       root.querySelector('[data-nat-list]').innerHTML=listHtml();
     });
     root.querySelector('[data-nat-list]').addEventListener('click',function(e){
+      // Auf-/Zuklappen VOR dem Oeffnen pruefen — der Knopf liegt in der Zeile,
+      // sonst wuerde jeder Tipp darauf zusaetzlich das Detail-Sheet oeffnen.
+      var tg=e.target.closest&&e.target.closest('[data-nat-kof]');
+      if(tg){
+        e.stopPropagation();
+        var kid=tg.getAttribute('data-nat-kof');
+        var r0=tg.closest('[data-nat-id]'); if(r0) r0.__gnCtxFired=false;
+        // _wzKofToggle ruft renderList() — das ist gewrappt und zeichnet den
+        // nativen Screen mit dem neuen Auf-/Zu-Zustand neu.
+        try{ _wzKofToggle(kid,e); }catch(err){}
+        return;
+      }
       var row=e.target.closest&&e.target.closest('[data-nat-id]'); if(!row) return;
       if(row.__gnCtxFired){ row.__gnCtxFired=false; return; }   // Long-Press hat Vorrang
       try{ openToolSheet(row.getAttribute('data-nat-id')); }catch(err){}
