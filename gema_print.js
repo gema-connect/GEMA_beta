@@ -172,7 +172,11 @@
      Reduktions-Charts) und das nackte `.seg` (Kollisionsgefahr) gehören NICHT
      hierher. */
   var SEGMENT = ['.lumax-toggle', '.g-seg-group', '.g-chip-group', '.eh-seg',
-    '.bl-seg', '.unit-toggle', '.nb-src-seg', '.sp-seg', '.wpe-seg'].join(',');
+    '.bl-seg', '.unit-toggle', '.nb-src-seg', '.sp-seg', '.wpe-seg',
+    /* sb_niederschlag: Deckel · Frost-/Innenbereich · Neu/Bestand/Sanieren
+       je Schlammsammler — ohne diesen Eintrag löschte KNOEPFE die drei
+       Angaben ersatzlos aus dem Bericht (Feedback 23.08.2026). */
+    '.ss-toggle'].join(',');
   /* Aktiv-Marker der Module: .active (Kanon) · .an (el_belastbarkeit) ·
      .act (hz_waermepumpe) · .on (sb_niederschlag) */
   var AKTIV = '.active,.sel,.is-active,.on,.an,.act,[aria-pressed="true"],[aria-selected="true"]';
