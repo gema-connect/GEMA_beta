@@ -1909,7 +1909,9 @@ function getOffertanfragen(filter){
   list.forEach(a => {
     if(a.status === 'offen' && a.frist && a.frist < today) a.status = 'abgelaufen';
   });
-  return list.sort((a,b) => b.erstelltAm.localeCompare(a.erstelltAm));
+  // Defensiv: eine Anfrage OHNE erstelltAm (Import/Altbestand) warf hier und
+  // riss damit die GANZE Anfragen-Liste ab — sie sortiert jetzt ans Ende.
+  return list.sort((a,b) => String(b.erstelltAm||'').localeCompare(String(a.erstelltAm||'')));
 }
 
 function getOffertanfrage(id){
