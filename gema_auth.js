@@ -2671,7 +2671,13 @@
       var org=orgs.find(function(o){return o.id===orgId;});
       var gast={orgId:orgId,orgName:org?org.name:'',status:'angefragt',gueltigBis:null,erstelltAm:new Date().toISOString(),bewilligtVon:null};
       user.gastZugaenge.push(gast);
-      w.GemaAuth.saveUsers(users);
+      // Das Promise haengt am Gast-Objekt (gast.gespeichert) statt es zu
+      // ersetzen — bestehende Aufrufer lesen weiter den Datensatz, neue
+      // koennen auf die Server-Antwort warten (Auth-Writes laufen ueber die
+      // gema-auth-Function mit serverseitiger Rechtepruefung und koennen
+      // abgelehnt werden; ein Org-Admin darf z.B. keinen User einer FREMDEN
+      // Org schreiben).
+      gast.gespeichert=Promise.resolve(w.GemaAuth.saveUsers(users));
       return gast;
     },
     bewilligeGast:function(userId,orgId,gueltigBis,bewilligtVon){
@@ -2680,7 +2686,7 @@
       if(!user||!user.gastZugaenge)return;
       var g=user.gastZugaenge.find(function(x){return x.orgId===orgId;});
       if(g){g.status='aktiv';g.gueltigBis=gueltigBis||null;g.bewilligtVon=bewilligtVon||'';}
-      w.GemaAuth.saveUsers(users);
+      return Promise.resolve(w.GemaAuth.saveUsers(users));
     },
     deaktivierGast:function(userId,orgId){
       var users=_getUsers()||[];
@@ -2688,7 +2694,7 @@
       if(!user||!user.gastZugaenge)return;
       var g=user.gastZugaenge.find(function(x){return x.orgId===orgId;});
       if(g)g.status='deaktiviert';
-      w.GemaAuth.saveUsers(users);
+      return Promise.resolve(w.GemaAuth.saveUsers(users));
     },
     getGastOrgs:function(userId){
       // Alle Orgs wo dieser User aktiver Gast ist

@@ -463,6 +463,17 @@ input,select,button,textarea{font-family:var(--sans)}
         <select id="u_lieferantId"></select>
         <div style="font-size:10.5px;color:var(--mut);margin-top:5px;line-height:1.45" id="u_lief_hint"></div>
       </div>
+      <!-- Weitere Organisationen (Gastzugang) — eine Person kann zu mehreren
+           Firmen gehoeren, z.B. Firma UND Schule. Nur der GEMA-Admin: der
+           Gast-Pool ist ORG-UEBERGREIFEND, ein Org-Admin koennte seinen
+           Mitarbeiter sonst in eine FREMDE Firma setzen (gleiche Begruendung
+           wie die Lieferanten-Zuordnung darueber). Der Org-Admin holt Gaeste
+           weiterhin ueber sys_unternehmen.html in die EIGENE Firma. -->
+      <div class="fg" id="u_gast_wrap" style="display:none">
+        <label>Weitere Organisationen (Gastzugang)</label>
+        <div id="u_gast_list" style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg2);border-radius:var(--r-sm);max-height:180px;overflow-y:auto"></div>
+        <div style="font-size:10.5px;color:var(--mut);margin-top:5px;line-height:1.45">Die Person arbeitet zusätzlich in diesen Firmen (sieht dort Projekte und Eimer). Die Haupt-Organisation oben bleibt davon unberührt.</div>
+      </div>
       <div class="fg">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
           <input type="checkbox" id="u_active" checked style="width:16px;height:16px">
@@ -806,11 +817,12 @@ function openUserModal(uid){
   // (Lieferanten-Firma → nur Lieferanten-Rollen, Planer-Buero → keine
   // Lieferanten-Rollen). Re-Render bei Org-Wechsel im Modal.
   _renderUserRoleCheckboxes(u);
-  orgSel.onchange=function(){ _renderUserRoleCheckboxes(u); _renderUserLiefSelect(); };
+  orgSel.onchange=function(){ _renderUserRoleCheckboxes(u); _renderUserLiefSelect(); _renderUserGastListe(u); };
   // Lieferanten-Zuordnung: die Wahl lebt in _liefSelWahl, damit sie ein
   // Neu-Rendern (Rollen-Wechsel, Cloud-Nachladen) ueberlebt.
   _liefSelWahl=(u&&u.lieferantId)||'';
   _renderUserLiefSelect();
+  _renderUserGastListe(u);
   var rolesBox=document.getElementById('u_roles_checkboxes');
   if(rolesBox) rolesBox.onchange=function(){ _renderUserLiefSelect(); };
   _liefLaden().then(function(){
@@ -899,10 +911,12 @@ function saveUser(){
       users[idx].orgId=orgId;
       if(pw) users[idx].password=GemaAuth.hash(pw);
       _liefIdSetzen(users[idx]);
+      _gastZugaengeSetzen(users[idx]);
     }
   } else {
     var neu={id:'u_'+Date.now(),username:username,name:name||username,password:GemaAuth.hash(pw),roleIds:roleIds,active:active,orgId:orgId,profile:{email:username,telefon:'',sprache:'de',benachrichtigungen:true,einheiten:'metrisch'},createdAt:new Date().toISOString()};
     _liefIdSetzen(neu);
+    _gastZugaengeSetzen(neu);
     users.push(neu);
   }
 
@@ -926,6 +940,88 @@ function saveUser(){
     toast('✓ Benutzer gespeichert');
   });
 }
+/* ── Weitere Organisationen (Gastzugang) — 23.08.2026 ───────────────────
+   «man soll benutzer verschiedenen orgs hinzufuegen koennen, zb firma und
+   schule». Technisch ist das der bestehende Gastzugang (user.gastZugaenge),
+   der bisher nur im Gaeste-Tab von sys_unternehmen.html bedienbar war.
+   Wirkung: GemaAuth.getGastOrgs speist die Org-Pills im Workspace und den
+   Tenant-Filter der Objekte — die Person sieht damit die Projekte/Eimer
+   BEIDER Firmen.
+   KRITISCH — nur GEMA-Admin (_isSuper): der Gast-Pool ist org-uebergreifend.
+   Abgewaehlt wird auf 'deaktiviert' gesetzt, NIE geloescht (Historie + eine
+   offene Anfrage bleiben erhalten); ein abgelaufenes gueltigBis wird beim
+   Anhaken zurueckgesetzt, sonst waere der Haken wirkungslos. */
+function _gastEintrag(u,orgId){
+  var l=(u&&Array.isArray(u.gastZugaenge))?u.gastZugaenge:[];
+  return l.find(function(g){return g&&String(g.orgId)===String(orgId);})||null;
+}
+function _gastAbgelaufen(g){
+  if(!g||!g.gueltigBis) return false;
+  return String(g.gueltigBis) < new Date().toISOString().split('T')[0];
+}
+function _renderUserGastListe(u){
+  var wrap=document.getElementById('u_gast_wrap');
+  var box=document.getElementById('u_gast_list');
+  if(!wrap||!box) return;
+  if(!_isSuper){ wrap.style.display='none'; box.innerHTML=''; return; }
+  var haupt=(document.getElementById('u_orgId')||{}).value||'';
+  var andere=orgs.filter(function(o){return String(o.id)!==String(haupt);});
+  if(!andere.length){ wrap.style.display='none'; box.innerHTML=''; return; }
+  wrap.style.display='';
+  box.innerHTML=andere.map(function(o){
+    var g=_gastEintrag(u,o.id);
+    var aktiv=!!(g&&g.status==='aktiv'&&!_gastAbgelaufen(g));
+    var vermerk='';
+    if(g&&g.status==='angefragt') vermerk='<span style="color:#b45309;font-weight:600"> · angefragt</span>';
+    else if(g&&_gastAbgelaufen(g)) vermerk='<span style="color:#dc2626;font-weight:600"> · abgelaufen am '+esc(g.gueltigBis)+'</span>';
+    else if(g&&g.status==='aktiv'&&g.gueltigBis) vermerk='<span style="color:var(--mut)"> · gültig bis '+esc(g.gueltigBis)+'</span>';
+    else if(g&&g.status==='deaktiviert') vermerk='<span style="color:var(--mut)"> · deaktiviert</span>';
+    return '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12.5px">'
+      +'<input type="checkbox" value="'+esc(o.id)+'"'+(aktiv?' checked':'')+' style="width:15px;height:15px">'
+      +'<span>'+esc(o.name||o.id)+vermerk+'</span></label>';
+  }).join('');
+}
+/* Uebernimmt die Checkbox-Wahl auf den User. Ist die Liste gar nicht
+   gerendert (kein GEMA-Admin), bleiben vorhandene Zugaenge UNANGETASTET —
+   Muster _liefIdSetzen. */
+function _gastZugaengeSetzen(user){
+  if(!_isSuper||!user) return;
+  var wrap=document.getElementById('u_gast_wrap');
+  var box=document.getElementById('u_gast_list');
+  if(!wrap||!box||wrap.style.display==='none') return;
+  var gewaehlt={};
+  Array.from(box.querySelectorAll('input[type=checkbox]')).forEach(function(cb){
+    if(cb.checked) gewaehlt[String(cb.value)]=true;
+  });
+  var haupt=String(user.orgId||'');
+  var liste=Array.isArray(user.gastZugaenge)?user.gastZugaenge.slice():[];
+  var jetzt=new Date().toISOString();
+  // 1) angehakte Orgs aktivieren bzw. neu anlegen
+  Object.keys(gewaehlt).forEach(function(oid){
+    if(!oid||oid===haupt) return;                 // Haupt-Org ist kein Gastzugang
+    var g=liste.find(function(x){return x&&String(x.orgId)===oid;});
+    var o=orgs.find(function(x){return String(x.id)===oid;});
+    if(g){
+      g.status='aktiv';
+      if(_gastAbgelaufen(g)) g.gueltigBis=null;   // sonst waere der Haken wirkungslos
+      if(!g.bewilligtVon) g.bewilligtVon=_myUserId||'';
+      if(o&&!g.orgName) g.orgName=o.name||'';
+    } else {
+      liste.push({orgId:oid,orgName:o?(o.name||''):'',status:'aktiv',gueltigBis:null,
+                  erstelltAm:jetzt,bewilligtVon:_myUserId||''});
+    }
+  });
+  // 2) abgewaehlte deaktivieren (nie loeschen)
+  liste.forEach(function(g){
+    if(!g||!g.orgId) return;
+    if(String(g.orgId)===haupt) return;
+    if(!gewaehlt[String(g.orgId)] && g.status==='aktiv') g.status='deaktiviert';
+  });
+  // 3) Ein Gastzugang auf die eigene Haupt-Org ist gegenstandslos
+  liste=liste.filter(function(g){return g&&g.orgId&&String(g.orgId)!==haupt;});
+  user.gastZugaenge=liste;
+}
+
 // Lieferanten-Zuordnung uebernehmen. Ist das Feld gar nicht gerendert
 // (kein GEMA-Admin, keine Lieferanten-Rolle und keine bestehende
 // Zuordnung), bleibt ein vorhandener Wert UNANGETASTET — nur ein bewusst
