@@ -17,6 +17,14 @@
  *     opts = { text?, fileBase64?, mediaType?, filename?, signal? }
  *     — Dokument-Analyse (Rechnung/Lieferschein/Auftragsbestätigung) via
  *       /.netlify/functions/claude-extract. Wareneingang-Modul.
+ *   GemaClaude.extractBeleg(opts)              Promise<{kennzeichen,fahrzeugModell,
+ *                                                       datum,art,beschreibung,kosten,…}>
+ *     opts = { text?, fileBase64?, mediaType?, filename?, fahrzeuge?, signal? }
+ *     — Beleg-Analyse (Garagen-Rechnung / Service-Beleg) via
+ *       /.netlify/functions/claude-beleg. Fahrzeugmanagement.
+ *       fahrzeuge = [{nr,kennzeichen,modell}] der eigenen Flotte, damit die
+ *       Function das erkannte Kennzeichen gegen das Modell gegenpruefen kann.
+ *       Bewusst NUR diese drei Felder — keine Fahrer-/Adressdaten.
  *   GemaClaude.analyzePlan(opts)               Promise<{plantyp,geschoss,massstab,
  *                                                       bemassungen[],raeume[],…}>
  *     opts = { imageBase64, mediaType?, text?, modus:'grundriss'|'schnitt', signal? }
@@ -47,6 +55,7 @@
   var FORMFIELDS_ENDPOINT = '/.netlify/functions/claude-formfields';
   var PLAN_ENDPOINT = '/.netlify/functions/claude-plan';
   var OFFERTCHECK_ENDPOINT = '/.netlify/functions/claude-offertcheck';
+  var BELEG_ENDPOINT = '/.netlify/functions/claude-beleg';
 
   // Auth-Header (Review S3): die KI-Proxies akzeptieren nur eingeloggte
   // GEMA-User. Das JWT liegt in der GemaSync-Session; ohne Token laeuft der
@@ -252,6 +261,39 @@
     });
   }
 
+  // ── Beleg-Analyse (Fahrzeugmanagement): liest eine Garagen-Rechnung bzw.
+  //    einen Service-Beleg (Text ODER PDF/Bild als Base64) und liefert
+  //    Fahrzeug (Kennzeichen + Modell zur Gegenpruefung), Arbeit und Kosten.
+  //    opts.fahrzeuge = [{nr,kennzeichen,modell}] der eigenen Flotte — nur
+  //    diese drei Felder gehen raus (keine Fahrer-/Adressdaten).
+  function extractBeleg(opts) {
+    opts = opts || {};
+    var payload = {};
+    if (opts.text) payload.text = String(opts.text);
+    if (opts.fileBase64) payload.fileBase64 = opts.fileBase64;
+    if (opts.mediaType) payload.mediaType = opts.mediaType;
+    if (opts.filename) payload.filename = opts.filename;
+    if (Array.isArray(opts.fahrzeuge) && opts.fahrzeuge.length) {
+      payload.fahrzeuge = opts.fahrzeuge.map(function(f){
+        return { nr: f && f.nr ? String(f.nr) : '',
+                 kennzeichen: f && f.kennzeichen ? String(f.kennzeichen) : '',
+                 modell: f && f.modell ? String(f.modell) : '' };
+      });
+    }
+    return fetch(BELEG_ENDPOINT, {
+      method: 'POST',
+      headers: _authHeaders(),
+      body: JSON.stringify(payload),
+      signal: opts.signal
+    }).then(function(r){
+      return _parseJson(r, 'KI-Beleganalyse').then(function(data){
+        var d = data.data || {};
+        d.positionen = Array.isArray(d.positionen) ? d.positionen : [];
+        return d;
+      });
+    });
+  }
+
   // ── Formular-Analyse (Behörden & Formulare): erkennt die Felder eines
   //    Behörden-PDF und schlägt je Feld eine GEMA-Zuordnung vor. Nimmt die
   //    AcroForm-Feldnamen (bevorzugt) und/oder das PDF/Bild entgegen.
@@ -341,6 +383,7 @@
     shorten: function(t, o){ return _call('shorten', t, o); },
     expand: function(t, o){ return _call('expand', t, o); },
     extractPositions: extractPositions,
+    extractBeleg: extractBeleg,
     analyzeForm: analyzeForm,
     analyzePlan: analyzePlan,
     checkOfferPdf: checkOfferPdf,

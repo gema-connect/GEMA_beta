@@ -475,6 +475,7 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
     </div>
     <button class="hero-btn accent" id="btnAddVehicle" onclick="openAddVehicle()" style="background:var(--plan);color:#fff;border-color:var(--plan);padding:8px 16px;border-radius:8px;font-weight:700;font-size:12.5px">+ Fahrzeug hinzufügen</button>
     <button class="hero-btn" id="btnFzActLog" onclick="_fzOpenActLog()" style="display:none;background:#f1f5f9;color:#0f172a;border-color:#cbd5e1;padding:8px 16px;border-radius:8px;font-weight:700;font-size:12.5px" title="Aktivitäten-Log (Magaziner/Admin)">📋 Aktivitäten</button>
+    <button class="hero-btn" id="btnFzBeleg" onclick="_fzBelegOpen()" style="display:none;background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe;padding:8px 16px;border-radius:8px;font-weight:700;font-size:12.5px" title="Garagen-Rechnungen / Service-Belege einlesen (Claude)">📄 Belege einlesen</button>
     <button class="hero-btn" id="btnFzInGarage" onclick="_fzToggleInGarage()" style="background:#fff7ed;color:#c2410c;border-color:#fed7aa;padding:8px 16px;border-radius:8px;font-weight:700;font-size:12.5px" title="Nur Fahrzeuge anzeigen, die aktuell im Service sind">🔧 In Garage <span id="fzInGarageCount" style="opacity:.7"></span></button>
     <select class="filter-sel" id="filterStatus">
       <option value="">Alle Status</option>
@@ -808,6 +809,25 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
         </div>
       </div>
 
+      <!-- Kaufpreis: eigene Sektion (nicht Teil des optionalen Kaufbeleg-
+           Blocks), damit die volle Kostenhistorie eines Fahrzeugs auch ohne
+           erfassten Beleg vollstaendig ist. Sichtbar nur mit Preis-Recht —
+           _fzApplyPreisSichtbarkeit blendet sie sonst aus. -->
+      <div class="form-section" id="fSecKaufpreis">
+        <div class="form-section-title">Kaufpreis</div>
+        <div class="form-grid">
+          <div class="field">
+            <label class="label">Kaufpreis (CHF)</label>
+            <input class="inp" id="fKaufpreis" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="0.00"/>
+            <span class="hint">Anschaffungswert — Grundlage der Gesamtkosten (Kauf + Service).</span>
+          </div>
+          <div class="field">
+            <label class="label">Kaufdatum</label>
+            <input class="inp" id="fKaufdatum" type="date"/>
+          </div>
+        </div>
+      </div>
+
       <div class="form-section fz-opt" data-opt="kaufbeleg">
         <div class="form-section-title">Kaufbeleg / Leasing</div>
         <div class="form-grid">
@@ -892,6 +912,7 @@ function fixLeadingZero(el) {
 <script src="gema_db.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
 <script src="gema_autosave.js"></script>
+<script src="gema_claude.js"></script>
 <script>
 if(typeof _GemaDB==='undefined'){
   window._GemaDB={c:{},init:function(m,keys){
@@ -1127,6 +1148,7 @@ function openModal(id){
        Garagisten; ein $f mit dem Namens-String wuerde sie ueberschreiben) */
     $f("fStellplatz",v.stellplatz); _fzRenderTankkarten(_fzTankkartenFromVehicle(v));
     $f("fTires",v.tires); $f("fTiresSeason",v.tiresSeason); $f("fTireStorage",v.tireStorage); $f("fTireChangeDate",v.tireChangeDate);
+    $f("fKaufpreis",v.kaufpreis||"");$f("fKaufdatum",v.kaufdatum||"");
     if(v.kaufbeleg){$f("fBelegNr",v.kaufbeleg.rechnungsNr);$f("fBelegBetrag",v.kaufbeleg.betrag);$f("fBelegBestellNr",v.kaufbeleg.bestellNr);$f("fBelegLieferdatum",v.kaufbeleg.lieferdatum);}
     if(v.versicherung){
       $f("fInsurance",v.versicherung.gesellschaft);
@@ -1164,6 +1186,9 @@ function openModal(id){
   m.classList.add("open");
   document.body.classList.add('modal-open');
   setTimeout(()=>document.getElementById("fPlate").focus(),150);
+  // Preis-Sektionen (Kaufpreis, Kaufbeleg) nur mit Preis-Recht — die Werte
+  // sind gesetzt, die Sektion verschwindet lediglich aus der Sicht.
+  _fzApplyPreisSichtbarkeit();
   // Garagist-Restriktionen NACH allen $f-Populierungen anwenden, damit
   // die Werte gesetzt sind und nur die UI gesperrt wird.
   if(_fzIsGaragist()){
@@ -1222,6 +1247,8 @@ function saveVehicle(){
     tiresSeason: (document.getElementById("fTiresSeason")||{}).value||'',
     tireStorage: (document.getElementById("fTireStorage")||{}).value||'',
     tireChangeDate: (document.getElementById("fTireChangeDate")||{}).value||'',
+    kaufpreis:(document.getElementById("fKaufpreis")||{}).value||'',
+    kaufdatum:(document.getElementById("fKaufdatum")||{}).value||'',
     kaufbeleg:{
       rechnungsNr:(document.getElementById("fBelegNr")||{}).value||'',
       betrag:(document.getElementById("fBelegBetrag")||{}).value||'',
@@ -2589,6 +2616,54 @@ function _fzCanView(){return true;}
 // wurde vorher referenziert, war aber nie definiert.
 function _fzCanReportDefect(){ return !!_fzGetUser(); }
 
+// ── Preis-Sichtbarkeit: EINE Wahrheit ───────────────────────────────────
+// Der Monteur darf KEINE Preise sehen (Kaufpreis, Service-Kosten,
+// Kosten-Analyse, Kosten-Ereignisse, CSV-/PDF-Export). Analog zum
+// _fzCanEdit-Hard-Lock steht die Monteur-Pruefung als ERSTE Zeile — ein
+// Monteur, der zusaetzlich Org-Admin ist oder per Matrix 'admin' auf
+// fahrzeugmanagement bekaeme, rutschte sonst durch.
+// Der Garagist sieht bewusst keine Gesamt-Kosten der Flotte, aber die
+// Kosten SEINER eigenen Eintraege (bestehende Semantik, siehe
+// _fzCanSeeEintragPreis).
+function _fzCanSeePreise(){
+  if(_fzIsMonteur())return false;
+  if(_fzIsAdmin()||_fzIsMagaziner())return true;
+  if(_fzCanSettings())return true;   // Org-Admin der eigenen Firma
+  return false;
+}
+// Preis EINES Service-Eintrags: alle Preise ODER der selbst erfasste
+// Eintrag (Garagist sieht seine eigene Rechnung). Monteur immer aus.
+function _fzCanSeeEintragPreis(e){
+  if(_fzIsMonteur())return false;
+  if(_fzCanSeePreise())return true;
+  var me=(_fzGetUser()||{}).id||'';
+  return !!(e && e.erledigtVonUserId && me && e.erledigtVonUserId===me);
+}
+window._fzCanSeePreise=_fzCanSeePreise;
+window._fzCanSeeEintragPreis=_fzCanSeeEintragPreis;
+
+// Kaufpreis des Fahrzeugs. Neues Feld v.kaufpreis (top-level); Altdaten
+// tragen den Betrag nur im Kaufbeleg — der bleibt Fallback, damit die
+// Gesamtkosten-Rechnung bei bestehenden Fahrzeugen nicht bei 0 startet.
+function _fzKaufpreis(v){
+  if(!v)return '';
+  if(v.kaufpreis!==undefined&&v.kaufpreis!==null&&String(v.kaufpreis).trim()!=='')return String(v.kaufpreis).trim();
+  var kb=v.kaufbeleg||{};
+  return (kb.betrag!==undefined&&kb.betrag!==null)?String(kb.betrag).trim():'';
+}
+function _fzNumCHF(x){
+  if(x===undefined||x===null)return 0;
+  var s2=String(x).replace(/[^\d.,-]/g,'').replace(/'/g,'').replace(/\s/g,'');
+  // Schweizer Schreibweise 1'234.50 bzw. 1234,50 → 1234.50
+  if(s2.indexOf(',')>=0&&s2.indexOf('.')<0)s2=s2.replace(',','.');
+  else s2=s2.replace(/,/g,'');
+  var n=parseFloat(s2);
+  return isNaN(n)?0:n;
+}
+function _fzKaufpreisNum(v){ return _fzNumCHF(_fzKaufpreis(v)); }
+window._fzKaufpreis=_fzKaufpreis;
+window._fzKaufpreisNum=_fzKaufpreisNum;
+
 // Aktivitaetenlog-Wrapper — fire-and-forget. v kann das Vehicle-Objekt
 // oder ein partial sein. Nur Magaziner/Admin sehen den Log.
 function _fzCanSeeActLog(){ return _fzIsAdmin() || _fzIsMagaziner(); }
@@ -2690,6 +2765,20 @@ function _fzCanOpenVehicle(v){
   if(v.garagistUserId===u.id)return true;
   var leadOrgId=_fzOrgIdOfUser(v.garagistUserId);
   return !!(leadOrgId && u.orgId && leadOrgId===u.orgId);
+}
+
+// Blendet die Preis-Sektionen des Formulars aus, wenn die Person keine
+// Preise sehen darf. Der Garagist behaelt seine eigene Regel (Kaufbeleg
+// steht in _FZ_GARAGIST_HIDDEN_OPTS) — die neue Kaufpreis-Sektion traegt
+// bewusst KEIN data-opt und braucht darum diesen eigenen Griff.
+function _fzApplyPreisSichtbarkeit(){
+  var darf=_fzCanSeePreise();
+  var sec=document.getElementById('fSecKaufpreis');
+  if(sec)sec.style.display=darf?'':'none';
+  if(!darf){
+    var kb=document.querySelector('.fz-opt[data-opt="kaufbeleg"]');
+    if(kb)kb.style.display='none';
+  }
 }
 
 // Sperrt im Edit-Formular alle Felder, die der Garagist nicht
@@ -2885,6 +2974,7 @@ var _FZ_CSV_BESTAND_KOPF=['ID','Nr.','Kennzeichen','Marke/Modell','Jahrgang','Tr
   'Garage / Werkstatt','Garagist-Konto','Versicherung für Garagist freigegeben',
   'In Garage seit','In Garage eingebucht von','In Garage Werkstatt','In Garage Grund',
   'Stellplatz','Tankkarten','Reifen','Reifen Saison','Reifen Lagerung','Reifenwechsel am',
+  'Kaufpreis','Kaufdatum',
   'Beleg Rechnungs-Nr.','Beleg Betrag','Beleg Bestell-Nr.','Beleg Lieferdatum',
   'Versicherung Gesellschaft','Police-Nr.','Deckung','Versicherung Ablauf',
   'Ausgeliehen an','Ausgeliehen seit',
@@ -2914,6 +3004,7 @@ function _fzCsvBestandZeile(v){
     v.stellplatz||'',
     tk.map(function(k){ return [k&&k.nr,k&&k.netz].filter(Boolean).join(' · '); }).filter(Boolean).join('\n'),
     v.tires||'', v.tiresSeason||'', v.tireStorage||'', v.tireChangeDate||'',
+    v.kaufpreis||'', v.kaufdatum||'',
     kb.rechnungsNr||'', kb.betrag||'', kb.bestellNr||'', kb.lieferdatum||'',
     ve.gesellschaft||'', ve.policeNr||'', ve.deckung||'', ve.ablauf||'',
     al.name||'', al.seit||'',
@@ -2925,7 +3016,10 @@ function _fzCsvBestandZeile(v){
     }).join('\n'),
     sh.length,
     sh.map(function(e){
-      return [e.datum||'',e.art||'',e.km?e.km+' km':'',e.werkstatt||'',e.kosten?'CHF '+e.kosten:''].filter(Boolean).join(' · ');
+      // Betrag steckt hier IM Zellentext, nicht in einer eigenen Spalte —
+      // der Spaltenfilter greift also nicht, das Gate muss hier stehen.
+      return [e.datum||'',e.art||'',e.km?e.km+' km':'',e.werkstatt||'',
+              (e.kosten&&_fzCsvPreise())?('CHF '+e.kosten):''].filter(Boolean).join(' · ');
     }).join('\n'),
     fu.filter(function(f){return f&&!f.completed;}).length,
     fu.map(function(f){
@@ -2937,9 +3031,12 @@ function _fzCsvBestandZeile(v){
 function _fzCsvTabEreignisse(list){
   var kopf=['Fahrzeug-ID','Nr.','Kennzeichen','Datum','Typ','Bezeichnung','Detail','Priorität',
     'Behoben','Behoben am','Behoben von','Bemerkung zur Behebung'];
-  var z=[];
+  var z=[], preise=_fzCsvPreise();
   list.forEach(function(v){
     (Array.isArray(v.events)?v.events:[]).forEach(function(e){
+      // Kosten-Ereignisse fuehren den Betrag in label/detail — ohne
+      // Preis-Recht bleiben sie ganz draussen (analog openBerichte).
+      if(!preise && e && e.type==='kosten')return;
       z.push([v.id||'',v.nr||'',v.plate||'',_fzCsvDat(e.date||''),(_FZ_EVT_LABEL[e.type]||e.type||''),
         e.label||'',e.detail||'',e.prio||'',
         e.type==='defekt'?(e.resolved?'Ja':'Nein'):'',
@@ -2950,12 +3047,14 @@ function _fzCsvTabEreignisse(list){
 }
 function _fzCsvTabService(list){
   var kopf=['Fahrzeug-ID','Nr.','Kennzeichen','Eintrag-ID','Datum','km','Art','Beschreibung','Kosten','Werkstatt',
-    'Erledigt von','Erfasst am','Fotos'];
+    'Rechnungs-Nr.','Herkunft','Erledigt von','Erfasst am','Fotos'];
   var z=[];
   list.forEach(function(v){
     (Array.isArray(v.serviceHistorie)?v.serviceHistorie:[]).forEach(function(e){
       z.push([v.id||'',v.nr||'',v.plate||'',e.id||'',e.datum||'',e.km||'',e.art||'',e.beschreibung||'',
-        e.kosten||'',e.werkstatt||'',e.erledigtVonName||'',_fzCsvDat(e.erstelltAm||''),
+        e.kosten||'',e.werkstatt||'',e.rechnungsNr||'',
+        (e.quelle==='beleg'?('Beleg-Import'+(e.quelleDatei?' · '+e.quelleDatei:'')):'Manuell'),
+        e.erledigtVonName||'',_fzCsvDat(e.erstelltAm||''),
         (Array.isArray(e.photos)?e.photos.length:0)]);
     });
   });
@@ -2983,10 +3082,21 @@ function _fzCsvTabTankkarten(list){
   });
   return {kopf:kopf,zeilen:z};
 }
+// Preisspalten aus einer Tabelle NEHMEN, nicht leeren: eine leere Spalte
+// «Kosten» liest sich wie «keine Kosten erfasst» und waere eine Unwahrheit.
+// Der Export-Dialog nennt die Einschraenkung ausdruecklich.
+var _FZ_CSV_PREIS_SPALTEN=['Kaufpreis','Kaufdatum','Beleg Betrag','Kosten'];
+function _fzCsvOhnePreise(kopf,zeilen){
+  var raus=[];
+  kopf.forEach(function(k,i){ if(_FZ_CSV_PREIS_SPALTEN.indexOf(k)>=0)raus.push(i); });
+  if(!raus.length)return {kopf:kopf,zeilen:zeilen};
+  var weg=function(arr){ return arr.filter(function(_,i){ return raus.indexOf(i)<0; }); };
+  return {kopf:weg(kopf),zeilen:zeilen.map(weg)};
+}
 function _fzCsvTabellen(list){
-  var t=[];
-  t.push({name:'01_Bestand.csv',text:_fzCsvTabelle(_FZ_CSV_BESTAND_KOPF,list.map(_fzCsvBestandZeile)),
-          label:'Bestandsliste',anzahl:list.length});
+  var t=[], preise=_fzCsvPreise();
+  var b=_fzCsvTabelle2({kopf:_FZ_CSV_BESTAND_KOPF,zeilen:list.map(_fzCsvBestandZeile)},preise);
+  t.push({name:'01_Bestand.csv',text:b,label:'Bestandsliste',anzahl:list.length});
   [['02_Ereignisse.csv','Ereignisse & Defekte',_fzCsvTabEreignisse(list)],
    ['03_Servicehistorie.csv','Service-Historie',_fzCsvTabService(list)],
    ['04_Folgetermine.csv','Folgetermine',_fzCsvTabFollowUps(list)],
@@ -2994,9 +3104,15 @@ function _fzCsvTabellen(list){
   ].forEach(function(e){
     // Leere Detail-Tabelle wird NICHT weggelassen — eine fehlende Datei
     // liest sich wie ein Fehler, eine leere Tabelle sagt «gibt es nicht».
-    t.push({name:e[0],text:_fzCsvTabelle(e[2].kopf,e[2].zeilen),label:e[1],anzahl:e[2].zeilen.length});
+    t.push({name:e[0],text:_fzCsvTabelle2(e[2],preise),label:e[1],anzahl:e[2].zeilen.length});
   });
   return t;
+}
+// Wer keine Preise sehen darf, bekommt sie auch nicht im Export.
+function _fzCsvPreise(){ try{ return _fzCanSeePreise(); }catch(e){ return true; } }
+function _fzCsvTabelle2(tab,preise){
+  var t=preise?tab:_fzCsvOhnePreise(tab.kopf,tab.zeilen);
+  return _fzCsvTabelle(t.kopf,t.zeilen);
 }
 /* ── Export-Dialog ── */
 var _fzCsvAlle=false;
@@ -3016,6 +3132,10 @@ function exportCSV(){
       +'<span style="color:#334155">'+esc(t.label)+'</span>'
       +'<span style="color:#64748b;font-weight:700;white-space:nowrap">'+t.anzahl+(t.anzahl===1?' Zeile':' Zeilen')+'</span></div>';
   }).join('');
+  // No-silent-caps: wenn Preisspalten fehlen, steht das im Dialog.
+  var preisHinweis=_fzCsvPreise()?''
+    :'<div style="margin:10px 0 0;padding:8px 10px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#92400e">'
+     +'Preisangaben (Kaufpreis, Kosten, Belegbetraege) sind in diesem Export nicht enthalten — dafuer fehlt die Berechtigung.</div>';
   var scope=gefiltert
     ? '<label style="display:flex;align-items:center;gap:8px;margin:10px 0 0;font-size:12.5px;color:#334155;cursor:pointer">'
       +'<input type="checkbox" '+(_fzCsvAlle?'checked':'')+' onchange="_fzCsvSetAlle(this.checked)" style="width:16px;height:16px;cursor:pointer">'
@@ -3026,6 +3146,7 @@ function exportCSV(){
       +(_fzCsvAlle?'Ganzer Bestand':'Aktuelle Ansicht')+' — <strong>'+list.length+'</strong> von '+vehicles.length+' Fahrzeugen · Semikolon + UTF-8 (öffnet direkt in Excel)</div>'
     +'<div style="border:1px solid #e2e8f0;border-radius:10px;padding:4px 12px 8px;background:#f8fafc">'+zeilen+'</div>'
     +scope
+    +preisHinweis
     +'<div style="font-size:11.5px;color:#64748b;margin-top:10px;line-height:1.5">Die <strong>Bestandsliste</strong> enthält alle Angaben — Unterlisten stehen dort als Zusammenfassung in ihrer Zelle. Die <strong>Detail-Tabellen</strong> haben eine Zeile pro Ereignis, Service-Eintrag, Folgetermin bzw. Tankkarte.</div>'
     +'<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;flex-wrap:wrap">'
       +'<button onclick="_fzCsvClose()" style="padding:9px 16px;border-radius:8px;border:1.5px solid #e5e7eb;background:#fff;color:#64748b;cursor:pointer;font-weight:700;font-family:inherit">Abbrechen</button>'
@@ -3780,16 +3901,18 @@ function vmf(label,value){
 // Bar-Chart. Sichtbar nur fuer Magaziner und Admin — der Garagist
 // sieht in der Service-Historie ohnehin nur eigene Kosten.
 function _fzRenderKostenAnalyse(v){
-  if(!_fzIsAdmin()&&!_fzIsMagaziner())return '';
+  if(!_fzCanSeePreise())return '';
   var hist=Array.isArray(v.serviceHistorie)?v.serviceHistorie.slice():[];
   var entries=hist.filter(function(e){return e&&e.kosten&&!isNaN(parseFloat(e.kosten));});
-  if(!entries.length)return '';
+  var kauf=_fzKaufpreisNum(v);
+  // Ohne Service-Kosten UND ohne Kaufpreis gibt es nichts zu zeigen.
+  if(!entries.length&&!kauf)return '';
   var total=0,max=0;
   entries.forEach(function(e){
     var k=parseFloat(e.kosten); total+=k;
     if(k>max)max=k;
   });
-  var avg=total/entries.length;
+  var avg=entries.length?total/entries.length:0;
   // 12-Monats-Aggregation
   var now=new Date();
   var months=[];
@@ -3806,22 +3929,31 @@ function _fzRenderKostenAnalyse(v){
   var maxMonth=Math.max.apply(null,months.map(function(m){return m.total;}).concat([1]));
   // Kosten/km
   var costPerKm='';
-  if(v.km && parseInt(v.km,10)>0){
+  if(entries.length && v.km && parseInt(v.km,10)>0){
     var c=total/parseInt(v.km,10);
     costPerKm='CHF '+c.toFixed(3)+' / km';
   }
   function f(x){return x.toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2});}
   var html='<div class="vm-section">Kosten-Analyse <span style="font-size:9.5px;font-weight:600;background:#f1f5f9;color:#475569;padding:2px 6px;border-radius:4px;margin-left:6px;text-transform:none;letter-spacing:0">nur intern</span></div>';
   html+='<div class="vm-grid">';
+  if(kauf){
+    html+='<div class="vm-field"><div class="vm-field-lbl">Kaufpreis</div><div class="vm-field-val" style="font-weight:700">CHF '+f(kauf)+(v.kaufdatum?(' <span style="font-weight:500;color:var(--muted);font-size:11px">· '+esc(new Date(v.kaufdatum).toLocaleDateString('de-CH'))+'</span>'):'')+'</div></div>';
+  }
   html+='<div class="vm-field"><div class="vm-field-lbl">Total Service-Kosten</div><div class="vm-field-val" style="color:#0d9488;font-weight:700">CHF '+f(total)+'</div></div>';
+  if(kauf){
+    html+='<div class="vm-field"><div class="vm-field-lbl">Gesamtkosten (Kauf + Service)</div><div class="vm-field-val" style="color:#b45309;font-weight:700">CHF '+f(kauf+total)+'</div></div>';
+  }
   html+='<div class="vm-field"><div class="vm-field-lbl">Einträge mit Kosten</div><div class="vm-field-val">'+entries.length+' von '+hist.length+'</div></div>';
-  html+='<div class="vm-field"><div class="vm-field-lbl">Ø pro Eintrag</div><div class="vm-field-val">CHF '+f(avg)+'</div></div>';
-  html+='<div class="vm-field"><div class="vm-field-lbl">Höchster Eintrag</div><div class="vm-field-val">CHF '+f(max)+'</div></div>';
+  if(entries.length){
+    html+='<div class="vm-field"><div class="vm-field-lbl">Ø pro Eintrag</div><div class="vm-field-val">CHF '+f(avg)+'</div></div>';
+    html+='<div class="vm-field"><div class="vm-field-lbl">Höchster Eintrag</div><div class="vm-field-val">CHF '+f(max)+'</div></div>';
+  }
   if(costPerKm){
     html+='<div class="vm-field"><div class="vm-field-lbl">Kosten / km (kumuliert)</div><div class="vm-field-val">'+costPerKm+'</div></div>';
   }
   html+='</div>';
-  // 12-Monats-Bar-Chart (CSS-only)
+  // 12-Monats-Bar-Chart (CSS-only) — nur wenn es Service-Kosten gibt.
+  if(!entries.length)return html;
   html+='<div style="margin-top:14px">';
   html+='<div style="font-size:10.5px;color:var(--muted);font-weight:700;margin-bottom:6px;text-transform:uppercase;letter-spacing:.3px">Service-Kosten — letzte 12 Monate</div>';
   html+='<div style="display:grid;grid-template-columns:repeat(12,1fr);gap:3px;height:84px;align-items:end;background:#fafbfd;border:1px solid var(--border);border-radius:8px;padding:8px 6px 4px">';
@@ -3850,8 +3982,7 @@ function _fzRenderServiceHistorie(v){
   var hist=Array.isArray(v.serviceHistorie)?v.serviceHistorie.slice():[];
   hist.sort(function(a,b){return (b.datum||'').localeCompare(a.datum||'');});
   var canAdd=_fzCanEdit();
-  var canSeeAllCosts=_fzIsAdmin()||_fzIsMagaziner();
-  var meId=(_fzGetUser()||{}).id||'';
+  var canSeeAllCosts=_fzCanSeePreise();
   var html='';
 
   // Folge-Termine
@@ -3895,7 +4026,7 @@ function _fzRenderServiceHistorie(v){
     var artLabel=_FZ_SERVICE_ART_LABELS[e.art]||e.art||'•';
     var datum=e.datum?new Date(e.datum).toLocaleDateString('de-CH'):'—';
     var km=e.km?parseInt(e.km).toLocaleString('de-CH')+' km':'—';
-    var showKosten=canSeeAllCosts||(e.erledigtVonUserId&&e.erledigtVonUserId===meId);
+    var showKosten=_fzCanSeeEintragPreis(e);
     var kostenChip=(showKosten&&e.kosten)?('<span style="margin-left:8px;padding:1px 6px;background:#f1f5f9;border-radius:4px;font-size:10.5px;color:var(--text2)">CHF '+esc(e.kosten)+'</span>'):'';
     html+='<div style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;background:#fafbfd">';
     html+='<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><span style="font-size:12px;font-weight:700;color:var(--text)">'+esc(artLabel)+'</span><span style="font-size:11.5px;color:var(--muted)">'+datum+' · '+km+'</span>'+kostenChip+'</div>';
@@ -3912,8 +4043,15 @@ function _fzRenderServiceHistorie(v){
     }
     var werkstatt=e.werkstatt||'';
     var von=e.erledigtVonName||'';
-    if(werkstatt||von){
-      html+='<div style="margin-top:4px;font-size:10.5px;color:var(--muted)">'+(werkstatt?esc(werkstatt):'')+(werkstatt&&von?' · ':'')+(von?esc(von):'')+'</div>';
+    // Herkunft ausweisen: ein aus einem Beleg importierter Eintrag traegt die
+    // Rechnungs-Nr. und die Quelldatei — so ist er spaeter nachvollziehbar.
+    var herk=[];
+    if(werkstatt)herk.push(esc(werkstatt));
+    if(e.rechnungsNr)herk.push('Rg. '+esc(e.rechnungsNr));
+    if(e.quelle==='beleg')herk.push('\ud83d\udcc4 aus Beleg'+(e.quelleDatei?' \u00ab'+esc(e.quelleDatei)+'\u00bb':''));
+    if(von)herk.push(esc(von));
+    if(herk.length){
+      html+='<div style="margin-top:4px;font-size:10.5px;color:var(--muted)">'+herk.join(' \u00b7 ')+'</div>';
     }
     html+='</div>';
   });
@@ -3942,6 +4080,9 @@ window._fzExportServiceHistoriePDF=async function(vehicleId){
   if(!(window.jspdf && window.jspdf.jsPDF)){alert('PDF-Bibliothek nicht verfügbar.');return;}
   var jsPDF=window.jspdf.jsPDF;
   var doc=new jsPDF({unit:'mm',format:'a4'});
+  // Preise nur fuer Berechtigte. Der Bericht selbst bleibt fuer alle
+  // erreichbar (Service-Nachweis) — nur die Betraege fallen weg.
+  var pdfPreise=_fzCanSeePreise();
   var M=15;
   var y=20;
   var pageH=doc.internal.pageSize.getHeight();
@@ -4011,7 +4152,7 @@ window._fzExportServiceHistoriePDF=async function(vehicleId){
       if(e.km)meta.push('km '+parseInt(e.km,10).toLocaleString('de-CH'));
       if(e.werkstatt)meta.push(e.werkstatt);
       if(e.erledigtVonName)meta.push(e.erledigtVonName);
-      if(e.kosten)meta.push('CHF '+e.kosten);
+      if(e.kosten&&(pdfPreise||_fzCanSeeEintragPreis(e)))meta.push('CHF '+e.kosten);
       if(meta.length){doc.text(meta.join('  ·  '),M,y);y+=4.5;}
       // Beschreibung
       if(e.beschreibung){
@@ -4443,6 +4584,10 @@ if(!_fzCanCreate()){
 // Aktivitaeten-Log nur fuer Magaziner/Admin
 var btnFzActLog=document.getElementById('btnFzActLog');
 if(btnFzActLog && _fzCanSeeActLog()) btnFzActLog.style.display='';
+// Beleg-Import: Belege sind Preisdokumente — derselbe Gate wie im Dialog
+// (_fzBelegOpen prueft nochmals, fail-closed gegen Direktaufrufe).
+var btnFzBeleg=document.getElementById('btnFzBeleg');
+if(btnFzBeleg && _fzCanEdit() && _fzCanSeePreise()) btnFzBeleg.style.display='';
 // Garagist-Hinweis im Hero/Toolbar, damit klar ist, in welchem Modus er
 // arbeitet. Wird nur eingeblendet, wenn die Rolle role_garagist ist.
 if(_fzIsGaragist()){
@@ -4953,7 +5098,12 @@ function openBerichte(vehicleId) {
   const v = vehicles.find(x => x.id === vehicleId); if (!v) return;
   document.getElementById('berichteVehTag').innerHTML = vehTag(v);
   const list = document.getElementById('berichteList');
-  const events = v.events || [];
+  // Kosten-Ereignisse (Betrag im detail-Text) nur fuer Berechtigte —
+  // sonst laeuft der Preis am Preis-Gate vorbei in die Ereignisliste.
+  var _bPreise = (typeof _fzCanSeePreise==='function') ? _fzCanSeePreise() : true;
+  const events = (v.events || []).filter(function(e){
+    return _bPreise || !(e && e.type === 'kosten');
+  });
   if (events.length === 0) {
     list.innerHTML = '<div class="event-empty">Noch keine Einträge vorhanden.</div>';
   } else {
@@ -4969,6 +5119,593 @@ function openBerichte(vehicleId) {
   openMgmt('mgmtBerichteOverlay', vehicleId);
 }
 window.openBerichte = openBerichte;
+
+/* ══════════════════════════════════════════════════════════════════════════
+   BELEG-IMPORT (Claude) — Garagen-Rechnungen / Service-Belege einlesen
+   ══════════════════════════════════════════════════════════════════════════
+   Bis zu 50 Belege (PDF/Foto) auf einmal hochladen, von Claude auswerten
+   lassen (Fahrzeug, Arbeit, Preis), in einer EDITIERBAREN Pruef-Tabelle
+   kontrollieren und danach als Service-Historie-Eintraege importieren.
+
+   NICHT-ABBRECHEN (der Kern der Anforderung) — vier Schichten:
+   (1) EIN Call pro Beleg, NICHT ein Call fuer alle. Eine Garagen-Rechnung
+       ist 1-2 Seiten; das Problem hier ist die ANZAHL Dokumente, nicht die
+       Groesse eines einzelnen (anders als im Wareneingang, wo EIN 23-seitiger
+       Auftrag in Chunks parallelisiert wird).
+   (2) Gedrosselte Parallelitaet (_FZ_BELEG_PARALLEL): 50 Calls gleichzeitig
+       wuerden die Function-Concurrency fluten; sequenziell dauerte es ewig.
+   (3) Text-vor-Datei: PDFs mit Textebene werden clientseitig gelesen (pdf.js)
+       und als TEXT geschickt — der Vision-Pfad eines mehrseitigen PDFs reisst
+       Netlifys 10-s-Function-Limit (HTTP 504). Scans/Fotos gehen als Datei.
+   (4) Fehler gelten PRO DATEI: eine gescheiterte Datei bricht den Lauf NIE
+       ab, sie bekommt eine Fehlerzeile mit «Nochmals». Abbrechen stoppt nur
+       die WARTENDEN — bereits gelaufene Ergebnisse bleiben erhalten.
+
+   PREISE: Der ganze Einstieg haengt an _fzCanSeePreise() — ein Monteur sieht
+   den Knopf nicht und kaeme auch ueber einen Direktaufruf nicht durch
+   (Guard in _fzBelegOpen). Belege sind Preisdokumente.                      */
+
+var _FZ_BELEG_MAX_DATEIEN = 50;
+var _FZ_BELEG_MAX_BYTES   = 3300000;   // = MAX_B64 der Function (~3.3 MB)
+var _FZ_BELEG_PARALLEL    = 3;
+var _FZ_BELEG_MAX_TEXT    = 40000;     // Function-Limit 60k; ein Beleg braucht das nie
+var _FZ_BELEG_PDFJS_SRC   = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+var _FZ_BELEG_PDFJS_WORK  = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+var _fzBelegDateien = [];   // [{id,file,name,size,typ,status,fehler,res,text,b64,gekappt}]
+var _fzBelegRows    = [];   // Pruef-Tabelle: [{id,quelle,vid,datum,art,beschreibung,km,kosten,werkstatt,rgNr,hinweis,warn,imp,dublette}]
+var _fzBelegLauf    = null; // {abbruch:false, fertig:n, total:n}
+var _fzBelegPhase   = 'wahl'; // wahl | lauf | pruefen
+
+// ── pdf.js lazy (identisches Muster wie Wareneingang) ─────────────────────
+function _fzBelegPdfJs(){
+  return new Promise(function(res,rej){
+    if(window.pdfjsLib){try{window.pdfjsLib.GlobalWorkerOptions.workerSrc=_FZ_BELEG_PDFJS_WORK;}catch(e){}return res(window.pdfjsLib);}
+    var s=document.createElement('script');s.src=_FZ_BELEG_PDFJS_SRC;
+    s.onload=function(){if(window.pdfjsLib){try{window.pdfjsLib.GlobalWorkerOptions.workerSrc=_FZ_BELEG_PDFJS_WORK;}catch(e){}res(window.pdfjsLib);}else rej(new Error('pdfjs fehlt'));};
+    s.onerror=function(){rej(new Error('pdf.js nicht ladbar'));};
+    document.head.appendChild(s);
+  });
+}
+function _fzBelegBytes(dataUrl){
+  var i=dataUrl.indexOf(',');var bin=atob(dataUrl.slice(i+1));
+  var u=new Uint8Array(bin.length);for(var k=0;k<bin.length;k++)u[k]=bin.charCodeAt(k);
+  return u;
+}
+// PDF-Textebene → zeilenweiser Text (y-Cluster je Seite, x-sortiert).
+function _fzBelegPdfText(dataUrl){
+  return _fzBelegPdfJs().then(function(pdfjs){
+    return pdfjs.getDocument({data:_fzBelegBytes(dataUrl)}).promise;
+  }).then(function(pdf){
+    var seiten=[];var kette=Promise.resolve();
+    for(var pg=1;pg<=pdf.numPages;pg++){
+      (function(pg){kette=kette.then(function(){return pdf.getPage(pg).then(function(page){return page.getTextContent().then(function(tc){
+        var items=[];
+        tc.items.forEach(function(it){ if(!it.str||!it.str.trim())return; var tr=it.transform; items.push({str:it.str,x:tr[4],y:tr[5]}); });
+        items.sort(function(a,b){return b.y-a.y||a.x-b.x;});
+        var zeilen=[],cur=null,curY=null;
+        items.forEach(function(it){
+          if(cur&&Math.abs(it.y-curY)<=4){cur.push(it);}
+          else{cur=[it];curY=it.y;zeilen.push(cur);}
+        });
+        seiten.push(zeilen.map(function(l){l.sort(function(a,b){return a.x-b.x;});return l.map(function(i){return i.str;}).join(' ');}).join('\n'));
+      });});});})(pg);
+    }
+    return kette.then(function(){return seiten.join('\n\n');});
+  });
+}
+function _fzBelegToB64(f){
+  return new Promise(function(res,rej){
+    var fr=new FileReader();
+    fr.onload=function(){res(String(fr.result||''));};
+    fr.onerror=function(){rej(new Error('Datei nicht lesbar'));};
+    fr.readAsDataURL(f);
+  });
+}
+
+// ── Kennzeichen/Modell-Abgleich (pure, testbar) ───────────────────────────
+function _fzBelegNormKz(s){ return String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,''); }
+function _fzBelegNormTxt(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(); }
+// Modell-Gegenpruefung: reicht EIN gemeinsames Wort ab 3 Zeichen (bzw. eine
+// Teilstring-Uebereinstimmung), gilt das Modell als bestaetigt. Bewusst
+// tolerant — «VW Caddy Maxi» auf dem Beleg vs. «VW Caddy» im Bestand ist
+// dasselbe Fahrzeug; gemeldet wird nur, wenn GAR NICHTS uebereinstimmt.
+function _fzBelegModellPasst(belegModell,fahrzeugModell){
+  var a=_fzBelegNormTxt(belegModell), b=_fzBelegNormTxt(fahrzeugModell);
+  if(!a||!b)return true;                       // fehlende Angabe ist kein Widerspruch
+  if(a.indexOf(b)>=0||b.indexOf(a)>=0)return true;
+  var wa=a.split(' ').filter(function(w){return w.length>=3;});
+  var wb=b.split(' ').filter(function(w){return w.length>=3;});
+  for(var i=0;i<wa.length;i++) if(wb.indexOf(wa[i])>=0) return true;
+  return false;
+}
+// Beleg → Fahrzeug. Reihenfolge: Kennzeichen (hart) → Fahrzeug-Nr → VIN.
+// Ein Treffer ueber das Kennzeichen wird IMMER gegen das Modell gegengeprueft;
+// weicht es ab, bleibt die Zuordnung bestehen (das Kennzeichen ist eindeutiger),
+// aber die Zeile traegt eine Warnung — geraten wird nie.
+function _fzBelegMatch(res,list){
+  var out={vid:'',warn:'',sicher:false};
+  res=res||{};list=list||[];
+  var kz=_fzBelegNormKz(res.kennzeichen);
+  var treffer=null;
+  if(kz){
+    var kandidaten=list.filter(function(v){return _fzBelegNormKz(v.plate)===kz;});
+    if(kandidaten.length===1)treffer=kandidaten[0];
+    else if(kandidaten.length>1){ out.warn='Kennzeichen '+res.kennzeichen+' kommt mehrfach im Bestand vor — bitte Fahrzeug wählen'; return out; }
+  }
+  if(!treffer&&res.vin){
+    var vn=_fzBelegNormKz(res.vin);
+    treffer=list.filter(function(v){return vn&&_fzBelegNormKz(v.vin)===vn;})[0]||null;
+    if(treffer)out.warn='Über Fahrgestell-Nr. zugeordnet (kein Kennzeichen erkannt) — bitte prüfen';
+  }
+  if(!treffer&&res.fahrzeugNr){
+    var nr=_fzBelegNormKz(res.fahrzeugNr);
+    treffer=list.filter(function(v){return nr&&_fzBelegNormKz(v.number)===nr;})[0]||null;
+    if(treffer)out.warn='Über die Fahrzeug-Nr. zugeordnet — bitte prüfen';
+  }
+  if(!treffer){
+    out.warn=kz?('Kennzeichen «'+res.kennzeichen+'» ist im Bestand nicht vorhanden — bitte Fahrzeug wählen')
+               :'Kein Kennzeichen erkannt — bitte Fahrzeug wählen';
+    return out;
+  }
+  out.vid=treffer.id;out.sicher=true;
+  if(res.fahrzeugModell&&!_fzBelegModellPasst(res.fahrzeugModell,treffer.model)){
+    out.warn='⚠ Modell weicht ab: Beleg «'+res.fahrzeugModell+'» ≠ Bestand «'+(treffer.model||'—')+'»';
+    out.sicher=false;
+  }
+  return out;
+}
+// Schon importiert? Gleiche Rechnungs-Nr. am gleichen Fahrzeug ODER gleiches
+// Datum + gleicher Betrag. Verhindert den stillen Doppel-Import beim zweiten
+// Lauf derselben Belege.
+function _fzBelegDublette(vid,rgNr,datum,kosten){
+  var v=vehicles.find(function(x){return x.id===vid;});
+  if(!v||!Array.isArray(v.serviceHistorie))return false;
+  var rg=_fzBelegNormKz(rgNr);
+  return v.serviceHistorie.some(function(e){
+    if(rg&&_fzBelegNormKz(e.rechnungsNr)===rg)return true;
+    return !!(datum&&e.datum===datum&&kosten&&String(e.kosten||'')===String(kosten));
+  });
+}
+window._fzBelegMatch=_fzBelegMatch;
+window._fzBelegModellPasst=_fzBelegModellPasst;
+window._fzBelegDublette=_fzBelegDublette;
+
+// ── Flotte fuer die Function (bewusst NUR drei Felder) ────────────────────
+function _fzBelegFlotte(){
+  return _fzBelegListe().map(function(v){
+    return {nr:v.number||'',kennzeichen:v.plate||'',modell:v.model||''};
+  });
+}
+function _fzBelegListe(){
+  // Bestand der eigenen Org — genau die Fahrzeuge, denen zugeordnet werden darf.
+  return vehicles.slice().sort(function(a,b){return String(a.number||'').localeCompare(String(b.number||''),'de');});
+}
+
+// ── Dialog ────────────────────────────────────────────────────────────────
+function _fzBelegOpen(){
+  // Fail-closed: derselbe Gate wie der Knopf (Defense in Depth gegen den
+  // direkten Aufruf aus der Konsole).
+  if(!_fzCanEdit()||!_fzCanSeePreise()){ showToast('Keine Berechtigung für den Beleg-Import.'); return; }
+  if(typeof GemaClaude==='undefined'||!GemaClaude.extractBeleg){
+    (window.GemaDialog&&GemaDialog.alert)
+      ? GemaDialog.alert({title:'KI-Analyse nicht verfügbar',message:'Die Beleg-Analyse ist in dieser Installation nicht eingerichtet. Service-Einträge lassen sich weiterhin von Hand erfassen.'})
+      : showToast('KI-Analyse nicht verfügbar');
+    return;
+  }
+  _fzBelegDateien=[];_fzBelegRows=[];_fzBelegLauf=null;_fzBelegPhase='wahl';
+  _fzBelegRender();
+}
+window._fzBelegOpen=_fzBelegOpen;
+
+function _fzBelegClose(){
+  if(_fzBelegLauf&&!_fzBelegLauf.ende){ _fzBelegLauf.abbruch=true; }
+  var o=document.getElementById('_fzBelegOverlay'); if(o)o.remove();
+  document.body.classList.remove('modal-open');
+}
+window._fzBelegClose=_fzBelegClose;
+
+function _fzBelegOverlay(){
+  var ov=document.getElementById('_fzBelegOverlay');
+  if(!ov){
+    ov=document.createElement('div');
+    ov.id='_fzBelegOverlay';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10500;display:flex;align-items:flex-start;justify-content:center;overflow:auto;'
+      +'padding:max(16px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))';
+    document.body.appendChild(ov);
+    document.body.classList.add('modal-open');
+  }
+  return ov;
+}
+
+function _fzBelegRender(){
+  var ov=_fzBelegOverlay();
+  var breit=_fzBelegPhase==='pruefen'?'1180px':'720px';
+  var inner='';
+  if(_fzBelegPhase==='wahl')        inner=_fzBelegWahlHtml();
+  else if(_fzBelegPhase==='lauf')   inner=_fzBelegLaufHtml();
+  else                              inner=_fzBelegPruefHtml();
+  ov.innerHTML='<div style="background:#fff;border-radius:16px;padding:20px;max-width:'+breit+';width:100%;box-shadow:0 20px 50px rgba(0,0,0,.3);font-family:inherit">'+inner+'</div>';
+}
+
+function _fzBelegKopf(sub){
+  return '<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:12px">'
+    +'<div style="flex:1;min-width:0">'
+      +'<h3 style="margin:0 0 3px;font-size:17px;font-weight:800">📄 Belege einlesen</h3>'
+      +'<div style="font-size:12.5px;color:#64748b">'+sub+'</div>'
+    +'</div>'
+    +'<button onclick="_fzBelegClose()" style="flex:0 0 auto;width:32px;height:32px;border-radius:8px;border:1.5px solid #e5e7eb;background:#fff;color:#64748b;cursor:pointer;font-size:16px;line-height:1;font-family:inherit">✕</button>'
+  +'</div>';
+}
+
+function _fzBelegWahlHtml(){
+  var n=_fzBelegDateien.length;
+  var h=_fzBelegKopf('Garagen-Rechnungen und Service-Belege (PDF oder Foto) auswählen — bis zu '+_FZ_BELEG_MAX_DATEIEN+' auf einmal. Claude liest Fahrzeug, Arbeit und Betrag aus; kontrolliert wird danach in einer Tabelle.');
+  h+='<label style="display:block;border:2px dashed #cbd5e1;border-radius:12px;padding:22px 16px;text-align:center;cursor:pointer;background:#f8fafc">'
+    +'<div style="font-size:26px;line-height:1">📎</div>'
+    +'<div style="font-size:13.5px;font-weight:700;color:#334155;margin-top:6px">Belege auswählen</div>'
+    +'<div style="font-size:11.5px;color:#64748b;margin-top:3px">PDF, JPG, PNG · max. ~3 MB pro Datei</div>'
+    +'<input type="file" id="_fzBelegFile" multiple accept="application/pdf,image/*" onchange="_fzBelegDateiWahl(this)" style="display:none">'
+  +'</label>';
+  if(n){
+    h+='<div style="margin-top:12px;border:1px solid #e2e8f0;border-radius:10px;max-height:230px;overflow:auto;background:#fff">';
+    _fzBelegDateien.forEach(function(d){
+      var zuGross=d.status==='zugross';
+      h+='<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid #f1f5f9;font-size:12.5px">'
+        +'<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'+(zuGross?'color:#b91c1c':'color:#334155')+'">'+esc(d.name)+'</span>'
+        +'<span style="flex:0 0 auto;color:'+(zuGross?'#b91c1c':'#64748b')+';font-size:11.5px;white-space:nowrap">'+(zuGross?'zu gross ':'')+(d.size/1048576).toFixed(1)+' MB</span>'
+        +'<button onclick="_fzBelegDateiWeg(\''+d.id+'\')" style="flex:0 0 auto;padding:2px 7px;border-radius:6px;border:1px solid #e5e7eb;background:#fff;color:#94a3b8;cursor:pointer;font-size:11px;font-family:inherit">✕</button>'
+      +'</div>';
+    });
+    h+='</div>';
+    var gross=_fzBelegDateien.filter(function(d){return d.status==='zugross';}).length;
+    if(gross){
+      // No-silent-caps: uebersprungene Dateien werden BENANNT.
+      h+='<div style="margin-top:8px;padding:8px 10px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;font-size:12px;color:#b91c1c">'
+        +gross+' Datei'+(gross>1?'en sind':' ist')+' grösser als ~3 MB und '+(gross>1?'werden':'wird')+' NICHT analysiert. Bitte kleiner scannen (z.B. 150 dpi) oder als Foto aufnehmen.</div>';
+    }
+  }
+  var bereit=_fzBelegDateien.filter(function(d){return d.status!=='zugross';}).length;
+  h+='<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:16px;flex-wrap:wrap">'
+    +'<div style="font-size:12px;color:#64748b">'+(bereit?bereit+' Beleg'+(bereit>1?'e':'')+' bereit':'Noch keine Belege gewählt')+'</div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
+      +'<button onclick="_fzBelegClose()" style="padding:9px 16px;border-radius:8px;border:1.5px solid #e5e7eb;background:#fff;color:#64748b;cursor:pointer;font-weight:700;font-family:inherit">Abbrechen</button>'
+      +'<button onclick="_fzBelegStart()" '+(bereit?'':'disabled')+' style="padding:9px 18px;border-radius:8px;border:none;background:'+(bereit?'#2563eb':'#cbd5e1')+';color:#fff;cursor:'+(bereit?'pointer':'not-allowed')+';font-weight:700;font-family:inherit">🤖 Analysieren</button>'
+    +'</div>'
+  +'</div>';
+  return h;
+}
+
+function _fzBelegDateiWahl(inp){
+  var fs=Array.prototype.slice.call((inp&&inp.files)||[]);
+  if(inp)inp.value='';
+  if(!fs.length)return;
+  var frei=_FZ_BELEG_MAX_DATEIEN-_fzBelegDateien.length;
+  var zuviel=Math.max(0,fs.length-frei);
+  fs.slice(0,Math.max(0,frei)).forEach(function(f){
+    _fzBelegDateien.push({
+      id:'bg_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+      file:f,name:f.name||'Beleg',size:f.size||0,typ:f.type||'',
+      status:(f.size>_FZ_BELEG_MAX_BYTES)?'zugross':'wartet',
+      fehler:'',res:null
+    });
+  });
+  if(zuviel)showToast('Nur '+_FZ_BELEG_MAX_DATEIEN+' Belege pro Lauf — '+zuviel+' nicht übernommen');
+  _fzBelegRender();
+}
+window._fzBelegDateiWahl=_fzBelegDateiWahl;
+function _fzBelegDateiWeg(id){
+  _fzBelegDateien=_fzBelegDateien.filter(function(d){return d.id!==id;});
+  _fzBelegRender();
+}
+window._fzBelegDateiWeg=_fzBelegDateiWeg;
+
+// ── Lauf ──────────────────────────────────────────────────────────────────
+var _FZ_BELEG_STATUS={wartet:'⏳ wartet',liest:'📖 liest',analyse:'🤖 Analyse',fertig:'✓ fertig',fehler:'✕ Fehler',zugross:'✕ zu gross',abbruch:'— abgebrochen'};
+
+function _fzBelegLaufHtml(){
+  var l=_fzBelegLauf||{fertig:0,total:0};
+  var pct=l.total?Math.round(l.fertig/l.total*100):0;
+  var h=_fzBelegKopf(l.ende?'Analyse abgeschlossen.':'Claude liest die Belege — bis zu '+_FZ_BELEG_PARALLEL+' gleichzeitig. Das Fenster darf offen bleiben.');
+  h+='<div style="height:8px;background:#e2e8f0;border-radius:99px;overflow:hidden"><div style="height:100%;width:'+pct+'%;background:#2563eb;transition:width .25s"></div></div>';
+  h+='<div style="font-size:12.5px;color:#64748b;margin:6px 0 10px">'+l.fertig+' von '+l.total+' Belegen verarbeitet'+(l.abbruch?' · abgebrochen':'')+'</div>';
+  h+='<div style="border:1px solid #e2e8f0;border-radius:10px;max-height:300px;overflow:auto;background:#fff">';
+  _fzBelegDateien.forEach(function(d){
+    var farbe=d.status==='fertig'?'#15803d':(d.status==='fehler'||d.status==='zugross')?'#b91c1c':'#64748b';
+    h+='<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid #f1f5f9;font-size:12.5px">'
+      +'<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#334155">'+esc(d.name)+'</span>'
+      +'<span style="flex:0 0 auto;color:'+farbe+';font-size:11.5px;white-space:nowrap;font-weight:700">'+(_FZ_BELEG_STATUS[d.status]||d.status)+'</span>'
+    +'</div>';
+    if(d.fehler){
+      h+='<div style="padding:0 10px 7px;font-size:11.5px;color:#b91c1c;background:#fff">'+esc(d.fehler)+'</div>';
+    }
+  });
+  h+='</div>';
+  h+='<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;flex-wrap:wrap">';
+  if(!l.ende){
+    h+='<button onclick="_fzBelegAbbrechen()" style="padding:9px 16px;border-radius:8px;border:1.5px solid #e5e7eb;background:#fff;color:#64748b;cursor:pointer;font-weight:700;font-family:inherit">Abbrechen</button>';
+  } else {
+    var ok=_fzBelegDateien.filter(function(d){return d.status==='fertig';}).length;
+    var offen=_fzBelegDateien.filter(function(d){return d.status==='fehler'||d.status==='abbruch';}).length;
+    h+='<button onclick="_fzBelegClose()" style="padding:9px 16px;border-radius:8px;border:1.5px solid #e5e7eb;background:#fff;color:#64748b;cursor:pointer;font-weight:700;font-family:inherit">Schliessen</button>';
+    if(offen){
+      // Nur die gescheiterten/abgebrochenen Belege werden erneut geschickt —
+      // _fzBelegStart nimmt genau diese Status wieder in die Warteschlange.
+      // Ohne diesen Knopf muesste man den Dialog schliessen und alle Dateien
+      // neu waehlen; die bereits gelesenen waeren verloren.
+      h+='<button onclick="_fzBelegStart()" style="padding:9px 16px;border-radius:8px;border:1.5px solid #fecaca;background:#fef2f2;color:#b91c1c;cursor:pointer;font-weight:700;font-family:inherit">↻ '+offen+' nochmals versuchen</button>';
+    }
+    h+='<button onclick="_fzBelegZuPruefen()" '+(ok?'':'disabled')+' style="padding:9px 18px;border-radius:8px;border:none;background:'+(ok?'#2563eb':'#cbd5e1')+';color:#fff;cursor:'+(ok?'pointer':'not-allowed')+';font-weight:700;font-family:inherit">→ Prüfen ('+ok+')</button>';
+  }
+  h+='</div>';
+  return h;
+}
+
+function _fzBelegAbbrechen(){
+  if(_fzBelegLauf)_fzBelegLauf.abbruch=true;
+  _fzBelegDateien.forEach(function(d){ if(d.status==='wartet')d.status='abbruch'; });
+  _fzBelegRender();
+}
+window._fzBelegAbbrechen=_fzBelegAbbrechen;
+
+// Eine Datei: lesen → (PDF-Textebene) → Function. Wirft NIE — der Fehler
+// landet an der Datei, der Lauf geht weiter.
+function _fzBelegEine(d,flotte){
+  if(d.status==='zugross'){ return Promise.resolve(); }
+  d.status='liest';d.fehler='';_fzBelegRender();
+  return _fzBelegToB64(d.file).then(function(b64){
+    var istPdf=(d.typ==='application/pdf')||/\.pdf$/i.test(d.name);
+    if(!istPdf)return {b64:b64,text:''};
+    // Textebene lesen; scheitert das (Scan ohne Text, pdf.js offline),
+    // geht der Beleg unveraendert als Datei — kein Abbruch.
+    return _fzBelegPdfText(b64).then(function(t){ return {b64:b64,text:(t||'').trim()}; })
+      .catch(function(){ return {b64:b64,text:''}; });
+  }).then(function(x){
+    if(_fzBelegLauf&&_fzBelegLauf.abbruch){ d.status='abbruch'; return; }
+    d.status='analyse';_fzBelegRender();
+    var opts={fahrzeuge:flotte,filename:d.name};
+    if(x.text&&x.text.length>=200){
+      d.gekappt=x.text.length>_FZ_BELEG_MAX_TEXT;
+      opts.text=d.gekappt?x.text.slice(0,_FZ_BELEG_MAX_TEXT):x.text;
+    } else {
+      opts.fileBase64=x.b64;opts.mediaType=d.typ||'';
+    }
+    return GemaClaude.extractBeleg(opts).then(function(res){
+      d.res=res||{};d.status='fertig';
+    });
+  }).catch(function(err){
+    d.status='fehler';
+    d.fehler=(err&&err.message)||'Unbekannter Fehler';
+  }).then(function(){
+    if(_fzBelegLauf)_fzBelegLauf.fertig++;
+    _fzBelegRender();
+  });
+}
+
+function _fzBelegStart(){
+  var offen=_fzBelegDateien.filter(function(d){return d.status==='wartet'||d.status==='fehler'||d.status==='abbruch';});
+  if(!offen.length){ showToast('Keine Belege zu analysieren'); return; }
+  offen.forEach(function(d){d.status='wartet';d.fehler='';d.res=null;});
+  var flotte=_fzBelegFlotte();
+  _fzBelegLauf={abbruch:false,fertig:0,total:offen.length,ende:false};
+  _fzBelegPhase='lauf';_fzBelegRender();
+  // Gedrosselte Parallelitaet: _FZ_BELEG_PARALLEL Arbeiter ziehen sich
+  // Dateien aus der Warteschlange. Ein Fehler beendet den Arbeiter NICHT.
+  var i=0;
+  function arbeiter(){
+    if(_fzBelegLauf.abbruch)return Promise.resolve();
+    var d=offen[i++];
+    if(!d)return Promise.resolve();
+    return _fzBelegEine(d,flotte).then(arbeiter);
+  }
+  var arb=[];
+  for(var k=0;k<Math.min(_FZ_BELEG_PARALLEL,offen.length);k++)arb.push(arbeiter());
+  Promise.all(arb).then(function(){
+    _fzBelegLauf.ende=true;
+    var ok=_fzBelegDateien.filter(function(d){return d.status==='fertig';}).length;
+    var fail=_fzBelegDateien.filter(function(d){return d.status==='fehler';}).length;
+    if(ok&&!fail&&!_fzBelegLauf.abbruch){ _fzBelegZuPruefen(); return; }
+    _fzBelegRender();
+    if(fail)showToast('⚠ '+fail+' Beleg'+(fail>1?'e':'')+' konnte'+(fail>1?'n':'')+' nicht gelesen werden — Liste prüfen');
+  });
+}
+window._fzBelegStart=_fzBelegStart;
+
+// ── Pruef-Tabelle ─────────────────────────────────────────────────────────
+function _fzBelegZuPruefen(){
+  var list=_fzBelegListe();
+  _fzBelegRows=[];
+  _fzBelegDateien.forEach(function(d){
+    if(d.status!=='fertig'||!d.res)return;
+    var r=d.res;
+    var m=_fzBelegMatch(r,list);
+    var hinweise=[];
+    if(m.warn)hinweise.push(m.warn);
+    if(r.hinweis)hinweise.push(String(r.hinweis));
+    if(d.gekappt)hinweise.push('Belegtext war sehr lang und wurde für die Analyse gekürzt — bitte Betrag prüfen');
+    if(r.sicherheit==='tief')hinweise.push('Claude ist sich bei diesem Beleg unsicher');
+    var kosten=r.kosten!==undefined&&r.kosten!==null?String(r.kosten).trim():'';
+    var dub=m.vid?_fzBelegDublette(m.vid,r.rechnungsNr,r.datum,kosten):false;
+    if(dub)hinweise.push('Sieht nach einem bereits erfassten Eintrag aus (gleiche Rechnungs-Nr. bzw. Datum + Betrag)');
+    _fzBelegRows.push({
+      id:d.id,quelle:d.name,
+      vid:m.vid,
+      datum:String(r.datum||'').slice(0,10),
+      art:['service','reparatur','mfk','pneuwechsel','sonstiges'].indexOf(r.art)>=0?r.art:'reparatur',
+      beschreibung:String(r.beschreibung||'').trim(),
+      km:r.km!==undefined&&r.km!==null?String(r.km).trim():'',
+      kosten:kosten,
+      werkstatt:String(r.werkstatt||'').trim(),
+      rgNr:String(r.rechnungsNr||'').trim(),
+      belegModell:String(r.fahrzeugModell||'').trim(),
+      kennzeichen:String(r.kennzeichen||'').trim(),
+      hinweis:hinweise.join(' · '),
+      warn:!m.sicher||dub,
+      dublette:dub,
+      // Unsichere Zeilen und Dubletten sind bewusst NICHT vorausgewaehlt —
+      // ein Import soll eine Entscheidung sein, kein Durchwinken.
+      imp:!!(m.vid&&r.datum&&m.sicher&&!dub)
+    });
+  });
+  _fzBelegPhase='pruefen';_fzBelegRender();
+}
+window._fzBelegZuPruefen=_fzBelegZuPruefen;
+
+function _fzBelegRowSet(id,feld,wert){
+  var r=_fzBelegRows.filter(function(x){return x.id===id;})[0];
+  if(!r)return;
+  r[feld]=wert;
+  if(feld==='vid'||feld==='datum'||feld==='kosten'){
+    // Zuordnung/Datum/Betrag geaendert → Dublettenpruefung und Modell-
+    // Gegenpruefung neu rechnen; ein von Hand korrigierter Beleg soll seine
+    // alte Warnung nicht behalten.
+    _fzBelegRowPruef(r);
+    _fzBelegRender();
+  }
+}
+window._fzBelegRowSet=_fzBelegRowSet;
+function _fzBelegRowPruef(r){
+  var hin=[];
+  var v=vehicles.find(function(x){return x.id===r.vid;});
+  if(!r.vid)hin.push('Kein Fahrzeug gewählt');
+  else if(r.belegModell&&!_fzBelegModellPasst(r.belegModell,v&&v.model))
+    hin.push('⚠ Modell weicht ab: Beleg «'+r.belegModell+'» ≠ Bestand «'+((v&&v.model)||'—')+'»');
+  if(!r.datum)hin.push('Datum fehlt');
+  r.dublette=r.vid?_fzBelegDublette(r.vid,r.rgNr,r.datum,r.kosten):false;
+  if(r.dublette)hin.push('Sieht nach einem bereits erfassten Eintrag aus');
+  r.hinweis=hin.join(' · ');
+  r.warn=hin.length>0;
+  if(r.warn&&!r.vid)r.imp=false;
+}
+function _fzBelegRowImp(id,an){
+  var r=_fzBelegRows.filter(function(x){return x.id===id;})[0];
+  if(r)r.imp=!!an;
+  _fzBelegRender();
+}
+window._fzBelegRowImp=_fzBelegRowImp;
+function _fzBelegAlle(an){ _fzBelegRows.forEach(function(r){ r.imp=!!an&&!!r.vid&&!!r.datum; }); _fzBelegRender(); }
+window._fzBelegAlle=_fzBelegAlle;
+
+function _fzBelegFzgOpts(sel){
+  var h='<option value="">— Fahrzeug wählen —</option>';
+  _fzBelegListe().forEach(function(v){
+    var lbl=(v.number?v.number+' · ':'')+(v.model||'')+(v.plate?' · '+v.plate:'');
+    h+='<option value="'+esc(v.id)+'"'+(v.id===sel?' selected':'')+'>'+esc(lbl)+'</option>';
+  });
+  return h;
+}
+var _FZ_BELEG_ARTEN=[['service','Service'],['reparatur','Reparatur'],['mfk','MFK'],['pneuwechsel','Pneuwechsel'],['sonstiges','Sonstiges']];
+
+function _fzBelegPruefHtml(){
+  var n=_fzBelegRows.length, gew=_fzBelegRows.filter(function(r){return r.imp;}).length;
+  var h=_fzBelegKopf('Bitte kontrollieren und bei Bedarf anpassen — erst danach wird importiert. Zeilen mit Warnung sind nicht vorausgewählt.');
+  var inp='width:100%;box-sizing:border-box;padding:5px 7px;border:1.5px solid #e2e8f0;border-radius:6px;font-size:12px;font-family:inherit;background:#fff';
+  h+='<div style="overflow:auto;max-height:56vh;border:1px solid #e2e8f0;border-radius:10px">';
+  h+='<table style="width:100%;border-collapse:collapse;font-size:12px;min-width:1040px">';
+  h+='<thead><tr style="background:#f8fafc">'
+    +'<th style="padding:7px 8px;text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:#64748b;position:sticky;top:0;background:#f8fafc"><input type="checkbox" '+(gew===n&&n?'checked':'')+' onchange="_fzBelegAlle(this.checked)" style="width:15px;height:15px;cursor:pointer"></th>'
+    +['Beleg','Fahrzeug','Datum','Art','Arbeit','km','Kosten CHF','Werkstatt'].map(function(t){
+        return '<th style="padding:7px 8px;text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:#64748b;position:sticky;top:0;background:#f8fafc;white-space:nowrap">'+t+'</th>';
+      }).join('')
+    +'</tr></thead><tbody>';
+  _fzBelegRows.forEach(function(r){
+    var bg=r.warn?'background:#fffbeb':'';
+    h+='<tr style="border-top:1px solid #f1f5f9;'+bg+'">'
+      +'<td style="padding:6px 8px;vertical-align:top"><input type="checkbox" '+(r.imp?'checked':'')+' onchange="_fzBelegRowImp(\''+r.id+'\',this.checked)" style="width:15px;height:15px;cursor:pointer"></td>'
+      +'<td style="padding:6px 8px;vertical-align:top;max-width:150px"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#64748b" title="'+esc(r.quelle)+'">'+esc(r.quelle)+'</div>'
+        +(r.kennzeichen?'<div style="font-size:10.5px;color:#94a3b8;margin-top:2px">'+esc(r.kennzeichen)+'</div>':'')+'</td>'
+      +'<td style="padding:6px 8px;vertical-align:top;min-width:180px"><select onchange="_fzBelegRowSet(\''+r.id+'\',\'vid\',this.value)" style="'+inp+'">'+_fzBelegFzgOpts(r.vid)+'</select></td>'
+      +'<td style="padding:6px 8px;vertical-align:top;min-width:126px"><input type="date" value="'+esc(r.datum)+'" onchange="_fzBelegRowSet(\''+r.id+'\',\'datum\',this.value)" style="'+inp+'"></td>'
+      +'<td style="padding:6px 8px;vertical-align:top;min-width:112px"><select onchange="_fzBelegRowSet(\''+r.id+'\',\'art\',this.value)" style="'+inp+'">'
+        +_FZ_BELEG_ARTEN.map(function(a){return '<option value="'+a[0]+'"'+(a[0]===r.art?' selected':'')+'>'+a[1]+'</option>';}).join('')
+      +'</select></td>'
+      +'<td style="padding:6px 8px;vertical-align:top;min-width:210px"><textarea rows="2" oninput="_fzBelegRowSet(\''+r.id+'\',\'beschreibung\',this.value)" style="'+inp+';resize:vertical">'+esc(r.beschreibung)+'</textarea></td>'
+      +'<td style="padding:6px 8px;vertical-align:top;min-width:86px"><input type="text" inputmode="numeric" value="'+esc(r.km)+'" oninput="_fzBelegRowSet(\''+r.id+'\',\'km\',this.value)" style="'+inp+'"></td>'
+      +'<td style="padding:6px 8px;vertical-align:top;min-width:92px"><input type="text" inputmode="decimal" value="'+esc(r.kosten)+'" onchange="_fzBelegRowSet(\''+r.id+'\',\'kosten\',this.value)" style="'+inp+'"></td>'
+      +'<td style="padding:6px 8px;vertical-align:top;min-width:140px"><input type="text" value="'+esc(r.werkstatt)+'" oninput="_fzBelegRowSet(\''+r.id+'\',\'werkstatt\',this.value)" style="'+inp+'"></td>'
+    +'</tr>';
+    if(r.hinweis){
+      h+='<tr style="'+bg+'"><td></td><td colspan="8" style="padding:0 8px 7px;font-size:11.5px;color:#92400e">'+esc(r.hinweis)+'</td></tr>';
+    }
+  });
+  h+='</tbody></table></div>';
+  var fehl=_fzBelegDateien.filter(function(d){return d.status==='fehler'||d.status==='zugross'||d.status==='abbruch';});
+  if(fehl.length){
+    h+='<div style="margin-top:10px;padding:8px 10px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;font-size:12px;color:#b91c1c">'
+      +fehl.length+' Beleg'+(fehl.length>1?'e wurden':' wurde')+' nicht ausgewertet ('+esc(fehl.slice(0,3).map(function(d){return d.name;}).join(', '))+(fehl.length>3?' …':'')+'). '
+      +'<button onclick="_fzBelegStart()" style="margin-left:4px;padding:3px 9px;border-radius:6px;border:1.5px solid #b91c1c;background:#fff;color:#b91c1c;cursor:pointer;font-weight:700;font-size:11.5px;font-family:inherit">↻ Nochmals versuchen</button></div>';
+  }
+  h+='<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:14px;flex-wrap:wrap">'
+    +'<div style="font-size:12px;color:#64748b">'+gew+' von '+n+' Zeilen werden importiert</div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
+      +'<button onclick="_fzBelegClose()" style="padding:9px 16px;border-radius:8px;border:1.5px solid #e5e7eb;background:#fff;color:#64748b;cursor:pointer;font-weight:700;font-family:inherit">Abbrechen</button>'
+      +'<button onclick="_fzBelegImport()" '+(gew?'':'disabled')+' style="padding:9px 18px;border-radius:8px;border:none;background:'+(gew?'#16a34a':'#cbd5e1')+';color:#fff;cursor:'+(gew?'pointer':'not-allowed')+';font-weight:700;font-family:inherit">✓ '+gew+' importieren</button>'
+    +'</div>'
+  +'</div>';
+  return h;
+}
+
+// ── Import in die Service-Historie ────────────────────────────────────────
+function _fzBelegImport(){
+  if(!_fzCanEdit()||!_fzCanSeePreise()){ showToast('Keine Berechtigung.'); return; }
+  var rows=_fzBelegRows.filter(function(r){return r.imp&&r.vid&&r.datum;});
+  if(!rows.length){ showToast('Keine vollständige Zeile ausgewählt (Fahrzeug und Datum sind Pflicht).'); return; }
+  var u=_fzGetUser()||{};
+  var jetzt=new Date().toISOString();
+  var proFzg={},n=0;
+  rows.forEach(function(r){
+    var v=vehicles.find(function(x){return x.id===r.vid;});
+    if(!v)return;
+    var entry={
+      id:'svc_'+Date.now()+'_'+Math.random().toString(36).substr(2,5),
+      datum:r.datum, km:r.km||'', art:r.art||'reparatur',
+      beschreibung:r.beschreibung||'', kosten:r.kosten||'', werkstatt:r.werkstatt||'',
+      rechnungsNr:r.rgNr||'',
+      quelle:'beleg', quelleDatei:r.quelle||'',
+      erledigtVonUserId:u.id||'', erledigtVonName:u.name||u.username||'',
+      erstelltAm:jetzt, photos:[]
+    };
+    if(!Array.isArray(v.serviceHistorie))v.serviceHistorie=[];
+    v.serviceHistorie.push(entry);
+    // Gleiche Nachfuehrung wie bei der Hand-Erfassung (_fzSaveServiceEntry):
+    // lastService/lastServiceKm/km nur, wenn der Beleg neuer ist.
+    if(!v.lastService||(r.datum>v.lastService))v.lastService=r.datum;
+    if(r.km){
+      var kmNum=parseInt(String(r.km).replace(/[^0-9]/g,''),10)||0;
+      if(kmNum){
+        if(!v.lastServiceKm||kmNum>parseInt(v.lastServiceKm,10))v.lastServiceKm=String(kmNum);
+        if(!v.km||kmNum>parseInt(v.km,10)){v.km=String(kmNum);v.kmUpdatedAt=jetzt;}
+      }
+    }
+    proFzg[v.id]=(proFzg[v.id]||0)+1;n++;
+  });
+  if(!n){ showToast('Nichts importiert — die gewählten Fahrzeuge sind nicht mehr vorhanden.'); return; }
+  persist();
+  Object.keys(proFzg).forEach(function(vid){
+    var v=vehicles.find(function(x){return x.id===vid;});
+    if(v)_fzActLog('service','Beleg-Import: '+proFzg[vid]+' Service-Eintrag'+(proFzg[vid]>1?'e':'')+' aus Garagen-Belegen', v);
+  });
+  _fzBelegClose();
+  render();
+  showToast('✓ '+n+' Service-Eintrag'+(n>1?'e':'')+' importiert');
+}
+window._fzBelegImport=_fzBelegImport;
+
+// Test-Hooks: der Beleg-Zustand lebt in dieser IIFE und ist von aussen
+// (Drift-Guard, Konsole) sonst nicht erreichbar — Muster _fzPermHooks/_fzCsvHooks.
+// setDateien() setzt die Warteschlange direkt, damit der Guard den Batch-Lauf
+// ohne echten Datei-Dialog starten kann.
+window._fzBelegHooks={
+  dateien:function(){return _fzBelegDateien;},
+  rows:function(){return _fzBelegRows;},
+  lauf:function(){return _fzBelegLauf;},
+  phase:function(){return _fzBelegPhase;},
+  setDateien:function(list){ _fzBelegDateien=Array.isArray(list)?list:[]; _fzBelegRender(); return _fzBelegDateien.length; },
+  match:_fzBelegMatch,
+  modellPasst:_fzBelegModellPasst,
+  dublette:_fzBelegDublette,
+  flotte:_fzBelegFlotte
+};
 
 // Click-outside-to-close for management overlays
 ['mgmtZuweisungOverlay','mgmtDefektOverlay','mgmtKostenOverlay','mgmtReifenOverlay','mgmtParkkOverlay','mgmtBerichteOverlay'].forEach(function(id) {
