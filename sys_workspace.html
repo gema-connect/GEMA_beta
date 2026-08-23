@@ -1554,6 +1554,16 @@ input::placeholder{color:#cbd5e1}
         return rl.some(function(x){ return x===r||String(x).indexOf(r)===0; });
       });
     }
+    // AUTOMATISCHE Eimer sind FAIL-CLOSED (Feedback 23.08.2026: «ich habe
+    // nichts mit diesen klassen zu tun … man darf nur jeweilige sehen …
+    // mit denen man einen bezug hat, ansonsten strikt getrennt»). Ein
+    // Klassen-/Übungs-/Rollen-Eimer OHNE nachweisbaren Bezug — Klasse nicht
+    // auflösbar UND weder nurUserIds noch nurRollen gesetzt (Altbestand,
+    // verlorene accessControl, Provisionierung in die falsche Org) — fiel
+    // hier auf «für die ganze Org sichtbar» durch. Für einen echten
+    // Teilnehmer heilt sich das von selbst: die nächste Provisionierung
+    // trägt ihn wieder in nurUserIds ein.
+    if(b.autoTyp)return false;
     return true;
   }
   function _canSeeBucket(b){
@@ -1563,7 +1573,10 @@ input::placeholder{color:#cbd5e1}
     if(!_bucketScopeOk(b))return false;
     if(b.ownerOrgId===oid)return true;
     if(b.accessControl&&b.accessControl.invitedUsers&&b.accessControl.invitedUsers.indexOf(uid)>=0)return true;
-    if(b.createdBy===uid)return true;
+    // Bei einem AUTOMATISCHEN Eimer ist der «Ersteller» bloss, wer den
+    // Workspace zufällig zuerst geöffnet hat — das ist keine Berechtigung
+    // (dieselbe Begründung wie in _bucketScopeOk).
+    if(b.createdBy===uid&&!b.autoTyp)return true;
     return false;
   }
   /** Einen Eimer per id auflösen — aber NUR, wenn der eingeloggte Nutzer ihn
@@ -2459,6 +2472,12 @@ input::placeholder{color:#cbd5e1}
     // fehlt → neu anlegen) greift damit nicht mehr — ein in pm_objekte
     // gelöschtes «Lieferanten-Dashboard»-Objekt kommt nicht zurück.
     if(_wsOhneObjekt(b))return null;
+    // Kein Auto-Objekt fuer einen Eimer, den der Nutzer gar nicht sehen
+    // darf. Ohne diesen Guard legte/wiederbelebte das blosse Oeffnen eines
+    // fremden (durchgerutschten) Eimers ein Projekt in der EIGENEN Org —
+    // die Klassen-Uebungsobjekte tauchten so in fremden Objekt-Listen auf
+    // (Feedback 23.08.2026: «man darf nur jeweilige sehen (auch objekte)»).
+    if(!_canSeeBucket(b))return null;
     // Wenn der Eimer bereits eine objektId hat: pruefen, ob das Objekt
     // noch im pm_objekte-Bestand existiert. Wenn nicht (geloescht,
     // archiviert, Org-Wechsel), legen wir es neu unter derselben ID an —
@@ -2478,9 +2497,13 @@ input::placeholder{color:#cbd5e1}
     var objId = b.objektId || ('obj_ws_'+b.id);
     var curUser=null;
     try{if(typeof GemaAuth!=='undefined')curUser=GemaAuth.getCurrentUser();}catch(e){}
+    // Das Objekt gehoert der Org des EIMERS, nicht der des Oeffnenden. Sonst
+    // wandert das Projekt eines geteilten Org-Eimers in die Org der Person,
+    // die ihn zufaellig als Erste oeffnet (Feedback 23.08.2026).
+    var objOrg=(b.ownerType==='org'&&b.ownerOrgId)?b.ownerOrgId:(curUser?curUser.orgId:'org_default');
     var newObj={id:objId,name:b.name,strasse:'',plz:'',ort:'',
       bauvorhaben:(TYPES[b.type]||TYPES.project).label,status:'aktiv',
-      orgId:curUser?curUser.orgId:'org_default',
+      orgId:objOrg||'org_default',
       erstelltVon:curUser?curUser.id:'',
       createdAt:b.createdAt||new Date().toISOString()};
     try{
@@ -4279,7 +4302,14 @@ input::placeholder{color:#cbd5e1}
   // (autoTyp) stehen in derselben Liste, sind aber nicht editierbar.
   function _wsFixeEimer(){
     var oid=_curOrgId();
-    return buckets.filter(function(b){return b.pinned&&b.ownerType==='org'&&b.ownerOrgId===oid&&!b.subOf;});
+    // _canSeeBucket MUSS auch hier gelten: `buckets` haelt den ganzen
+    // (cross-org) Pool, und ein automatischer Klassen-Eimer, der in dieser
+    // Org gelandet ist, gehoert selbst dem Org-Admin nicht in die Liste,
+    // wenn er nicht zur Klasse gehoert (Feedback 23.08.2026). Einen selbst
+    // angelegten fixen Eimer sieht der Admin weiterhin (createdBy-Zweig).
+    return buckets.filter(function(b){
+      return b.pinned&&b.ownerType==='org'&&b.ownerOrgId===oid&&!b.subOf&&_canSeeBucket(b);
+    });
   }
   function _wsOrgUsers(){
     try{
@@ -4475,9 +4505,44 @@ input::placeholder{color:#cbd5e1}
     });
     return changed;
   }
+  /* Selbstheilung: Auto-Objekt in der falschen Org (Feedback 23.08.2026).
+     Bis zum Org-Stempel-Fix in _wsEnsureObjekt bekam das Objekt eines
+     GETEILTEN Org-Eimers die Org derjenigen Person, die den Eimer zufaellig
+     als Erste oeffnete. Ein durchgerutschter Klassen-Eimer hinterliess so
+     ein «Meine Klasse»-Projekt in einer fremden Objekt-Liste — und das
+     blieb dort, auch nachdem der Eimer selbst nicht mehr sichtbar ist.
+     Hier wird NICHTS geloescht (an einem Objekt koennen Daten haengen): die
+     orgId wird auf die des Eimers KORRIGIERT, das Objekt wandert damit
+     dorthin, wo es hingehoert, und verschwindet aus der fremden Liste.
+     Angefasst wird nur, was beweisbar driftet — ein Objekt `obj_ws_<id>`,
+     dessen Eimer ein Org-Eimer mit ANDERER ownerOrgId ist. */
+  function _wsObjektOrgHeilen(){
+    try{
+      var raw=localStorage.getItem('gema_objekte_v1');
+      if(!raw)return;
+      var data=JSON.parse(raw);
+      if(!data||!Array.isArray(data.objekte))return;
+      var geheilt=[];
+      data.objekte.forEach(function(o){
+        if(!o||!o.id||String(o.id).indexOf('obj_ws_')!==0)return;
+        var bid=String(o.id).slice(7);
+        var b=buckets.find(function(x){return x.id===bid;});
+        if(!b||b.ownerType!=='org'||!b.ownerOrgId)return;
+        if(o.orgId===b.ownerOrgId)return;
+        o.orgId=b.ownerOrgId;
+        geheilt.push(o);
+      });
+      if(!geheilt.length)return;
+      localStorage.setItem('gema_objekte_v1',JSON.stringify(data));
+      geheilt.forEach(function(o){
+        try{ if(typeof GemaObjekte!=='undefined'&&GemaObjekte.upsertObjekt)GemaObjekte.upsertObjekt(o); }catch(e){}
+      });
+    }catch(e){}
+  }
   function _wsAutoProvision(){
     try{ if(_wsAutoRollenEimer()){ save(); render(); try{ if(window._wsNatRefresh)window._wsNatRefresh(); }catch(e){} } }catch(e){}
     _wsKlassenProvision();
+    try{ _wsObjektOrgHeilen(); }catch(e){}
   }
 
   // ── Init ──
@@ -4516,6 +4581,7 @@ input::placeholder{color:#cbd5e1}
   })();
   // Test-/Cross-Modul-Hooks (Leser in index.html/pm_objekte + Native-Screen)
   window._wsHooks={ pool:_poolRead, canSee:_canSeeBucket, buckets:function(){return buckets;},
+    objektOrgHeilen:_wsObjektOrgHeilen, fixeEimer:_wsFixeEimer,
     save:save, flush:_saveFlush, migrate:_migrateLegacy, load:function(){load();render();},
     provision:function(){_wsAutoProvision();}, scopeOk:_bucketScopeOk, order:_wsOrder,
     wann:_wsWann, dozKandidaten:_wsDozKandidaten, klassenKandidaten:_wsKlassenKandidaten,

@@ -3052,6 +3052,19 @@ function _wzSortVal(t,key){
 // Leere Werte stehen IMMER am Ende — in beiden Richtungen. Ein Geraet ohne
 // Garantiedatum gehoert nicht an den Anfang der Garantie-Sortierung, egal
 // ob auf- oder absteigend sortiert wird.
+// Natuerliche Sortierung: «WZ-2» steht vor «WZ-10». Ein zeichenweiser
+// Vergleich stellt «10» vor «2» — das faellt erst auf, sobald jemand die
+// Kennungen OHNE fuehrende Null schreibt (Feedback 23.08.2026, gemeldet
+// am Fahrzeugmanagement, gilt hier genauso). Intl.Collator mit
+// numeric:true vergleicht Ziffernbloecke als Zahl.
+var _wzColl=(function(){try{return new Intl.Collator('de',{numeric:true,sensitivity:'base'});}catch(e){return null;}})();
+function _wzNatCmp(a,b){
+  if(typeof a==='number'&&typeof b==='number')return a-b;
+  var sa=String(a==null?'':a), sb=String(b==null?'':b);
+  if(_wzColl)return _wzColl.compare(sa,sb);
+  return sa<sb?-1:(sa>sb?1:0);
+}
+window._wzNatCmp=_wzNatCmp;
 function _wzSortList(list){
   var k=(_wzSort&&_wzSort.key)||'neu', dir=(_wzSort&&_wzSort.dir===1)?1:-1;
   return list.slice().sort(function(a,b){
@@ -3060,8 +3073,8 @@ function _wzSortList(list){
     if(ea&&eb) return _wzCreatedTs(b)-_wzCreatedTs(a);
     if(ea) return 1;
     if(eb) return -1;
-    if(va<vb) return -1*dir;
-    if(va>vb) return  1*dir;
+    var c=_wzNatCmp(va,vb);
+    if(c) return c*dir;
     return _wzCreatedTs(b)-_wzCreatedTs(a);
   });
 }
