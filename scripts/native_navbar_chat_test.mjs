@@ -11,6 +11,12 @@
 //     Einstellungen»). Jetzt Vollbild über allem, Schliessen navigiert nicht.
 //  3) Firmenlogo (org.logoVector || org.logo) oben links.
 //
+// seed(…,{nativ:true}): Die App-Ansicht ist seit 24.08.2026 NICHT mehr der
+// Phone-Standard (auf dem Handy gilt die klassische Web-Ansicht, für ALLE
+// Module). Diese Suite prüft die App-Ansicht — sie wird darum eingeschaltet
+// wie bei einem echten Nutzer in sys_profil. Die Desktop-Gegenprobe unten
+// bleibt bewusst ohne das Flag.
+//
 // Aufruf:  CHROME=<chromium> node scripts/native_navbar_chat_test.mjs
 import { chromium } from 'playwright-core';
 import { startServer, BASE, seed, newPage } from './rolematrix_harness.mjs';
@@ -26,7 +32,7 @@ const server = await startServer();
 const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
 
 async function open(pfad, extra) {
-  const s = seed(['role_admin']);
+  const s = seed(['role_admin'], { nativ: true });
   s.gema_orgs_v1 = [{ id: 'org_test', name: 'Muster Haustechnik AG', kategorie: 'sanitaerplaner', kategorien: ['sanitaerplaner'], admins: ['u_test'], active: true, logo: LOGO }];
   // Coachmark-Touren stilllegen — ihr Backdrop fängt sonst jeden Klick ab
   ['index', 'if_werkzeug', 'pm_stunden', 'pm_einsatzplan', 'if_fahrzeug', 'sys_workspace']
@@ -168,7 +174,7 @@ console.log('■ 5 · Firmenlogo NUR auf dem Startbildschirm');
 }
 {
   // Ohne Logo bleibt der Gruss stehen — der Kopf wäre sonst leer
-  const s2 = seed(['role_admin']);      // bleibt auf index.html (kein Rollen-Redirect)
+  const s2 = seed(['role_admin'], { nativ: true });      // bleibt auf index.html (kein Rollen-Redirect)
   s2.gema_coachmarks_done_index = '1';
   const { ctx, page } = await newPage(browser, s2);
   await page.setViewportSize(PHONE);
@@ -188,7 +194,7 @@ console.log('■ 5 · Firmenlogo NUR auf dem Startbildschirm');
 }
 {
   // Ohne hinterlegtes Logo: KEIN Platzhalter
-  const s = seed(['role_admin']);
+  const s = seed(['role_admin'], { nativ: true });
   ['index', 'if_werkzeug'].forEach(k => { s['gema_coachmarks_done_' + k] = '1'; });
   const { ctx, page } = await newPage(browser, s);
   await page.setViewportSize(PHONE);

@@ -4292,6 +4292,7 @@ function _wzSaveZuweisung(toolId){
       _wzActLog('zuweisung','Zugewiesen an Platz: '+platzName, t);
     }
     save(); _wzCloseModal(); renderList();
+    _wzKofferZuwFrage(t.id);          // Koffer: Inhalt mitzuweisen? (No-Op bei Einzelgeräten)
     return;
   }
   var uid=sel ? sel.value : '';
@@ -4318,7 +4319,145 @@ function _wzSaveZuweisung(toolId){
     }
   }
   save();renderList();_wzCloseModal();
+  _wzKofferZuwFrage(t.id);            // Koffer: Inhalt mitzuweisen? (No-Op bei Einzelgeräten)
 }
+
+// ══════════════════════════════════════════════════════════════
+// KOFFER-ZUWEISUNG: INHALT MITZUWEISEN? (User-Wunsch 24.08.2026)
+// ══════════════════════════════════════════════════════════════
+// Ein Koffer wechselt den Besitzer selten allein — die Werkzeuge darin
+// gehören danach demselben Mitarbeiter. Nach JEDER Koffer-Zuweisung wird
+// deshalb gefragt, ob der Inhalt mitwandern soll. Alle drei Wege laufen
+// hier durch: Zuweisungs-Dialog (_wzSaveZuweisung), Koffer-Dialog
+// (_wzSaveKofferForm) und das native Handy-Sheet (ruft _wzSaveZuweisung).
+//
+// Drei Grundsätze:
+//  (1) Gefragt wird NUR, wenn es etwas zu tun gibt. Teile, die bereits
+//      dieselbe Zuweisung tragen, zählen nicht — sonst käme der Dialog bei
+//      jedem Speichern, auch wenn sich gar nichts geändert hat.
+//  (2) Gesperrte Teile werden GENANNT statt still übersprungen (fremde
+//      Firma, ausstehende Einbuchung — dieselben Guards wie openZuweisung).
+//  (3) Der Nutzer entscheidet pro Teil: alles vorausgewählt, abwählbar.
+//      «Nur der Koffer» lässt den Inhalt unangetastet.
+
+// Zwei Zuweisungen fachlich gleich? (der 'seit'-Stempel zählt nicht mit)
+function _wzZuwGleich(a,b){
+  var av=a||null, bv=b||null;
+  if(!av&&!bv) return true;
+  if(!av||!bv) return false;
+  var aPlatz=(av.typ==='platz'), bPlatz=(bv.typ==='platz');
+  if(aPlatz!==bPlatz) return false;
+  if(aPlatz) return (av.platz||'')===(bv.platz||'');
+  return (av.userId||'')===(bv.userId||'');
+}
+
+// Teile des Koffers, deren Zuweisung von der des Koffers abweicht
+function _wzKofferZuwKandidaten(k){
+  var ziel=k&&k.zugewiesenAn||null, offen=[], gesperrt=[];
+  _wzKofferItems(k||{}).forEach(function(t){
+    if(_wzZuwGleich(t.zugewiesenAn, ziel)) return;         // trägt es schon
+    if(!_wzCanEditTool(t)){ gesperrt.push({t:t,grund:'gehört einer anderen Firma'}); return; }
+    if(_wzIsPendingEinbuchung(t)){ gesperrt.push({t:t,grund:'Einbuchung noch nicht akzeptiert'}); return; }
+    offen.push(t);
+  });
+  return {offen:offen, gesperrt:gesperrt};
+}
+
+// Zuweisungs-Ziel als Klartext («an Anna Ammann» / «an den Platz «Lager B»»)
+function _wzZuwText(z){
+  if(!z) return '';
+  return (z.typ==='platz') ? 'an den Platz «'+(z.platz||z.name||'—')+'»' : 'an '+(z.name||'—');
+}
+
+function _wzKofferZuwFrage(kofferId){
+  var k=tools.find(function(x){return x.id===kofferId;});
+  if(!k||!_wzIsKoffer(k)) return;                          // Einzelgerät → nichts zu fragen
+  if(!_wzCanAssign()||!_wzCanEditTool(k)) return;
+  var kand=_wzKofferZuwKandidaten(k);
+  if(!kand.offen.length){
+    // Nichts zu entscheiden → KEIN Dialog (sonst käme er bei jedem Speichern).
+    // Gesperrte Teile bleiben trotzdem hörbar: sie stehen als Hinweis da,
+    // statt still übergangen zu werden — nur eben ohne Modal, weil der
+    // Nutzer hier ohnehin nichts wählen könnte.
+    if(kand.gesperrt.length) showToast('🧰 '+kand.gesperrt.length+' Teil'+(kand.gesperrt.length!==1?'e':'')+' im Koffer konnte'+(kand.gesperrt.length!==1?'n':'')+' nicht mitgeändert werden ('+kand.gesperrt[0].grund+')');
+    return;
+  }
+  var ziel=k.zugewiesenAn||null;
+  var frage = ziel
+    ? 'Sollen die Werkzeuge im Koffer ebenfalls '+esc(_wzZuwText(ziel))+' zugewiesen werden?'
+    : 'Soll die Zuweisung der Werkzeuge im Koffer ebenfalls entfernt werden?';
+  var list=kand.offen.map(function(t){
+    var cat=CATS[t.cat]||CATS.sonstige;
+    var jetzt=t.zugewiesenAn
+      ? 'zurzeit '+(t.zugewiesenAn.typ==='platz'?'am Platz «'+(t.zugewiesenAn.platz||'—')+'»':'bei '+(t.zugewiesenAn.name||'—'))
+      : 'zurzeit niemandem zugewiesen';
+    return '<label style="display:flex;align-items:center;gap:10px;padding:9px 10px;border:1px solid #e5e7eb;border-radius:9px;background:#fff;cursor:pointer">'
+      +'<input type="checkbox" class="kofZuwItem" value="'+esc(t.id)+'" checked style="width:22px;height:22px;accent-color:#3730a3;flex-shrink:0"/>'
+      +'<span style="font-size:16px;flex-shrink:0">'+cat.icon+'</span>'
+      +'<span style="flex:1;min-width:0"><span style="display:block;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(t.name)+'</span>'
+      +'<span style="display:block;font-size:11px;color:#64748b">'+esc(jetzt)+'</span></span></label>';
+  }).join('');
+  // Gesperrte Teile benennen — nie stillschweigend übergehen
+  var block=kand.gesperrt.length
+    ? '<div style="margin-top:10px;padding:9px 11px;border:1px solid #fde68a;background:#fffbeb;border-radius:9px;font-size:11.5px;color:#92400e;line-height:1.5">'
+      +'<strong>'+kand.gesperrt.length+' Teil'+(kand.gesperrt.length!==1?'e':'')+' kann'+(kand.gesperrt.length!==1?'':' ')+' nicht mitgeändert werden:</strong><br>'
+      +kand.gesperrt.map(function(g){return esc(g.t.name)+' — '+esc(g.grund);}).join('<br>')
+      +'</div>'
+    : '';
+  var html='<div class="dlg-card" style="max-width:520px;max-height:88vh;overflow-y:auto">'
+    +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#3730a3">🧰 Inhalt mitzuweisen?</h3>'
+    +'<div style="font-size:12.5px;color:#475569;margin-bottom:12px;line-height:1.5">Der Koffer <strong>'+esc(k.name)+'</strong> ist jetzt '
+    +(ziel?esc(_wzZuwText(ziel)):'niemandem')+' zugewiesen.<br>'+frage+'</div>'
+    +'<div style="display:flex;flex-direction:column;gap:6px">'+list+'</div>'
+    +block
+    +'<div class="dlg-row">'
+    +'  <button onclick="_wzCloseModal()" class="dlg-cancel">Nur der Koffer</button>'
+    +'  <button onclick="_wzKofferZuwSave(\''+esc(k.id)+'\')" style="padding:9px 18px;border-radius:8px;border:none;background:#3730a3;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">✓ '+(ziel?'Inhalt mitzuweisen':'Zuweisung entfernen')+'</button>'
+    +'</div></div>';
+  _wzShowModal(html);
+}
+window._wzKofferZuwFrage=_wzKofferZuwFrage;
+
+window._wzKofferZuwSave=function(kofferId){
+  var k=tools.find(function(x){return x.id===kofferId;});
+  if(!k||!_wzIsKoffer(k))return;
+  if(!_wzCanAssign()||!_wzCanEditTool(k)){_wzCloseModal();return;}
+  var ziel=k.zugewiesenAn||null;
+  var ids={};
+  document.querySelectorAll('.kofZuwItem:checked').forEach(function(cb){ids[cb.value]=true;});
+  var n=0, seit=today();
+  _wzKofferItems(k).forEach(function(t){
+    if(!ids[t.id])return;
+    // Guards erneut prüfen (Defense in Depth gegen direkte Aufrufe)
+    if(!_wzCanEditTool(t)||_wzIsPendingEinbuchung(t))return;
+    if(_wzZuwGleich(t.zugewiesenAn, ziel))return;
+    if(!ziel){
+      delete t.zugewiesenAn;
+      _wzActLog('zuweisung','Zuweisung entfernt (mit Koffer «'+k.name+'»)', t);
+    } else if(ziel.typ==='platz'){
+      // KOPIE, nie die Referenz des Koffers teilen — sonst zöge eine spätere
+      // Änderung am Teil den Koffer mit
+      t.zugewiesenAn={typ:'platz', platz:ziel.platz, name:ziel.name||ziel.platz, seit:seit};
+      _wzActLog('zuweisung','Zugewiesen an Platz: '+ziel.platz+' (mit Koffer «'+k.name+'»)', t);
+    } else {
+      t.zugewiesenAn={typ:'user', userId:ziel.userId, name:ziel.name, seit:seit};
+      _wzActLog('zuweisung','Zugewiesen an '+(ziel.name||ziel.userId)+' (mit Koffer «'+k.name+'»)', t);
+    }
+    n++;
+  });
+  save();renderList();_wzCloseModal();
+  if(!n){showToast('Nichts geändert.');return;}
+  _wzActLog('zuweisung', n+' Teil'+(n!==1?'e':'')+' mit dem Koffer '+(ziel?_wzZuwText(ziel):'freigegeben'), k);
+  // EINE Sammel-Notifikation an die Person — nicht eine pro Gerät
+  var me=_wzGetUser()||{};
+  if(ziel&&ziel.typ!=='platz'&&ziel.userId&&ziel.userId!==me.id&&typeof GemaNotify!=='undefined'){
+    GemaNotify.push({eventKey:'werkzeug_zuweisung',empfaengerUserId:ziel.userId,modul:'werkzeug',typ:'info',
+      titel:'Koffer-Inhalt zugewiesen: '+k.name,
+      text:n+' Werkzeug'+(n!==1?'e':'')+' aus diesem Koffer '+(n!==1?'sind':'ist')+' jetzt dir zugewiesen',
+      link:'if_werkzeug.html?view='+encodeURIComponent(k.id)});
+  }
+  showToast('✓ '+n+' Teil'+(n!==1?'e':'')+(ziel?' mitzugewiesen':' freigegeben'));
+};
 
 // ── Ausleihe ──
 // _wzCanReturnTool ist oben definiert (Hard-Lock-Block).
@@ -4601,28 +4740,31 @@ window._wzKofferZuwChange=function(){
   if(wrap)wrap.style.display=(sel&&sel.value==='p:')?'block':'none';
 };
 // Zuteilung aus dem Koffer-Dialog anwenden (nur bei Aenderung; Log +
-// Notifikation wie im Zuweisungs-Dialog)
+// Notifikation wie im Zuweisungs-Dialog).
+// Rueckgabe: true, wenn sich die Zuteilung wirklich geaendert hat — nur dann
+// fragt _wzSaveKofferForm nach dem Kofferinhalt (beim blossen Umbenennen
+// waere die Rueckfrage stoerend).
 function _wzKofferApplyZuweisung(k){
-  var sel=document.getElementById('kofZuw');if(!sel)return;
+  var sel=document.getElementById('kofZuw');if(!sel)return false;
   var v=sel.value;
   var cur=k.zugewiesenAn||null;
   if(!v){
-    if(cur){delete k.zugewiesenAn;_wzActLog('zuweisung','Zuweisung entfernt',k);}
-    return;
+    if(cur){delete k.zugewiesenAn;_wzActLog('zuweisung','Zuweisung entfernt',k);return true;}
+    return false;
   }
   if(v==='p:'){
     var platz=(document.getElementById('kofPlatz').value||'').trim();
     if(!platz){
-      if(cur){delete k.zugewiesenAn;_wzActLog('zuweisung','Zuweisung entfernt',k);}
-      return;
+      if(cur){delete k.zugewiesenAn;_wzActLog('zuweisung','Zuweisung entfernt',k);return true;}
+      return false;
     }
-    if(cur&&cur.platz===platz&&!cur.userId)return;
+    if(cur&&cur.platz===platz&&!cur.userId)return false;
     k.zugewiesenAn={typ:'platz',platz:platz,name:platz,seit:today()};
     _wzActLog('zuweisung','Zugewiesen an Platz: '+platz,k);
-    return;
+    return true;
   }
   var uid=v.slice(2);
-  if(cur&&cur.userId===uid)return;
+  if(cur&&cur.userId===uid)return false;
   var users=(typeof GemaAuth!=='undefined')?(GemaAuth.getUsers()||[]):[];
   var p=users.find(function(x){return x.id===uid;});
   k.zugewiesenAn={typ:'user',userId:uid,name:p?(p.name||p.username):uid,seit:today()};
@@ -4635,6 +4777,7 @@ function _wzKofferApplyZuweisung(k){
       text:(n?n+' Teile':'Neuer Koffer')+(k.internKennung?' · 🏷 '+k.internKennung:''),
       link:'if_werkzeug.html?view='+encodeURIComponent(k.id)});
   }
+  return true;
 }
 window._wzSaveKofferForm=function(kofferId){
   var name=(document.getElementById('kofName').value||'').trim();
@@ -4654,11 +4797,14 @@ window._wzSaveKofferForm=function(kofferId){
       hasService:false,hasElec:false,hasLeiter:false,orgId:u.orgId||''};
     tools.push(k);
   }
-  _wzKofferApplyZuweisung(k);
+  var zuwGeaendert=_wzKofferApplyZuweisung(k);
   save();renderList();
   _wzActLog(isNew?'erfasst':'geaendert',isNew?'Koffer erstellt':'Koffer geändert',k);
   _wzCloseModal();
   if(isNew)openKofferInhalt(k.id);
+  // Nur nach einer echten Zuteilungs-Änderung fragen, ob der Inhalt mitgeht
+  // (ein neuer Koffer ist noch leer → dort öffnet der Inhalt-Editor).
+  else if(zuwGeaendert)_wzKofferZuwFrage(k.id);
 };
 
 // ── Inhalt-Editor: Reihenfolge + Teile hinzufuegen/entfernen ──

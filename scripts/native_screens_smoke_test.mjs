@@ -1,8 +1,11 @@
 // GEMA Native — iPhone-Ansicht der 6 vorbereiteten Screens (gema_native_mobil.js).
 //  Prüft pro Modul: Native-Overlay erscheint auf Phone-Viewport (390×844) mit ECHTEN
 //  Daten aus den geseedeten Pools, Aktionen/Filter funktionieren, die Ansicht folgt
-//  der USER-EINSTELLUNG (profile.nativeAnsicht / Cache gema_native_view_v1, Standard AN)
-//  ohne In-Modul-Umschalter/Pill, Desktop (1280×800) bleibt klassisch.
+//  der USER-EINSTELLUNG (profile.nativeAnsicht / Cache gema_native_view_v1) ohne
+//  In-Modul-Umschalter/Pill, Desktop (1280×800) bleibt klassisch.
+//  SEIT 24.08.2026 ist die KLASSISCHE Web-Ansicht der Handy-Standard (fuer ALLE
+//  Module) — diese Suite schaltet die App-Ansicht darum ausdruecklich ein, so
+//  wie es der Nutzer in sys_profil tut.
 //  DURCHGÄNGIG nativ (07/2026): pm_stunden/pm_einsatzplan (Erfassungs-Sheets) UND
 //  if_werkzeug/if_fahrzeug — natives Detail-Sheet + Sheets für Erfassen/Bearbeiten,
 //  Defekt, km-Stand; alle über die echten Modul-Speicherketten (submitForm/saveVehicle/
@@ -43,7 +46,10 @@ const FUTURE = new Date(Date.now() + 30 * 86400000).toISOString();
 const MFK_BALD = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
 const ORG = { id: 'org_t', name: 'Muster Haustechnik AG', kategorie: 'sanitaerplaner', kategorien: ['sanitaerplaner'], admins: ['u1'], active: true };
 const USERS = [
-  { id: 'u1', username: 'a@t.ch', name: 'Robin Muster', roleIds: ['role_admin'], orgId: 'org_t', active: true, profile: { email: 'a@t.ch' } },
+  // nativeAnsicht:true — die App-Ansicht ist seit 24.08.2026 NICHT mehr der
+  // Phone-Standard; diese Suite prueft sie und schaltet sie darum so ein, wie
+  // es der Nutzer in sys_profil tut.
+  { id: 'u1', username: 'a@t.ch', name: 'Robin Muster', roleIds: ['role_admin'], orgId: 'org_t', active: true, profile: { email: 'a@t.ch', nativeAnsicht: true } },
   { id: 'u2', username: 'm@t.ch', name: 'M. Keller', roleIds: ['role_monteur'], orgId: 'org_t', active: true, profile: { email: 'm@t.ch' } }
 ];
 const SESSION = { token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjQwMDAwMDAwMDAsImV4cCI6NDEwMjQ0NDgwMCwidWlkIjoidTEiLCJvcmciOiJvcmdfdCIsInJvbGUiOiJhdXRoZW50aWNhdGVkIn0.testsig', userId: 'u1', expires: FUTURE };
@@ -52,6 +58,7 @@ const SEED = {
   gema_orgs_v1: JSON.stringify([ORG]),
   gema_users_v1: JSON.stringify(USERS),
   gema_session_v1: JSON.stringify(SESSION),
+  gema_native_view_v1: 'native',   // wie sys_profil den Cache beim Einschalten mitschreibt
   gema_werkzeug: JSON.stringify([
     { id: 'w1', orgId: 'org_t', name: 'Bohrschrauber Hilti TE 6', internKennung: 'W-0421', cat: 'maschine', bought: '2024-01-01', brand: 'Hilti', model: 'TE 6-A22' },
     { id: 'w2', orgId: 'org_t', name: 'Kernbohrgerät Weka DK32', internKennung: 'W-0113', cat: 'maschine', bought: '2024-01-01', ausgeliehenAn: { userId: 'u1', name: 'M. Keller' } },
@@ -75,8 +82,12 @@ const SEED = {
   gema_regie_pool_v1: JSON.stringify([
     { id: 'r1', orgId: 'org_t', status: 'eingereicht', nr: 'R-001', objektName: 'Lindenpark' }
   ]),
+  // Ein ECHTER Eimer trägt immer ownerType + ownerOrgId + createdBy (siehe
+  // _wsNatCreate) — ohne die Felder blendet _canSeeBucket ihn seit der
+  // Org-Härtung 08/2026 zu Recht aus, und die Liste wäre leer.
   gema_workspace_v1: JSON.stringify([
-    { id: 'b1', name: 'Wohnüberbauung Lindenpark', type: 'bauprojekt', shared: false, members: [], activity: [], beteiligte: [], notes: [],
+    { id: 'b1', name: 'Wohnüberbauung Lindenpark', type: 'project', ownerType: 'org', ownerOrgId: 'org_t', createdBy: 'u1',
+      shared: false, members: [], activity: [], beteiligte: [], notes: [],
       modules: [{ mod: 'sb_druckdispositiv', status: '' }], createdAt: '2026-07-01' }
   ]),
   gema_recent_v1: JSON.stringify([{ key: 'sb_druckdispositiv', ts: Date.now() }]),
@@ -288,8 +299,7 @@ console.log('— Werkzeug (Liste/Badges/Filter/Toggle) —');
   ok(await page.evaluate(() => !document.querySelector('.gn--page [data-gn-classic]')), 'kein In-Modul-Umschalter mehr');
   ok(await page.evaluate(() => !document.querySelector('.gn-return-pill')), 'keine 📱-Rückkehr-Pill mehr');
   // Einstellung «klassisch» — wie sys_profil sie WIRKLICH schreibt: Profil-Flag
-  // + Geräte-Cache. Ein NUR-Cache-'klassisch' ohne Profil-Flag ist seit dem
-  // 29.07.2026 eine Trap-Altlast (Workspace-Eimer-Tap) und wird geheilt.
+  // + Geräte-Cache.
   // (Profil-Flag im Test als getCurrentUser-Stub — der echte updateProfile-Weg
   // würde am gemockten Auth-Save scheitern und in-memory zurückrollen.)
   await page.evaluate(() => {
@@ -305,14 +315,19 @@ console.log('— Werkzeug (Liste/Badges/Filter/Toggle) —');
   });
   await page.waitForTimeout(300);
   ok(!(await natVisible(page)), 'Einstellung «klassisch» → Native-Overlay aus');
-  // Einstellung «native» → wieder aktiv (Standard)
+  // Einstellung «native» → wieder aktiv
   await page.evaluate(() => { window.__natFlag = true; localStorage.setItem('gema_native_view_v1', 'native'); window.dispatchEvent(new Event('resize')); });
   await page.waitForTimeout(300);
   ok(await natVisible(page), 'Einstellung «native» → Native-Ansicht wieder aktiv');
-  // Trap-Altlast: NUR-Cache-'klassisch' ohne Profil-Flag → Heilung, nativ bleibt
+  // OHNE Profil-Flag gilt seit 24.08.2026 der Standard: klassische Web-Ansicht.
+  // (Die frühere «Heilung» eines Nur-Cache-'klassisch' ist damit gegenstandslos.)
   await page.evaluate(() => { window.__natFlag = undefined; localStorage.setItem('gema_native_view_v1', 'klassisch'); window.dispatchEvent(new Event('resize')); });
   await page.waitForTimeout(300);
-  ok(await natVisible(page), 'Nur-Cache-«klassisch» ohne Profil-Flag wird geheilt (nativ bleibt)');
+  ok(!(await natVisible(page)), 'ohne Profil-Flag gilt der Standard: klassische Web-Ansicht');
+  // Und auch ein leerer Cache (frisches Gerät) bleibt klassisch — kein Rückfall auf nativ.
+  await page.evaluate(() => { window.__natFlag = undefined; localStorage.removeItem('gema_native_view_v1'); window.dispatchEvent(new Event('resize')); });
+  await page.waitForTimeout(300);
+  ok(!(await natVisible(page)), 'frisches Gerät ohne Cache und ohne Flag bleibt klassisch');
   await page.close();
 }
 

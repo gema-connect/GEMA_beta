@@ -11,13 +11,14 @@
 //   D) Filter-Dialog: auf dem Handy der Ersatz fuer die dort versteckten
 //      Selects — Status/Typ/Zuteilung schreiben in DIESELBEN Selects
 //      (eine Filter-Wahrheit), dazu Fahrer/Abteilung/Ausbau/MFK/Defekte.
-//   E) Native Handy-Ansicht (Standard auf dem Phone) kennt dieselbe
-//      Sortierung und die zusaetzlichen Filter.
+//   E) Native Handy-Ansicht kennt dieselbe Sortierung und die
+//      zusaetzlichen Filter.
 //
-// WICHTIG: Auf einem Phone-Viewport ist die NATIVE App-Ansicht der Standard
-// (user.profile.nativeAnsicht, Default an). Die Abschnitte C/D pruefen die
-// KLASSISCHE Ansicht und schalten die native darum so ab, wie es der Nutzer
-// in sys_profil tut (profile.nativeAnsicht:false).
+// WICHTIG: Auf dem Handy ist seit 24.08.2026 die KLASSISCHE Web-Ansicht der
+// Standard (User-Entscheid, gilt fuer ALLE Module). Abschnitt E prueft die
+// native App-Ansicht und schaltet sie darum so ein, wie es der Nutzer in
+// sys_profil tut (profile.nativeAnsicht:true); C/D halten den klassischen
+// Fall zusaetzlich ausdruecklich fest (nativeAnsicht:false).
 //
 // Aufruf:  CHROME=<chromium> node scripts/fahrzeug_filter_sort_liste_test.mjs
 import { createServer } from 'http';
@@ -109,8 +110,13 @@ const TEAM = [
   { id: 'u_z',   username: 'zora@t.ch', name: 'Zora Zimmerli', roleIds: ['role_monteur'], orgId: 'org_t', active: true, profile: { email: 'zora@t.ch' } }
 ];
 // Nutzer, der die App-Ansicht in sys_profil abgeschaltet hat → klassische Sicht
+// (seit 24.08.2026 ohnehin der Standard — hier bewusst ausdruecklich gesetzt)
 const TEAM_KLASSISCH = TEAM.map(u => u.id === 'u_mag'
   ? Object.assign({}, u, { profile: { email: 'mag@t.ch', nativeAnsicht: false } })
+  : u);
+// Nutzer, der die App-Ansicht in sys_profil EINGESCHALTET hat
+const TEAM_NATIV = TEAM.map(u => u.id === 'u_mag'
+  ? Object.assign({}, u, { profile: { email: 'mag@t.ch', nativeAnsicht: true } })
   : u);
 
 const browser = await chromium.launch({ executablePath: CHROME });
@@ -519,11 +525,12 @@ console.log('— D) Filter-Dialog (Handy-Ersatz fuer die versteckten Selects) �
 console.log('— E) Native Handy-Ansicht —');
 {
   seedStore();
-  const { ctx, page } = await openPage({ viewport: { width: 390, height: 844 }, mobile: true });
+  // nativeAnsicht:true → der Nutzer hat die App-Ansicht in sys_profil eingeschaltet
+  const { ctx, page } = await openPage({ viewport: { width: 390, height: 844 }, mobile: true, users: TEAM_NATIV });
   await page.waitForTimeout(600);
 
   ok(await page.evaluate(() => document.documentElement.classList.contains('gn-native-on')),
-    'Auf dem Handy ist die native App-Ansicht der Standard');
+    'Die eingeschaltete App-Ansicht ist auf dem Handy aktiv');
 
   // Native Liste folgt der EINEN Sortierung
   await page.evaluate(() => _fzSortFromSelect('km:desc'));
@@ -571,7 +578,8 @@ console.log('— E) Native Handy-Ansicht —');
 console.log('— E2) Native Zuweisung: Fahrer aus dem Team —');
 {
   seedStore();
-  const { ctx, page } = await openPage({ viewport: { width: 390, height: 844 }, mobile: true });
+  // nativeAnsicht:true → der Nutzer hat die App-Ansicht in sys_profil eingeschaltet
+  const { ctx, page } = await openPage({ viewport: { width: 390, height: 844 }, mobile: true, users: TEAM_NATIV });
   await page.waitForTimeout(600);
   await page.evaluate(() => {
     const rows = Array.from(document.querySelectorAll('.gn [data-nat-id]'));

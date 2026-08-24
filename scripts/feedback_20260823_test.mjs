@@ -434,7 +434,9 @@ console.log('\n■ E: if_fahrzeug.html — Service & Belege in der App-Ansicht')
       ? FLOTTE.map(v => ({ data_key: 'vehicle:' + v.id, payload: { data: v } })) : [];
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify(rows) });
   });
-  const st = seed(['role_magaziner']);
+  // nativ:true — die App-Ansicht ist seit 24.08.2026 nicht mehr der
+  // Phone-Standard; dieser Abschnitt prüft sie ausdrücklich.
+  const st = seed(['role_magaziner'], { nativ: true });
   st['gema_vehicles'] = JSON.stringify(FLOTTE);
   await ctx.addInitScript(s2 => {
     for (const [k, v] of Object.entries(s2)) localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v));
@@ -447,7 +449,7 @@ console.log('\n■ E: if_fahrzeug.html — Service & Belege in der App-Ansicht')
 
   const nativ = await page.evaluate(() =>
     !!document.documentElement.classList.contains('gn-native-on') && !!document.querySelector('.gn--page'));
-  ok('E1 die App-Ansicht ist aktiv (Phone-Viewport)', nativ === true);
+  ok('E1 die App-Ansicht ist aktiv (Phone-Viewport, in den Einstellungen eingeschaltet)', nativ === true);
   ok('E2 keine pageerrors', errs.length === 0, errs.slice(0, 2));
 
   /* Tap auf das Fahrzeug → Detail-Sheet, darin der Weg zu den Belegen. */

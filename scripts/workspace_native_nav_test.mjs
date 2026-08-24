@@ -6,10 +6,13 @@
 //      zurück zur Übersicht, neuer Eimer via ＋ (Sheet Name+Typ).
 //   2. Coachmark-Tour startet auf ≤740px NICHT (der Spotlight-Backdrop lag
 //      als unbedienbarer Schleier über der Seite — «verschwommene Ansicht»).
-//   3. Heilung: ein vom alten Trap gesetzter 'klassisch'-Geräte-Cache wird
-//      bei eingeloggtem User OHNE Profil-Flag verworfen (gema_native_mobil).
-//   4. Pro-User-Einstellung bleibt: user.profile.nativeAnsicht=false →
-//      klassische Ansicht (sys_profil-Toggle), true/unset → nativ.
+//   3. Standard auf dem Handy ist seit 24.08.2026 die KLASSISCHE Web-Ansicht
+//      (User-Entscheid, für ALLE Module) — ohne Profil-Flag bleibt es dabei,
+//      und der Eimer-Tap stellt den Geräte-Cache nicht heimlich um.
+//   4. Pro-User-Einstellung: user.profile.nativeAnsicht=true → App-Ansicht
+//      (sys_profil-Toggle), false/unset → klassisch.
+// Die Abschnitte 1/2 prüfen die App-Ansicht und schalten sie darum
+// ausdrücklich ein (phoneCtx seedet nativ, wie sys_profil es schreibt).
 // Ausführen: CHROME=<chromium> node scripts/workspace_native_nav_test.mjs
 // ═══════════════════════════════════════════════════════════════════════════
 import { chromium } from 'playwright-core';
@@ -33,7 +36,10 @@ const bucket = {
 const server = await startServer();
 const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
 
-async function phoneCtx(extraSeed) {
+// seedOpts.nativ:false → Nutzer, der die App-Ansicht NICHT eingeschaltet hat
+// (seit 24.08.2026 der Standard). Ohne Angabe wird sie eingeschaltet, weil diese
+// Suite die App-Ansicht des Workspace prüft.
+async function phoneCtx(extraSeed, seedOpts) {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
   await wireRoutes(ctx);
   await ctx.route('**/rest/v1/**', r => {
@@ -46,7 +52,8 @@ async function phoneCtx(extraSeed) {
     if (r.request().method() === 'GET') return r.fulfill({ contentType: 'application/json', body: '[]' });
     return r.fulfill({ contentType: 'application/json', body: '{}' });
   });
-  const sd = Object.assign(seed(['role_planer']), extraSeed || {});
+  const sopt = Object.assign({ nativ: true }, seedOpts || {});
+  const sd = Object.assign(seed(['role_planer'], sopt), extraSeed || {});
   await ctx.addInitScript(o => { for (const [k, v] of Object.entries(o)) localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v)); }, sd);
   const page = await ctx.newPage();
   const errs = []; page.on('pageerror', e => errs.push(String(e)));
@@ -215,16 +222,25 @@ console.log('■ Coachmark-Tour');
   await dctx.close();
 }
 
-// ── 3) Heilung des alten setPref-Traps + Pro-User-Einstellung ──
+// ── 3) Standard + Pro-User-Einstellung ──
 console.log('■ Ansicht-Einstellung pro User');
 {
-  // Altlast: Cache 'klassisch' OHNE Profil-Flag (nur der entfernte Trap schrieb das)
-  const { ctx, page } = await phoneCtx({ 'gema_native_view_v1': 'klassisch' });
+  // Ohne Profil-Flag gilt seit 24.08.2026 der Standard: klassische Web-Ansicht
+  // (User-Entscheid, für ALLE Module) — der Eimer-Tap-Trap ist längst weg, ein
+  // 'klassisch'-Cache ist heute schlicht der Normalfall.
+  const { ctx, page } = await phoneCtx({ 'gema_native_view_v1': 'klassisch' }, { nativ: false });
   await page.goto(BASE + '/sys_workspace.html', { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1500);
-  ok('Trap-Altlast geheilt: native Ansicht wieder aktiv', await page.evaluate(() => document.documentElement.classList.contains('gn-native-on')));
-  ok('Geräte-Cache bereinigt', await page.evaluate(() => localStorage.getItem('gema_native_view_v1') !== 'klassisch'));
+  ok('Standard auf dem Handy: klassische Web-Ansicht', await page.evaluate(() => !document.documentElement.classList.contains('gn-native-on')));
+  ok('der Eimer-Tap-Trap ist weg (Cache wird nicht heimlich umgestellt)', await page.evaluate(() => localStorage.getItem('gema_native_view_v1') === 'klassisch'));
   await ctx.close();
+
+  // Frisches Gerät: weder Flag noch Cache → ebenfalls klassisch
+  const { ctx: c0, page: p0 } = await phoneCtx(null, { nativ: false });
+  await p0.goto(BASE + '/sys_workspace.html', { waitUntil: 'domcontentloaded' });
+  await p0.waitForTimeout(1500);
+  ok('frisches Gerät ohne Einstellung bleibt klassisch', await p0.evaluate(() => !document.documentElement.classList.contains('gn-native-on')));
+  await c0.close();
 
   // Bewusste Wahl (sys_profil): profile.nativeAnsicht=false → klassisch bleibt
   const s2 = seed(['role_planer']);

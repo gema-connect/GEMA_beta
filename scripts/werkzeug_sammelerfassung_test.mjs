@@ -62,14 +62,25 @@ const USERS = [
   { id: 'u_mon', username: 'mon@t.ch', name: 'Monteur Max', roleIds: ['role_monteur'], orgId: 'org_t', active: true, profile: { email: 'mon@t.ch' } }
 ];
 
-function seedFor(userId, mitKoffer) {
-  return {
+// Die App-Ansicht ist seit 24.08.2026 NICHT mehr der Phone-Standard (auf dem
+// Handy gilt die klassische Web-Ansicht, für ALLE Module). Wer sie testet,
+// schaltet sie ein wie ein echter Nutzer in sys_profil: Profil-Flag am User +
+// der Cache, den sys_profil dabei mitschreibt.
+function seedFor(userId, mitKoffer, nativ) {
+  const users = nativ
+    ? USERS.map(u => u.id === userId
+      ? Object.assign({}, u, { profile: Object.assign({}, u.profile, { nativeAnsicht: true }) })
+      : u)
+    : USERS;
+  const s = {
     gema_orgs_v1: ORGS,
-    gema_users_v1: USERS,
+    gema_users_v1: users,
     gema_session_v1: { token: TOKEN, userId, expires: FUTURE },
     gema_werkzeug: mitKoffer ? [TOOL_ALT, TOOL_NEU, KOFFER] : [TOOL_ALT, TOOL_NEU],
     gema_coachmarks_done_if_werkzeug_v1: '1'
   };
+  if (nativ) s.gema_native_view_v1 = 'native';
+  return s;
 }
 
 const browser = await chromium.launch({ executablePath: CHROME });
@@ -93,7 +104,7 @@ async function newWzPage(userId, opts) {
     }
     return route.abort();
   });
-  await ctx.addInitScript(s => { for (const [k, v] of Object.entries(s)) localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v)); }, seedFor(userId, !!opts.koffer));
+  await ctx.addInitScript(s => { for (const [k, v] of Object.entries(s)) localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v)); }, seedFor(userId, !!opts.koffer, !!opts.nativ));
   const page = await ctx.newPage();
   const errs = []; page.on('pageerror', e => errs.push(e.message));
   await page.goto(BASE + '/if_werkzeug.html', { waitUntil: 'domcontentloaded' });
@@ -313,7 +324,9 @@ try {
 
   // ───────────────────────── Native (Phone): Magazinerin ─────────────────────────
   console.log('— D) Native: neueste zuoberst + Pull-to-Refresh —');
-  const { ctx: ctx2, page: pn, errs: errsN } = await newWzPage('u_mag', { phone: true, koffer: true });
+  // nativ:true — die App-Ansicht wird geprüft, sie ist seit 24.08.2026 nicht
+  // mehr der Phone-Standard und wird darum wie in sys_profil eingeschaltet.
+  const { ctx: ctx2, page: pn, errs: errsN } = await newWzPage('u_mag', { phone: true, koffer: true, nativ: true });
   await pn.waitForSelector('[data-nat-list] .gn-row', { timeout: 9000 });
   const natOrder = await pn.evaluate(() => Array.from(document.querySelectorAll('[data-nat-list] .gn-row')).map(r => r.getAttribute('data-nat-id')));
   ok(natOrder.join(',') === 't_1700000000000,t_1650000000000,t_1600000000000', 'Native Liste: neuestes Werkzeug zuoberst (inkl. Koffer einsortiert) — ' + natOrder.join(', '));

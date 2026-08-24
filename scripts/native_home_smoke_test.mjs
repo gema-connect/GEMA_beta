@@ -43,10 +43,16 @@ const jwt = uid => 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.'
   + Buffer.from(JSON.stringify({ iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 2592000, uid, org: 'org_t', role: 'authenticated' })).toString('base64url')
   + '.testsig';
 
+// Die App-Ansicht ist seit 24.08.2026 NICHT mehr der Handy-Standard (die
+// klassische Web-Ansicht ist es, fuer ALLE Module). Diese Suite prueft den
+// Home-Screen der App-Ansicht und schaltet sie darum ausdruecklich ein, so wie
+// es der Nutzer in sys_profil tut: Profil-Flag + der dabei mitgeschriebene Cache.
+const USERS_NATIV = USERS.map(u => Object.assign({}, u, { profile: Object.assign({}, u.profile, { nativeAnsicht: true }) }));
 function seed(uid, extra) {
   return Object.assign({
     gema_orgs_v1: JSON.stringify([ORG]),
-    gema_users_v1: JSON.stringify(USERS),
+    gema_users_v1: JSON.stringify(USERS_NATIV),
+    gema_native_view_v1: 'native',
     gema_session_v1: JSON.stringify({ userId: uid, expires: FUTURE, token: jwt(uid) }),
     gema_recent_v1: JSON.stringify([{ key: 'pm_objekte', ts: Date.now() }, { key: 'pm_erp', ts: Date.now() - 1000 }])
   }, extra || {});
@@ -448,8 +454,6 @@ console.log('— Rollen-Filterung —');
 console.log('— Einstellung «App-Ansicht» und Desktop —');
 {
   // Bewusste Wahl wie sys_profil sie schreibt: Profil-Flag + Geräte-Cache.
-  // Ein NUR-Cache-'klassisch' ohne Profil-Flag ist seit 29.07.2026 eine
-  // Trap-Altlast (Workspace-Eimer-Tap) und wird von gema_native_mobil geheilt.
   const usersKlassisch = USERS.map(u => u.id === 'u1'
     ? Object.assign({}, u, { profile: Object.assign({}, u.profile, { nativeAnsicht: false }) }) : u);
   const { ctx, page } = await open('u1', {
@@ -462,9 +466,10 @@ console.log('— Einstellung «App-Ansicht» und Desktop —');
   await ctx.close();
 }
 {
-  // Trap-Altlast: Cache 'klassisch' OHNE Profil-Flag → Heilung, nativ bleibt
-  const { ctx, page } = await open('u1', { gema_native_view_v1: 'klassisch' });
-  ok(await natVisible(page), 'Nur-Cache-«klassisch» ohne Profil-Flag wird geheilt (nativ bleibt)');
+  // Ohne Profil-Flag gilt seit 24.08.2026 der Standard: klassische Web-Ansicht
+  // (frisches Gerät, nichts eingeschaltet — kein Rückfall auf die App-Ansicht).
+  const { ctx, page } = await open('u1', { gema_users_v1: JSON.stringify(USERS), gema_native_view_v1: 'klassisch' });
+  ok(!(await natVisible(page)), 'ohne Profil-Flag gilt der Standard: klassische Web-Ansicht');
   await ctx.close();
 }
 {

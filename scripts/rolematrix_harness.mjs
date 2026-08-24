@@ -80,6 +80,12 @@ export function seed(roleIds, opts) {
   };
   if (opts.roles) s.gema_roles_v1 = opts.roles;
   if (opts.studentMods) s.gema_student_mods_v1 = { userId: 'u_test', mods: opts.studentMods, exams: {}, ts: Date.now() };
+  // Die native App-Ansicht ist seit 24.08.2026 NICHT mehr der Phone-Standard
+  // (User-Entscheid: auf dem Handy gilt die klassische Web-Ansicht, für ALLE
+  // Module). Wer sie in einem Test braucht, schaltet sie wie ein echter Nutzer
+  // in sys_profil ein: Profil-Flag am User + der Cache, den sys_profil dabei
+  // mitschreibt.
+  if (opts.nativ) { s.gema_users_v1[0].profile.nativeAnsicht = true; s.gema_native_view_v1 = 'native'; }
   return s;
 }
 

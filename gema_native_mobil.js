@@ -4,7 +4,8 @@
    Vollbild-Overlay in eine bestehende Modulseite ein:
    - NUR auf Phones aktiv (≤740px), Desktop/Tablet unverändert
    - Ein-/Ausschalten über die User-Einstellung (sys_profil →
-     user.profile.nativeAnsicht, Standard AN) — KEIN In-Modul-
+     user.profile.nativeAnsicht, Standard AUS = klassische Web-
+     Ansicht, User-Entscheid 24.08.2026) — KEIN In-Modul-
      Umschalter mehr (früher [data-gn-classic] + 📱-Pill)
    - Re-Render erhält die Scroll-Position der .gn-screen
    Reines UI-Overlay: die Modul-Logik (Modals, Storage, Sync)
@@ -23,28 +24,23 @@
       if (q === '0') return 'klassisch';
       if (q === '1') return 'native';
     } catch (e) {}
-    // Primär die User-Einstellung (sys_profil → user.profile.nativeAnsicht), Standard AN.
+    // Primär die User-Einstellung (sys_profil → user.profile.nativeAnsicht).
     try {
       var u = (typeof GemaAuth !== 'undefined' && GemaAuth.getCurrentUser) ? GemaAuth.getCurrentUser() : null;
       if (u && u.profile && typeof u.profile.nativeAnsicht === 'boolean') return u.profile.nativeAnsicht ? 'native' : 'klassisch';
     } catch (e) {}
-    // Fallback: lokaler Cache (Profil noch nicht geladen), sonst Standard aktiv.
+    // Fallback: lokaler Cache (Profil noch nicht geladen).
+    //
+    // STANDARD IST DIE KLASSISCHE WEB-ANSICHT (User-Entscheid 24.08.2026,
+    // gilt für ALLE Module). Die native App-Ansicht schaltet man bewusst in
+    // sys_profil ein — nur EIN gesetztes 'native' (Profil-Flag oder der von
+    // sys_profil mitgeschriebene Cache) aktiviert sie. Damit ist auch die
+    // frühere «Heilung» eines 'klassisch'-Caches gegenstandslos: sie drehte
+    // einen solchen Cache auf 'native', weil er damals nur eine Altlast des
+    // Workspace-Eimer-Traps sein konnte — heute ist er schlicht der Default.
     try {
-      var c = localStorage.getItem(KEY);
-      // Heilung (Bugreport 29.07.2026): der frühere Eimer-Tap im Workspace-
-      // Screen schrieb 'klassisch' NUR in diesen Geräte-Cache — nie ins
-      // Profil. Eine BEWUSSTE Wahl (sys_profil) stempelt immer auch
-      // user.profile.nativeAnsicht. Liegt also ein eingeloggter User OHNE
-      // Profil-Flag vor, ist ein 'klassisch'-Cache eine Altlast des Traps
-      // und wird verworfen (der Kollege hing sonst dauerhaft in der
-      // Desktop-Ansicht auf dem iPhone fest).
-      if (c === 'klassisch') {
-        var u2 = null;
-        try { u2 = (typeof GemaAuth !== 'undefined' && GemaAuth.getCurrentUser) ? GemaAuth.getCurrentUser() : null; } catch (e2) {}
-        if (u2) { try { localStorage.removeItem(KEY); } catch (e3) {} return 'native'; }
-      }
-      return c || 'native';
-    } catch (e) { return 'native'; }
+      return localStorage.getItem(KEY) === 'native' ? 'native' : 'klassisch';
+    } catch (e) { return 'klassisch'; }
   }
   function setPref(v) { try { localStorage.setItem(KEY, v); } catch (e) {} }
   function enabled() { return phone() && pref() !== 'klassisch'; }

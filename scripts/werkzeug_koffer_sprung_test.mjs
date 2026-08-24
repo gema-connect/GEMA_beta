@@ -107,6 +107,10 @@ const ORG = { id: 'org_t', name: 'T AG', kategorie: 'sanitaerplaner', kategorien
 const U_MAG = { id: 'u_mag', username: 'mag@t.ch', name: 'Magaziner M', roleIds: ['role_magaziner'], orgId: 'org_t', active: true, profile: { email: 'mag@t.ch' } };
 const U_MON = { id: 'u_mon', username: 'mon@t.ch', name: 'Monteur M', roleIds: ['role_monteur'], orgId: 'org_t', active: true, profile: { email: 'mon@t.ch' } };
 const klassisch = u => Object.assign({}, u, { profile: Object.assign({}, u.profile, { nativeAnsicht: false }) });
+// Die App-Ansicht ist seit 24.08.2026 NICHT mehr der Phone-Standard — wer sie
+// prüfen will, schaltet sie wie ein echter Nutzer in sys_profil ein (Profil-Flag
+// + der Cache, den sys_profil dabei mitschreibt).
+const nativ = u => Object.assign({}, u, { profile: Object.assign({}, u.profile, { nativeAnsicht: true }) });
 
 const browser = await chromium.launch({ executablePath: CHROME });
 
@@ -382,10 +386,11 @@ console.log('— E) Scan-Ansicht (Schichtung GEMESSEN) —');
 console.log('— F) Natives Handy-Sheet —');
 {
   seedStore();
-  const { ctx, page } = await openPage({ viewport: { width: 390, height: 844 }, mobile: true, user: U_MAG });
+  const { ctx, page } = await openPage({ viewport: { width: 390, height: 844 }, mobile: true, user: nativ(U_MAG),
+    extra: { gema_native_view_v1: 'native' } });
   await page.waitForTimeout(500);
-  const nativ = await page.evaluate(() => document.documentElement.classList.contains('gn-native-on'));
-  ok(nativ, 'auf dem Phone ist die native App-Ansicht der Standard');
+  const natAn = await page.evaluate(() => document.documentElement.classList.contains('gn-native-on'));
+  ok(natAn, 'die eingeschaltete App-Ansicht ist auf dem Phone aktiv');
 
   await page.evaluate(id => document.querySelector('.gn--page [data-nat-id="' + id + '"]').click(), TEIL);
   await page.waitForTimeout(500);
