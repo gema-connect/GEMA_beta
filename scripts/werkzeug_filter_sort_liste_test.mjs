@@ -10,13 +10,14 @@
 //   D) Kompakte Listenansicht: auf dem Handy Standard, max. 3 Textzeilen,
 //      KEIN horizontales Scrollen (geometrisch gemessen), Sortier-Auswahl
 //      und Filter-Knopf direkt darueber.
-//   E) Native Handy-Ansicht (Standard auf dem Phone) kennt dieselbe
-//      Sortierung und den Kennungs-Filter.
+//   E) Native Handy-Ansicht kennt dieselbe Sortierung und den
+//      Kennungs-Filter.
 //
-// WICHTIG: Auf einem Phone-Viewport ist die NATIVE App-Ansicht der Standard
-// (user.profile.nativeAnsicht, Default an). Die Abschnitte D/D2 pruefen die
-// KLASSISCHE Ansicht und schalten die native darum so ab, wie es der Nutzer
-// in sys_profil tut (profile.nativeAnsicht:false).
+// WICHTIG: Auf dem Handy ist seit 24.08.2026 die KLASSISCHE Web-Ansicht der
+// Standard (User-Entscheid, gilt fuer ALLE Module). Abschnitt E prueft die
+// native App-Ansicht und schaltet sie darum so ein, wie es der Nutzer in
+// sys_profil tut (profile.nativeAnsicht:true); D/D2 halten den klassischen
+// Fall zusaetzlich ausdruecklich fest (nativeAnsicht:false).
 //
 // Aufruf:  CHROME=<chromium> node scripts/werkzeug_filter_sort_liste_test.mjs
 import { createServer } from 'http';
@@ -103,7 +104,10 @@ const USERS = [
 ];
 
 // Nutzer, der die App-Ansicht in sys_profil abgeschaltet hat → klassische Sicht
+// (seit 24.08.2026 ohnehin der Standard — hier bewusst ausdruecklich gesetzt)
 const USERS_KLASSISCH = [Object.assign({}, USERS[0], { profile: { email: 'mag@t.ch', nativeAnsicht: false } })];
+// Nutzer, der die App-Ansicht in sys_profil EINGESCHALTET hat
+const USERS_NATIV = [Object.assign({}, USERS[0], { profile: { email: 'mag@t.ch', nativeAnsicht: true } })];
 
 const browser = await chromium.launch({ executablePath: CHROME });
 
@@ -511,14 +515,14 @@ console.log('— D2) Listenansicht: Mehrfachauswahl + Desktop-Standard —');
 console.log('— E) Native Handy-Ansicht: Sortierung + Kennungs-Filter —');
 {
   seedStore();
-  // KEIN nativeAnsicht:false → auf dem Phone gilt der Standard (native App-Ansicht)
-  const { ctx, page } = await openPage({ viewport: { width: 390, height: 780 }, mobile: true });
+  // nativeAnsicht:true → der Nutzer hat die App-Ansicht in sys_profil eingeschaltet
+  const { ctx, page } = await openPage({ viewport: { width: 390, height: 780 }, mobile: true, users: USERS_NATIV });
   await page.waitForTimeout(400);
   const nat = await page.evaluate(() => ({
     an: document.documentElement.classList.contains('gn-native-on'),
     zeilen: Array.from(document.querySelectorAll('.gn--page [data-nat-id] .gn-row-title')).map(e => e.textContent)
   }));
-  ok(nat.an, 'auf dem Phone ist die native App-Ansicht der Standard');
+  ok(nat.an, 'die eingeschaltete App-Ansicht ist auf dem Phone aktiv');
   ok(nat.zeilen.length === 5, 'die native Liste zeigt alle Geraete (' + nat.zeilen.length + ')');
 
   // Sortierung wirkt auch nativ (gemeinsamer Motor _wzSortList)
@@ -567,7 +571,8 @@ console.log('— E2) Native Toolbar: nichts wird seitlich hinausgeschoben —');
   // injizierte Avatar (Konto-Menue: Profil/Abmelden) AUSSERHALB des Bildes und
   // war nur per seitlichem Scrollen erreichbar.
   seedStore();
-  const { ctx, page } = await openPage({ viewport: { width: 390, height: 780 }, mobile: true });
+  // nativeAnsicht:true → der Nutzer hat die App-Ansicht in sys_profil eingeschaltet
+  const { ctx, page } = await openPage({ viewport: { width: 390, height: 780 }, mobile: true, users: USERS_NATIV });
   await page.waitForTimeout(500);
   const g = await page.evaluate(() => {
     const sc = document.querySelector('.gn--page [data-gn-scroll]');

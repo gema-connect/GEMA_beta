@@ -84,8 +84,16 @@ async function device(userId, opts) {
     if (u.indexOf('/api/') >= 0 || u.indexOf('/.netlify/') >= 0) return route.fulfill({ contentType: 'application/json', body: '{}' });
     return route.abort();
   });
-  await ctx.addInitScript(s => { for (const [k, v] of Object.entries(s)) localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v)); },
-    { gema_orgs_v1: ORGS, gema_users_v1: USERS, gema_session_v1: { token: JWT, userId, expires: FUTURE }, gema_coachmarks_done_if_werkzeug: 'done' });
+  // Die App-Ansicht ist seit 24.08.2026 NICHT mehr der Phone-Standard — wer sie
+  // testen will, muss sie wie ein echter Nutzer in sys_profil einschalten:
+  // profile.nativeAnsicht am User + der von sys_profil mitgeschriebene Cache.
+  const nativ = !!(opts && opts.nativ);
+  const users = nativ
+    ? USERS.map(u => u.id === userId ? Object.assign({}, u, { profile: Object.assign({}, u.profile, { nativeAnsicht: true }) }) : u)
+    : USERS;
+  const seed = { gema_orgs_v1: ORGS, gema_users_v1: users, gema_session_v1: { token: JWT, userId, expires: FUTURE }, gema_coachmarks_done_if_werkzeug: 'done' };
+  if (nativ) seed.gema_native_view_v1 = 'native';
+  await ctx.addInitScript(s => { for (const [k, v] of Object.entries(s)) localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v)); }, seed);
   const page = await ctx.newPage();
   page.errs = []; page.on('pageerror', e => page.errs.push(e.message));
   await page.goto(BASE + '/if_werkzeug.html' + (opts && opts.q ? opts.q : ''), { waitUntil: 'domcontentloaded' });
@@ -135,21 +143,21 @@ console.log('— C) Magaziner: unverändert voller Bestand —');
   await a.ctx.close();
 }
 
-console.log('— D) Handy (native Ansicht): Monteur-Sicht + Meldung —');
+console.log('— D) Handy (native Ansicht eingeschaltet): Monteur-Sicht + Meldung —');
 {
   seedTools(false);
-  const a = await device('u5', { phone: true });
+  const a = await device('u5', { phone: true, nativ: true });
   await a.page.waitForTimeout(2600);
   const html = await a.page.evaluate(() => document.body.innerHTML);
   const nativeOn = await a.page.evaluate(() => document.documentElement.classList.contains('gn-native-on'));
-  ok(nativeOn, 'native Ansicht aktiv (Phone)');
+  ok(nativeOn, 'native Ansicht aktiv (Phone, in den Einstellungen eingeschaltet)');
   ok(html.indexOf('Deine Rolle zeigt nur Werkzeuge') >= 0, 'native Liste erklärt die Rollen-Sicht');
   ok(html.indexOf('data-nat-id="t2"') < 0 && html.indexOf('data-nat-id="t3"') < 0, 'fremde Geräte erscheinen NICHT in der nativen Liste (Leck behoben)');
   if (html.indexOf('Sauger') >= 0) { const i = html.indexOf('Sauger'); console.log('KONTEXT:', html.slice(Math.max(0,i-300), i+80).replace(/\s+/g,' ')); }
   await a.ctx.close();
 
   seedTools(true);
-  const b = await device('u5', { phone: true });
+  const b = await device('u5', { phone: true, nativ: true });
   await b.page.waitForTimeout(2600);
   const h2 = await b.page.evaluate(() => document.body.innerHTML);
   ok(h2.indexOf('data-nat-id="t1"') >= 0, 'zugewiesenes Gerät erscheint in der nativen Liste');
