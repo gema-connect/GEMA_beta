@@ -16,6 +16,10 @@
 <script src="gema_pwa.js"></script>
 <script src="gema_avatar.js"></script>
 <script src="gema_card.js"></script>
+<!-- Prüfqualifikation (SNR 462638): Katalog + Beschriftung kommen aus der
+     geteilten Datei — dieselbe Wahrheit wie in if_werkzeug und im
+     Lieferanten-Dashboard. -->
+<script src="gema_pruefwerte.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700;9..40,800;9..40,900&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#f4f6fb;--bg2:#edf0f7;--sur:#fff;--brd:#e2e7f0;--brd2:#cdd4e4;--txt:#0f172a;--txt2:#334155;--mut:#64748b;--mut2:#94a3b8;--acc:#2563eb;--acc-dk:#1d4ed8;--acc-bg:#eff6ff;--grn:#16a34a;--grn-bg:#f0fdf4;--red:#dc2626;--red-bg:#fef2f2;--r:14px;--r-sm:10px;--r-lg:20px;--sh:0 4px 16px rgba(0,0,0,.08);--sh-sm:0 1px 4px rgba(0,0,0,.06);--sans:"DM Sans",ui-sans-serif,system-ui,sans-serif}
@@ -214,6 +218,32 @@ input,select,button,textarea{font-family:var(--sans)}
       <div style="margin-top:16px">
         <button class="btn btn-primary" onclick="saveSettings()">✓ Einstellungen speichern</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Prüfqualifikation (nur mit Werkzeug-Zugriff sichtbar) -->
+  <div class="card" id="cardPruefQuali">
+    <div class="card-hd"><span class="ic">⚡</span><h3>Prüfqualifikation</h3></div>
+    <div class="card-body">
+      <p style="font-size:12.5px;color:var(--mut);margin-bottom:12px;line-height:1.6">
+        Die Prüfung elektrischer Geräte nach <strong>SNR 462638</strong> setzt eine <strong>fachkundige Person</strong> voraus.
+        Ihre Angabe erscheint auf jedem Prüfbericht, den Sie erfassen, und wird dort als Momentaufnahme gespeichert —
+        eine spätere Änderung hier deutet abgelegte Nachweise nicht rückwirkend um.
+      </p>
+      <div class="grid2">
+        <div class="fg"><label>Qualifikation</label>
+          <select id="pQuali" onchange="_pQualiSync()">
+            <option value="">— keine Angabe —</option>
+          </select>
+        </div>
+        <div class="fg"><label id="pQualiFreiLbl">Ergänzung (optional)</label>
+          <input id="pQualiFrei" type="text" placeholder="z.B. Ausweis-Nr. oder Bezeichnung">
+        </div>
+      </div>
+      <div style="font-size:11.5px;color:var(--mut);line-height:1.55;margin:2px 0 12px">
+        Selbstdeklaration — GEMA prüft die Angabe nicht. Die Verantwortung für den Einsatz einer fachkundigen Person bleibt beim Betrieb.
+      </div>
+      <button class="btn btn-primary" onclick="savePruefQuali()">✓ Qualifikation speichern</button>
     </div>
   </div>
 
@@ -459,6 +489,50 @@ function selectAllBKP(val){
   document.querySelectorAll('#bkpDefaultTree input[type=checkbox]').forEach(function(cb){cb.checked=val;});
 }
 
+// ── PRÜFQUALIFIKATION (SNR 462638) ────────────────────────────
+// Die Liste kommt aus gema_pruefwerte.js — DIESELBE Wahrheit wie im
+// Werkzeug-Modul und im Lieferanten-Dashboard. Eine Kopie hier würde
+// beim nächsten Normen-Update still auseinanderlaufen.
+function _pQualiOptionen(){
+  var sel=document.getElementById('pQuali'); if(!sel)return;
+  var liste=(typeof WZ_QUALIFIKATIONEN!=='undefined')?WZ_QUALIFIKATIONEN:[];
+  var h='<option value="">— keine Angabe —</option>';
+  liste.forEach(function(q){ h+='<option value="'+q.id+'">'+q.label+'</option>'; });
+  var prof=(_user&&_user.profile)||{};
+  var gespeichert=prof.pruefQualifikation||'';
+  // Ein gespeicherter Wert, den die Liste nicht (mehr) kennt, bleibt als
+  // Option erhalten — kein stiller Verlust (Muster ⚠-Rollen in sys_admin).
+  if(gespeichert && !liste.some(function(q){return q.id===gespeichert;}))
+    h+='<option value="'+gespeichert+'">⚠ '+gespeichert+' (unbekannt)</option>';
+  sel.innerHTML=h;
+  sel.value=gespeichert;
+  var frei=document.getElementById('pQualiFrei');
+  if(frei) frei.value=prof.pruefQualifikationText||'';
+  _pQualiSync();
+}
+/* Bei «Andere Qualifikation» ist der Freitext die eigentliche Angabe —
+   das Feld wird dann zur Pflicht-Beschriftung, sonst bleibt es Ergänzung. */
+function _pQualiSync(){
+  var sel=document.getElementById('pQuali'), lbl=document.getElementById('pQualiFreiLbl'), frei=document.getElementById('pQualiFrei');
+  if(!sel||!lbl||!frei)return;
+  if(sel.value==='andere'){
+    lbl.textContent='Qualifikation im Klartext *';
+    frei.placeholder='z.B. Sachkundige Person nach Werksschulung';
+  }else{
+    lbl.textContent='Ergänzung (optional)';
+    frei.placeholder='z.B. Ausweis-Nr. oder Bezeichnung';
+  }
+}
+function savePruefQuali(){
+  if(!_user)return;
+  var id=(document.getElementById('pQuali')||{}).value||'';
+  var frei=((document.getElementById('pQualiFrei')||{}).value||'').trim();
+  if(id==='andere' && !frei){ toast('Bitte die Qualifikation im Klartext angeben'); return; }
+  GemaAuth.updateProfile(_user.id,{pruefQualifikation:id, pruefQualifikationText:frei});
+  if(_user.profile){ _user.profile.pruefQualifikation=id; _user.profile.pruefQualifikationText=frei; }
+  toast(id||frei?'✓ Qualifikation gespeichert':'✓ Angabe entfernt');
+}
+
 // ── PWA-Installation ──────────────────────────────────────────
 function renderPwaState(){
   if(typeof GemaPWA === 'undefined') return;
@@ -613,7 +687,7 @@ window.cardQrGross = cardQrGross;
 
 
 document.addEventListener('DOMContentLoaded', function(){
-  init();renderBKPDefaultTree();renderOrgInfo();
+  init();renderBKPDefaultTree();_pQualiOptionen();renderOrgInfo();
   renderPwaState();
   renderCardQr();
   if(typeof GemaPWA !== 'undefined'){
@@ -633,6 +707,14 @@ document.addEventListener('DOMContentLoaded', function(){
       var c=document.getElementById('cardBkpDefaults'); if(c)c.style.display='none';
       var r=document.getElementById('rowDynBKP'); if(r)r.style.display='none';
     }
+  }catch(e){}
+  // «Prüfqualifikation» gehört zum Werkzeugmanagement — wer dort keine
+  // Prüfberichte erfassen kann, hat für die Angabe keine Verwendung.
+  // Der externe Prüfer erreicht das Modul über sein Dashboard und trägt
+  // dort die Qualifikation ebenfalls; er hat werkzeugmanagement read.
+  try{
+    var canWz = typeof GemaAuth!=='undefined' && GemaAuth.can && GemaAuth.can('read','werkzeugmanagement');
+    if(!canWz){ var q=document.getElementById('cardPruefQuali'); if(q)q.style.display='none'; }
   }catch(e){}
 });
 </script>

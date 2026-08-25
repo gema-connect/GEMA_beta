@@ -2943,6 +2943,26 @@ window._dwzQuittieren=function(toolId){
   renderWzPruefauftraege();toast('✓ Auftrag quittiert');
 };
 
+/* Qualifikation der pruefenden Person — identisch zum Werkzeugmodul
+   (_wzQualiFeldHtml in if_werkzeug.html). SNR 462638 verlangt eine
+   FACHKUNDIGE Person; der externe Pruefer muss denselben Nachweis
+   erbringen wie der Magaziner, sonst ist der Bericht des Externen
+   schwaecher als der interne. Quelle ist das PROFIL, gespeichert wird
+   eine Momentaufnahme. */
+function _dwzQualiFeldHtml(){
+  if(typeof wzQualiVonUser==='undefined') return '';
+  var u=null;try{u=GemaAuth.getCurrentUser();}catch(e){}
+  var q=wzQualiVonUser(u||{});
+  if(q.label){
+    return '<div style="font-size:11.5px;color:#0f766e;background:#f0fdfa;border:1px solid #99f6e4;border-radius:8px;padding:7px 10px">'
+      +'⚡ Qualifikation: <strong>'+E(q.label)+'</strong>'
+      +'<div style="color:#64748b;margin-top:1px">Wird mit dem Bericht gespeichert · Änderung im Profil</div></div>';
+  }
+  return '<div style="font-size:11.5px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:7px 10px">'
+    +'⚠ Keine Prüfqualifikation im Profil hinterlegt — SNR 462638 verlangt eine fachkundige Person.'
+    +'<div style="margin-top:2px"><a href="sys_profil.html" target="_blank" style="color:#b45309;font-weight:700">Im Profil nachtragen →</a></div></div>';
+}
+
 // ── Messwerte + Prüfprotokoll (Elektroprüfung) ──────────────
 // Dieselben vier Werte wie im Werkzeugmodul; bewertet wird über den
 // GETEILTEN Helper gema_pruefwerte.js — nie über eine eigene Kopie.
@@ -3038,6 +3058,7 @@ window._dwzOpenPruefbericht=function(toolId){
   _dwzModal('<h3 style="margin:0 0 4px;font-size:17px;font-weight:900">📝 Prüfbericht einreichen</h3>'
     +'<div style="font-size:12px;color:#64748b;margin-bottom:14px">'+E(t.name||'')+' · '+E(_dwzOrgName(t.orgId))+' · '+E(_DWZ_PRUEF_LABEL[_dwzPruefTyp(t)]||'')+'</div>'
     +'<div style="display:flex;flex-direction:column;gap:10px">'
+    +_dwzQualiFeldHtml()
     +'<div><label class="fl">Durchführungsdatum</label><input class="fc" type="date" id="dwzPbDatum" value="'+heute+'"/></div>'
     +'<div><label class="fl">Ergebnis</label><select class="fc" id="dwzPbErgebnis">'
       +WZ_ERGEBNIS.map(function(e){return '<option value="'+e.id+'">'+e.icon+' '+E(e.label)+'</option>';}).join('')
@@ -3078,6 +3099,9 @@ window._dwzSubmitPruefbericht=function(toolId){
       id:'ber_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),
       typ:'pruefbericht', datum:datum,
       autorUserId:(u&&u.id)||'', autorName:firma,
+      // Momentaufnahme der Qualifikation — wie die Grenzwerte: ein spaeter
+      // geaendertes Profil darf einen abgelegten Nachweis nicht umdeuten.
+      pruefQualifikation:(typeof wzQualiVonUser!=='undefined')?wzQualiVonUser(u||{}).label:'',
       titel:'Prüfung durch Lieferant',
       beschreibung:bem, ergebnis:erg,
       // Messwerte NUR mit den Grenzwerten speichern, gegen die sie

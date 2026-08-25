@@ -164,8 +164,68 @@ function wzErgebnisAnzeige(roh){
   return {id:'', label:(roh?String(roh):'—'), icon:'·', farbe:'#64748b'};
 }
 
+// ══════════════════════════════════════════════════════════════════
+// QUALIFIKATION DER PRUEFENDEN PERSON
+// ══════════════════════════════════════════════════════════════════
+// SNR 462638 verlangt die Pruefung durch eine FACHKUNDIGE Person. Das
+// ist eine Eigenschaft der PERSON, nicht des Geraets — sie gehoert
+// darum ins Profil und als SNAPSHOT in den Bericht: wer die Prueferin
+// spaeter befoerdert oder deren Profil aendert, darf einen abgelegten
+// Nachweis nicht rueckwirkend umdeuten (gleiche Regel wie die
+// Grenzwerte, die ebenfalls mit dem Bericht gespeichert werden).
+//
+// Die Liste bildet die schweizerischen Nachweise ab (NIV SR 734.27
+// bzw. eidg. Abschluesse). Sie ist bewusst KURZ und endet mit einer
+// Freitext-Option: GEMA erfindet keine Titel, und wer einen anderen
+// Nachweis hat, traegt ihn im Klartext ein.
+//
+// KRITISCH: Die Angabe ist eine SELBSTDEKLARATION. GEMA prueft sie
+// nicht und kann sie nicht pruefen — die Verantwortung fuer den
+// Einsatz einer fachkundigen Person bleibt beim Betrieb. Genau das
+// steht auch im Profil und auf dem Bericht, damit der Nachweis nicht
+// mehr behauptet, als er belegt.
+var WZ_QUALIFIKATIONEN=[
+  {id:'esb',        label:'Elektro-Sicherheitsberater/in mit eidg. Fachausweis'},
+  {id:'kontrolleur',label:'Elektrokontrolleur/in mit eidg. Fachausweis'},
+  {id:'installateur',label:'Elektroinstallateur/in EFZ'},
+  {id:'betriebselektriker',label:'Betriebselektriker/in mit Bewilligung nach NIV'},
+  {id:'instruiert', label:'Instruierte Person (Pruefung unter Aufsicht)'},
+  {id:'andere',     label:'Andere Qualifikation'}
+];
+function wzQualiInfo(id){
+  var k=String(id==null?'':id).trim();
+  for(var i=0;i<WZ_QUALIFIKATIONEN.length;i++) if(WZ_QUALIFIKATIONEN[i].id===k) return WZ_QUALIFIKATIONEN[i];
+  return null;
+}
+/* Anzeigetext einer Qualifikation. Bei `andere` gewinnt der Freitext —
+   ohne Freitext bleibt das generische Label stehen, damit die Angabe
+   nicht leer wirkt. Ein unbekannter Schluessel (Altdaten, spaeter
+   entfernte Option) wird ROH gezeigt statt verschluckt. */
+function wzQualiLabel(id,frei){
+  var f=String(frei==null?'':frei).trim();
+  var k=String(id==null?'':id).trim();
+  if(!k) return f;                       // nur Freitext erfasst
+  var info=wzQualiInfo(k);
+  if(!info) return f||k;
+  if(k==='andere') return f||info.label;
+  return f?(info.label+' — '+f):info.label;
+}
+/* Qualifikation aus dem Profil ziehen. EINE Aufloesung fuer beide
+   Module: das Werkzeug-Modul liest den eingeloggten Benutzer, das
+   Lieferanten-Dashboard den externen Pruefer. Rueckgabe IMMER ein
+   Objekt {id,frei,label} — `label` ist leer, wenn nichts erfasst ist
+   (dann sagt der Dialog das, statt eine Qualifikation zu behaupten). */
+function wzQualiVonUser(u){
+  var p=(u&&u.profile)||{};
+  var id=p.pruefQualifikation||'';
+  var frei=p.pruefQualifikationText||'';
+  return { id:id, frei:frei, label:wzQualiLabel(id,frei) };
+}
+
 var API={
   SCHUTZKLASSEN:WZ_SCHUTZKLASSEN, ERGEBNIS:WZ_ERGEBNIS,
+  QUALIFIKATIONEN:WZ_QUALIFIKATIONEN,
+  qualiInfo:wzQualiInfo, qualiLabel:wzQualiLabel, qualiVonUser:wzQualiVonUser,
   schutzklasse:wzSchutzklasse,
   grenzRpe:wzGrenzRpe, grenzRiso:wzGrenzRiso, grenzIpe:wzGrenzIpe, grenzIb:wzGrenzIb,
   grenzwerte:wzGrenzwerte,
@@ -180,6 +240,10 @@ if(typeof window!=='undefined'){
   // beide Namensraeume zeigen auf DIESELBE Implementierung.
   window.WZ_SCHUTZKLASSEN=WZ_SCHUTZKLASSEN;
   window.WZ_ERGEBNIS=WZ_ERGEBNIS;
+  window.WZ_QUALIFIKATIONEN=WZ_QUALIFIKATIONEN;
+  window.wzQualiInfo=wzQualiInfo;
+  window.wzQualiLabel=wzQualiLabel;
+  window.wzQualiVonUser=wzQualiVonUser;
   window.wzSchutzklasse=wzSchutzklasse;
   window.wzGrenzRpe=wzGrenzRpe;
   window.wzGrenzRiso=wzGrenzRiso;
