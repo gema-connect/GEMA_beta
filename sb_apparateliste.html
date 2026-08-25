@@ -619,7 +619,7 @@ const ICONS = {Badezimmer:'🛁',WC:'🚽',Duschraum:'🚿',Küche:'🍽️',Was
 const uid = () => crypto?.randomUUID ? crypto.randomUUID() : (Math.random().toString(36).slice(2)+Date.now().toString(36));
 
 const DEF_DEFS = {
-  bathtubType:'normal', bathtubFaucet:'UP', bathtubThermostat:true, bathtubAccessories:true, bathtubUnderbuild:false,
+  bathtubType:'normal', bathtubFaucet:'UP', bathtubThermostat:true, bathtubAccessories:true,
   washbasinType:'normal', washbasinFaucet:'AP', washbasinVanity:true, washbasinDuofix:'none', washbasinMeterRun:false, mirror:'spiegelschrank',
   wcType:'wand', wcFeature:'rimless', flushType:'UP', upCisternHeight:'98', wcSeat:true, wcSoundInsulation:true,
   showerDrain:'rinne', showerScreen:'glas_mit_tuer', showerFaucet:'UP', showerThermostat:true, showerAccessories:true, showerUnderbuild:false,
@@ -903,7 +903,10 @@ function newDraft(){
     id:uid(),roomType:'Badezimmer',roomName:'',floor:'EG',qty:1,
     extras:[],                                                   // frei erfasste Apparate (Feedback 28.07.2026)
     standard:d.standard||'',                                     // Ausbaustandard einfach/mittel/hoch (Feedback 07/2026) — Raum-weit, Fallback je Apparat
-    hasBathtub:true,bathtubType:d.bathtubType,bathtubFaucet:d.bathtubFaucet,bathtubThermostat:!!d.bathtubThermostat,bathtubAccessories:!!d.bathtubAccessories,bathtubUnderbuild:!!d.bathtubUnderbuild,bathtubSize:d.bathtubSize||'',
+    /* bathtubUnderbuild ist mit Feedback 25.08.2026 entfallen — ein NEUER Raum erbt es
+       nicht mehr aus den Voreinstellungen (sonst trüge jeder neue Raum eine Angabe,
+       die es gar nicht mehr zu wählen gibt). Alt-Räume behalten ihren Wert. */
+    hasBathtub:true,bathtubType:d.bathtubType,bathtubFaucet:d.bathtubFaucet,bathtubThermostat:!!d.bathtubThermostat,bathtubAccessories:!!d.bathtubAccessories,bathtubUnderbuild:false,bathtubSize:d.bathtubSize||'',
     bathtubStandard:'',bathtubIV:apIvLeer(),
     hasWashbasin:true,washbasinType:d.washbasinType,washbasinFaucet:d.washbasinFaucet,washbasinVanity:!!d.washbasinVanity,washbasinDuofix:d.washbasinDuofix||'none',washbasinMeterRun:!!d.washbasinMeterRun,mirror:d.mirror,
     washbasinSize:d.washbasinSize||'',washbasinMount:!!d.washbasinMount,washbasinSiphon:!!d.washbasinSiphon,washbasinSound:!!d.washbasinSound,
@@ -1224,16 +1227,22 @@ function renderBath(){
     {sel:d.bathtubAccessories===true, icon:'🧴',  title:'Accessoires',    desc:'Seifenhalter etc.',onClick:()=>d.bathtubAccessories=true},
     {sel:d.bathtubAccessories===false,icon:'➖',  title:'Ohne Accessoires',desc:'',               onClick:()=>d.bathtubAccessories=false},
   ]);
-  /* KEINE Möbel-Gruppe bei der Badewanne (Feedback 24.08.2026 #3, Sandro Caso:
-     «Möbel bei Badewanne löschen»). Möbel gehören zum Waschtisch (Feedback #2,
-     eigene Gruppe dort). Das «Unterbauelement» unten ist der Wannenträger und
-     bleibt bewusst stehen — es ist kein Möbel. */
-  gbox('Unterbauelement',[
-    {sel:d.bathtubUnderbuild===true,  icon:'📦',  title:'Mit Unterbau',  desc:'Wannenträger',     onClick:()=>d.bathtubUnderbuild=true},
-    {sel:d.bathtubUnderbuild===false, icon:'➖',  title:'Ohne Unterbau', desc:'nicht übernehmen', onClick:()=>d.bathtubUnderbuild=false},
-  ]);
+  /* KEINE Möbel- und KEINE Unterbau-Gruppe bei der Badewanne (Feedback 24./25.08.2026,
+     Sandro Caso: «Möbel bei Badewanne löschen» → gemeint war das Unterbauelement).
+     Möbel gehören zum Waschtisch (eigene Gruppe dort). Nicht «nachrüsten». */
   ivGbox('bathtubIV');
+  /* Bestandsschutz: ein Raum, der das entfallene Unterbauelement noch trägt, verliert
+     es NICHT still — es wird ausgewiesen und lässt sich mit einem Klick entfernen. */
+  if(d.bathtubUnderbuild===true)$('modalBody').insertAdjacentHTML('beforeend',
+    '<div class="hint">Dieser Raum trägt noch die entfallene Angabe «Unterbauelement». '+
+    '<button type="button" class="nbtn" style="margin-top:6px" onclick="apBathUnterbauWeg()">✕ Entfernen</button></div>');
 }
+/* Inline-Handler lösen NUR gegen window auf (die Seite ist eine async-IIFE). */
+window.apBathUnterbauWeg = function(){
+  if(!wizard.draft)return;
+  wizard.draft.bathtubUnderbuild=false;
+  renderWiz();
+};
 
 function renderWashbasin(){
   const d=wizard.draft;
@@ -1518,6 +1527,9 @@ function buildRows(room){
   if(room.roomType==='Küche'){push('Spüle',1*m,['Spültisch',stdL]);push('Küchenarmatur',1*m,['Mischer',stdL]);if(room.kitchenHasGS)push('GS-Anschluss',1*m,['Geschirrspüler-Set']);return apPushExtras();}
   if(room.roomType==='Waschküche'){const s=Math.max(1,room.laundrySets||1);push('Waschtrog',s*m,['Waschtrog',stdL]);push('Anschluss-Set',s*m,['WM/WT Anschluss-Set']);return apPushExtras();}
   if(room.roomType==='Umgebung'){const v=Math.max(0,room.gardenVents||0);if(v>0)push('Gartenventil',v*m,['Aussenwasser']);return apPushExtras();}
+  /* «Unterbauelement» ist seit Feedback 25.08.2026 nicht mehr wählbar (siehe renderBath),
+     bleibt hier aber für Alt-Räume stehen, die es erfasst haben — eine erfasste Angabe
+     verschwindet nie still aus Liste, Bericht und CSV; entfernen kann man sie im Wizard. */
   if(bs('bath'))push('Badewanne',1*m,['bauseits']);
   else if(room.hasBathtub)push('Badewanne',1*m,[room.bathtubType==='freistehend'?'Freistehend':'Normal',sz('bathtubSize'),stdFor('bathtubStandard'),`Armatur ${room.bathtubFaucet}`,room.bathtubThermostat?'Thermostat':null,room.bathtubAccessories?'Accessoires':null,room.bathtubUnderbuild?'Unterbauelement':null].concat(apIvLabels(room.bathtubIV)));
   if(bs('washbasin'))push('Waschtisch',1*m,['bauseits']);
@@ -1660,7 +1672,8 @@ function renderSettings(){
     {label:'Armatur', html:sel('ds_btfaucet',[['UP','UP'],['AP','AP']],d.bathtubFaucet)},
     {label:'Thermostat', html:sel('ds_bttherm',[['true','Ja'],['false','Nein']],d.bathtubThermostat)},
     {label:'Accessoires', html:sel('ds_btacc',[['true','Ja'],['false','Nein']],d.bathtubAccessories)},
-    {label:'Unterbau', html:sel('ds_btunder',[['false','Ohne'],['true','Mit']],d.bathtubUnderbuild)},
+    /* «Unterbau» ist mit Feedback 25.08.2026 entfallen — eine Voreinstellung für eine
+       Gruppe, die es im Wizard nicht mehr gibt, wäre eine Sackgasse. */
   ]);
   block('🪞 Waschtisch',[
     {label:'Typ',      html:sel('ds_wbtype',[['normal','Normal'],['aufsatz','Aufsatz']],d.washbasinType)},
@@ -1706,9 +1719,9 @@ window.saveSettings = () => {
   // string
   ['bttype','btfaucet','wbtype','wbfaucet','wbduofix','mirror','wctype','wcfeat','flush','cistr','sdrain','sscreen','sfaucet'].forEach(k=>g('ds_'+k));
   // bool
-  ['bttherm','btacc','btunder','wbvanity','wbmr','wcseat','wcsi','stherm','sacc','sunder','bidet','kgs'].forEach(k=>g('ds_'+k,true));
-  // map
-  const mapping = {bttype:'bathtubType',btfaucet:'bathtubFaucet',bttherm:'bathtubThermostat',btacc:'bathtubAccessories',btunder:'bathtubUnderbuild',wbtype:'washbasinType',wbfaucet:'washbasinFaucet',wbduofix:'washbasinDuofix',wbvanity:'washbasinVanity',wbmr:'washbasinMeterRun',mirror:'mirror',wctype:'wcType',wcfeat:'wcFeature',flush:'flushType',cistr:'upCisternHeight',wcseat:'wcSeat',wcsi:'wcSoundInsulation',sdrain:'showerDrain',sscreen:'showerScreen',sfaucet:'showerFaucet',stherm:'showerThermostat',sacc:'showerAccessories',sunder:'showerUnderbuild',bidet:'bidetDefault',kgs:'kitchenHasGS'};
+  ['bttherm','btacc','wbvanity','wbmr','wcseat','wcsi','stherm','sacc','sunder','bidet','kgs'].forEach(k=>g('ds_'+k,true));
+  // map — «btunder» ist mit Feedback 25.08.2026 entfallen (siehe renderBath)
+  const mapping = {bttype:'bathtubType',btfaucet:'bathtubFaucet',bttherm:'bathtubThermostat',btacc:'bathtubAccessories',wbtype:'washbasinType',wbfaucet:'washbasinFaucet',wbduofix:'washbasinDuofix',wbvanity:'washbasinVanity',wbmr:'washbasinMeterRun',mirror:'mirror',wctype:'wcType',wcfeat:'wcFeature',flush:'flushType',cistr:'upCisternHeight',wcseat:'wcSeat',wcsi:'wcSoundInsulation',sdrain:'showerDrain',sscreen:'showerScreen',sfaucet:'showerFaucet',stherm:'showerThermostat',sacc:'showerAccessories',sunder:'showerUnderbuild',bidet:'bidetDefault',kgs:'kitchenHasGS'};
   Object.entries(mapping).forEach(([k,realK])=>{const el=document.getElementById('ds_'+k);if(el){const v=el.value;defs[realK]=['true','false'].includes(v)?(v==='true'):v;}});
   const ls=document.getElementById('ds_ls');if(ls)defs.laundrySets=clamp(ls.value,1,50);
   const gv=document.getElementById('ds_gv');if(gv)defs.gardenVents=clamp(gv.value,0,99);

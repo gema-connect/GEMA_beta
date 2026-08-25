@@ -454,6 +454,7 @@ body.beta-mine-only .fbp-input{display:none}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="gema_db.js"></script>
+<script src="gema_storage.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
 <script>
 // ══════════════════════════════════════════════
@@ -1446,7 +1447,7 @@ const renderComments = (id) => {
     // (gema_feedback.js legt neue Bilder in den Bucket und setzt screenshotUrl)
     const shotSrc = c.screenshotUrl || c.screenshot;
     const screenshot = shotSrc
-      ? `<div class="fb-shot"><img src="${escHtml(shotSrc)}" loading="lazy" alt="Screenshot" onclick="fbLightbox(this.src)"/><div class="fb-shot-hint">🔍 Klicken zum Vergrössern</div></div>`
+      ? `<div class="fb-shot"><img src="${escHtml(shotSrc)}" loading="lazy" alt="Screenshot" onerror="fbShotFallback(this)" onclick="fbLightbox(this.src)"/><div class="fb-shot-hint">🔍 Klicken zum Vergrössern</div></div>`
       : (c.screenshotWeg
           ? `<div class="fb-shot-weg">🖼 Screenshot war zu gross und konnte nicht mitgesendet werden</div>`
           : '');
@@ -1646,6 +1647,31 @@ document.addEventListener('keydown', e => {
     if (el && el.classList.contains('open')) el.classList.remove('open');
   }
 });
+
+// Ein Screenshot, der nicht laedt, zeigte bisher nur das kaputte Bild-Symbol.
+// Die haeufigste Ursache ist der Verbindungsweg: die gespeicherte URL zeigt
+// auf den Weg, der beim SPEICHERN aktiv war (direkt supabase.co ODER
+// Same-Origin-Proxy /sb) — der muss auf DIESEM Geraet nicht gelten
+// (Firewall, Werbeblocker, DNS-Filter). Darum der Reihe nach die anderen
+// Wege versuchen; erst wenn ALLE scheitern, wird es GESAGT statt still ein
+// kaputtes Bild stehen zu lassen.
+window.fbShotFallback = function(img){
+  if(!img) return;
+  var liste = img._fbAlt;
+  if(!liste){
+    var quelle = img.dataset.fbSrc || img.getAttribute('src') || '';
+    img.dataset.fbSrc = quelle;
+    liste = (typeof GemaStorage !== 'undefined' && GemaStorage.urlKandidaten)
+      ? GemaStorage.urlKandidaten(quelle).slice(1)   // den bereits gescheiterten Weg auslassen
+      : [];
+    img._fbAlt = liste;
+  }
+  if(liste.length){ img.src = liste.shift(); return; }
+  var box = img.closest('.fb-shot');
+  if(box) box.outerHTML = '<div class="fb-shot-weg">🖼 Screenshot nicht erreichbar — '
+    + 'die Cloud ist von diesem Gerät aus blockiert oder das Bild wurde entfernt. '
+    + '<a href="' + escHtml(img.dataset.fbSrc || '') + '" target="_blank" rel="noopener">Direktlink</a></div>';
+};
 
 const addComment = (id, name) => {
   const ta     = document.getElementById('cta-'+id);
@@ -2184,6 +2210,63 @@ function _exStatusLabel(s){
   return '🔴 Offen';
 }
 
+// ── Screenshots einbetten (Base64) ───────────────────────────────────
+// Der Export schrieb bis 25.08.2026 die nackte Bucket-URL ins Markdown —
+// obwohl der Dialog seit je «Screenshots als Base64 eingebettet» verspricht.
+// Das stimmte nur, solange die Bilder als Base64 IM Record lagen; seit
+// gema_feedback.js sie in den Bucket auslagert (screenshotUrl), war es ein
+// blosser Link: ausserhalb der laufenden Sitzung (Datei weitergegeben, ohne
+// Netz geoeffnet, Host durch Firewall/Werbeblocker/Proxy blockiert) laedt
+// den niemand mehr. Jetzt wird jedes Bild beim Export wirklich geholt und
+// als data:-URI eingebettet — die .md traegt ihre Bilder selbst.
+//
+// Was NICHT geladen werden kann, wird BENANNT (Grund + Direktlink) statt
+// als toter Link dazustehen (No-silent-Regel).
+var _exShotCache = {};     // Quelle → { data:'data:…' } | { fehler:'Grund' }
+
+function _exShotQuelle(it){ return it.screenshotUrl || it.screenshot || ''; }
+
+// Alle noch nicht aufgeloesten Screenshots der Auswahl holen.
+function _exShotsLaden(filtered, onProgress){
+  var offen = [];
+  (filtered || []).forEach(function(e){
+    var q = _exShotQuelle(e.item);
+    if(q && !_exShotCache[q] && offen.indexOf(q) < 0) offen.push(q);
+  });
+  if(!offen.length) return Promise.resolve(0);
+  var fertig = 0;
+  if(onProgress) onProgress(0, offen.length);
+  return offen.reduce(function(kette, q){
+    return kette.then(function(){
+      var p;
+      if(q.indexOf('data:') === 0){
+        // Altbestand: liegt schon als Base64 im Record — nichts zu holen.
+        p = Promise.resolve(q);
+      } else if(typeof GemaStorage !== 'undefined' && GemaStorage.fetchDataUrl){
+        p = GemaStorage.fetchDataUrl(q);
+      } else {
+        p = Promise.reject(new Error('Storage-Helfer nicht geladen'));
+      }
+      return p.then(function(d){
+        _exShotCache[q] = { data: d };
+      }).catch(function(err){
+        _exShotCache[q] = { fehler: (err && err.message) || String(err) };
+      }).then(function(){
+        fertig++; if(onProgress) onProgress(fertig, offen.length);
+      });
+    });
+  }, Promise.resolve()).then(function(){ return offen.length; });
+}
+
+// Sind alle Screenshots der Auswahl aufgeloest? (Download/Kopieren warten
+// sonst darauf — sonst haette die Datei einen Platzhalter statt des Bildes.)
+function _exShotsFertig(filtered){
+  return (filtered || []).every(function(e){
+    var q = _exShotQuelle(e.item);
+    return !q || !!_exShotCache[q];
+  });
+}
+
 // Generiert die komplette Markdown-Datei aus den gefilterten Eintraegen.
 function _exGenerate(filtered, withScreenshots){
   var now = new Date();
@@ -2257,11 +2340,28 @@ function _exGenerate(filtered, withScreenshots){
       lines.push('');
       lines.push(_exQuote(it.text || ''));
       lines.push('');
-      var shotQ = it.screenshotUrl || it.screenshot;
+      var shotQ = _exShotQuelle(it);
       if(withScreenshots && shotQ){
         lines.push('**Screenshot:**');
         lines.push('');
-        lines.push('![Screenshot](' + shotQ + ')');
+        var cache = _exShotCache[shotQ];
+        if(cache && cache.data){
+          // Eingebettet — die Datei traegt das Bild selbst und braucht
+          // weder Netz noch Zugriff auf den Bucket.
+          lines.push('![Screenshot](' + cache.data + ')');
+        } else if(cache && cache.fehler){
+          // Nicht ladbar: Grund NENNEN statt einen toten Link zu setzen.
+          lines.push('_⚠ Screenshot konnte nicht eingebettet werden (' + cache.fehler + ')._');
+          lines.push('');
+          lines.push('Direktlink (nur mit Zugriff auf die GEMA-Cloud): ' + shotQ);
+        } else {
+          lines.push('_⏳ Screenshot wird noch geladen — Vorschau aktualisieren._');
+        }
+        lines.push('');
+      } else if(withScreenshots && it.screenshotWeg){
+        lines.push('**Screenshot:**');
+        lines.push('');
+        lines.push('_⚠ Beim Absenden zu gross — der Screenshot wurde nicht mitgesendet._');
         lines.push('');
       }
       lines.push('---');
@@ -2407,18 +2507,50 @@ window.fbCleanOpen  = fbCleanOpen;
 window.fbCleanClose = fbCleanClose;
 window.fbCleanApply = fbCleanApply;
 
-function refreshExportPreview(){
-  var all = _exCollectAll();
-  var filtered = _exApplyFilter(all);
-  var withSs = document.getElementById('exWithScreenshots').checked;
+// Schreibt Vorschau + Statistik aus dem AKTUELLEN Cache-Stand.
+function _exPaint(filtered, withSs, hinweis){
   var md = _exGenerate(filtered, withSs);
   document.getElementById('exPreview').value = md;
-  // Statistik
   var byMod = {};
   filtered.forEach(function(e){ byMod[e.modId] = true; });
   var modCount = Object.keys(byMod).length;
   var sizeKb = Math.round(md.length / 1024 * 10) / 10;
-  document.getElementById('exStats').textContent = filtered.length + ' Eintr' + (filtered.length===1?'ag':'äge') + ' aus ' + modCount + ' Modul' + (modCount===1?'':'en') + ' · ca. ' + sizeKb + ' KB';
+  var txt = filtered.length + ' Eintr' + (filtered.length===1?'ag':'äge') + ' aus ' + modCount + ' Modul' + (modCount===1?'':'en') + ' · ca. ' + sizeKb + ' KB';
+  if(hinweis) txt += ' · ' + hinweis;
+  else if(withSs){
+    // Ehrlich ausweisen, was wirklich drinsteckt.
+    var eingebettet = 0, fehlend = 0;
+    filtered.forEach(function(e){
+      var q = _exShotQuelle(e.item); if(!q) return;
+      var c = _exShotCache[q];
+      if(c && c.data) eingebettet++; else if(c && c.fehler) fehlend++;
+    });
+    if(eingebettet) txt += ' · 🖼 ' + eingebettet + ' eingebettet';
+    if(fehlend)     txt += ' · ⚠ ' + fehlend + ' nicht ladbar';
+  }
+  document.getElementById('exStats').textContent = txt;
+  return md;
+}
+
+function refreshExportPreview(){
+  var all = _exCollectAll();
+  var filtered = _exApplyFilter(all);
+  var withSs = document.getElementById('exWithScreenshots').checked;
+  // Sofort zeichnen (stale-while-revalidate), dann die Bilder holen und
+  // erneut zeichnen — ohne den ersten Wurf sähe der Dialog beim Öffnen
+  // sekundenlang leer aus.
+  _exPaint(filtered, withSs, withSs && !_exShotsFertig(filtered) ? '⏳ Screenshots werden eingebettet …' : '');
+  if(withSs && !_exShotsFertig(filtered)){
+    _exShotsLaden(filtered, function(f, t){
+      var el = document.getElementById('exStats');
+      if(el) el.textContent = el.textContent.replace(/⏳ Screenshots werden eingebettet.*$/, '⏳ Screenshots werden eingebettet … ' + f + ' / ' + t);
+    }).then(function(){
+      // Filter kann sich zwischenzeitlich geaendert haben — neu einlesen.
+      var jetzt = _exApplyFilter(_exCollectAll());
+      var ss = document.getElementById('exWithScreenshots').checked;
+      _exPaint(jetzt, ss, '');
+    });
+  }
 
   // Was der Status-Filter durchliesse, aber ohne Haken bleibt: benennen.
   var hint = document.getElementById('exUmHint');
@@ -2441,6 +2573,18 @@ function refreshExportPreview(){
   }
 }
 window.refreshExportPreview = refreshExportPreview;
+
+// Test-Hooks — die Export-Funktionen leben im Datei-Scope und sind sonst
+// von aussen (Drift-Guard) nicht erreichbar.
+window._exHooks = {
+  cache:      function(){ return _exShotCache; },
+  quelle:     _exShotQuelle,
+  laden:      _exShotsLaden,
+  fertig:     _exShotsFertig,
+  generate:   _exGenerate,
+  gefiltert:  function(){ return _exApplyFilter(_exCollectAll()); },
+  reset:      function(){ _exShotCache = {}; }
+};
 
 // Bei jedem Filter-Change Vorschau neu generieren
 document.addEventListener('DOMContentLoaded', function(){
@@ -2629,7 +2773,27 @@ function exMarkApply(){
 }
 window.exMarkApply = exMarkApply;
 
+// Sicherstellen, dass die Vorschau die Bilder WIRKLICH traegt, bevor sie
+// jemand herunterlaedt oder kopiert. Sind alle Screenshots schon im Cache
+// (Normalfall — die Vorschau hat sie beim Oeffnen geholt), laeuft das
+// SYNCHRON durch: die Zwischenablage braucht die Nutzer-Geste, ein
+// unnoetiges await wuerde sie in Safari kosten.
+function _exFertigStellen(cb){
+  var filtered = _exApplyFilter(_exCollectAll());
+  var withSs = document.getElementById('exWithScreenshots').checked;
+  if(!withSs || _exShotsFertig(filtered)){ cb(); return; }
+  toast('⏳ Screenshots werden eingebettet …');
+  _exShotsLaden(filtered).then(function(){
+    _exPaint(_exApplyFilter(_exCollectAll()), document.getElementById('exWithScreenshots').checked, '');
+    cb();
+  });
+}
+
 function copyExport(){
+  _exFertigStellen(function(){ _copyExportJetzt(); });
+}
+
+function _copyExportJetzt(){
   var ta = document.getElementById('exPreview');
   var md = ta.value;
   if(!md){ toast('⚠ Nichts zu kopieren'); return; }
@@ -2658,6 +2822,10 @@ function _exFallbackCopy(ta){
 }
 
 function downloadExport(){
+  _exFertigStellen(function(){ _downloadExportJetzt(); });
+}
+
+function _downloadExportJetzt(){
   var md = document.getElementById('exPreview').value;
   if(!md){ toast('⚠ Nichts zu speichern'); return; }
   var now = new Date();

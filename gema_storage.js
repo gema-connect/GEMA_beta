@@ -240,6 +240,69 @@
   }
 
   /**
+   * Kandidaten-URLs fuer EINE Bucket-Datei — die gespeicherte URL zuerst,
+   * danach derselbe Pfad ueber die jeweils andere Basis.
+   *
+   * WARUM: Eine im Record abgelegte URL zeigt immer auf den Verbindungsweg,
+   * der beim SPEICHERN aktiv war (direkt supabase.co ODER Same-Origin-Proxy
+   * /sb). Beim LESEN muss der nicht mehr gelten — anderes Geraet, Firewall,
+   * Werbeblocker, DNS-Filter, oder die Datei wird ausserhalb des Browsers
+   * geoeffnet. Genau daran scheiterten die Screenshots im Feedback-Export.
+   * Der Pfad ist auf beiden Wegen identisch, also laesst sich der andere
+   * ohne Zusatzwissen bauen.
+   */
+  function urlKandidaten(url){
+    var out = [], gesehen = {};
+    function add(u){ if(u && !gesehen[u]){ gesehen[u] = 1; out.push(u); } }
+    add(url);
+    var i = String(url == null ? '' : url).indexOf('/storage/v1/');
+    if(i >= 0){
+      var rest = url.slice(i);
+      var s = _sb();
+      if(s && typeof s.sbBasen === 'function'){
+        try{ (s.sbBasen() || []).forEach(function(b){ add(b + rest); }); }catch(e){}
+      } else if(s && s.SB_URL){ add(s.SB_URL + rest); }
+      // Same-Origin-Proxy als letzter Anker — greift auch ohne GemaSync.
+      try{
+        if(typeof location !== 'undefined' && /^https?:/.test(location.origin)) add(location.origin + '/sb' + rest);
+      }catch(e){}
+    }
+    return out;
+  }
+
+  /**
+   * Laedt eine Datei als data:-URI (Base64). Probiert der Reihe nach alle
+   * Kandidaten-Wege; erst wenn ALLE scheitern, wird abgelehnt — mit dem
+   * letzten echten Grund, damit der Aufrufer ihn benennen kann statt
+   * stillschweigend nichts zu zeigen.
+   * Eine bereits eingebettete data:-URI wird unveraendert zurueckgegeben.
+   */
+  function fetchDataUrl(url){
+    if(typeof url !== 'string' || !url) return Promise.reject(new Error('Keine URL'));
+    if(url.indexOf('data:') === 0) return Promise.resolve(url);
+    var letzter = null;
+    return urlKandidaten(url).reduce(function(kette, u){
+      return kette.then(function(fertig){
+        if(fertig) return fertig;
+        return fetch(u).then(function(r){
+          if(!r.ok) throw new Error('HTTP ' + r.status);
+          return r.blob();
+        }).then(function(b){
+          return new Promise(function(ok, err){
+            var fr = new FileReader();
+            fr.onload  = function(){ ok(String(fr.result || '')); };
+            fr.onerror = function(){ err(new Error('Datei nicht lesbar')); };
+            fr.readAsDataURL(b);
+          });
+        }).catch(function(e){ letzter = e; return null; });
+      });
+    }, Promise.resolve(null)).then(function(fertig){
+      if(fertig) return fertig;
+      throw letzter || new Error('nicht erreichbar');
+    });
+  }
+
+  /**
    * Sammelt ALLE Storage-Dateien eines Datensatzes — rekursiv ueber das
    * ganze Objekt. Bewusst generisch statt Feld fuer Feld: die Foto-Felder
    * heissen je nach Modul anders (foto.url, bilder[].url, m.foto, bildUrl,
@@ -365,6 +428,23 @@
    * onProgress(fertig, total) fuer eine Fortschrittsanzeige.
    * Liefert { ok, dabei, fehlend }.
    */
+  // Bytes einer Datei ueber die Kandidaten-Kette (siehe urlKandidaten).
+  function _fetchBytes(url){
+    var letzter = null;
+    return urlKandidaten(url).reduce(function(kette, u){
+      return kette.then(function(fertig){
+        if(fertig) return fertig;
+        return fetch(u).then(function(r){
+          if(!r.ok) throw new Error('HTTP ' + r.status);
+          return r.arrayBuffer();
+        }).catch(function(e){ letzter = e; return null; });
+      });
+    }, Promise.resolve(null)).then(function(fertig){
+      if(fertig) return fertig;
+      throw letzter || new Error('nicht erreichbar');
+    });
+  }
+
   function zipDownload(files, zipName, onProgress){
     var list = (files || []).filter(function(f){ return f && f.url; });
     if(!list.length) return Promise.resolve({ ok:false, dabei:0, fehlend:0 });
@@ -372,10 +452,10 @@
     if(onProgress) onProgress(0, list.length);
     return list.reduce(function(kette, f, i){
       return kette.then(function(){
-        return fetch(f.url).then(function(r){
-          if(!r.ok) throw new Error('HTTP ' + r.status);
-          return r.arrayBuffer();
-        }).then(function(buf){
+        // Ueber die Kandidaten-Kette laden (direkt ⇄ Proxy) — sonst faellt
+        // eine Datei aus dem ZIP, nur weil der beim Speichern aktive Weg
+        // auf DIESEM Geraet blockiert ist.
+        return _fetchBytes(f.url).then(function(buf){
           var nr = String(i + 1).padStart(2, '0');
           var basis = _safeName(f.label) || 'datei';
           entries.push({ name: nr + '_' + basis + '.' + (f.ext || 'dat'), bytes: new Uint8Array(buf) });
@@ -479,6 +559,8 @@
     publicUrl: publicUrl,
     uploadDataUrl: uploadDataUrl,
     pathFromUrl: pathFromUrl,
+    urlKandidaten: urlKandidaten,
+    fetchDataUrl: fetchDataUrl,
     collectFiles: collectFiles,
     deleteFiles: deleteFiles,
     zipDownload: zipDownload,
