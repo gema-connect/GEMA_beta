@@ -130,6 +130,13 @@ body{margin:0;font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);co
 }
 .fg input:focus,.fg select:focus,.fg textarea:focus{outline:none;border-color:var(--acc)}
 .fg textarea{min-height:160px;resize:vertical;line-height:1.55}
+/* Rich-Text-Felder (gema_richtext.js, Feedback 24.08.2026) tragen exakt die
+   Metrik der uebrigen Formularfelder — sonst staende ein Beschreibungsfeld
+   anders da als das Auswahlfeld daneben. Der geteilte Helfer bleibt neutral,
+   weil ihn mehrere Module mit eigener Optik nutzen; angepasst wird hier. */
+.fg .gr-ed{min-height:160px;padding:9px 11px;border-radius:8px;font-size:13px;line-height:1.55}
+.fg .gr-ed--klein{min-height:96px}
+.fg .gr-ed:focus{border-color:var(--acc);box-shadow:none}
 .fg-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 
 /* Detail View — startet UNTER der Nav (52px), z-index unter der Nav,
@@ -447,6 +454,7 @@ body{margin:0;font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);co
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>
 <script src="gema_claude.js"></script>
+<script src="gema_richtext.js"></script>
 <script src="gema_storage.js"></script>
 <script src="gema_fotoqueue.js"></script>
 <script src="gema_dachbericht_pdf.js"></script>
@@ -1522,7 +1530,7 @@ function renderUebersicht(r, canEdit){
 
   // Dachtyp-Beschreibungstext
   html += '<div class="fg"><label>Beschreibung Dachtyp</label>';
-  html += '<textarea oninput="setUebersicht(\''+r.id+'\',\'dachtypText\',this.value)"'+(canEdit?'':' disabled')+'>'+esc(u.dachtypText||'')+'</textarea>';
+  html += richFeld(r.id, 'uebersicht_dachtypText', u.dachtypText, canEdit);
   html += claudeRow(canEdit, '"dachtyp"', r.id, 'uebersicht_dachtypText');
   html += '</div>';
 
@@ -1535,13 +1543,13 @@ function renderUebersicht(r, canEdit){
 
   // Ziegelart-Beschreibungstext
   html += '<div class="fg"><label>Beschreibung Eindeckung</label>';
-  html += '<textarea oninput="setUebersicht(\''+r.id+'\',\'ziegelartText\',this.value)"'+(canEdit?'':' disabled')+'>'+esc(u.ziegelartText||'')+'</textarea>';
+  html += richFeld(r.id, 'uebersicht_ziegelartText', u.ziegelartText, canEdit);
   html += claudeRow(canEdit, '"ziegelart"', r.id, 'uebersicht_ziegelartText');
   html += '</div>';
 
   // Bemerkung
   html += '<div class="fg"><label>Bemerkung</label>';
-  html += '<textarea oninput="setUebersicht(\''+r.id+'\',\'bemerkung\',this.value)"'+(canEdit?'':' disabled')+'>'+esc(u.bemerkung||'')+'</textarea>';
+  html += richFeld(r.id, 'uebersicht_bemerkung', u.bemerkung, canEdit);
   html += claudeRow(canEdit, '"bemerkung"', r.id, 'uebersicht_bemerkung');
   html += '</div>';
 
@@ -1610,7 +1618,7 @@ function renderKapitel(r, canEdit){
     html += '</select></div>';
 
     html += '<div class="fg"><label>Einleitung / Beschreibung</label>';
-    html += '<textarea oninput="setKapitelField(\''+r.id+'\',\''+k.id+'\',\'einleitung\',this.value)" placeholder="Stichpunkte oder Fliesstext — Claude kann verbessern"'+(canEdit?'':' disabled')+'>'+esc(k.einleitung||'')+'</textarea>';
+    html += richFeld(r.id, 'kapitel::'+k.id+'::einleitung', k.einleitung, canEdit, {placeholder:'Stichpunkte oder Fliesstext — Claude kann verbessern'});
     html += claudeRow(canEdit, '"einleitung"', r.id, 'kapitel::'+k.id+'::einleitung');
     html += '</div>';
 
@@ -1720,7 +1728,7 @@ function renderUnterkapitel(rid, kid, uk, canEdit){
   if(canEdit) html += '<button class="uk-del" onclick="delUnterkapitel(\''+rid+'\',\''+kid+'\',\''+uk.id+'\')">Entfernen</button>';
   html += '</div>';
   html += '<div class="fg"><label>Beschreibung / Befund</label>';
-  html += '<textarea oninput="setUKField(\''+rid+'\',\''+kid+'\',\''+uk.id+'\',\'text\',this.value)"'+(canEdit?'':' disabled')+'>'+esc(uk.text||'')+'</textarea>';
+  html += richFeld(rid, 'uk::'+uk.id+'::text', uk.text, canEdit, {klein:true});
   html += claudeRow(canEdit, '"unterkapitel"', rid, 'uk::'+uk.id+'::text');
   html += '</div>';
   html += '<div class="fg"><label>Bilder</label>';
@@ -1742,7 +1750,7 @@ function renderNachbar(r, canEdit){
   var n = r.nachbaranschluesse || (r.nachbaranschluesse = {text:'', bilder:[]});
   var html = '';
   html += '<div class="fg"><label>Beschreibung der Nachbaranschlüsse</label>';
-  html += '<textarea oninput="setNachbar(\''+r.id+'\',\'text\',this.value)" placeholder="Stichpunkte oder Fliesstext — Claude kann verbessern"'+(canEdit?'':' disabled')+'>'+esc(n.text||'')+'</textarea>';
+  html += richFeld(r.id, 'nachbar_text', n.text, canEdit, {placeholder:'Stichpunkte oder Fliesstext — Claude kann verbessern'});
   html += claudeRow(canEdit, '"nachbar"', r.id, 'nachbar_text');
   html += '</div>';
   html += '<div class="fg"><label>Bilder Nachbaranschlüsse</label>';
@@ -1773,11 +1781,11 @@ function renderMassnahmen(r, canEdit){
     html += '</select></div>';
     html += '<div></div></div>';
     html += '<div class="fg"><label>Mangel / Beschreibung</label>';
-    html += '<textarea oninput="setMnField(\''+r.id+'\',\''+m.id+'\',\'beschreibung\',this.value)"'+(canEdit?'':' disabled')+'>'+esc(m.beschreibung||'')+'</textarea>';
+    html += richFeld(r.id, 'mn::'+m.id+'::beschreibung', m.beschreibung, canEdit, {klein:true});
     html += claudeRow(canEdit, '"beschreibung"', r.id, 'mn::'+m.id+'::beschreibung');
     html += '</div>';
     html += '<div class="fg"><label>Empfehlung</label>';
-    html += '<textarea oninput="setMnField(\''+r.id+'\',\''+m.id+'\',\'empfehlung\',this.value)"'+(canEdit?'':' disabled')+'>'+esc(m.empfehlung||'')+'</textarea>';
+    html += richFeld(r.id, 'mn::'+m.id+'::empfehlung', m.empfehlung, canEdit, {klein:true});
     html += claudeRow(canEdit, '"empfehlung"', r.id, 'mn::'+m.id+'::empfehlung');
     html += '</div>';
     html += '</div>';
@@ -2153,6 +2161,50 @@ function openLightbox(src){
 }
 function closeLightbox(){ document.getElementById('lightbox').classList.add('hidden'); }
 
+// ── RICH-TEXT-FELDER ──────────────────────────────────────────
+// Feedback 24.08.2026 (Kaspar Fluck): «Möglichkeit Absätze zu machen und
+// möglichkeit Text Fett, Unterstrichen oder kursiv zu gestalten».
+// Die acht Beschreibungsfelder des Berichts sind darum contenteditable
+// (gema_richtext.js) statt <textarea>.
+//
+// Der Feld-Schlüssel ist DERSELBE wie in claudeRow ('uebersicht_*',
+// 'nachbar_text', 'kapitel::…', 'uk::…', 'mn::…') und geschrieben wird über
+// _setFieldValue — es gibt damit genau EINE Schreibstelle für Tippen und KI.
+// Im DOM steht zusätzlich die Berichts-Id davor ('<rid>|<fieldKey>'), weil der
+// onChange-Handler dokumentweit hängt und wissen muss, zu welchem Bericht das
+// Feld gehört; die UIDs sind base36 und enthalten nie ein '|'.
+function richFeld(rid, fieldKey, wert, canEdit, opts){
+  opts = opts || {};
+  if(typeof GemaRichtext === 'undefined'){
+    // Ohne den Helfer (z.B. alter Service-Worker-Cache) bleibt das Feld ein
+    // normales Textfeld: erfassen geht immer, nur ohne Formatierung.
+    var plain = String(wert==null?'':wert).replace(/<br\s*\/?>/gi,'\n').replace(/<[^>]+>/g,'');
+    return '<textarea oninput="richSet(\''+rid+'\',\''+fieldKey+'\',this.value)"'
+      + (opts.placeholder ? ' placeholder="'+esc(opts.placeholder)+'"' : '')
+      + (canEdit?'':' disabled')+'>'+esc(plain)+'</textarea>';
+  }
+  return GemaRichtext.editorHtml(rid+'|'+fieldKey, wert, {
+    readonly: !canEdit,
+    placeholder: opts.placeholder || '',
+    klein: !!opts.klein
+  });
+}
+// Speichert NUR — KEIN renderDetail (Fokus-Regel: die Detail-Ansicht wird bei
+// jedem Render komplett neu gebaut, ein Re-Render beim Tippen risse den Cursor
+// aus dem Feld).
+function richSet(rid, fieldKey, html){
+  var r = getById(rid); if(!r) return;
+  _setFieldValue(r, fieldKey, html);
+  upsert(r);
+}
+if(typeof GemaRichtext !== 'undefined'){
+  GemaRichtext.onChange(function(id, html){
+    var i = String(id).indexOf('|');
+    if(i < 0) return;
+    richSet(id.slice(0, i), id.slice(i+1), html);
+  });
+}
+
 // ── CLAUDE-AI INTEGRATION ─────────────────────────────────────
 function claudeRow(canEdit, kontext, rid, fieldKey){
   if(!canEdit) return '';
@@ -2226,7 +2278,14 @@ function claudeAction(rid, fieldKey, mode){
     return;
   }
   var r = getById(rid); if(!r) return;
-  var text = (_getFieldValue(r, fieldKey) || '').trim();
+  // Die Felder tragen seit 24.08.2026 formatiertes HTML. An die KI geht darum
+  // KLARTEXT (Auszeichnungen würde sie als Zeichen mitübersetzen), zurück
+  // kommt Klartext, der als HTML abgelegt wird — Absätze bleiben dabei
+  // erhalten. Die Formatierung des vorherigen Textes geht mit dem Umschreiben
+  // bewusst verloren: die KI liefert einen NEUEN Text, alte Fettungen liessen
+  // sich darin nicht verlässlich wiederfinden.
+  var roh = _getFieldValue(r, fieldKey);
+  var text = (typeof GemaRichtext !== 'undefined' ? GemaRichtext.toPlain(roh) : (roh||'')).trim();
   if(!text){
     GemaDialog.alert({title:'Kein Text', message:'Bitte zuerst ein paar Stichpunkte oder Sätze eingeben.'});
     return;
@@ -2235,10 +2294,15 @@ function claudeAction(rid, fieldKey, mode){
   if(statusEl) statusEl.textContent = '... wird verarbeitet';
   GemaClaude[mode==='bulletpoints'?'bulletpointsToText':mode](text)
     .then(function(newText){
-      _setFieldValue(r, fieldKey, newText);
+      var html = (typeof GemaRichtext !== 'undefined') ? GemaRichtext.fromPlain(newText) : newText;
+      _setFieldValue(r, fieldKey, html);
       upsert(r);
       if(statusEl) statusEl.textContent = '✓ Aktualisiert';
-      renderDetail(r);
+      // Nur das eine Feld nachziehen statt die ganze Detail-Ansicht neu zu
+      // bauen — ein Voll-Render schlösse offene Abschnitte und risse den
+      // Fokus aus einem anderen Feld, in dem gerade getippt wird.
+      if(typeof GemaRichtext !== 'undefined') GemaRichtext.setWert(rid+'|'+fieldKey, html);
+      else renderDetail(r);
       setTimeout(function(){ if(statusEl) statusEl.textContent = ''; }, 1500);
     })
     .catch(function(e){

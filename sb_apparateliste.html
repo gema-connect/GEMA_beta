@@ -835,6 +835,36 @@ var AP_ZUBEHOER=[
 ];
 function apExtraNeu(){ return {id:uid(),grund:'Waschtisch',ausfuehrung:'',material:'',zub:{},spezielles:'',menge:1}; }
 
+/* ── IV-Ausstattung (Feedback 24.08.2026, Sandro Caso: «"IV" ergänzen») ────
+   Barrierefreie Zusatzausstattung je Apparat, Mehrfachauswahl. Die Liste ist
+   für ALLE Apparate dieselbe (Badewanne/Waschtisch/WC/Dusche) — darum EIN
+   Katalog und EIN Renderer (ivGbox) statt vier Kopien. Das Feld heisst
+   <apparat>IV und ist rein ADDITIV: ein Raum ohne das Feld verhält sich
+   unverändert (normDraft ergänzt es leer). */
+var AP_IV=[
+  {k:'haltegriffe',  l:'Haltegriffe',  ic:'🤝'},
+  {k:'rueckenlehne', l:'Rückenlehne',  ic:'🪑'},
+  {k:'upsiphon',     l:'UP-Siphon',    ic:'🚰'},
+  {k:'ablage',       l:'Ablage',       ic:'🗂'},
+  {k:'haken',        l:'Haken',        ic:'🪝'}
+];
+function apIvLeer(){ var o={}; AP_IV.forEach(function(x){o[x.k]=false;}); return o; }
+function apIvNorm(v){ return Object.assign(apIvLeer(), (v&&typeof v==='object')?v:{}); }
+function apIvLabels(v){ v=v||{}; return AP_IV.filter(function(x){return !!v[x.k];}).map(function(x){return 'IV '+x.l;}); }
+
+/* Accessoires Dusche (Feedback 24.08.2026): benannte Liste statt Ja/Nein.
+   Der alte Boolean `showerAccessories` bleibt lesbar — buildRows gibt ihn nur
+   noch aus, solange KEINE benannte Auswahl existiert (Altbestand verliert
+   damit nichts, neue Erfassungen sind konkret). */
+var AP_SHOWER_GARN=[
+  {k:'gleitstange', l:'Gleitstange',    ic:'📏'},
+  {k:'schlauch',    l:'Brauseschlauch', ic:'〰️'},
+  {k:'brause',      l:'Handbrause',     ic:'🚿'},
+  {k:'haltegriff',  l:'Haltegriff',     ic:'🤝'},
+  {k:'seifenhalter',l:'Seifenhalter',   ic:'🧴'}
+];
+function apShowerGarnLeer(){ var o={}; AP_SHOWER_GARN.forEach(function(x){o[x.k]=false;}); return o; }
+
 /* ── Apparat-Status (Feedback 05.08.2026) ─────────────────────────────────
    Statt der Ja/Nein-Gruppe trägt jeder Apparat einen Status:
      'ja'       — übernehmen (Normalfall, Konfiguration aktiv)
@@ -872,14 +902,18 @@ function newDraft(){
   return {
     id:uid(),roomType:'Badezimmer',roomName:'',floor:'EG',qty:1,
     extras:[],                                                   // frei erfasste Apparate (Feedback 28.07.2026)
-    standard:d.standard||'',                                     // Ausbaustandard einfach/mittel/hoch (Feedback 07/2026)
+    standard:d.standard||'',                                     // Ausbaustandard einfach/mittel/hoch (Feedback 07/2026) — Raum-weit, Fallback je Apparat
     hasBathtub:true,bathtubType:d.bathtubType,bathtubFaucet:d.bathtubFaucet,bathtubThermostat:!!d.bathtubThermostat,bathtubAccessories:!!d.bathtubAccessories,bathtubUnderbuild:!!d.bathtubUnderbuild,bathtubSize:d.bathtubSize||'',
+    bathtubStandard:'',bathtubIV:apIvLeer(),
     hasWashbasin:true,washbasinType:d.washbasinType,washbasinFaucet:d.washbasinFaucet,washbasinVanity:!!d.washbasinVanity,washbasinDuofix:d.washbasinDuofix||'none',washbasinMeterRun:!!d.washbasinMeterRun,mirror:d.mirror,
     washbasinSize:d.washbasinSize||'',washbasinMount:!!d.washbasinMount,washbasinSiphon:!!d.washbasinSiphon,washbasinSound:!!d.washbasinSound,
+    washbasinStandard:'',washbasinFaucetTyp:'',mirrorMount:'',washbasinIV:apIvLeer(),
     washbasinGarn:Object.assign({glashalter:false,handtuchhalter:false,seifenhalter:false,ablage:false},d.washbasinGarn||{}),
     hasWC:true,wcType:d.wcType,wcFeature:d.wcFeature||'rimless',flushType:d.flushType,upCisternHeight:d.upCisternHeight,wcSeat:!!d.wcSeat,wcSoundInsulation:!!d.wcSoundInsulation,
+    wcStandard:'',wcIV:apIvLeer(),
     wcGarn:Object.assign({papierhalter:false,buerste:false},d.wcGarn||{}),
     hasShower:true,showerDrain:d.showerDrain,showerScreen:d.showerScreen,showerFaucet:d.showerFaucet,showerThermostat:!!d.showerThermostat,showerAccessories:!!d.showerAccessories,showerUnderbuild:!!d.showerUnderbuild,showerSize:d.showerSize||'',
+    showerStandard:'',showerGarn:apShowerGarnLeer(),showerIV:apIvLeer(),
     hasBidet:!!d.bidetDefault,kitchenHasGS:!!d.kitchenHasGS,laundrySets:clamp(d.laundrySets,1,50),gardenVents:clamp(d.gardenVents,0,99),
     apStatus:{bath:'ja',washbasin:'ja',wc:'ja',shower:'ja',bidet:(d.bidetDefault?'ja':'nicht')}
   };
@@ -892,6 +926,15 @@ function normDraft(d){
   d.washbasinMount=!!d.washbasinMount; d.washbasinSiphon=!!d.washbasinSiphon; d.washbasinSound=!!d.washbasinSound;
   d.washbasinGarn=Object.assign({glashalter:false,handtuchhalter:false,seifenhalter:false,ablage:false},d.washbasinGarn||{});
   d.wcGarn=Object.assign({papierhalter:false,buerste:false},d.wcGarn||{});
+  /* Feedback 24.08.2026 (Sandro Caso) — Standard je Apparat, Armatur-Bedienung,
+     Spiegel-Montage, Dusch-Accessoires und IV-Ausstattung. ALLES ADDITIV:
+     leer = unverändertes Verhalten des Altbestands (der Apparate-Standard
+     fällt auf den Raum-Standard zurück, siehe buildRows/stdFor). */
+  ['bathtubStandard','washbasinStandard','wcStandard','showerStandard'].forEach(function(k){ d[k]=d[k]||''; });
+  d.washbasinFaucetTyp=d.washbasinFaucetTyp||'';
+  d.mirrorMount=d.mirrorMount||'';
+  d.showerGarn=Object.assign(apShowerGarnLeer(),d.showerGarn||{});
+  ['bathtubIV','washbasinIV','wcIV','showerIV'].forEach(function(k){ d[k]=apIvNorm(d[k]); });
   /* Freie Apparate (Feedback 28.07.2026) — Altbestand hat das Feld nicht */
   d.extras=Array.isArray(d.extras)?d.extras.map(function(x){
     return {id:x.id||uid(),grund:x.grund||'Sonstiges',ausfuehrung:x.ausfuehrung||'',material:x.material||'',
@@ -1078,12 +1121,17 @@ function numGbox(title,id,val,label,min,max,onInput){
   setTimeout(()=>{const el=$(id);if(el){el.addEventListener('input',e=>onInput(e.target.value));el.addEventListener('focus',()=>el.style.borderColor='var(--blue)');el.addEventListener('blur',()=>el.style.borderColor='var(--brd2)');}},0);
 }
 
-// helper: Abmessungs-Auswahl (Standardmasse + eigenes Mass — Feedback 07/2026)
+/* helper: Abmessungs-Auswahl (Standardmasse + eigenes Mass — Feedback 07/2026)
+   Feedback 24.08.2026: dazu «Gemäss Planunterlagen» (Wert 'plan') — die
+   Massangabe steht dann im Plan und wird hier bewusst NICHT erfunden.
+   Das Freitext-Feld zeigt 'plan' NIE als eigenes Mass (isStd deckt es ab). */
+const AP_SIZE_PLAN='plan';
 function sizeGbox(title, field, sizes){
   const d=wizard.draft;
-  const isStd=sizes.indexOf(d[field])>=0;
+  const isStd=sizes.indexOf(d[field])>=0||d[field]===AP_SIZE_PLAN;
   gbox(title,[
     {sel:!d[field], icon:'➖', title:'Keine Angabe', desc:'', onClick:()=>d[field]=''},
+    {sel:d[field]===AP_SIZE_PLAN, icon:'📋', title:'Gemäss Planunterlagen', desc:'Mass aus dem Plan', onClick:()=>d[field]=AP_SIZE_PLAN},
     ...sizes.map(s=>({sel:d[field]===s, icon:'📐', title:s+' cm', desc:'Standardmass', onClick:()=>d[field]=s}))
   ],
   `<div style="margin-top:8px;display:flex;flex-direction:column;gap:5px;max-width:220px"><label style="font-size:10.5px;font-weight:700;color:var(--mut)">Eigenes Mass (cm)</label><input id="sz_${field}" value="${esc(!isStd?(d[field]||''):'')}" placeholder="z.B. 45×55" style="padding:9px 12px;border:1.5px solid var(--brd2);border-radius:9px;font-size:13.5px;background:var(--bg2);outline:none"/></div>`);
@@ -1094,16 +1142,32 @@ function sizeGbox(title, field, sizes){
   },0);
 }
 
-// Ausbaustandard (einfach/mittel/hoch) — Raum-weit, erscheint pro Apparat in den Details
+/* Ausbaustandard (einfach/mittel/hoch)
+   Ohne Feld-Angabe = RAUM-weit (Schritt «Raum»); mit Feld = PRO APPARAT
+   (Feedback 24.08.2026). Ein leerer Apparate-Standard fällt auf den
+   Raum-Standard zurück (stdFor in buildRows) — der Raum-Standard bleibt
+   damit die Vorgabe, ein Apparat kann aber davon abweichen. */
 const STD_LABELS={einfach:'Standard einfach',mittel:'Standard mittel',hoch:'Standard hoch'};
-function standardGbox(){
+function standardGbox(field){
   const d=wizard.draft;
-  gbox('Ausbaustandard',[
-    {sel:!d.standard,          icon:'➖', title:'Keine Angabe', desc:'',                 onClick:()=>d.standard=''},
-    {sel:d.standard==='einfach',icon:'⭐', title:'Einfach',     desc:'Basis-Ausführung', onClick:()=>d.standard='einfach'},
-    {sel:d.standard==='mittel', icon:'⭐⭐', title:'Mittel',     desc:'Standard',          onClick:()=>d.standard='mittel'},
-    {sel:d.standard==='hoch',   icon:'⭐⭐⭐', title:'Hoch',      desc:'gehobene Ausführung',onClick:()=>d.standard='hoch'},
+  const f=field||'standard';
+  const raumL=(field&&d.standard)?({einfach:'einfach',mittel:'mittel',hoch:'hoch'}[d.standard]||''):'';
+  gbox(field?'Standard':'Ausbaustandard',[
+    {sel:!d[f],          icon:'➖', title:field?('Wie Raum'+(raumL?' ('+raumL+')':'')):'Keine Angabe', desc:field?'Raum-Standard übernehmen':'', onClick:()=>d[f]=''},
+    {sel:d[f]==='einfach',icon:'⭐', title:'Einfach',     desc:'Basis-Ausführung', onClick:()=>d[f]='einfach'},
+    {sel:d[f]==='mittel', icon:'⭐⭐', title:'Mittel',     desc:'Standard',          onClick:()=>d[f]='mittel'},
+    {sel:d[f]==='hoch',   icon:'⭐⭐⭐', title:'Hoch',      desc:'gehobene Ausführung',onClick:()=>d[f]='hoch'},
   ]);
+}
+
+/* IV-Ausstattung je Apparat (Feedback 24.08.2026) — Mehrfachauswahl über den
+   geteilten Katalog AP_IV, damit alle vier Apparate dieselbe Liste zeigen. */
+function ivGbox(field){
+  const d=wizard.draft;
+  d[field]=apIvNorm(d[field]);
+  gbox('IV (Mehrfachauswahl)', AP_IV.map(function(x){
+    return {sel:!!d[field][x.k], icon:x.ic, title:x.l, desc:'', onClick:function(){ d[field][x.k]=!d[field][x.k]; }};
+  }));
 }
 
 // ── STEP RENDERERS ──
@@ -1146,7 +1210,8 @@ function renderBath(){
   const dis=d.roomType!=='Badezimmer'&&d.roomType!=='Ohne Raum';
   stepHd('🛁','Badewanne','Status oben wählen — bauseits/nicht vorhanden graut die Auswahl aus.','bath',dis);
   wizard.off=apStatus(d,'bath')!=='ja';
-  gbox('Ausführung & Armatur',[
+  standardGbox('bathtubStandard');
+  gbox('Ausführung + Armatur',[
     {sel:d.bathtubType==='normal',    icon:'🛁',  title:'Normal',    desc:'Standard',    onClick:()=>d.bathtubType='normal'},
     {sel:d.bathtubType==='freistehend',icon:'✨', title:'Freistehend',desc:'Design',     onClick:()=>d.bathtubType='freistehend'},
     {sel:d.bathtubFaucet==='UP',      icon:'🧱',  title:'Armatur UP', desc:'Unterputz',  onClick:()=>d.bathtubFaucet='UP'},
@@ -1159,67 +1224,97 @@ function renderBath(){
     {sel:d.bathtubAccessories===true, icon:'🧴',  title:'Accessoires',    desc:'Seifenhalter etc.',onClick:()=>d.bathtubAccessories=true},
     {sel:d.bathtubAccessories===false,icon:'➖',  title:'Ohne Accessoires',desc:'',               onClick:()=>d.bathtubAccessories=false},
   ]);
+  /* KEINE Möbel-Gruppe bei der Badewanne (Feedback 24.08.2026 #3, Sandro Caso:
+     «Möbel bei Badewanne löschen»). Möbel gehören zum Waschtisch (Feedback #2,
+     eigene Gruppe dort). Das «Unterbauelement» unten ist der Wannenträger und
+     bleibt bewusst stehen — es ist kein Möbel. */
   gbox('Unterbauelement',[
-    {sel:d.bathtubUnderbuild===true,  icon:'🧱',  title:'Mit Unterbau',  desc:'Standardhöhe',     onClick:()=>d.bathtubUnderbuild=true},
+    {sel:d.bathtubUnderbuild===true,  icon:'📦',  title:'Mit Unterbau',  desc:'Wannenträger',     onClick:()=>d.bathtubUnderbuild=true},
     {sel:d.bathtubUnderbuild===false, icon:'➖',  title:'Ohne Unterbau', desc:'nicht übernehmen', onClick:()=>d.bathtubUnderbuild=false},
   ]);
+  ivGbox('bathtubIV');
 }
 
 function renderWashbasin(){
   const d=wizard.draft;
-  stepHd('🪞','Waschtisch','Typ, Armatur, Duofix-Unterbau und Zubehör.','washbasin');
+  stepHd('🪞','Waschtisch','Standard, Armatur, Ergänzung, Accessoire und Möbel.','washbasin');
   wizard.off=apStatus(d,'washbasin')!=='ja';
-  gbox('Typ & Armatur',[
+  standardGbox('washbasinStandard');
+  gbox('Typ',[
     {sel:d.washbasinType==='normal', icon:'🧼',title:'Normal',     desc:'Standard',  onClick:()=>d.washbasinType='normal'},
     {sel:d.washbasinType==='aufsatz',icon:'⬜',title:'Aufsatz',    desc:'Auflegewaschtisch', onClick:()=>d.washbasinType='aufsatz'},
-    {sel:d.washbasinFaucet==='UP',   icon:'🧱',title:'Armatur UP', desc:'Unterputz', onClick:()=>d.washbasinFaucet='UP'},
-    {sel:d.washbasinFaucet==='AP',   icon:'🔩',title:'Armatur AP', desc:'Aufputz',   onClick:()=>d.washbasinFaucet='AP'},
   ]);
   sizeGbox('Abmessung','washbasinSize',['40×50','55×45','60×48','70×50','90×48','120×50']);
-  gbox('Befestigung, Siphon & Schallschutz',[
-    {sel:d.washbasinMount===true,  icon:'🔩',title:'Befestigungsset', desc:'inkl. Montage',   onClick:()=>d.washbasinMount=!d.washbasinMount},
-    {sel:d.washbasinSiphon===true, icon:'🪈',title:'Siphon-Set',      desc:'Ablaufgarnitur',  onClick:()=>d.washbasinSiphon=!d.washbasinSiphon},
-    {sel:d.washbasinSound===true,  icon:'🧩',title:'Schallschutzset', desc:'Entkopplung',     onClick:()=>d.washbasinSound=!d.washbasinSound},
+  /* Armatur (Feedback 24.08.2026 #2): «UP / AP / Nur KW - Hebel / Drehknopf /
+     Sensor / Druck» — Montageart UND Bedienung, darum zwei Zeilen in EINER
+     Gruppe. `washbasinFaucet` bleibt das bestehende Feld (Werte UP/AP, neu
+     zusätzlich KW), die Bedienung liegt additiv in `washbasinFaucetTyp`. */
+  gbox('Armatur',[
+    {sel:d.washbasinFaucet==='UP',   icon:'🧱',title:'UP',     desc:'Unterputz', onClick:()=>d.washbasinFaucet='UP'},
+    {sel:d.washbasinFaucet==='AP',   icon:'🔩',title:'AP',     desc:'Aufputz',   onClick:()=>d.washbasinFaucet='AP'},
+    {sel:d.washbasinFaucet==='KW',   icon:'❄️',title:'Nur KW', desc:'nur Kaltwasser', onClick:()=>d.washbasinFaucet='KW'},
+    {sel:!d.washbasinFaucetTyp,          icon:'➖',title:'Bedienung offen',desc:'keine Angabe', onClick:()=>d.washbasinFaucetTyp=''},
+    {sel:d.washbasinFaucetTyp==='hebel', icon:'🕹️',title:'Hebel',      desc:'Einhebelmischer', onClick:()=>d.washbasinFaucetTyp='hebel'},
+    {sel:d.washbasinFaucetTyp==='drehknopf',icon:'🎛️',title:'Drehknopf',desc:'Zweigriff',      onClick:()=>d.washbasinFaucetTyp='drehknopf'},
+    {sel:d.washbasinFaucetTyp==='sensor',icon:'📡',title:'Sensor',     desc:'berührungslos',   onClick:()=>d.washbasinFaucetTyp='sensor'},
+    {sel:d.washbasinFaucetTyp==='druck', icon:'👆',title:'Druck',      desc:'Selbstschluss',   onClick:()=>d.washbasinFaucetTyp='druck'},
+  ]);
+  gbox('Befestigung, Siphon + Schallschutz',[
+    {sel:d.washbasinMount===true,  icon:'🔧',title:'Befestigungsset', desc:'inkl. Montage',   onClick:()=>d.washbasinMount=!d.washbasinMount},
+    {sel:d.washbasinSiphon===true, icon:'💧',title:'Siphon-Set',      desc:'Ablaufgarnitur',  onClick:()=>d.washbasinSiphon=!d.washbasinSiphon},
+    {sel:d.washbasinSound===true,  icon:'🔇',title:'Schallschutzset', desc:'Entkopplung',     onClick:()=>d.washbasinSound=!d.washbasinSound},
   ]);
   gbox('Duofix-Unterbauelement',[
     {sel:d.washbasinDuofix==='none', icon:'➖',title:'Keins',              desc:'ohne Duofix',   onClick:()=>{d.washbasinDuofix='none';}},
-    {sel:d.washbasinDuofix==='ohne', icon:'🧱',title:'Duofix ohne Unterbau',desc:'Wand-Element',  onClick:()=>{d.washbasinDuofix='ohne';d.washbasinVanity=false;}},
+    {sel:d.washbasinDuofix==='ohne', icon:'🏗',title:'Duofix ohne Unterbau',desc:'Wand-Element',  onClick:()=>{d.washbasinDuofix='ohne';d.washbasinVanity=false;}},
     {sel:d.washbasinDuofix==='82',   icon:'📏',title:'Duofix 82 cm',       desc:'niedrig',       onClick:()=>{d.washbasinDuofix='82';d.washbasinVanity=false;}},
     {sel:d.washbasinDuofix==='98',   icon:'📏',title:'Duofix 98 cm',       desc:'standard',      onClick:()=>{d.washbasinDuofix='98';d.washbasinVanity=false;}},
     {sel:d.washbasinDuofix==='112',  icon:'📏',title:'Duofix 112 cm',      desc:'hoch',          onClick:()=>{d.washbasinDuofix='112';d.washbasinVanity=false;}},
   ]);
   const vanDis = d.washbasinDuofix!=='none';
-  gbox('Zubehör & Möbel',[
-    {sel:d.washbasinVanity===true,   icon:'🧰',title:'Unterbaumöbel',  desc:'mit Möbel',     dis:vanDis, onClick:()=>d.washbasinVanity=true},
-    {sel:d.washbasinVanity===false,  icon:'➖',title:'Ohne Möbel',     desc:'',               onClick:()=>d.washbasinVanity=false},
-    {sel:d.washbasinMeterRun===true, icon:'📏',title:'WZ-Strecke',     desc:'unter Waschtisch',onClick:()=>d.washbasinMeterRun=true},
-    {sel:d.washbasinMeterRun===false,icon:'➖',title:'Ohne WZ-Strecke',desc:'',               onClick:()=>d.washbasinMeterRun=false},
-    {sel:d.mirror==='spiegel',       icon:'🪞',title:'Spiegel',        desc:'Spiegel',       onClick:()=>d.mirror='spiegel'},
-    {sel:d.mirror==='spiegelschrank',icon:'🧳',title:'Spiegelschrank', desc:'mit Stauraum',  onClick:()=>d.mirror='spiegelschrank'},
-    {sel:d.mirror==='nein',          icon:'🚫',title:'Kein Spiegel',   desc:'',              onClick:()=>d.mirror='nein'},
+  /* Ergänzung (Feedback #2): «Spiegel / Spiegelschrank - UP/AP (nur bei
+     Spiegelschrank)» — die Montageart ist ausgegraut, solange kein
+     Spiegelschrank gewählt ist. */
+  const msDis = d.mirror!=='spiegelschrank';
+  gbox('Ergänzung',[
+    {sel:d.mirror==='nein',          icon:'🚫',title:'Kein Spiegel',   desc:'',              onClick:()=>{d.mirror='nein';d.mirrorMount='';}},
+    {sel:d.mirror==='spiegel',       icon:'🪞',title:'Spiegel',        desc:'ohne Stauraum', onClick:()=>{d.mirror='spiegel';d.mirrorMount='';}},
+    {sel:d.mirror==='spiegelschrank',icon:'🗄',title:'Spiegelschrank', desc:'mit Stauraum',  onClick:()=>d.mirror='spiegelschrank'},
+    {sel:d.mirror==='spiegelschrank'&&d.mirrorMount==='UP',icon:'🧱',title:'Schrank UP',desc:'eingelassen', dis:msDis, onClick:()=>d.mirrorMount='UP'},
+    {sel:d.mirror==='spiegelschrank'&&d.mirrorMount==='AP',icon:'🔩',title:'Schrank AP',desc:'aufgesetzt',  dis:msDis, onClick:()=>d.mirrorMount='AP'},
   ]);
-  gbox('Garnituren (Mehrfachauswahl)',[
-    {sel:!!d.washbasinGarn.glashalter,    icon:'🥛',title:'Glashalter',    desc:'',          onClick:()=>d.washbasinGarn.glashalter=!d.washbasinGarn.glashalter},
+  gbox('Accessoire (Mehrfachauswahl)',[
     {sel:!!d.washbasinGarn.handtuchhalter,icon:'🧺',title:'Handtuchhalter',desc:'',          onClick:()=>d.washbasinGarn.handtuchhalter=!d.washbasinGarn.handtuchhalter},
-    {sel:!!d.washbasinGarn.seifenhalter,  icon:'🧼',title:'Seifenhalter',  desc:'/-spender', onClick:()=>d.washbasinGarn.seifenhalter=!d.washbasinGarn.seifenhalter},
-    {sel:!!d.washbasinGarn.ablage,        icon:'🗄',title:'Ablage',        desc:'Konsole',   onClick:()=>d.washbasinGarn.ablage=!d.washbasinGarn.ablage},
+    {sel:!!d.washbasinGarn.seifenhalter,  icon:'🧴',title:'Seifenhalter',  desc:'/-spender', onClick:()=>d.washbasinGarn.seifenhalter=!d.washbasinGarn.seifenhalter},
+    {sel:!!d.washbasinGarn.glashalter,    icon:'🥛',title:'Glashalter',    desc:'',          onClick:()=>d.washbasinGarn.glashalter=!d.washbasinGarn.glashalter},
+    {sel:!!d.washbasinGarn.ablage,        icon:'📚',title:'Ablage',        desc:'Konsole',   onClick:()=>d.washbasinGarn.ablage=!d.washbasinGarn.ablage},
   ]);
+  gbox('Möbel',[
+    {sel:d.washbasinVanity===true,   icon:'🚪',title:'Mit Möbel',      desc:'Unterbaumöbel', dis:vanDis, onClick:()=>d.washbasinVanity=true},
+    {sel:d.washbasinVanity===false,  icon:'➖',title:'Ohne Möbel',     desc:'',               onClick:()=>d.washbasinVanity=false},
+  ]);
+  gbox('Weiteres',[
+    {sel:d.washbasinMeterRun===true, icon:'📐',title:'WZ-Strecke',     desc:'unter Waschtisch',onClick:()=>d.washbasinMeterRun=true},
+    {sel:d.washbasinMeterRun===false,icon:'➖',title:'Ohne WZ-Strecke',desc:'',               onClick:()=>d.washbasinMeterRun=false},
+  ]);
+  ivGbox('washbasinIV');
   if(vanDis)$('modalBody').insertAdjacentHTML('beforeend','<div class="hint">Hinweis: Bei Duofix-Unterbau ist Möbel deaktiviert.</div>');
 }
 
 function renderWC(){
   const d=wizard.draft;
-  stepHd('🚽','WC','Typ, Feature (rimless/Silentflush), Spülkasten, Zubehör.','wc');
+  stepHd('🚽','WC','Standard, Typ, Feature, Spülkasten, Zubehör und IV.','wc');
   wizard.off=apStatus(d,'wc')!=='ja';
-  gbox('Keramik & Feature',[
+  standardGbox('wcStandard');
+  gbox('Keramik + Feature',[
     {sel:d.wcType==='wand',          icon:'🧱',title:'Wand-WC',   desc:'hängend',       onClick:()=>d.wcType='wand'},
     {sel:d.wcType==='stand',         icon:'⬇️',title:'Stand-WC',  desc:'stehend',       onClick:()=>d.wcType='stand'},
     {sel:d.wcFeature==='normal',     icon:'◻️',title:'Normal',    desc:'Standard',      onClick:()=>d.wcFeature='normal'},
     {sel:d.wcFeature==='rimless',    icon:'✨',title:'Rimless',   desc:'spülrandlos',   onClick:()=>d.wcFeature='rimless'},
-    {sel:d.wcFeature==='silentflush',icon:'🔇',title:'Silentflush',desc:'leise Spülung',onClick:()=>d.wcFeature='silentflush'},
+    {sel:d.wcFeature==='silentflush',icon:'🤫',title:'Silentflush',desc:'leise Spülung',onClick:()=>d.wcFeature='silentflush'},
   ]);
   const upDis = d.flushType!=='UP';
-  gbox('Spülkasten & UP-Höhe',[
+  gbox('Spülkasten + UP-Höhe',[
     {sel:d.flushType==='UP',                              icon:'🧱',title:'UP-Spülkasten',desc:'Unterputz', onClick:()=>{d.flushType='UP';}},
     {sel:d.flushType==='AP',                              icon:'📦',title:'AP-Spülkasten',desc:'Aufputz',   onClick:()=>{d.flushType='AP';}},
     {sel:d.flushType==='UP'&&d.upCisternHeight==='82',    icon:'📏',title:'UP Höhe 82',   desc:'niedrig',   dis:upDis, onClick:()=>d.upCisternHeight='82'},
@@ -1229,40 +1324,53 @@ function renderWC(){
   gbox('Zubehör',[
     {sel:d.wcSeat===true,           icon:'🪑',title:'WC-Deckel',      desc:'WC-Sitz',          onClick:()=>d.wcSeat=true},
     {sel:d.wcSeat===false,          icon:'➖',title:'Ohne Deckel',     desc:'',                 onClick:()=>d.wcSeat=false},
-    {sel:d.wcSoundInsulation===true, icon:'🧩',title:'Schallschutz',   desc:'Set',              onClick:()=>d.wcSoundInsulation=true},
+    {sel:d.wcSoundInsulation===true, icon:'🔇',title:'Schallschutz',   desc:'Set',              onClick:()=>d.wcSoundInsulation=true},
     {sel:d.wcSoundInsulation===false,icon:'➖',title:'Ohne Schallschutz',desc:'',               onClick:()=>d.wcSoundInsulation=false},
   ]);
-  gbox('Garnituren (Mehrfachauswahl)',[
+  gbox('Accessoire (Mehrfachauswahl)',[
     {sel:!!d.wcGarn.papierhalter,icon:'🧻',title:'WC-Papierhalter',  desc:'',        onClick:()=>d.wcGarn.papierhalter=!d.wcGarn.papierhalter},
     {sel:!!d.wcGarn.buerste,     icon:'🧹',title:'WC-Bürstengarnitur',desc:'',       onClick:()=>d.wcGarn.buerste=!d.wcGarn.buerste},
   ]);
+  ivGbox('wcIV');
 }
 
 function renderShower(){
   const d=wizard.draft;
-  stepHd('🚿','Dusche','Ablauf, Abtrennung, Armatur, Accessoires und Unterbau.','shower');
+  stepHd('🚿','Dusche','Standard, Ausführung, Massangabe, Armatur, Accessoire und IV.','shower');
   wizard.off=apStatus(d,'shower')!=='ja';
-  gbox('Ausführung & Abtrennung',[
+  standardGbox('showerStandard');
+  gbox('Ausführung + Abtrennung',[
     {sel:d.showerDrain==='wanne',         icon:'🛁',title:'Duschwanne',    desc:'Wanne',                    onClick:()=>d.showerDrain='wanne'},
-    {sel:d.showerDrain==='rinne',         icon:'🧱',title:'Duschrinne',    desc:'bodengleich',              onClick:()=>d.showerDrain='rinne'},
+    {sel:d.showerDrain==='rinne',         icon:'🕳️',title:'Duschrinne',    desc:'bodengleich',              onClick:()=>d.showerDrain='rinne'},
     {sel:d.showerScreen==='glas_mit_tuer',icon:'🚪',title:'Glas mit Türe', desc:'Trennwand',                onClick:()=>d.showerScreen='glas_mit_tuer'},
     {sel:d.showerScreen==='glas_ohne_tuer',icon:'🪟',title:'Glas ohne Türe',desc:'Fixglas',                 onClick:()=>d.showerScreen='glas_ohne_tuer'},
     {sel:d.showerScreen==='vorhang',      icon:'🧵',title:'Duschvorhang',  desc:'Vorhang',                  onClick:()=>d.showerScreen='vorhang'},
     {sel:d.showerScreen==='nein',         icon:'🚫',title:'Keine Abtrennung',desc:'',                       onClick:()=>d.showerScreen='nein'},
   ]);
-  gbox('Armatur & Optionen',[
-    {sel:d.showerFaucet==='UP',       icon:'🧱',title:'Armatur UP',      desc:'Unterputz',        onClick:()=>d.showerFaucet='UP'},
-    {sel:d.showerFaucet==='AP',       icon:'🔩',title:'Armatur AP',      desc:'Aufputz',          onClick:()=>d.showerFaucet='AP'},
+  sizeGbox('Abmessung','showerSize',['80×80','90×90','100×90','120×80','120×90']);
+  /* Armatur (Feedback 24.08.2026 #4): «UP / AP / Thermostat» — Montageart und
+     Thermostat stehen im Feedback in EINER Zeile, sind aber unabhängig
+     (ein UP-Mischer kann Thermostat sein oder nicht). Darum eine Gruppe mit
+     zwei Zeilen: Montage oben, Thermostat darunter. */
+  gbox('Armatur',[
+    {sel:d.showerFaucet==='UP',       icon:'🧱',title:'UP',             desc:'Unterputz',        onClick:()=>d.showerFaucet='UP'},
+    {sel:d.showerFaucet==='AP',       icon:'🔩',title:'AP',             desc:'Aufputz',          onClick:()=>d.showerFaucet='AP'},
     {sel:d.showerThermostat===true,   icon:'🌡️',title:'Thermostat',      desc:'Thermostatmischer',onClick:()=>d.showerThermostat=true},
-    {sel:d.showerThermostat===false,  icon:'⚙️',title:'Ohne Thermostat', desc:'Standardmischer',  onClick:()=>d.showerThermostat=false},
-    {sel:d.showerAccessories===true,  icon:'🧴',title:'Accessoires',     desc:'Gleitstange etc.', onClick:()=>d.showerAccessories=true},
-    {sel:d.showerAccessories===false, icon:'➖',title:'Ohne Accessoires', desc:'',                 onClick:()=>d.showerAccessories=false},
+    {sel:d.showerThermostat===false,  icon:'🎚️',title:'Ohne Thermostat', desc:'Standardmischer',  onClick:()=>d.showerThermostat=false},
   ]);
+  /* Accessoire (Feedback 24.08.2026 #4): benannte Mehrfachauswahl statt des
+     früheren Ja/Nein-Paars. Der alte Boolean showerAccessories bleibt im
+     Datensatz lesbar (buildRows gibt ihn aus, solange KEINE benannte Auswahl
+     besteht) — Altbestand verliert damit nichts. */
+  d.showerGarn=Object.assign(apShowerGarnLeer(),d.showerGarn||{});
+  gbox('Accessoire (Mehrfachauswahl)', AP_SHOWER_GARN.map(function(x){
+    return {sel:!!d.showerGarn[x.k], icon:x.ic, title:x.l, desc:'', onClick:function(){ d.showerGarn[x.k]=!d.showerGarn[x.k]; }};
+  }));
   gbox('Unterbauelement',[
-    {sel:d.showerUnderbuild===true,  icon:'🧱',title:'Mit Unterbau', desc:'Standardhöhe',     onClick:()=>d.showerUnderbuild=true},
+    {sel:d.showerUnderbuild===true,  icon:'📦',title:'Mit Unterbau', desc:'Standardhöhe',     onClick:()=>d.showerUnderbuild=true},
     {sel:d.showerUnderbuild===false, icon:'➖',title:'Ohne Unterbau',desc:'nicht übernehmen',onClick:()=>d.showerUnderbuild=false},
   ]);
-  sizeGbox('Abmessung','showerSize',['80×80','90×90','100×90','120×80','120×90']);
+  ivGbox('showerIV');
 }
 
 function renderBidet(){
@@ -1381,8 +1489,27 @@ function buildRows(room){
   };
   // Ausbaustandard + Abmessungen + Garnituren (Feedback 07/2026; Altbestand ohne Felder → keine Details)
   const stdL=room.standard?({einfach:'Standard einfach',mittel:'Standard mittel',hoch:'Standard hoch'}[room.standard]||null):null;
-  const sz=f=>room[f]?`Mass ${room[f]} cm`:null;
+  /* Standard PRO APPARAT (Feedback 24.08.2026) — ein leeres Apparate-Feld
+     fällt auf den RAUM-Standard zurück (stdL). Damit bleibt der Raum-Standard
+     die Vorgabe und Altbestand ohne die neuen Felder verhält sich unverändert. */
+  const stdFor=f=>{
+    const v=room[f];
+    return v?({einfach:'Standard einfach',mittel:'Standard mittel',hoch:'Standard hoch'}[v]||null):stdL;
+  };
+  /* Massangabe (Feedback 24.08.2026): «aus Plan / Freies Textfeld / DropDown».
+     Der Wert 'plan' bedeutet «steht in den Planunterlagen» — dann wird hier
+     bewusst KEIN Mass erfunden, sondern der Verweis ausgegeben. */
+  const sz=f=>room[f]?(room[f]===AP_SIZE_PLAN?'Mass gemäss Planunterlagen':`Mass ${room[f]} cm`):null;
   const wbG=room.washbasinGarn||{}, wcG=room.wcGarn||{};
+  const shG=room.showerGarn||{};
+  /* Armatur-Bedienung Waschtisch (Feedback 24.08.2026 #2) */
+  const WB_FAUCET_TYP={hebel:'Hebel',drehknopf:'Drehknopf',sensor:'Sensor',druck:'Druckspüler'};
+  const wbFaucetTyp=room.washbasinFaucetTyp?(WB_FAUCET_TYP[room.washbasinFaucetTyp]||null):null;
+  const wbFaucet=room.washbasinFaucet==='KW'?'Armatur nur KW':`Armatur ${room.washbasinFaucet}`;
+  /* Spiegelschrank-Montage (Feedback #2: «UP/AP nur bei Spiegelschrank») */
+  const spiegelL=room.mirror==='spiegelschrank'
+    ? ('Spiegelschrank'+(room.mirrorMount?' '+room.mirrorMount:''))
+    : (room.mirror==='spiegel'?'Spiegel':null);
   /* Status «bauseits» (Feedback 05.08.2026): der Apparat ist da, wird aber
      bauseits gestellt — er erscheint als Zeile mit dem Vermerk «bauseits»
      (nichts wird vergessen), ohne Konfigurations-Details. Altbestand ohne
@@ -1392,13 +1519,22 @@ function buildRows(room){
   if(room.roomType==='Waschküche'){const s=Math.max(1,room.laundrySets||1);push('Waschtrog',s*m,['Waschtrog',stdL]);push('Anschluss-Set',s*m,['WM/WT Anschluss-Set']);return apPushExtras();}
   if(room.roomType==='Umgebung'){const v=Math.max(0,room.gardenVents||0);if(v>0)push('Gartenventil',v*m,['Aussenwasser']);return apPushExtras();}
   if(bs('bath'))push('Badewanne',1*m,['bauseits']);
-  else if(room.hasBathtub)push('Badewanne',1*m,[room.bathtubType==='freistehend'?'Freistehend':'Normal',sz('bathtubSize'),stdL,`Armatur ${room.bathtubFaucet}`,room.bathtubThermostat?'Thermostat':null,room.bathtubAccessories?'Accessoires':null,room.bathtubUnderbuild?'Unterbauelement':null]);
+  else if(room.hasBathtub)push('Badewanne',1*m,[room.bathtubType==='freistehend'?'Freistehend':'Normal',sz('bathtubSize'),stdFor('bathtubStandard'),`Armatur ${room.bathtubFaucet}`,room.bathtubThermostat?'Thermostat':null,room.bathtubAccessories?'Accessoires':null,room.bathtubUnderbuild?'Unterbauelement':null].concat(apIvLabels(room.bathtubIV)));
   if(bs('washbasin'))push('Waschtisch',1*m,['bauseits']);
-  else if(room.hasWashbasin){const df=room.washbasinDuofix==='none'?null:room.washbasinDuofix==='ohne'?'Duofix ohne Unterbau':`Duofix ${room.washbasinDuofix} cm`;push('Waschtisch',1*m,[room.washbasinType==='aufsatz'?'Aufsatz':'Normal',sz('washbasinSize'),stdL,`Armatur ${room.washbasinFaucet}`,df,room.washbasinVanity?'Unterbaumöbel':null,room.washbasinMeterRun?'WZ-Strecke':null,room.washbasinMount?'Befestigungsset':null,room.washbasinSiphon?'Siphon-Set':null,room.washbasinSound?'Schallschutzset':null,room.mirror==='spiegelschrank'?'Spiegelschrank':room.mirror==='spiegel'?'Spiegel':null,wbG.glashalter?'Glashalter':null,wbG.handtuchhalter?'Handtuchhalter':null,wbG.seifenhalter?'Seifenhalter':null,wbG.ablage?'Ablage':null]);}
+  else if(room.hasWashbasin){const df=room.washbasinDuofix==='none'?null:room.washbasinDuofix==='ohne'?'Duofix ohne Unterbau':`Duofix ${room.washbasinDuofix} cm`;push('Waschtisch',1*m,[room.washbasinType==='aufsatz'?'Aufsatz':'Normal',sz('washbasinSize'),stdFor('washbasinStandard'),wbFaucet,wbFaucetTyp,df,room.washbasinVanity?'Unterbaumöbel':null,room.washbasinMeterRun?'WZ-Strecke':null,room.washbasinMount?'Befestigungsset':null,room.washbasinSiphon?'Siphon-Set':null,room.washbasinSound?'Schallschutzset':null,spiegelL,wbG.handtuchhalter?'Handtuchhalter':null,wbG.seifenhalter?'Seifenhalter':null,wbG.glashalter?'Glashalter':null,wbG.ablage?'Ablage':null].concat(apIvLabels(room.washbasinIV)));}
   if(bs('wc'))push('WC',1*m,['bauseits']);
-  else if(room.hasWC){const ft=room.wcFeature==='silentflush'?'Silentflush':room.wcFeature==='rimless'?'Rimless':'Normal';const cist=room.flushType==='UP'?`UP-Spülkasten ${room.upCisternHeight||'98'} cm`:'AP-Spülkasten';push('WC',1*m,[room.wcType==='stand'?'Stand-WC':'Wand-WC',ft,stdL,cist,room.wcSeat?'Deckel':null,room.wcSoundInsulation?'Schallschutz':null,wcG.papierhalter?'WC-Papierhalter':null,wcG.buerste?'WC-Bürstengarnitur':null]);}
+  else if(room.hasWC){const ft=room.wcFeature==='silentflush'?'Silentflush':room.wcFeature==='rimless'?'Rimless':'Normal';const cist=room.flushType==='UP'?`UP-Spülkasten ${room.upCisternHeight||'98'} cm`:'AP-Spülkasten';push('WC',1*m,[room.wcType==='stand'?'Stand-WC':'Wand-WC',ft,stdFor('wcStandard'),cist,room.wcSeat?'Deckel':null,room.wcSoundInsulation?'Schallschutz':null,wcG.papierhalter?'WC-Papierhalter':null,wcG.buerste?'WC-Bürstengarnitur':null].concat(apIvLabels(room.wcIV)));}
   if(bs('shower'))push('Dusche',1*m,['bauseits']);
-  else if(room.hasShower){const scr=room.showerScreen==='glas_mit_tuer'?'Glas mit Türe':room.showerScreen==='glas_ohne_tuer'?'Glas ohne Türe':room.showerScreen==='vorhang'?'Vorhang':'ohne Abtrennung';push('Dusche',1*m,[room.showerDrain==='wanne'?'Duschwanne':'Duschrinne',sz('showerSize'),stdL,scr,`Armatur ${room.showerFaucet}`,room.showerThermostat?'Thermostat':null,room.showerAccessories?'Accessoires':null,room.showerUnderbuild?'Unterbauelement':null]);}
+  else if(room.hasShower){
+    const scr=room.showerScreen==='glas_mit_tuer'?'Glas mit Türe':room.showerScreen==='glas_ohne_tuer'?'Glas ohne Türe':room.showerScreen==='vorhang'?'Vorhang':'ohne Abtrennung';
+    /* Accessoire-Namen (Feedback 24.08.2026 #4). Der alte Sammel-Boolean
+       showerAccessories wird NUR noch ausgegeben, wenn keine benannte Auswahl
+       besteht — sonst stünde «Accessoires» sinnlos neben der konkreten Liste.
+       So verliert ein Altbestand nichts und eine neue Erfassung ist konkret. */
+    const shNamen=AP_SHOWER_GARN.filter(function(x){return !!shG[x.k];}).map(function(x){return x.l;});
+    const shAlt=(!shNamen.length&&room.showerAccessories)?'Accessoires':null;
+    push('Dusche',1*m,[room.showerDrain==='wanne'?'Duschwanne':'Duschrinne',sz('showerSize'),stdFor('showerStandard'),scr,`Armatur ${room.showerFaucet}`,room.showerThermostat?'Thermostat':null,shAlt].concat(shNamen).concat([room.showerUnderbuild?'Unterbauelement':null]).concat(apIvLabels(room.showerIV)));
+  }
   if(bs('bidet'))push('Bidet',1*m,['bauseits']);
   else if(room.hasBidet)push('Bidet',1*m,['inkl. Armatur',stdL]);
   return apPushExtras();
@@ -1550,7 +1686,7 @@ function renderSettings(){
     {label:'Accessoires',html:sel('ds_sacc',[['true','Ja'],['false','Nein']],d.showerAccessories)},
     {label:'Unterbau',  html:sel('ds_sunder',[['false','Ohne'],['true','Mit']],d.showerUnderbuild)},
   ]);
-  block('📦 Optional & Nebenräume',[
+  block('📦 Optional + Nebenräume',[
     {label:'Bidet Standard',  html:sel('ds_bidet',[['false','Nein'],['true','Ja']],d.bidetDefault)},
     {label:'Küche: GS',       html:sel('ds_kgs',[['true','Ja'],['false','Nein']],d.kitchenHasGS)},
     {label:'Waschküche Sets', html:ninp('ds_ls',d.laundrySets)},
@@ -1597,7 +1733,10 @@ function exportCSV(){
   a.click(); URL.revokeObjectURL(a.href);
   toast('✓ CSV exportiert');
 }
-function escCSV(s){s=(s??'').toString();return/[;"'\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:''}
+/* KRITISCH: der else-Zweig MUSS den Wert zurückgeben. Er lieferte bis
+   24.08.2026 einen Leerstring — jede Zelle ohne Sonderzeichen fiel damit
+   stillschweigend aus dem CSV-Export (praktisch die ganze Datei). */
+function escCSV(s){s=(s??'').toString();return/[;"'\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s}
 
 // ── EXPORT PDF ──
 async function exportPDF(){
@@ -1678,7 +1817,10 @@ try{
 }catch(e){}
 render();
 // Test-Hooks (Drift-Guard scripts/abnahme_feedback_test.mjs)
-window._apHooks={buildRows:buildRows,newDraft:newDraft,normDraft:normDraft,wizard:()=>wizard,renderWiz:renderWiz,getState:()=>state,apStatus:apStatus,apStatusSet:apStatusSet};
+window._apHooks={buildRows:buildRows,newDraft:newDraft,normDraft:normDraft,wizard:()=>wizard,renderWiz:renderWiz,getState:()=>state,apStatus:apStatus,apStatusSet:apStatusSet,
+  /* Feedback 24.08.2026 — die Datei ist eine async-IIFE, von aussen ist NUR
+     erreichbar, was hier hängt (Muster _fzPermHooks). */
+  AP_IV:AP_IV,AP_SHOWER_GARN:AP_SHOWER_GARN,AP_SIZE_PLAN:AP_SIZE_PLAN,apIvLabels:apIvLabels,escCSV:escCSV,exportCSV:exportCSV,stepsFor:stepsFor};
 })().catch(function(e){console.error("[GEMA] Kritischer Fehler:",e),document.body.insertAdjacentHTML("beforeend","<div style='position:fixed;bottom:10px;right:10px;background:#dc2626;color:#fff;padding:10px 16px;border-radius:10px;font-size:12px;font-weight:700;z-index:9999'>⚠ Skript-Fehler: "+e.message+"</div>");});</script>
 <script>document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('apparate', 'Apparateliste');});</script>
 <script>if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('apparateliste');</script>

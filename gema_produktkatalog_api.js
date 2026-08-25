@@ -1632,8 +1632,17 @@ function quickCreateLieferant(firma,email,erstelltVon){
 const SK_VM='gema_offert_vormerkungen_v1';
 // BKP-Vorschlag je Anlagenwahl-Kategorie — Codes entsprechen der
 // BKP_KOMPLETT-Checkliste in pm_ausschreibungsunterlagen.html.
+// gasloeschanlage traegt BEWUSST keinen BKP-Code: die frueher hier stehende
+// '256.0' stammt aus der Legacy-BKP-Liste («Brandschutzabschottungen»). In der
+// heutigen Checkliste (BKP_KOMPLETT in pm_ausschreibungsunterlagen) heisst
+// 256.0 seit dem Feedback vom 24.08.2026 «Lieferung Installationselemente» —
+// eine Gasloeschanlagen-Vormerkung wuerde sich damit automatisch in die
+// falsche Position setzen (der bkpCode-Fallback in _renderVormerkungen matcht
+// jede istLieferung-Position mit gleicher Nummer). Ohne Code greift nur noch
+// die Modul-Verknuepfung; fuer Brandschutz gibt es in dieser Nomenklatur
+// keinen Sanitaer-Knoten, also wird auch keiner behauptet.
 const OA_BKP_MAP={enthaertung:'253.0',osmose:'253.2',druckerhoehung:'253.4',frischwasserstation:'253.6',
-  hebeanlage:'252.6',fettabscheider:'252.4',oelabscheider:'252.8',zirkulation:'253.8',zirkulationspumpe:'253.8',saugpumpe:'253.4',sicherheitsventil:'254.0',ausdehnungsgefaess:'242.0',heizungspumpe:'243.0',waermeerzeuger:'242.0',lueftungsgeraet:'244.0',fluessiggasanlage:'252.0',gasloeschanlage:'256.0'};
+  hebeanlage:'252.6',fettabscheider:'252.4',oelabscheider:'252.8',zirkulation:'253.8',zirkulationspumpe:'253.8',saugpumpe:'253.4',sicherheitsventil:'254.0',ausdehnungsgefaess:'242.0',heizungspumpe:'243.0',waermeerzeuger:'242.0',lueftungsgeraet:'244.0',fluessiggasanlage:'252.0',gasloeschanlage:''};
 let _vormerkungen=[];
 function _loadVormerkungen(){try{var r=localStorage.getItem(SK_VM);if(r)_vormerkungen=JSON.parse(r);}catch(e){}_vormerkungen=_vormerkungen||[];}
 function _saveVormerkungen(){try{localStorage.setItem(SK_VM,JSON.stringify(_vormerkungen));}catch(e){}}

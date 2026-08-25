@@ -575,7 +575,14 @@ var BKP_KOMPLETT = [
       {id:'255',titel:'Dämmungen Sanitärinstallationen',kinder:[
         {id:'255.0',titel:'Kalt- und Warmwasser'},{id:'255.1',titel:'Schmutzwasser'},{id:'255.2',titel:'Regenwasser'}
       ]},
-      {id:'256',titel:'Sanitärinstallationselemente'},
+      {id:'256',titel:'Sanitärinstallationselemente',kinder:[
+        {id:'256.0',titel:'Lieferung Installationselemente',istLieferung:true},
+        {id:'256.1',titel:'Montage Installationselemente'},
+        {id:'256.2',titel:'Lieferung Beplankung',istLieferung:true},
+        {id:'256.3',titel:'Montage Beplankung'},
+        {id:'256.4',titel:'Lieferung Schallschutzmassnahmen',istLieferung:true},
+        {id:'256.5',titel:'Montage Schallschutzmassnahmen'}
+      ]},
       {id:'257',titel:'Elektro- und Pneumatiktafeln'},
       {id:'258',titel:'Kücheneinrichtungen'},
       {id:'259',titel:'Übriges',kinder:[
@@ -1998,16 +2005,25 @@ function getBKPDefaults(){
   return {};
 }
 
+// Feedback 25.08.2026 (Sandro, ausschr #3): «24 / 25 etc. jeweils löschen».
+// Die 2-stellige GEWERK-Nummer stand als eigene, editierbare Zeile im Baum —
+// eine reine Dublette des farbigen Gewerk-Bandes direkt darüber (GEWERK_LABELS).
+// Sie wird hier nicht mehr erzeugt; Altbestand filtern renderBKPTree + pdet aus
+// (kein Daten-Write — die Position trägt keine eigenen Angaben).
+// Gruppen-Header bleiben die DREISTELLIGEN Nummern (251, 252 …) — daran hängen
+// syncBkpFromLose, renumberBKPInGroup und die pdet-Ansicht über `bkp.length<=3`.
 function walkBKP(node,pos){
   var defaults=getBKPDefaults();
   function walk(n,depth){
     var isDefault=defaults[n.id]===true;
     var p={bkp:n.id,titel:n.titel,checked:isDefault,status:'offen',istLieferung:!!(n.modulKey||n.istLieferung),lieferungTyp:n.modulKey||null,modulUrl:n.modulUrl||null,offerte:null,montagePosition:null,lizenz:n.lizenz||null};
-    pos.push(p);
+    if(String(n.id||'').length>2)pos.push(p);
     if(n.kinder)n.kinder.forEach(function(k){walk(k,depth+1);});
   }
   walk(node,0);
 }
+// Gewerk-Zeile (2-stellig) — gehört nicht in die Positionsliste, siehe walkBKP.
+function istGewerkZeile(p){return String((p&&p.bkp)||'').length<=2;}
 function getCurLos(a){
   if(!a._activeLosId&&a.lose.length)a._activeLosId=a.lose[0].id;
   return a.lose.find(function(l){return l.id===a._activeLosId;})||a.lose[0];
@@ -2129,7 +2145,7 @@ VIEWS.pbkp=function(){
   h+='</div>';
 
   // BKP-Baum
-  h+='<div class="card"><div class="card-hd"><h3>BKP-Positionen</h3><button class="btn btn-g btn-sm" onclick="addBKPPos(\''+los.id+'\')">+ Position</button></div><div class="card-bd" style="padding:0">';
+  h+='<div class="card"><div class="card-hd"><h3>BKP-Positionen</h3><button class="btn btn-g btn-sm" id="bkpFoldBtn" onclick="bkpFoldToggle()">⊞ Alle aufklappen</button><button class="btn btn-g btn-sm" onclick="addBKPPos(\''+los.id+'\')">+ Position</button></div><div class="card-bd" style="padding:0">';
   h+=renderBKPTree(los.positionen,los.id);
   h+='</div></div>';
 
@@ -2146,6 +2162,9 @@ function renderBKPTree(positionen,losId){
   // Group by BKP prefix: first 2 chars = Gewerk (25, 24, 23), then 3 chars = Hauptgruppe
   var groups={};
   positionen.forEach(function(p,i){
+    // Feedback 25.08.2026 #3: Gewerk-Zeile (2-stellig) weder gruppieren noch
+    // rendern — sonst entstünde eine Phantom-Gruppe «25» mit genau einer Zeile.
+    if(istGewerkZeile(p))return;
     var prefix=p.bkp.substring(0,3);
     if(!groups[prefix])groups[prefix]={titel:'',items:[]};
     if(p.bkp.length<=3)groups[prefix].titel=p.titel;
@@ -2254,6 +2273,36 @@ function toggleBKP(losId,idx,checked){
 }
 
 // Speichere/Restore offene BKP-Gruppen
+// ── Feedback 25.08.2026 (Sandro, ausschr #4): «Standardansicht eingeklappt» ──
+// Zwei Bausteine. (1) Die BKP-Gruppen der Checkliste starten seit je zu
+// (`.bkp-group-bd{display:none}`) — es gab aber KEINEN Weg zurück, sobald man
+// mehrere geöffnet hatte: `_bkpOpenGroups` hält sie über jedes `nav('pbkp')`
+// offen. Der Sammel-Schalter im Karten-Kopf stellt die Standardansicht in
+// einem Klick wieder her. (2) Die flache Positionsliste in der Detail-Ansicht
+// startet ebenfalls zu (siehe VIEWS.pdet).
+// Beides ist reine GERÄTE-UI (localStorage), nie im Ausschreibungs-Datensatz.
+var BKP_POS_KEY='gema_aus_bkppos_offen_v1';
+function bkpPosOffen(){try{return localStorage.getItem(BKP_POS_KEY)==='1';}catch(e){return false;}}
+function toggleBkpPos(){
+  var auf=!bkpPosOffen();
+  try{localStorage.setItem(BKP_POS_KEY,auf?'1':'0');}catch(e){}
+  var bd=document.getElementById('bkpPosBody'),ar=document.getElementById('bkpPosArrow');
+  if(bd)bd.style.display=auf?'block':'none';
+  if(ar)ar.style.transform=auf?'rotate(90deg)':'';
+}
+// Alle BKP-Gruppen der Checkliste auf einmal auf-/zuklappen.
+function bkpAlleFalten(auf){
+  document.querySelectorAll('.bkp-group').forEach(function(el){el.classList.toggle('open',!!auf);});
+  saveBKPOpenState();
+  var b=document.getElementById('bkpFoldBtn');
+  if(b)b.textContent=auf?'⊟ Alle einklappen':'⊞ Alle aufklappen';
+}
+function bkpFoldToggle(){
+  // Offen ist, was mindestens eine offene Gruppe hat — dann klappt der
+  // Schalter ALLE zu (zurück zur Standardansicht), sonst alle auf.
+  var offen=document.querySelectorAll('.bkp-group.open').length>0;
+  bkpAlleFalten(!offen);
+}
 var _bkpOpenGroups={};
 function saveBKPOpenState(){
   _bkpOpenGroups={};
@@ -2267,6 +2316,10 @@ function restoreBKPOpenState(){
     var hd=el.querySelector('.bkp-group-hd span:nth-child(2)');
     if(hd&&_bkpOpenGroups[hd.textContent.trim()])el.classList.add('open');
   });
+  // Der Sammel-Schalter muss dem wiederhergestellten Zustand folgen — sonst
+  // steht «Alle aufklappen» über bereits offenen Gruppen.
+  var b=document.getElementById('bkpFoldBtn');
+  if(b)b.textContent=document.querySelectorAll('.bkp-group.open').length>0?'⊟ Alle einklappen':'⊞ Alle aufklappen';
 }
 
 // Auto-Montage: Wenn "Lieferung XXX" angehakt wird, Montage-Position ergänzen
@@ -3336,7 +3389,7 @@ VIEWS.pdet=function(){
   //    Counter als Chip-Liste anzeigen. ──
   h += '<div class="card"><div class="card-hd"><h3>📜 Vorbedingungen</h3><button class="btn btn-g btn-sm" onclick="editVB()">Bearbeiten</button></div><div class="card-bd">';
   if (_vbMode) {
-    h += '<p style="font-size:13px">📄 PDF-Upload: ' + E(a.vorbedingungen.pdfName || '—') + '</p>';
+    h += '<p style="font-size:13px">📄 Eigenes Dokument: ' + E(a.vorbedingungen.pdfName || '—') + '</p>';
   } else {
     h += '<div style="font-size:13px;color:var(--mut);margin-bottom:10px">' + _vbFilled + '/' + VB_KAPITEL.length + ' Kapitel ausgefüllt</div>';
     // Chip-Liste aller Kapitel: ausgefuellte grün/gefuellt, leere grau/leer
@@ -3385,11 +3438,18 @@ VIEWS.pdet=function(){
   } else {
     // Funktional mode — read-only view of checked BKP from Checkliste
     ensureLose(a);
-    h+=`<div class="card"><div class="card-hd"><h3>⬡ BKP-Positionen</h3><button class="btn btn-s btn-sm" onclick="nav('pbkp')">☑ BKP-Positionen bearbeiten</button></div><div class="card-bd" style="padding:0">`;
     var allChecked=[];
     (a.lose||[]).forEach(function(l){
-      (l.positionen||[]).forEach(function(p){if(p.checked)allChecked.push(p);});
+      // Gewerk-Zeile (2-stellig) bleibt aussen vor — siehe walkBKP/Feedback #3.
+      (l.positionen||[]).forEach(function(p){if(p.checked&&!istGewerkZeile(p))allChecked.push(p);});
     });
+    // Feedback 25.08.2026 (Sandro, ausschr #4): «Standardansicht eingeklappt».
+    // Die flache Liste ALLER angehakten Positionen flutete die Detail-Seite
+    // (bei einem vollen Gewerk 30+ Zeilen ohne jede Klapp-Möglichkeit). Sie
+    // startet jetzt zu; der Kopf trägt die Anzahl, der Zustand liegt pro
+    // GERÄT in localStorage (reine Anzeige-Einstellung, nie im Datensatz).
+    var _bkpPosAuf=bkpPosOffen();
+    h+=`<div class="card" id="cardBkpPos"><div class="card-hd" onclick="toggleBkpPos()" style="cursor:pointer;user-select:none"><span id="bkpPosArrow" style="font-size:11px;color:var(--mut);transition:transform .2s;display:inline-block;margin-right:2px${_bkpPosAuf?';transform:rotate(90deg)':''}">▶</span><h3>⬡ BKP-Positionen</h3><span style="font-size:11px;color:var(--mut);background:var(--bg2);padding:2px 8px;border-radius:10px;border:1px solid var(--brd)">${allChecked.length}</span><button class="btn btn-s btn-sm" onclick="event.stopPropagation();nav('pbkp')">☑ BKP-Positionen bearbeiten</button></div><div class="card-bd" id="bkpPosBody" style="padding:0;display:${_bkpPosAuf?'block':'none'}">`;
     if(!allChecked.length)h+=`<p style="padding:16px;color:var(--mut)">Noch keine BKP-Positionen angehakt. → <button class="btn btn-s btn-sm" onclick="nav('pbkp')">Checkliste öffnen</button></p>`;
     else{
       var lastGewerk='';
@@ -4351,7 +4411,7 @@ VIEWS.pber=function(){
     {key:'sicherheitsventil',label:'Druckanstieg / Sicherheitsventil',icon:'🛡️',url:'sb_druckanstieg.html',bkp:'—'},
     {key:'saugpumpe',label:'Saugpumpe / Saughöhe',icon:'⛲',url:'sb_saugpumpe.html',bkp:'—'},
     {key:'fluessiggasanlage',label:'Flüssiggas LPG',icon:'🛢️',url:'sb_fluessiggas.html',bkp:'—'},
-    {key:'gasloeschanlage',label:'Gaslöschanlage N2/Novec',icon:'🧯',url:'br_gasloeschung.html',bkp:'256.0'},
+    {key:'gasloeschanlage',label:'Gaslöschanlage N2/Novec',icon:'🧯',url:'br_gasloeschung.html',bkp:'—'},
     {key:'ausdehnungsgefaess',label:'Ausdehnungsgefäss (Heizung)',icon:'🫧',url:'hz_ausdehnungsgefaess.html',bkp:'243.3'},
     {key:'heizungspumpe',label:'Heizungsleitungen / Pumpe',icon:'♨️',url:'hz_heizungsleitungen.html',bkp:'243.1'},
     {key:'waermeerzeuger',label:'Wärmegruppen / Wärmeerzeuger',icon:'🔥',url:'hz_waermegruppen.html',bkp:'242.0'},
@@ -5325,7 +5385,12 @@ function editVB(){
   h+='<button class="btn btn-p" onclick="saveVB()">💾 Speichern &amp; übernehmen</button>';
   h+='</div>';
 
-  h+='<div id="vbPdfArea" style="display:'+(vb.modus==='pdf'?'block':'none')+'"><div class="fg"><label class="fl">PDF-Datei</label><input type="file" class="fc" id="vbPdf" accept=".pdf" style="padding:6px"/></div></div>';
+  // Feedback 25.08.2026 (Sandro, ausschr #1): «Ist es möglich ein Word hoch-
+  // zuladen?» — ja. Der gespeicherte Modus heisst weiterhin 'pdf' (Bestands-
+  // schutz: an dem Wert hängen Detail-Ansicht, Dokumentensatz und Beilagen-
+  // verzeichnis), das FELD nimmt jetzt zusätzlich .doc/.docx wie die übrigen
+  // Datei-Uploads des Moduls (naUnterlagen, fUnterlagen).
+  h+='<div id="vbPdfArea" style="display:'+(vb.modus==='pdf'?'block':'none')+'"><div class="fg"><label class="fl">Eigenes Dokument (PDF oder Word)</label><input type="file" class="fc" id="vbPdf" accept=".pdf,.doc,.docx" style="padding:6px"/><div class="hint" style="margin-top:4px">PDF, DOC oder DOCX — der Dateiname erscheint im Beilagenverzeichnis des Dokumentensatzes.</div></div></div>';
 
   h+='<div id="vbKapArea" style="display:'+(vb.modus==='pdf'?'none':'flex')+';gap:0;min-height:70vh;border:1.5px solid var(--brd);border-radius:var(--r);overflow:hidden">';
   // Sidebar: Kapitel-Navigation
@@ -5590,7 +5655,7 @@ function vbModusOptionsHtml(selVal){
     dvl.forEach(function(v){h+='<option value="vorl:'+E(v.id)+'" '+(selVal==='vorl:'+v.id?'selected':'')+'>'+E(v.name)+'</option>';});
     h+='</optgroup>';
   }
-  h+='<option value="pdf" '+(selVal==='pdf'?'selected':'')+'>Eigenes PDF</option>';
+  h+='<option value="pdf" '+(selVal==='pdf'?'selected':'')+'>Eigenes Dokument (PDF / Word)</option>';
   return h;
 }
 // Select + 🗑-Button auf den aktuellen Zustand zurückstellen (z.B. nach
@@ -6231,7 +6296,7 @@ function druckDokumentensatz(){
   // ── Vorbedingungen ──
   h+='<section class="blatt"><h2>1 · Vorbedingungen</h2>';
   if(a.vorbedingungen&&a.vorbedingungen.modus==='pdf'){
-    h+='<p class="hint">Die Vorbedingungen liegen als eigenes PDF bei: <strong>'+E(a.vorbedingungen.pdfName||'PDF')+'</strong> (siehe Beilagenverzeichnis).</p>';
+    h+='<p class="hint">Die Vorbedingungen liegen als eigenes Dokument bei: <strong>'+E(a.vorbedingungen.pdfName||'Dokument')+'</strong> (siehe Beilagenverzeichnis).</p>';
   } else {
     var kapListe=(a.vorbedingungen&&a.vorbedingungen.kapitelListe)||VB_KAPITEL;
     var kapTexte=(a.vorbedingungen&&a.vorbedingungen.kapitel)||{};
