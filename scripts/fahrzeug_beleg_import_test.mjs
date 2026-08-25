@@ -71,7 +71,10 @@ console.log('— A) Netlify-Function + Client-API —');
     'Fail-closed: _fzBelegOpen prueft die Berechtigung selbst (Direktaufruf)');
   const imp = (fz.match(/function _fzBelegImport\(\)\{[\s\S]*?\n\}/) || [''])[0];
   ok(/_fzCanSeePreise\(\)/.test(imp), 'Auch der Import selbst ist gegatet');
-  ok(/gema-v498/.test(await readFile(join(ROOT, 'sw.js'), 'utf8')), 'sw.js Cache-Version hochgezogen');
+  // Mindest-Version, nicht exakte: eine feste Zahl wäre beim nächsten
+  // Hochzählen rot, obwohl die Version gestiegen ist.
+  const swV = parseInt(((await readFile(join(ROOT, 'sw.js'), 'utf8')).match(/gema-v(\d+)/) || [])[1] || '0', 10);
+  ok(swV >= 498, `sw.js Cache-Version hochgezogen (v${swV} ≥ v498)`);
 
   // Erste Verteidigungslinie: der reine Monteur kommt gar nicht ins Modul.
   const golden = JSON.parse(await readFile(join(ROOT, 'scripts/rolematrix_golden.json'), 'utf8'));
