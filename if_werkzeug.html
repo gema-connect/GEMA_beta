@@ -3,6 +3,7 @@
 <head>
 <script src="gema_sync.js"></script>
 <script src="gema_aktivitaetslog.js"></script>
+<script src="gema_pruefwerte.js"></script>
 <script src="gema_auth.js"></script>
 <script src="gema_editlock.js"></script>
 <script src="gema_recent.js"></script>
@@ -351,6 +352,12 @@ tr.wz-tsub .wz-tkof{display:none}
 .fg select option{white-space:nowrap}
 .fg textarea{resize:vertical;min-height:60px;height:auto;padding:10px 14px;line-height:1.5}
 .hint{font-size:11.5px;color:var(--mut2);padding:7px 11px;background:var(--bg2);border-radius:8px;border:1px solid var(--brd);line-height:1.5}
+/* Zahlenfeld mit angeschlossener Einheiten-Box (GEMA-Kanon).
+   KRITISCH: .fg input traegt width:100% — ohne flex:1 1 auto/min-width:0
+   drueckt es die Einheiten-Box aus der Zeile. */
+.g-inp-group{display:flex;align-items:stretch;min-width:0}
+.g-inp-group>input{flex:1 1 auto;width:auto;min-width:0;border-top-right-radius:0;border-bottom-right-radius:0;border-right:none}
+.g-inp-group>.g-inp-unit{flex:0 0 auto;display:inline-flex;align-items:center;padding:0 11px;font-size:12.5px;font-weight:700;color:var(--mut);background:var(--bg3,var(--bg2));border:1.5px solid var(--brd2);border-left:none;border-top-right-radius:10px;border-bottom-right-radius:10px;white-space:nowrap}
 /* Shared modal-form classes (reduce inline styles) */
 .dlg-lbl{font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase}
 .dlg-inp{width:100%;padding:9px 12px;border:1.5px solid #c8cfdf;border-radius:8px;font-size:16px;margin-top:4px;font-family:inherit;box-sizing:border-box}
@@ -913,6 +920,28 @@ tr.sml-err td{background:#fef2f2}
             <label>Letzte bestandene Prüfung</label>
             <input type="date" id="f_lastElec">
           </div>
+          <div class="fg">
+            <label>Schutzklasse</label>
+            <select id="f_schutzklasse">
+              <option value="">— nicht erfasst —</option>
+              <option value="I">Schutzklasse I (Schutzleiter)</option>
+              <option value="II">Schutzklasse II (schutzisoliert)</option>
+              <option value="III">Schutzklasse III (Kleinspannung)</option>
+            </select>
+            <div class="hint">Bestimmt die Grenzwerte im Prüfprotokoll. Steht auf dem Typenschild: ⏚ = I, ▣ (Doppelquadrat) = II.</div>
+          </div>
+          <div class="fg-row">
+            <div class="fg">
+              <label>Länge Anschlussleitung</label>
+              <div class="g-inp-group"><input type="text" inputmode="decimal" id="f_leitungLaenge" placeholder="z.B. 5" onblur="fixLeadingZero(this)"><span class="g-inp-unit">m</span></div>
+              <div class="hint">Ab 5 m steigt der zulässige Schutzleiterwiderstand.</div>
+            </div>
+            <div class="fg">
+              <label>Heizleistung</label>
+              <div class="g-inp-group"><input type="text" inputmode="decimal" id="f_heizleistung" placeholder="nur bei Heizgeräten" onblur="fixLeadingZero(this)"><span class="g-inp-unit">kW</span></div>
+              <div class="hint">Über 3.5 kW gelten eigene Grenzwerte.</div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1066,6 +1095,14 @@ function fixLeadingZero(el) {
   if (/^\./.test(v)) v = '0' + v;
   if (/^-\./.test(v)) v = '-0' + v.slice(1);
   el.value = String(parseFloat(v));
+}
+// Leeres Feld bleibt leer (null) — eine 0 waere eine erfundene Angabe.
+function _wzNumOrNull(v){
+  if(v===null||v===undefined) return null;
+  var s=String(v).trim().replace(',','.');
+  if(s==='') return null;
+  var n=parseFloat(s);
+  return isFinite(n)?n:null;
 }
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -2033,6 +2070,9 @@ window._wzSammelSave=function(){
       hasService:srvIv>0,serviceInterval:srvIv>0?srvIv:12,lastService:null,
       hasElec:elecIv>0,elecInterval:elecIv>0?elecIv:12,lastElec:null,
       elecHistory:[],
+      // Grenzwert-Angaben der Elektropruefung: in der Sammelerfassung
+      // bewusst leer — sie stehen auf dem Typenschild des EINZELNEN Geraets.
+      schutzklasse:'',leitungLaengeM:null,heizleistungKw:null,
       hasLeiter:false,leiterInterval:12,lastLeiter:null,leiterHistory:[],
       kaufbeleg:null,
       zugewiesenAn:zuwObj,
@@ -3783,7 +3823,7 @@ function _wzResetModalScroll(){
 }
 function closeAdd(){_wzUnlock();_wzCloseAllAC();document.getElementById('addModal').classList.add('hidden');clearForm();_wzUnlockScroll();}
 function clearForm(){
-  ['f_name','f_intern','f_brand','f_model','f_supplier','f_supplierId','f_bought','f_warranty','f_serial','f_notes','f_assignee','f_lastService','f_lastElec','f_lastLeiter','f_editId','f_belegNr','f_belegBetrag','f_belegBestellNr','f_belegLieferdatum'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  ['f_name','f_intern','f_brand','f_model','f_supplier','f_supplierId','f_bought','f_warranty','f_serial','f_notes','f_assignee','f_lastService','f_lastElec','f_lastLeiter','f_editId','f_belegNr','f_belegBetrag','f_belegBestellNr','f_belegLieferdatum','f_schutzklasse','f_leitungLaenge','f_heizleistung'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
   var fp=document.getElementById('f_belegPreview');if(fp)fp.innerHTML='';
   window._wzBelegFile=null;
   window._wzKatalogPick=null;
@@ -3957,6 +3997,10 @@ function submitForm(){
     elecInterval:+document.getElementById('f_elecInterval').value||12,
     lastElec:document.getElementById('f_lastElec').value||null,
     elecHistory:existing?.elecHistory||[],
+    // Bestimmen die Grenzwerte im Pruefprotokoll (SNR 462638).
+    schutzklasse:(document.getElementById('f_schutzklasse')||{}).value||'',
+    leitungLaengeM:_wzNumOrNull((document.getElementById('f_leitungLaenge')||{}).value),
+    heizleistungKw:_wzNumOrNull((document.getElementById('f_heizleistung')||{}).value),
     hasLeiter:document.getElementById('f_hasLeiter').checked,
     leiterInterval:+document.getElementById('f_leiterInterval').value||12,
     lastLeiter:document.getElementById('f_lastLeiter').value||null,
@@ -4021,6 +4065,11 @@ function editTool(id){
   if(t.kaufbeleg){sv('f_belegNr',t.kaufbeleg.rechnungsNr);sv('f_belegBetrag',t.kaufbeleg.betrag);sv('f_belegBestellNr',t.kaufbeleg.bestellNr);sv('f_belegLieferdatum',t.kaufbeleg.lieferdatum);if(t.kaufbeleg.datei){window._wzBelegFile=t.kaufbeleg.datei;var fp=document.getElementById('f_belegPreview');if(fp)fp.innerHTML='<span style="color:var(--grn);font-weight:700;font-size:12px">📎 '+esc(t.kaufbeleg.datei.name||'Beleg')+'</span>';}}
   sv('f_serviceInterval',t.serviceInterval);sv('f_lastService',t.lastService);
   sv('f_elecInterval',t.elecInterval);sv('f_lastElec',t.lastElec);
+  // Grenzwert-Angaben der Elektropruefung (SNR 462638). null bleibt leer —
+  // eine 0 waere eine erfundene Leitungslaenge bzw. Heizleistung.
+  sv('f_schutzklasse',t.schutzklasse||'');
+  sv('f_leitungLaenge',t.leitungLaengeM===null||t.leitungLaengeM===undefined?'':t.leitungLaengeM);
+  sv('f_heizleistung',t.heizleistungKw===null||t.heizleistungKw===undefined?'':t.heizleistungKw);
   sv('f_leiterInterval',t.leiterInterval);sv('f_lastLeiter',t.lastLeiter);
   document.getElementById('f_editId').value=t.id;
   if(t.cat==='leiter' && _wzGetOptFelder().leiter!==false) document.getElementById('ts_leiter').style.display='';
@@ -4063,6 +4112,11 @@ function deleteTool(id){
 // naechstePruefung, foto (Base64), erledigt (bei defekt), erledigtAm.
 
 function _wzNewBerichtId(){return 'ber_'+Date.now().toString(36)+'_'+Math.random().toString(36).substr(2,4);}
+
+// Pruefwerte-Engine (Schutzklassen, Grenzwerte nach SNR 462638,
+// Messwert-Bewertung, Ergebnis-Enum) liegt in gema_pruefwerte.js —
+// GETEILT mit dem Lieferanten-Dashboard, damit der externe Pruefer
+// gegen exakt dieselben Grenzwerte bewertet. Nie hierher kopieren.
 
 // Zentraler Foto-Helper fuer Berichte: bis zu 3 Bilder, jedes auto
 // auf 1280px JPEG q=0.72 komprimiert. Speichert die Ergebnisse in
@@ -6129,7 +6183,9 @@ function openBerichte(toolId){
         +'<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#64748b"><span style="font-weight:800;color:#0f172a">'+icon+' '+typLabel+'</span><span>·</span><span>'+esc(b.autorName||'—')+'</span><span>·</span><span>'+fmt((b.datum||'').split('T')[0])+'</span></div>'
         +'<div style="font-size:13px;font-weight:700;margin-top:4px">'+esc(b.titel||'')+'</div>'
         +(b.beschreibung?'<div style="font-size:12px;color:#475569;margin-top:2px">'+esc(b.beschreibung)+'</div>':'')
-        +(b.ergebnis?'<div style="font-size:12px;margin-top:4px"><strong>Ergebnis:</strong> '+esc(b.ergebnis)+'</div>':'')
+        +(b.ergebnis?(function(){var E=wzErgebnisAnzeige(b.ergebnis);return '<div style="font-size:12px;margin-top:4px"><strong>Ergebnis:</strong> <span style="font-weight:800;color:'+E.farbe+'">'+E.icon+' '+esc(E.label)+'</span></div>';})():'')
+        +_wzMessBerichtHtml(b)
+        +_wzProtokollHtml(b.protokoll)
         +teileHtml
         +((Array.isArray(b.photos)&&b.photos.length)?'<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">'+b.photos.map(function(p){return p&&p.dataUrl?'<img src="'+p.dataUrl+'" alt="Bericht-Foto" style="width:54px;height:54px;object-fit:cover;border-radius:6px;border:1px solid #e5e7eb;cursor:pointer" onclick="_wzPhotoLightbox(this.src)"/>':'';}).join('')+'</div>':'')
         +(b.signature?'<div style="margin-top:6px"><div style="font-size:10px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:.3px;margin-bottom:2px">Unterschrift</div><img src="'+b.signature+'" alt="Unterschrift" style="max-width:200px;height:auto;border:1px solid #e5e7eb;border-radius:6px;background:#fff;cursor:pointer" onclick="_wzPhotoLightbox(this.src)"/></div>':'')
@@ -6199,6 +6255,150 @@ function _wzDefektErledigt(toolId, berId){
   _wzActLog('defekt_erledigt','Defekt erledigt: '+(b.titel||''), t);
 }
 
+// ── Messwerte + Protokoll: geteilte Bausteine ────────────────────
+// Dieselben vier Felder erscheinen im Magaziner-Dialog UND in der
+// Pruefer-Ansicht (openPruefLiefAnsicht) — EIN Markup, EIN Sammler,
+// damit sie nie auseinanderlaufen.
+function _wzMessFeldHtml(g){
+  g=g||{};
+  var sk=g.schutzklasse||'';
+  if(!sk){
+    return '<div style="padding:9px 11px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:11.5px;color:#92400e">'
+      +'<strong>Keine Schutzklasse erfasst.</strong> Ohne sie lassen sich Schutzleiter-, Isolations- und Ableitstrom-Grenzwert '
+      +'nach SNR 462638 nicht bestimmen — diese Messwerte werden gespeichert, aber nicht bewertet '
+      +'(nur der Berührungsstrom ist klassenunabhängig). Schutzklasse im Geräte-Formular nachtragen.</div>'
+      + _wzMessInputsHtml(g);
+  }
+  var w=wzGrenzwerte(g);
+  var chips=[];
+  if(w.rpe!==null)  chips.push('R<sub>PE</sub> ≤ '+w.rpe.toFixed(2)+' Ω');
+  if(w.riso!==null) chips.push('R<sub>ISO</sub> ≥ '+w.riso.toFixed(2)+' MΩ');
+  if(w.ipe!==null)  chips.push('I<sub>PE</sub> ≤ '+w.ipe.toFixed(1)+' mA');
+  chips.push('I<sub>B</sub> ≤ '+w.ib.toFixed(1)+' mA');
+  return '<div style="padding:8px 11px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:11.5px;color:#1e40af;margin-bottom:6px">'
+    +'<strong>Grenzwerte Schutzklasse '+esc(sk)+'</strong> (SNR 462638 / DIN VDE 0701-0702): '+chips.join(' · ')
+    +'</div>'
+    + _wzMessInputsHtml(g);
+}
+function _wzMessInputsHtml(g){
+  g=g||{};
+  var sk=g.schutzklasse||'';
+  var f=function(id,lbl,einheit,hinweis,aus){
+    if(aus) return '';
+    return '<div><label class="dlg-lbl">'+lbl+'</label>'
+      +'<div class="g-inp-group"><input id="'+id+'" type="text" inputmode="decimal" class="dlg-inp" placeholder="—" oninput="_wzMessAmpel()"/><span class="g-inp-unit">'+einheit+'</span></div>'
+      +(hinweis?'<div style="font-size:10px;color:#94a3b8;margin-top:2px">'+hinweis+'</div>':'')
+      +'</div>';
+  };
+  return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+    + f('prRpe','Schutzleiterwiderstand R<sub>PE</sub>','Ω','',sk&&sk!=='I')
+    + f('prRiso','Isolationswiderstand R<sub>ISO</sub>','MΩ','')
+    + f('prIpe','Ersatzableitstrom I<sub>PE</sub>','mA','',sk==='III')
+    + f('prIb','Berührungsstrom I<sub>B</sub>','mA','')
+    + '</div>'
+    + '<div id="prMessAmpel" style="margin-top:6px"></div>';
+}
+function _wzMessSammeln(){
+  var v=function(id){var e=document.getElementById(id);return e?_wzNumOrNull(e.value):null;};
+  return {rpe:v('prRpe'),riso:v('prRiso'),ipe:v('prIpe'),ib:v('prIb')};
+}
+// Live-Ampel im Dialog. Bewertet, sagt aber NICHT ab — das Ergebnis
+// setzt immer die pruefende Person (die Grenzwerte sind Richtwerte).
+function _wzMessAmpel(){
+  var host=document.getElementById('prMessAmpel');
+  if(!host)return;
+  var t=tools.find(function(x){return x.id===window._wzMessToolId;});
+  var a=wzMessAuswertung(_wzMessSammeln(), t||{});
+  if(!a.erfasst){host.innerHTML='';return;}
+  var farbe=function(st){return st==='ueber'?'#dc2626':st==='grenz'?'#d97706':st==='ok'?'#16a34a':'#94a3b8';};
+  var ic=function(st){return st==='ueber'?'✕':st==='grenz'?'⚠':st==='ok'?'✓':'·';};
+  host.innerHTML=a.zeilen.filter(function(z){return z.wert!==null;}).map(function(z){
+    return '<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:'+farbe(z.status)+';background:#fff;border:1px solid '+farbe(z.status)+';border-radius:6px;padding:2px 8px;margin:0 5px 5px 0">'
+      +ic(z.status)+' '+z.kurz+' '+esc(String(z.wert))+' '+z.einheit
+      +(z.grenz!==null?'<span style="font-weight:500;opacity:.7">(≤'+(z.richtung==='min'?'≥':'')+' '+z.grenz+')</span>':'')
+      +'</span>';
+  }).join('')
+  + (a.ueber?'<div style="font-size:11px;color:#dc2626;font-weight:700;margin-top:2px">Grenzwert überschritten — Ergebnis entsprechend setzen.</div>'
+     :(a.grenz?'<div style="font-size:11px;color:#d97706;font-weight:700;margin-top:2px">Knapp am Grenzwert.</div>':''));
+}
+// ── Prüfprotokoll (PDF/Foto) ────────────────────────────────────
+// Kanon «erst Bucket, dann Record»: das Protokoll geht nach
+// GemaStorage, im Bericht steht nur die URL. Base64 nur als
+// Rückfall (≤ 2.5 MB) — sonst spränge jeder Record ins Payload-Limit.
+window._wzProtokollFile=null;
+function _wzProtokollFeldHtml(){
+  return '<div><label class="dlg-lbl">Prüfprotokoll (PDF oder Foto, optional)</label>'
+    +'<input id="prProtokoll" type="file" accept=".pdf,image/*" onchange="_wzProtokollChanged(this)" style="font-size:12px;width:100%"/>'
+    +'<div id="prProtVorschau" style="margin-top:6px"></div>'
+    +'<div style="font-size:10.5px;color:#64748b;margin-top:4px">Das Protokoll des Messgeräts (z.B. Metrel, Gossen Metrawatt) — max. 8 MB.</div></div>';
+}
+function _wzProtokollChanged(inp){
+  var file=inp.files&&inp.files[0];
+  if(!file)return;
+  if(file.size>8*1024*1024){GemaDialog.alert({title:'Datei zu gross',message:'Das Protokoll darf höchstens 8 MB gross sein.'});inp.value='';return;}
+  var r=new FileReader();
+  r.onload=function(e){
+    window._wzProtokollFile={name:file.name,type:file.type,size:file.size,dataUrl:e.target.result};
+    var v=document.getElementById('prProtVorschau');
+    if(v)v.innerHTML='<span style="color:#16a34a;font-weight:700;font-size:12px">📎 '+esc(file.name)+'</span> <button type="button" onclick="_wzProtokollWeg()" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:12px;font-weight:700">✕</button>';
+  };
+  r.onerror=function(){GemaDialog.alert({title:'Datei nicht lesbar',message:'Das Protokoll konnte nicht gelesen werden.'});};
+  r.readAsDataURL(file);
+}
+function _wzProtokollWeg(){
+  window._wzProtokollFile=null;
+  var v=document.getElementById('prProtVorschau');if(v)v.innerHTML='';
+}
+// Laedt das Protokoll hoch und liefert {name,url,size} bzw. bei
+// fehlgeschlagenem Upload den Base64-Rueckfall. NIE stillschweigend
+// verwerfen — ist beides nicht moeglich, sagt es der Aufrufer.
+function _wzProtokollAblegen(){
+  var f=window._wzProtokollFile;
+  if(!f) return Promise.resolve(null);
+  var me=_wzGetUser()||{};
+  var pfad='pruefprotokolle/'+(me.orgId||'org');
+  if(typeof GemaStorage==='undefined'||!GemaStorage.uploadDataUrl){
+    return Promise.resolve(_wzProtokollBase64(f));
+  }
+  return GemaStorage.uploadDataUrl(f.dataUrl,pfad).then(function(r){
+    return {name:f.name,type:f.type,size:f.size,url:r.url};
+  }).catch(function(){
+    return _wzProtokollBase64(f);
+  });
+}
+function _wzProtokollBase64(f){
+  if(f.dataUrl&&f.dataUrl.length<=2500000) return {name:f.name,type:f.type,size:f.size,dataUrl:f.dataUrl};
+  return {name:f.name,type:f.type,size:f.size,zuGross:true};
+}
+function _wzProtokollHtml(p){
+  if(!p)return '';
+  if(p.zuGross){
+    return '<div style="margin-top:4px;font-size:11px;color:#b91c1c"><strong>⚠ Protokoll «'+esc(p.name||'Datei')+'» konnte nicht abgelegt werden</strong> (Upload fehlgeschlagen, Datei zu gross für den Rückfall). Bitte erneut anhängen.</div>';
+  }
+  if(p.url)     return '<div style="margin-top:4px"><a href="'+esc(p.url)+'" target="_blank" rel="noopener" style="color:#2563eb;font-weight:700;font-size:12px">📄 '+esc(p.name||'Prüfprotokoll')+'</a></div>';
+  if(p.dataUrl) return '<div style="margin-top:4px"><a href="'+p.dataUrl+'" download="'+esc(p.name||'Pruefprotokoll')+'" style="color:#2563eb;font-weight:700;font-size:12px">📄 '+esc(p.name||'Prüfprotokoll')+'</a></div>';
+  return '';
+}
+// Messwerte im Bericht anzeigen — mit Grenzwert und Bewertung, damit
+// der Nachweis aus sich selbst heraus lesbar ist.
+function _wzMessBerichtHtml(b){
+  if(!b||!b.messwerte||!wzHatMesswerte(b.messwerte))return '';
+  var a=wzMessAuswertung(b.messwerte, b.grenzwerte||{});
+  var farbe=function(st){return st==='ueber'?'#dc2626':st==='grenz'?'#d97706':st==='ok'?'#16a34a':'#475569';};
+  var zeilen=a.zeilen.filter(function(z){return z.wert!==null;}).map(function(z){
+    return '<tr><td style="padding:2px 8px 2px 0;color:#64748b">'+z.label+'</td>'
+      +'<td style="padding:2px 8px 2px 0;font-weight:800;color:'+farbe(z.status)+'">'+esc(String(z.wert))+' '+z.einheit+'</td>'
+      +'<td style="padding:2px 0;color:#94a3b8">'+(z.grenz!==null?(z.richtung==='min'?'≥ ':'≤ ')+z.grenz+' '+z.einheit:'—')+'</td></tr>';
+  }).join('');
+  if(!zeilen)return '';
+  var sk=(b.grenzwerte&&b.grenzwerte.schutzklasse)||'';
+  return '<div style="margin-top:6px;padding:8px 10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px">'
+    +'<div style="font-size:10px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:.3px;margin-bottom:3px">Messwerte'+(sk?' · Schutzklasse '+esc(sk):'')+'</div>'
+    +'<table style="font-size:11.5px;border-collapse:collapse"><tbody>'+zeilen+'</tbody></table>'
+    +(sk?'':'<div style="font-size:10.5px;color:#92400e;margin-top:3px">Ohne erfasste Schutzklasse nicht bewertet.</div>')
+    +'</div>';
+}
+
 function openPruefbericht(toolId){
   if(!_wzCanEdit()){alert('Keine Berechtigung');return;}
   var t=tools.find(function(x){return x.id===toolId;});
@@ -6210,21 +6410,25 @@ function openPruefbericht(toolId){
     + '<div class="dlg-fields">'
     + '  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
     + '    <div><label class="dlg-lbl">Prüfdatum *</label><input id="prDatum" type="date" value="'+today()+'" class="dlg-inp"/></div>'
-    + '    <div><label class="dlg-lbl">Ergebnis *</label><select id="prErg" class="dlg-inp"><option value="bestanden">✓ Bestanden</option><option value="maengel">⚠ Mit Mängeln</option><option value="nicht_bestanden">✕ Nicht bestanden</option></select></div>'
+    + '    <div><label class="dlg-lbl">Ergebnis *</label><select id="prErg" class="dlg-inp">'+WZ_ERGEBNIS.map(function(e){return '<option value="'+e.id+'">'+e.icon+' '+e.label+'</option>';}).join('')+'</select></div>'
     + '  </div>'
     + '  <div><label class="dlg-lbl">Prüfer</label><input id="prPruefer" type="text" value="'+esc(u.name||'')+'" placeholder="Name des Prüfers" class="dlg-inp"/></div>'
     + '  <div><label class="dlg-lbl">Titel</label><input id="prTitel" type="text" placeholder="z.B. Jahresprüfung" value="Jahresprüfung" class="dlg-inp"/></div>'
+    + (t.hasElec ? '  <div style="border-top:1px dashed #e5e7eb;padding-top:10px"><div style="font-size:12px;font-weight:800;color:#0f172a;margin-bottom:6px">⚡ Messwerte Elektroprüfung</div>'+_wzMessFeldHtml(t)+'</div>' : '')
     + '  <div><label class="dlg-lbl">Bemerkungen</label><textarea id="prBemerk" rows="3" placeholder="Beobachtungen, durchgeführte Arbeiten …" class="dlg-txt"></textarea></div>'
     + '  <div><label class="dlg-lbl">Fehlende / auszutauschende Teile</label><input id="prTeile" type="text" placeholder="z.B. Akku, Kohlebürsten (Komma-getrennt)" class="dlg-inp"/><div style="font-size:10px;color:#94a3b8;margin-top:2px">Wenn vorhanden, wird gleichzeitig ein Hinweis auf offene Wartung gesetzt.</div></div>'
     + '  <div><label class="dlg-lbl">Nächste Prüfung fällig</label><input id="prNext" type="date" class="dlg-inp"/></div>'
+    +    _wzProtokollFeldHtml()
     +    _wzPhotoFieldHtml()
     + '</div>'
     + '<div class="dlg-row">'
     + '  <button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button>'
-    + '  <button onclick="_wzSavePruefbericht(\''+toolId+'\')" style="padding:9px 18px;border-radius:8px;border:none;background:#1d4ed8;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">✓ Speichern</button>'
+    + '  <button id="prSaveBtn" onclick="_wzSavePruefbericht(\''+toolId+'\')" style="padding:9px 18px;border-radius:8px;border:none;background:#1d4ed8;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">✓ Speichern</button>'
     + '</div>'
     + '</div>';
   window._wzReportPhotos=[];
+  window._wzProtokollFile=null;
+  window._wzMessToolId=toolId;
   _wzShowModal(html);
   // 12 Monate-Default fuer naechste Pruefung
   setTimeout(function(){
@@ -6238,7 +6442,7 @@ function _wzSavePruefbericht(toolId){
   if(!t)return;
   var u=_wzGetUser()||{};
   var datum=document.getElementById('prDatum').value;
-  var ergebnis=document.getElementById('prErg').value;
+  var ergebnis=wzErgebnisId(document.getElementById('prErg').value);
   var pruefer=document.getElementById('prPruefer').value.trim()||u.name||'—';
   var titel=document.getElementById('prTitel').value.trim()||'Prüfbericht';
   var bemerk=document.getElementById('prBemerk').value.trim();
@@ -6246,25 +6450,41 @@ function _wzSavePruefbericht(toolId){
   var next=document.getElementById('prNext').value||null;
   if(!datum){alert('Prüfdatum fehlt');return;}
   var teile=teileStr?teileStr.split(',').map(function(x){return x.trim();}).filter(Boolean):[];
-  if(!t.berichte)t.berichte=[];
-  t.berichte.push({
-    id:_wzNewBerichtId(),typ:'pruefbericht',
-    datum:new Date(datum).toISOString(),
-    autorUserId:u.id||'',autorName:pruefer,
-    titel:titel,beschreibung:bemerk,
-    ergebnis:ergebnis==='bestanden'?'✓ Bestanden':ergebnis==='maengel'?'⚠ Mit Mängeln':'✕ Nicht bestanden',
-    fehlendeTeile:teile,
-    naechstePruefung:next,
-    photos:Array.isArray(window._wzReportPhotos)?window._wzReportPhotos.slice(0,3):[]
+  var mess=_wzMessSammeln();
+  var btn=document.getElementById('prSaveBtn');
+  if(btn){btn.disabled=true;btn.textContent='⏳ Speichern …';}
+  // Erst das Protokoll ablegen, dann den Record schreiben (Bucket-Kanon).
+  _wzProtokollAblegen().then(function(prot){
+    if(!t.berichte)t.berichte=[];
+    t.berichte.push({
+      id:_wzNewBerichtId(),typ:'pruefbericht',
+      datum:new Date(datum).toISOString(),
+      autorUserId:u.id||'',autorName:pruefer,
+      titel:titel,beschreibung:bemerk,
+      // Ergebnis als stabiler Schlüssel — die Beschriftung kommt beim
+      // Anzeigen aus wzErgebnisLabel (Emoji-Strings waren nicht auswertbar).
+      ergebnis:ergebnis,
+      messwerte:wzHatMesswerte(mess)?mess:null,
+      grenzwerte:wzHatMesswerte(mess)?wzGrenzwerte(t):null,
+      protokoll:prot,
+      fehlendeTeile:teile,
+      naechstePruefung:next,
+      photos:Array.isArray(window._wzReportPhotos)?window._wzReportPhotos.slice(0,3):[]
+    });
+    // Synchronisiere die "lastElec"/"lastLeiter" Felder fuer die bestehende
+    // Pruef-Logik, damit worstDays() korrekt bleibt.
+    if(t.hasElec)   t.lastElec=datum;
+    if(t.hasLeiter) t.lastLeiter=datum;
+    if(t.hasService)t.lastService=datum;
+    save();renderList();_wzCloseModal();
+    window._wzProtokollFile=null;
+    _wzActLog('pruefung','Prüfbericht erfasst: '+wzErgebnisLabel(ergebnis)+(pruefer?' (Prüfer: '+pruefer+')':''), t);
+    if(prot&&prot.zuGross){
+      GemaDialog.alert({title:'Bericht gespeichert — Protokoll fehlt',message:'Der Prüfbericht ist gespeichert, das Protokoll «'+(prot.name||'Datei')+'» konnte aber nicht abgelegt werden. Bitte erneut anhängen, sobald wieder Verbindung besteht.'});
+    }else{
+      showToast('✓ Prüfbericht gespeichert');
+    }
   });
-  // Synchronisiere die "lastElec"/"lastLeiter" Felder fuer die bestehende
-  // Pruef-Logik, damit worstDays() korrekt bleibt.
-  if(t.hasElec)   t.lastElec=datum;
-  if(t.hasLeiter) t.lastLeiter=datum;
-  if(t.hasService)t.lastService=datum;
-  save();renderList();_wzCloseModal();
-  _wzActLog('pruefung','Prüfbericht erfasst: '+(ergebnis||'')+(pruefer?' (Prüfer: '+pruefer+')':''), t);
-  alert('✓ Prüfbericht gespeichert');
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -7239,7 +7459,9 @@ window._wzExportBerichtePDF=async function(toolId){
       var meta=[];
       if(b.autorName)meta.push(b.autorName);
       if(b.schweregrad)meta.push('Schweregrad '+b.schweregrad);
-      if(b.ergebnis)meta.push('Ergebnis: '+b.ergebnis.replace(/[^\x20-\x7E]/g,''));
+      // jsPDF-Standardfonts sind latin1 — Emoji/Sonderzeichen werden zu Muell,
+      // darum nur das Klartext-Label ohne Icon.
+      if(b.ergebnis)meta.push('Ergebnis: '+wzErgebnisAnzeige(b.ergebnis).label);
       if(b.erledigt)meta.push('✓ Erledigt');
       if(meta.length){doc.text(meta.join(' · '),M,y);y+=4.5;}
       if(b.titel){
@@ -7252,6 +7474,30 @@ window._wzExportBerichtePDF=async function(toolId){
         doc.setTextColor(75,85,99);
         var lB=doc.splitTextToSize(b.beschreibung,180);
         lB.forEach(function(L){ensureSpace(5);doc.text(L,M,y);y+=4.5;});
+      }
+      // Messwerte gehoeren in den Nachweis — Wert und Grenzwert nebeneinander,
+      // damit das PDF ohne die App lesbar ist. Einheiten in ASCII (latin1).
+      if(b.messwerte && wzHatMesswerte(b.messwerte)){
+        var mAus=wzMessAuswertung(b.messwerte, b.grenzwerte||{});
+        var mEinh={'Ω':'Ohm','MΩ':'MOhm','mA':'mA'};
+        ensureSpace(6);
+        doc.setFont('helvetica','bold');doc.setTextColor(15,23,42);
+        doc.text('Messwerte'+((b.grenzwerte&&b.grenzwerte.schutzklasse)?' (Schutzklasse '+b.grenzwerte.schutzklasse+')':''),M,y);y+=4.5;
+        doc.setFont('helvetica','normal');
+        mAus.zeilen.forEach(function(z){
+          if(z.wert===null)return;
+          ensureSpace(5);
+          var e=mEinh[z.einheit]||z.einheit;
+          var gTxt=z.grenz!==null?('   Grenzwert '+(z.richtung==='min'?'>= ':'<= ')+z.grenz+' '+e):'   nicht bewertet';
+          doc.setTextColor(z.status==='ueber'?220:(z.status==='grenz'?217:75), z.status==='ueber'?38:(z.status==='grenz'?119:85), z.status==='ueber'?38:(z.status==='grenz'?6:99));
+          doc.text(z.kurz+' = '+z.wert+' '+e+gTxt+(z.status==='ueber'?'   UEBERSCHRITTEN':''),M+3,y);y+=4.5;
+        });
+        doc.setTextColor(75,85,99);
+      }
+      if(b.protokoll&&(b.protokoll.url||b.protokoll.dataUrl)){
+        ensureSpace(5);doc.setTextColor(37,99,235);
+        doc.text('Pruefprotokoll: '+(b.protokoll.name||'Datei')+(b.protokoll.url?'  '+b.protokoll.url:''),M,y);y+=4.5;
+        doc.setTextColor(75,85,99);
       }
       if(Array.isArray(b.fehlendeTeile)&&b.fehlendeTeile.length){
         ensureSpace(5);doc.setTextColor(146,64,14);doc.text('Fehlende Teile: '+b.fehlendeTeile.join(', '),M,y);y+=4.5;
@@ -7562,10 +7808,12 @@ function openPruefLiefAnsicht(toolId){
       + '<div style="display:flex;flex-direction:column;gap:10px">'
       + '  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
       + '    <div><label class="dlg-lbl">Durchgeführt am *</label><input id="plDat" type="date" value="'+today()+'" class="dlg-inp"/></div>'
-      + '    <div><label class="dlg-lbl">Ergebnis *</label><select id="plErg" class="dlg-inp"><option value="bestanden">✓ Bestanden</option><option value="maengel">⚠ Mit Mängeln</option><option value="nicht_bestanden">✕ Nicht bestanden</option></select></div>'
+      + '    <div><label class="dlg-lbl">Ergebnis *</label><select id="plErg" class="dlg-inp">'+WZ_ERGEBNIS.map(function(e){return '<option value="'+e.id+'">'+e.icon+' '+e.label+'</option>';}).join('')+'</select></div>'
       + '  </div>'
-      + '  <div><label class="dlg-lbl">Bemerkungen</label><textarea id="plBem" rows="3" placeholder="Arbeiten, Messwerte, Mängel …" class="dlg-txt"></textarea></div>'
+      + (t.hasElec ? '  <div style="border-top:1px dashed #e5e7eb;padding-top:10px"><div style="font-size:12px;font-weight:800;color:#0f172a;margin-bottom:6px">⚡ Messwerte Elektroprüfung</div>'+_wzMessFeldHtml(t)+'</div>' : '')
+      + '  <div><label class="dlg-lbl">Bemerkungen</label><textarea id="plBem" rows="3" placeholder="Arbeiten, Mängel, Auffälligkeiten …" class="dlg-txt"></textarea></div>'
       + '  <div><label class="dlg-lbl">Nächste Prüfung</label><input id="plNext" type="date" value="'+addMonths(today(),12)+'" class="dlg-inp"/></div>'
+      +    _wzProtokollFeldHtml()
       + '</div>'
       + '<button onclick="_wzPruefLiefBerichtEinreichen(\''+toolId+'\')" style="margin-top:12px;padding:10px 18px;border-radius:8px;border:none;background:#16a34a;color:#fff;cursor:pointer;font-weight:700;font-family:inherit;width:100%">📤 Prüfbericht einreichen</button>'
       + '</div>'
@@ -7580,6 +7828,8 @@ function openPruefLiefAnsicht(toolId){
     + '  <button onclick="_wzCloseModal()" class="dlg-cancel">Schliessen</button>'
     + '</div>'
     + '</div>';
+  window._wzProtokollFile=null;
+  window._wzMessToolId=toolId;
   _wzShowModal(html);
 }
 
@@ -7610,46 +7860,57 @@ function _wzPruefLiefBerichtEinreichen(toolId){
   if(!t||!t.pruefAnfrage)return;
   var u=_wzGetUser()||{};
   var datum=document.getElementById('plDat').value;
-  var ergebnis=document.getElementById('plErg').value;
+  var ergebnis=wzErgebnisId(document.getElementById('plErg').value);
   var bem=document.getElementById('plBem').value.trim();
   var next=document.getElementById('plNext').value||null;
   if(!datum){alert('Durchführungsdatum fehlt');return;}
-  if(!t.berichte)t.berichte=[];
-  var ergLabel=ergebnis==='bestanden'?'✓ Bestanden':(ergebnis==='maengel'?'⚠ Mit Mängeln':'✕ Nicht bestanden');
-  t.berichte.push({
-    id:_wzNewBerichtId(),typ:'pruefbericht',
-    datum:new Date(datum).toISOString(),
-    autorUserId:u.id||'',
-    autorName:(u.profile&&u.profile.firma)||u.name||'Lieferant',
-    titel:'Prüfung durch Lieferant',
-    beschreibung:bem,
-    ergebnis:ergLabel,
-    fehlendeTeile:[],
-    naechstePruefung:next,
-    vonLieferant:true
-  });
-  // Sync bestehende Felder
-  if(t.hasElec)   t.lastElec=datum;
-  if(t.hasLeiter) t.lastLeiter=datum;
-  if(t.hasService)t.lastService=datum;
-  // Anfrage auf erledigt setzen
-  t.pruefAnfrage.status='erledigt';
-  t.pruefAnfrage.erledigtAm=new Date().toISOString();
-  save();renderList();_wzCloseModal();
-  _wzActLog('pruefung','Prüfbericht eingereicht durch '+(t.pruefAnfrage.lieferantFirma||'Lieferant')+' · '+ergLabel, t);
-  // Notifikation zurueck an den Magaziner
-  if(typeof GemaNotify!=='undefined' && t.pruefAnfrage.angefordertVon){
-    GemaNotify.push({
-      eventKey:'werkzeug_pruefung_anfrage',
-      empfaengerUserId:t.pruefAnfrage.angefordertVon,
-      modul:'werkzeug',
-      typ:ergebnis==='bestanden'?'erfolg':'warnung',
-      titel:'📋 Prüfbericht eingegangen: '+t.name,
-      text:(t.pruefAnfrage.lieferantFirma||'Lieferant')+' · '+ergLabel,
-      link:'if_werkzeug.html?view='+encodeURIComponent(t.id)
+  var mess=_wzMessSammeln();
+  var ergLabel=wzErgebnisLabel(ergebnis);
+  _wzProtokollAblegen().then(function(prot){
+    if(!t.berichte)t.berichte=[];
+    t.berichte.push({
+      id:_wzNewBerichtId(),typ:'pruefbericht',
+      datum:new Date(datum).toISOString(),
+      autorUserId:u.id||'',
+      autorName:(u.profile&&u.profile.firma)||u.name||'Lieferant',
+      titel:'Prüfung durch Lieferant',
+      beschreibung:bem,
+      ergebnis:ergebnis,
+      messwerte:wzHatMesswerte(mess)?mess:null,
+      grenzwerte:wzHatMesswerte(mess)?wzGrenzwerte(t):null,
+      protokoll:prot,
+      fehlendeTeile:[],
+      naechstePruefung:next,
+      vonLieferant:true
     });
-  }
-  alert('✓ Prüfbericht übermittelt');
+    // Sync bestehende Felder
+    if(t.hasElec)   t.lastElec=datum;
+    if(t.hasLeiter) t.lastLeiter=datum;
+    if(t.hasService)t.lastService=datum;
+    // Anfrage auf erledigt setzen
+    t.pruefAnfrage.status='erledigt';
+    t.pruefAnfrage.erledigtAm=new Date().toISOString();
+    save();renderList();_wzCloseModal();
+    window._wzProtokollFile=null;
+    _wzActLog('pruefung','Prüfbericht eingereicht durch '+(t.pruefAnfrage.lieferantFirma||'Lieferant')+' · '+ergLabel, t);
+    // Notifikation zurueck an den Magaziner
+    if(typeof GemaNotify!=='undefined' && t.pruefAnfrage.angefordertVon){
+      GemaNotify.push({
+        eventKey:'werkzeug_pruefung_anfrage',
+        empfaengerUserId:t.pruefAnfrage.angefordertVon,
+        modul:'werkzeug',
+        typ:ergebnis==='bestanden'?'erfolg':'warnung',
+        titel:'📋 Prüfbericht eingegangen: '+t.name,
+        text:(t.pruefAnfrage.lieferantFirma||'Lieferant')+' · '+ergLabel,
+        link:'if_werkzeug.html?view='+encodeURIComponent(t.id)
+      });
+    }
+    if(prot&&prot.zuGross){
+      GemaDialog.alert({title:'Bericht übermittelt — Protokoll fehlt',message:'Der Prüfbericht ist übermittelt, das Protokoll «'+(prot.name||'Datei')+'» konnte aber nicht abgelegt werden. Bitte erneut anhängen, sobald wieder Verbindung besteht.'});
+    }else{
+      showToast('✓ Prüfbericht übermittelt');
+    }
+  });
 }
 
 // ──────────────────────────────────────
@@ -8614,6 +8875,29 @@ function openViewTool(id){
     html+='</div>';
   }
 
+  // Typenschild-Angaben der Elektropruefung. Ohne Schutzklasse laesst sich
+  // KEIN Grenzwert nach SNR 462638 bestimmen — das wird gesagt, nicht geraten.
+  if(t.hasElec){
+    const gwSk=wzSchutzklasse(t.schutzklasse), gw=wzGrenzwerte(t);
+    html+='<div class="vm-section">Elektroprüfung — Angaben ab Typenschild</div>';
+    html+='<div class="vm-grid">';
+    html+=vmField('Schutzklasse',gwSk?esc(gwSk.label):'—');
+    html+=vmField('Länge Anschlussleitung',(t.leitungLaengeM===null||t.leitungLaengeM===undefined)?'—':(t.leitungLaengeM+' m'));
+    html+=vmField('Heizleistung',(t.heizleistungKw===null||t.heizleistungKw===undefined)?'—':(t.heizleistungKw+' kW'));
+    html+='</div>';
+    if(gwSk){
+      html+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">'
+        +(gw.rpe!==null?'<span style="font-size:11.5px;font-weight:700;padding:4px 9px;border-radius:7px;background:var(--plan-bg);color:var(--plan);border:1px solid var(--plan-bd)">R<sub>PE</sub> ≤ '+gw.rpe+' Ω</span>':'')
+        +(gw.riso!==null?'<span style="font-size:11.5px;font-weight:700;padding:4px 9px;border-radius:7px;background:var(--plan-bg);color:var(--plan);border:1px solid var(--plan-bd)">R<sub>ISO</sub> ≥ '+gw.riso+' MΩ</span>':'')
+        +(gw.ipe!==null?'<span style="font-size:11.5px;font-weight:700;padding:4px 9px;border-radius:7px;background:var(--plan-bg);color:var(--plan);border:1px solid var(--plan-bd)">I<sub>PE</sub> ≤ '+gw.ipe+' mA</span>':'')
+        +'<span style="font-size:11.5px;font-weight:700;padding:4px 9px;border-radius:7px;background:var(--plan-bg);color:var(--plan);border:1px solid var(--plan-bd)">I<sub>B</sub> ≤ '+gw.ib+' mA</span>'
+        +'</div>'
+        +'<div style="font-size:11px;color:var(--mut);margin-top:5px">Richtwerte nach SNR 462638 / DIN VDE 0701-0702 — massgebend bleibt die Beurteilung der prüfenden Person.</div>';
+    } else {
+      html+='<div style="font-size:11.5px;color:var(--amb);font-weight:600;margin-top:5px">⚠ Ohne Schutzklasse lassen sich die Grenzwerte nicht bestimmen — im Werkzeug ergänzen.</div>';
+    }
+  }
+
   // Letzte Prüfungen
   const allPruef=[...(t.elecHistory||[]),...(t.leiterHistory||[])].sort((a,b)=>b.date.localeCompare(a.date));
   if(allPruef.length){
@@ -8705,6 +8989,7 @@ function renderPruefList(t){
   </div>`).join('');
 }
 function addPruefung(){
+  if(!_wzCanEdit()){GemaDialog.alert({message:'Keine Berechtigung'});return;}
   const t=tools.find(x=>x.id===pruefId);if(!t)return;
   const date=document.getElementById('pf_date').value;
   if(!date){alert('Bitte Datum angeben.');return;}
@@ -8712,14 +8997,31 @@ function addPruefung(){
   if(t.hasElec){t.elecHistory=t.elecHistory||[];t.elecHistory.push(entry);t.lastElec=date;}
   else if(t.hasLeiter){t.leiterHistory=t.leiterHistory||[];t.leiterHistory.push(entry);t.lastLeiter=date;}
   save();renderList();renderPruefList(t);
+  _wzActLog('pruefung','Prüfung erfasst: '+fmt(date)+(entry.pruefer?' (Prüfer: '+entry.pruefer+')':''), t);
 }
+// Ein Pruefeintrag ist ein Nachweis — er verschwindet nie stillschweigend.
+// Rueckfrage mit Datum/Pruefer und ein Eintrag im Aktivitaetenlog, damit
+// nachvollziehbar bleibt, WER WELCHEN Nachweis entfernt hat.
 function delPruef(idx){
+  if(!_wzCanEdit()){GemaDialog.alert({message:'Keine Berechtigung'});return;}
   const t=tools.find(x=>x.id===pruefId);if(!t)return;
   const all=[...(t.elecHistory||[]),...(t.leiterHistory||[])].sort((a,b)=>b.date.localeCompare(a.date));
   const e=all[idx];
-  t.elecHistory=(t.elecHistory||[]).filter(x=>x!==e);
-  t.leiterHistory=(t.leiterHistory||[]).filter(x=>x!==e);
-  save();renderList();renderPruefList(t);
+  if(!e)return;
+  const wer=e.pruefer?' · Prüfer: '+e.pruefer:'';
+  GemaDialog.confirm({
+    title:'Prüfeintrag löschen',
+    message:'Prüfung vom '+fmt(e.date)+wer+' wirklich löschen?\n\nDer Eintrag ist ein Prüfnachweis. Das Löschen wird im Aktivitätenlog festgehalten.',
+    confirmLabel:'Löschen',
+    danger:true,
+    focusCancel:true
+  }).then(function(ok){
+    if(!ok)return;
+    t.elecHistory=(t.elecHistory||[]).filter(x=>x!==e);
+    t.leiterHistory=(t.leiterHistory||[]).filter(x=>x!==e);
+    save();renderList();renderPruefList(t);
+    _wzActLog('pruefung','Prüfeintrag gelöscht: '+fmt(e.date)+wer, t);
+  });
 }
 
 // ──────────────────────────────────────
@@ -8779,7 +9081,7 @@ function _wzCsvBerichtText(b){
   var teile=[_wzCsvDat(b.datum), ({defekt:'Defekt',pruefbericht:'Prüfbericht',reparatur:'Reparatur',uebergabe:'Übergabe'})[b.typ]||b.typ||'Eintrag'];
   if(b.titel)teile.push(b.titel);
   if(b.schweregrad)teile.push(b.schweregrad);
-  if(b.ergebnis)teile.push('Ergebnis: '+b.ergebnis);
+  if(b.ergebnis)teile.push('Ergebnis: '+wzErgebnisAnzeige(b.ergebnis).label);
   if(b.typ==='defekt')teile.push(b.erledigt?'erledigt':'offen');
   return teile.filter(Boolean).join(' · ');
 }
@@ -8791,6 +9093,9 @@ var _WZ_CSV_BESTAND_KOPF=['ID','Interne Kennung','Bezeichnung','Kategorie','Art'
   'Koffer Teile','Koffer Inhalt','Im Koffer','Letzte Koffer-Kontrolle','Koffer-Kontrolle vollständig','Koffer-Kontrolle fehlend',
   'Service aktiv','Service Intervall (Mt.)','Letzter Service','Nächster Service',
   'Elektroprüfung aktiv','Elektro Intervall (Mt.)','Letzte Elektroprüfung','Nächste Elektroprüfung','Elektroprüfungen erfasst',
+  // Angaben vom Typenschild — sie bestimmen die Grenzwerte nach SNR 462638.
+  'Schutzklasse','Länge Anschlussleitung [m]','Heizleistung [kW]',
+  'Grenzwert R_PE [Ohm]','Grenzwert R_ISO [MOhm]','Grenzwert I_PE [mA]',
   'Leiterprüfung aktiv','Leiter Intervall (Mt.)','Letzte Leiterprüfung','Nächste Leiterprüfung','Leiterprüfungen erfasst',
   'Beleg Rechnungs-Nr.','Beleg Betrag','Beleg Bestell-Nr.','Beleg Lieferdatum','Beleg Datei',
   'Berichte gesamt','Defekte offen','Berichte',
@@ -8808,6 +9113,9 @@ function _wzCsvBestandZeile(t){
   var ea=Array.isArray(t.ersatzAnfragen)?t.ersatzAnfragen:[];
   var inhalt=Array.isArray(t.kofferInhalt)?t.kofferInhalt:[];
   var kofferVon=null; try{ kofferVon=_wzKofferOf(t.id); }catch(e){}
+  // Grenzwerte werden aus den Typenschild-Angaben GERECHNET (SNR 462638) —
+  // ohne Schutzklasse liefert wzGrenzwerte null, dann bleiben die Spalten leer.
+  var gw=wzGrenzwerte(t), gwSk=wzSchutzklasse(t.schutzklasse);
   var inhaltNamen=inhalt.map(function(id){
     var x=tools.find(function(y){return y.id===id;});
     return x?(x.name+(x.serial?' (SN '+x.serial+')':'')):('⚠ '+id+' (nicht gefunden)');
@@ -8826,6 +9134,13 @@ function _wzCsvBestandZeile(t){
     (Array.isArray(kk.fehlend)?kk.fehlend.map(function(f){return f&&f.name||'';}).filter(Boolean).join(', '):''),
     !!t.hasService, t.hasService?(t.serviceInterval||''):'', t.lastService||'', nextService(t)||'',
     !!t.hasElec, t.hasElec?(t.elecInterval||''):'', t.lastElec||'', nextElec(t)||'', eh.length,
+    // Ein leeres Feld bleibt leer — eine 0 waere eine erfundene Angabe.
+    gwSk?(gwSk.label||t.schutzklasse):'',
+    (t.leitungLaengeM===null||t.leitungLaengeM===undefined)?'':t.leitungLaengeM,
+    (t.heizleistungKw===null||t.heizleistungKw===undefined)?'':t.heizleistungKw,
+    gw.rpe===null||gw.rpe===undefined?'':gw.rpe,
+    gw.riso===null||gw.riso===undefined?'':gw.riso,
+    gw.ipe===null||gw.ipe===undefined?'':gw.ipe,
     !!t.hasLeiter, t.hasLeiter?(t.leiterInterval||''):'', t.lastLeiter||'', nextLeiter(t)||'', lh.length,
     kb.rechnungsNr||'', kb.betrag||'', kb.bestellNr||'', kb.lieferdatum||'', (kb.datei&&kb.datei.name)||'',
     ber.length, ber.filter(function(b){return b&&b.typ==='defekt'&&!b.erledigt;}).length,
@@ -8843,17 +9158,32 @@ function _wzCsvBestandZeile(t){
 function _wzCsvTabBerichte(list){
   var kopf=['Werkzeug-ID','Interne Kennung','Bezeichnung','Bericht-ID','Typ','Datum','Titel','Beschreibung',
     'Schweregrad','Erledigt','Erledigt am','Autor','Ergebnis','Fehlende Teile','Nächste Prüfung',
-    'Folgetermin','Folgetermin Text','Vom Lieferanten','Fotos','Lieferanten-Preis','Lieferanten-Nachricht','Lieferanten-PDF'];
+    'Folgetermin','Folgetermin Text','Vom Lieferanten','Fotos','Lieferanten-Preis','Lieferanten-Nachricht','Lieferanten-PDF',
+    // Messwerte der Elektropruefung — Wert UND Grenzwert, damit die Tabelle
+    // ohne die App pruefbar ist.
+    'Schutzklasse','R_PE [Ohm]','Grenzwert R_PE','R_ISO [MOhm]','Grenzwert R_ISO',
+    'I_PE [mA]','Grenzwert I_PE','I_B [mA]','Grenzwert I_B','Messwerte-Bewertung','Prüfprotokoll'];
   var z=[];
   list.forEach(function(t){
     (Array.isArray(t.berichte)?t.berichte:[]).forEach(function(b){
       var la=b.lieferantAntwort||{};
+      var m=b.messwerte||{}, gw=b.grenzwerte||{};
+      var mv=function(k){var v=m[k];return (v===null||v===undefined||v==='')?'':v;};
+      var gv=function(k){var v=gw[k];return (v===null||v===undefined)?'':v;};
+      var bew='';
+      if(wzHatMesswerte(m)){
+        var a=wzMessAuswertung(m,gw);
+        bew=a.ueber?('⚠ '+a.ueber+' Grenzwert(e) überschritten'):(a.grenz?'Knapp am Grenzwert':(gw.schutzklasse?'i.O.':'nicht bewertet'));
+      }
       z.push([t.id,t.internKennung||'',t.name||'',b.id||'',b.typ||'',_wzCsvDat(b.datum||''),b.titel||'',b.beschreibung||'',
         b.schweregrad||'', b.typ==='defekt'?(b.erledigt?'Ja':'Nein'):'', _wzCsvDat(b.erledigtAm||''), b.autorName||'',
-        b.ergebnis||'', (Array.isArray(b.fehlendeTeile)?b.fehlendeTeile.join(', '):''), b.naechstePruefung||'',
+        wzErgebnisAnzeige(b.ergebnis).label, (Array.isArray(b.fehlendeTeile)?b.fehlendeTeile.join(', '):''), b.naechstePruefung||'',
         b.followUpDate||'', b.followUpText||'', b.vonLieferant?'Ja':'',
         (Array.isArray(b.photos)?b.photos.length:0),
-        la.preis||'', la.nachricht||'', la.pdfName||'']);
+        la.preis||'', la.nachricht||'', la.pdfName||'',
+        gw.schutzklasse||'', mv('rpe'), gv('rpe'), mv('riso'), gv('riso'),
+        mv('ipe'), gv('ipe'), mv('ib'), gv('ib'), bew,
+        (b.protokoll?(b.protokoll.url||b.protokoll.name||'(nicht abgelegt)'):'')]);
     });
   });
   return {kopf:kopf,zeilen:z};

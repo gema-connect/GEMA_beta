@@ -59,7 +59,11 @@ console.log('── A: Registrierung als Modul ──');
   ok(/\{id:'lief',label:'Lieferanten'/.test(ws), 'sys_workspace: MODULE_CATS-Eintrag');
   ok(/id:'sys_lieferant_dashboard'/.test(ws), 'sys_workspace: MODULES-Eintrag (Eimer-Picker)');
 
-  ok(/gema-v43[7-9]|gema-v4[4-9]\d/.test(read('sw.js')), 'sw.js: Cache-Version hochgezogen');
+  // Mindest-Version NUMERISCH prüfen, nicht per Ziffern-Regex: ein
+  // Bereich wie «v4[4-9]\d» endet stillschweigend bei v499 und schlägt
+  // beim nächsten Hochzählen fehl, obwohl die Version gestiegen ist.
+  const swV = parseInt((read('sw.js').match(/gema-v(\d+)/) || [])[1] || '0', 10);
+  ok(swV >= 437, `sw.js: Cache-Version hochgezogen (v${swV} ≥ v437)`);
 }
 
 // ── B) Landing-Page = Workspace ───────────────────────────────────────

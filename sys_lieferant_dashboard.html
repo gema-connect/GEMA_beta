@@ -664,8 +664,24 @@ try{
 <script src="gema_dialog.js"></script>
 <script src="gema_zefix.js"></script>
 <script src="gema_aktivitaetslog.js"></script>
+<!-- Grenzwerte + Messwert-Bewertung der Elektropruefung (SNR 462638).
+     GETEILT mit if_werkzeug.html — der externe Pruefer bewertet damit
+     gegen exakt dieselben Werte wie der Magaziner. -->
+<script src="gema_pruefwerte.js"></script>
 <script>
 'use strict';
+// GEMA-Kanon fuer Zahlenfelder (type=text + inputmode=decimal). Wurde von
+// den Offert-/Messwert-Feldern seit je per onblur gerufen, war hier aber
+// nie definiert — der Aufruf lief still in einen ReferenceError.
+function fixLeadingZero(el) {
+  var v = (el.value || '').trim();
+  if (v === '') return;
+  if (/^\./.test(v)) v = '0' + v;
+  if (/^-\./.test(v)) v = '-0' + v.slice(1);
+  var n = parseFloat(v);
+  if (isFinite(n)) el.value = String(n);
+}
+window.fixLeadingZero = fixLeadingZero;
 var _lief = null; // current lieferant
 var _editProd = null; // currently editing product
 var _answerOaId = null;
@@ -2927,21 +2943,116 @@ window._dwzQuittieren=function(toolId){
   renderWzPruefauftraege();toast('✓ Auftrag quittiert');
 };
 
+// ── Messwerte + Prüfprotokoll (Elektroprüfung) ──────────────
+// Dieselben vier Werte wie im Werkzeugmodul; bewertet wird über den
+// GETEILTEN Helper gema_pruefwerte.js — nie über eine eigene Kopie.
+var _dwzProtokollFile=null;
+function _dwzMessBlockHtml(t){
+  if(!t.hasElec) return '';
+  var gw=wzGrenzwerte(t), sk=wzSchutzklasse(t.schutzklasse);
+  var kopf = sk
+    ? '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px">'
+        +'<span style="font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe">'+E(sk.label)+'</span>'
+        +(gw.rpe!==null?'<span style="font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe">R_PE ≤ '+gw.rpe+' Ω</span>':'')
+        +(gw.riso!==null?'<span style="font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe">R_ISO ≥ '+gw.riso+' MΩ</span>':'')
+        +(gw.ipe!==null?'<span style="font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe">I_PE ≤ '+gw.ipe+' mA</span>':'')
+        +'<span style="font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe">I_B ≤ '+gw.ib+' mA</span>'
+      +'</div>'
+    // Ohne Schutzklasse gibt es keinen Grenzwert — das wird GESAGT, nicht geraten.
+    : '<div style="font-size:11.5px;font-weight:600;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;margin-bottom:8px">⚠ Am Werkzeug ist keine Schutzklasse hinterlegt — Schutzleiter-, Isolations- und Ableitstromwert werden erfasst, aber NICHT gegen Grenzwerte bewertet (nur der Berührungsstrom ist klassenunabhängig).</div>';
+  var f=function(id,lab,einh,zeig){
+    if(!zeig) return '';
+    return '<div style="flex:1;min-width:130px"><label class="fl">'+lab+'</label>'
+      +'<div style="display:flex;align-items:stretch"><input class="fc" type="text" inputmode="decimal" id="'+id+'" onblur="fixLeadingZero(this)" oninput="_dwzMessAmpel()" style="flex:1 1 auto;width:auto;min-width:0;border-top-right-radius:0;border-bottom-right-radius:0"/>'
+      +'<span style="display:inline-flex;align-items:center;padding:0 9px;font-size:11.5px;font-weight:700;color:#64748b;background:#f1f5f9;border:1px solid var(--brd);border-left:none;border-radius:0 8px 8px 0">'+einh+'</span></div></div>';
+  };
+  return '<div style="border:1px solid var(--brd);border-radius:10px;padding:11px;background:#fafafa">'
+    +'<div style="font-size:12.5px;font-weight:800;margin-bottom:7px">⚡ Messwerte Elektroprüfung <span style="font-weight:600;color:#94a3b8">(optional)</span></div>'
+    +kopf
+    +'<div style="display:flex;flex-wrap:wrap;gap:9px">'
+    // Sichtbarkeit haengt an der SCHUTZKLASSE, nicht am Grenzwert: ohne
+    // erfasste Klasse gibt es keinen Grenzwert, erfassen soll der Pruefer
+    // die Werte trotzdem koennen (bewertet wird dann nur nicht).
+    +f('dwzPbRpe','Schutzleiter R<sub>PE</sub>','Ω',!t.schutzklasse||t.schutzklasse==='I')
+    +f('dwzPbRiso','Isolation R<sub>ISO</sub>','MΩ',true)
+    +f('dwzPbIpe','Ableitstrom I<sub>PE</sub>','mA',t.schutzklasse!=='III')
+    +f('dwzPbIb','Berührungsstrom I<sub>B</sub>','mA',true)
+    +'</div>'
+    +'<div id="dwzPbAmpel" style="margin-top:8px"></div>'
+    +'<div style="font-size:10.5px;color:#94a3b8;margin-top:6px">Richtwerte nach SNR 462638 — das Ergebnis oben setzen Sie selbst.</div>'
+    +'</div>';
+}
+function _dwzMessSammeln(){
+  var g=function(id){var e=document.getElementById(id);if(!e)return null;var v=(e.value||'').trim();if(!v)return null;var n=parseFloat(v.replace(',','.'));return isFinite(n)?n:null;};
+  return {rpe:g('dwzPbRpe'),riso:g('dwzPbRiso'),ipe:g('dwzPbIpe'),ib:g('dwzPbIb')};
+}
+window._dwzMessAmpel=function(){
+  var host=document.getElementById('dwzPbAmpel');if(!host)return;
+  var t=_dwzToolById(window._dwzMessToolId||'');
+  var m=_dwzMessSammeln();
+  if(!wzHatMesswerte(m)){host.innerHTML='';return;}
+  var a=wzMessAuswertung(m,t||{});
+  var F={ok:['#dcfce7','#15803d','#86efac'],grenz:['#fffbeb','#b45309','#fde68a'],ueber:['#fee2e2','#b91c1c','#fecaca'],'':['#f1f5f9','#64748b','#e2e8f0']};
+  host.innerHTML=a.zeilen.filter(function(z){return z.wert!==null;}).map(function(z){
+    var c=F[z.status]||F[''];
+    var txt=z.kurz+' '+z.wert+' '+z.einheit+(z.grenz!==null&&z.grenz!==undefined?' · '+(z.richtung==='min'?'≥':'≤')+' '+z.grenz:'')
+      +(z.status==='ueber'?' ⚠':z.status==='grenz'?' ~':z.status==='ok'?' ✓':'');
+    return '<span style="display:inline-block;font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px;margin:0 5px 5px 0;background:'+c[0]+';color:'+c[1]+';border:1px solid '+c[2]+'">'+E(txt)+'</span>';
+  }).join('');
+};
+window._dwzProtokollChanged=function(inp){
+  var f=inp&&inp.files&&inp.files[0];
+  _dwzProtokollFile=null;
+  var box=document.getElementById('dwzPbProtInfo');
+  if(!f){if(box)box.innerHTML='';return;}
+  if(f.size>8*1024*1024){toast('Datei zu gross (max. 8 MB).','error');inp.value='';if(box)box.innerHTML='';return;}
+  var r=new FileReader();
+  r.onerror=function(){toast('Datei konnte nicht gelesen werden.','error');inp.value='';};
+  r.onload=function(){
+    _dwzProtokollFile={name:f.name,type:f.type,size:f.size,dataUrl:r.result};
+    if(box)box.innerHTML='<span style="font-size:11.5px;color:#15803d;font-weight:700">📄 '+E(f.name)+' · '+Math.round(f.size/1024)+' KB</span>';
+  };
+  r.readAsDataURL(f);
+};
+// Kanon «erst Bucket, dann Record» — Base64 nur als Rueckfall, und ein
+// nicht ablegbares Protokoll wird GEMELDET statt verschluckt.
+function _dwzProtokollAblegen(){
+  var f=_dwzProtokollFile;
+  if(!f) return Promise.resolve(null);
+  var pfad='pruefprotokolle/'+(_lief?_lief.id:'unbekannt');
+  var b64=function(){
+    if(f.size>2.5*1024*1024) return {name:f.name,type:f.type,size:f.size,zuGross:true};
+    return {name:f.name,type:f.type,size:f.size,dataUrl:f.dataUrl};
+  };
+  if(typeof GemaStorage==='undefined'||!GemaStorage.uploadDataUrl) return Promise.resolve(b64());
+  return GemaStorage.uploadDataUrl(f.dataUrl,pfad)
+    .then(function(r){return {name:f.name,type:f.type,size:f.size,url:r.url};})
+    .catch(function(){return b64();});
+}
+
 window._dwzOpenPruefbericht=function(toolId){
   if(_liefBlockedInaktiv())return;
   var t=_dwzToolById(toolId);if(!t)return;
   var heute=new Date().toISOString().split('T')[0];
+  _dwzProtokollFile=null; window._dwzMessToolId=toolId;
   _dwzModal('<h3 style="margin:0 0 4px;font-size:17px;font-weight:900">📝 Prüfbericht einreichen</h3>'
     +'<div style="font-size:12px;color:#64748b;margin-bottom:14px">'+E(t.name||'')+' · '+E(_dwzOrgName(t.orgId))+' · '+E(_DWZ_PRUEF_LABEL[_dwzPruefTyp(t)]||'')+'</div>'
     +'<div style="display:flex;flex-direction:column;gap:10px">'
     +'<div><label class="fl">Durchführungsdatum</label><input class="fc" type="date" id="dwzPbDatum" value="'+heute+'"/></div>'
-    +'<div><label class="fl">Ergebnis</label><select class="fc" id="dwzPbErgebnis"><option value="bestanden">✓ Bestanden</option><option value="maengel">⚠ Mit Mängeln</option><option value="nicht_bestanden">✕ Nicht bestanden</option></select></div>'
+    +'<div><label class="fl">Ergebnis</label><select class="fc" id="dwzPbErgebnis">'
+      +WZ_ERGEBNIS.map(function(e){return '<option value="'+e.id+'">'+e.icon+' '+E(e.label)+'</option>';}).join('')
+      +'</select></div>'
+    +_dwzMessBlockHtml(t)
     +'<div><label class="fl">Bemerkungen</label><textarea class="fc" id="dwzPbBem" rows="3" placeholder="Befunde, ersetzte Teile…"></textarea></div>'
+    +'<div><label class="fl">Prüfprotokoll (PDF oder Foto, optional)</label>'
+      +'<input class="fc" type="file" id="dwzPbProt" accept=".pdf,image/*" onchange="_dwzProtokollChanged(this)" style="padding:6px"/>'
+      +'<div id="dwzPbProtInfo" style="margin-top:5px"></div>'
+      +'<div style="font-size:10.5px;color:#94a3b8;margin-top:3px">Das Protokoll Ihres Messgeräts — es bleibt am Bericht hängen. Max. 8 MB.</div></div>'
     +'<div><label class="fl">Nächste Prüfung (optional)</label><input class="fc" type="date" id="dwzPbNext"/></div>'
     +'</div>'
     +'<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">'
     +'<button class="btn btn-g" onclick="_dwzCloseModal()">Abbrechen</button>'
-    +'<button class="btn btn-p" onclick="_dwzSubmitPruefbericht(\''+E(t.id)+'\')">📝 Bericht einreichen</button>'
+    +'<button class="btn btn-p" id="dwzPbSave" onclick="_dwzSubmitPruefbericht(\''+E(t.id)+'\')">📝 Bericht einreichen</button>'
     +'</div>');
 };
 
@@ -2950,43 +3061,70 @@ window._dwzSubmitPruefbericht=function(toolId){
   var t=_dwzToolById(toolId);if(!t||!t.pruefAnfrage)return;
   var datum=document.getElementById('dwzPbDatum').value;
   if(!datum){toast('Bitte Durchführungsdatum angeben.','error');return;}
-  var erg=document.getElementById('dwzPbErgebnis').value;
+  // Gespeichert wird der stabile Schluessel, nicht der Anzeigetext.
+  var erg=wzErgebnisId(document.getElementById('dwzPbErgebnis').value);
+  var ergLabel=wzErgebnisLabel(erg);
   var bem=(document.getElementById('dwzPbBem').value||'').trim();
   var next=document.getElementById('dwzPbNext').value||'';
-  var ergLabel=erg==='bestanden'?'✓ Bestanden':erg==='maengel'?'⚠ Mit Mängeln':'✕ Nicht bestanden';
+  var mess=_dwzMessSammeln();
   var u=null;try{u=GemaAuth.getCurrentUser();}catch(e){}
   var firma=_dwzFirma();
-  t.berichte=t.berichte||[];
-  t.berichte.push({
-    id:'ber_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),
-    typ:'pruefbericht', datum:datum,
-    autorUserId:(u&&u.id)||'', autorName:firma,
-    titel:'Prüfung durch Lieferant',
-    beschreibung:bem, ergebnis:ergLabel,
-    fehlendeTeile:[], naechstePruefung:next,
-    vonLieferant:true
+  var btn=document.getElementById('dwzPbSave');
+  if(btn){btn.disabled=true;btn.textContent='⏳ Wird eingereicht …';}
+
+  _dwzProtokollAblegen().then(function(prot){
+    t.berichte=t.berichte||[];
+    t.berichte.push({
+      id:'ber_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),
+      typ:'pruefbericht', datum:datum,
+      autorUserId:(u&&u.id)||'', autorName:firma,
+      titel:'Prüfung durch Lieferant',
+      beschreibung:bem, ergebnis:erg,
+      // Messwerte NUR mit den Grenzwerten speichern, gegen die sie
+      // bewertet wurden — ein spaeter geaendertes Typenschild darf einen
+      // abgelegten Pruefnachweis nicht rueckwirkend umdeuten.
+      messwerte:wzHatMesswerte(mess)?mess:null,
+      grenzwerte:wzHatMesswerte(mess)?wzGrenzwerte(t):null,
+      protokoll:prot,
+      fehlendeTeile:[], naechstePruefung:next,
+      vonLieferant:true
+    });
+    // Letzte Pruefdaten nachfuehren — gleiche Logik wie
+    // _wzPruefLiefBerichtEinreichen in if_werkzeug.html.
+    if(t.hasElec)t.lastElec=datum;
+    if(t.hasLeiter)t.lastLeiter=datum;
+    if(t.hasService)t.lastService=datum;
+    t.pruefAnfrage.status='erledigt';
+    t.pruefAnfrage.erledigtAm=new Date().toISOString();
+    _dwzSaveTool(t);
+    var mAus=wzHatMesswerte(mess)?wzMessAuswertung(mess,t):null;
+    _dwzLog('pruefung','Prüfbericht eingereicht durch '+firma+' · '+ergLabel
+      +(mAus?' · '+mAus.erfasst+' Messwert(e)'+(mAus.ueber?', '+mAus.ueber+' über Grenzwert':''):'')
+      +(prot&&!prot.zuGross?' · Protokoll: '+prot.name:'')
+      +(next?' · Nächste Prüfung: '+_dwzFmtD(next):''),t);
+    if(typeof GemaNotify!=='undefined'){
+      var notif={eventKey:'werkzeug_pruefung_anfrage',modul:'werkzeug',
+        typ:(erg==='bestanden'?'erfolg':'warnung'),
+        titel:(erg==='bestanden'?'✓':'⚠')+' Prüfbericht: '+t.name,
+        text:firma+' · '+ergLabel+(mAus&&mAus.ueber?' · ⚠ '+mAus.ueber+' Messwert(e) über Grenzwert':'')
+          +(next?' · Nächste Prüfung: '+_dwzFmtD(next):''),
+        link:'if_werkzeug.html?view='+encodeURIComponent(t.id)};
+      if(t.pruefAnfrage.angefordertVon){notif.empfaengerUserId=t.pruefAnfrage.angefordertVon;}
+      else{notif.empfaengerRoleId='role_magaziner';notif.empfaengerOrgId=t.orgId||'';}
+      GemaNotify.push(notif);
+    }
+    _dwzCloseModal();renderWzPruefauftraege();renderWerkzeuge();
+    if(prot&&prot.zuGross){
+      // Nie stillschweigend verschlucken: der Bericht ist da, das
+      // Protokoll nicht — und der Pruefer erfaehrt genau das.
+      toast('Bericht eingereicht — Protokoll «'+prot.name+'» konnte nicht abgelegt werden (Cloud-Speicher nicht erreichbar, Datei über 2.5 MB).','error');
+    } else {
+      toast('📝 Prüfbericht eingereicht');
+    }
+  }).catch(function(e){
+    if(btn){btn.disabled=false;btn.textContent='📝 Bericht einreichen';}
+    toast('Bericht konnte nicht eingereicht werden: '+((e&&e.message)||'Fehler'),'error');
   });
-  // Letzte Pruefdaten nachfuehren — gleiche Logik wie
-  // _wzPruefLiefBerichtEinreichen in if_werkzeug.html.
-  if(t.hasElec)t.lastElec=datum;
-  if(t.hasLeiter)t.lastLeiter=datum;
-  if(t.hasService)t.lastService=datum;
-  t.pruefAnfrage.status='erledigt';
-  t.pruefAnfrage.erledigtAm=new Date().toISOString();
-  _dwzSaveTool(t);
-  _dwzLog('pruefung','Prüfbericht eingereicht durch '+firma+' · '+ergLabel+(next?' · Nächste Prüfung: '+_dwzFmtD(next):''),t);
-  if(typeof GemaNotify!=='undefined'){
-    var notif={eventKey:'werkzeug_pruefung_anfrage',modul:'werkzeug',
-      typ:(erg==='bestanden'?'erfolg':'warnung'),
-      titel:(erg==='bestanden'?'✓':'⚠')+' Prüfbericht: '+t.name,
-      text:firma+' · '+ergLabel+(next?' · Nächste Prüfung: '+_dwzFmtD(next):''),
-      link:'if_werkzeug.html?view='+encodeURIComponent(t.id)};
-    if(t.pruefAnfrage.angefordertVon){notif.empfaengerUserId=t.pruefAnfrage.angefordertVon;}
-    else{notif.empfaengerRoleId='role_magaziner';notif.empfaengerOrgId=t.orgId||'';}
-    GemaNotify.push(notif);
-  }
-  _dwzCloseModal();renderWzPruefauftraege();renderWerkzeuge();
-  toast('📝 Prüfbericht eingereicht');
 };
 
 // ── Offerte (Defekt / Ersatzanfrage) — extern erstellt, PDF-Upload ──
