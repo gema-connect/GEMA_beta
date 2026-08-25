@@ -590,7 +590,10 @@ await p2.evaluate(() => { const w = window._apHooks.wizard(); w.step = 2; window
 await p2.waitForTimeout(300);
 const wbStep = await p2.evaluate(() => document.getElementById('modalBody').textContent);
 ok(wbStep.indexOf('Abmessung') >= 0 && wbStep.indexOf('40×50 cm') >= 0, 'Waschtisch-Schritt: Standardmasse (40×50 …)');
-ok(wbStep.indexOf('Garnituren') >= 0 && wbStep.indexOf('Glashalter') >= 0, 'Waschtisch-Schritt: Garnituren-Auswahl');
+// Feedback 24.08.2026 (Sandro, Waschtisch Punkt 5): die Gruppe heisst neu
+// «Accessoire» statt «Garnituren» — bewusster Wortlaut des Kunden. Die Auswahl
+// selbst (Glashalter & Co.) ist unverändert, darum wird nur das Label nachgezogen.
+ok(wbStep.indexOf('Accessoire') >= 0 && wbStep.indexOf('Glashalter') >= 0, 'Waschtisch-Schritt: Accessoire-Auswahl');
 ok(wbStep.indexOf('Befestigungsset') >= 0 && wbStep.indexOf('Schallschutzset') >= 0, 'Waschtisch-Schritt: Befestigung/Siphon/Schallschutz');
 ok(errs2.length === 0, 'keine pageerrors nach Wizard-Interaktionen');
 

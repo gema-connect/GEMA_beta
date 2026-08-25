@@ -119,7 +119,9 @@ const po = F('pm_objekte.html');
 t(po.includes('OFF_BKP_NAMEN') && po.includes('renderOffBkpCards') && po.includes('offNeueAnfrage'), 'Offerten-Tab: BKP-Hauptgruppen-Karten + freie Anfrage');
 
 // SW-Bump
-t(/gema-v4(8\d|9\d)/.test(F('sw.js')), 'sw.js-Version gebumpt (≥ v480)');
+// Numerisch vergleichen, NIE per Ziffern-Regex: das frühere /gema-v4(8\d|9\d)/
+// endete stillschweigend bei v499 und war ab v500 rot, obwohl die Version stieg.
+t(parseInt((F('sw.js').match(/gema-v(\d+)/) || [])[1] || '0', 10) >= 480, 'sw.js-Version gebumpt (≥ v480)');
 
 console.log('\nTeil A: ' + ok + ' ok, ' + fail + ' fehlgeschlagen');
 

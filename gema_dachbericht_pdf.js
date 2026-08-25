@@ -111,6 +111,21 @@
       .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   }
 
+  // Beschreibungsfelder tragen seit dem Feedback vom 24.08.2026 formatierten
+  // Text (Absaetze, fett/kursiv/unterstrichen). Sie laufen darum NICHT durch
+  // esc(), sondern durch den GETEILTEN Sanitizer aus gema_richtext.js —
+  // derselbe, der auch im Editor rendert; so steht im Bericht exakt das, was
+  // erfasst wurde.
+  // Fehlt der Helfer (alter Service-Worker-Cache), wird escaped wie bisher —
+  // aber Zeilenumbrueche bleiben trotzdem erhalten, statt wie frueher zu
+  // verschwinden. NIE ungeprueftes HTML durchreichen.
+  function rich(v){
+    if(window.GemaRichtext && window.GemaRichtext.sanitize){
+      try { return window.GemaRichtext.sanitize(v); } catch(e){}
+    }
+    return esc(v).replace(/\r\n|\r|\n/g,'<br>');
+  }
+
   // ── Firmenfarben (org.settings.pdfFarben) ──────────────────────────
   // Siehe gema_schaden_pdf.js fuer die ausfuehrliche Erklaerung. Kurz:
   // --accent (Text/Linien/Flaechen) + --forest (Verlauf-Tail) aus den
@@ -327,16 +342,16 @@
     // erfasste Beschreibungstext im PDF still verloren.
     if(dachtypLabel || notEmpty(u.dachtypText)){
       h += '<div class="block"><div class="block-label">Dachtyp'+(dachtypLabel?' · '+esc(dachtypLabel):'')+'</div>';
-      if(notEmpty(u.dachtypText)) h += '<div class="block-body">'+esc(u.dachtypText)+'</div>';
+      if(notEmpty(u.dachtypText)) h += '<div class="block-body">'+rich(u.dachtypText)+'</div>';
       h += '</div>';
     }
     if(ziegelLabel || notEmpty(u.ziegelartText)){
       h += '<div class="block"><div class="block-label">Eindeckung'+(ziegelLabel?' · '+esc(ziegelLabel):'')+'</div>';
-      if(notEmpty(u.ziegelartText)) h += '<div class="block-body">'+esc(u.ziegelartText)+'</div>';
+      if(notEmpty(u.ziegelartText)) h += '<div class="block-body">'+rich(u.ziegelartText)+'</div>';
       h += '</div>';
     }
     if(notEmpty(u.bemerkung)){
-      h += '<div class="block"><div class="block-label">Bemerkung</div><div class="block-body">'+esc(u.bemerkung)+'</div></div>';
+      h += '<div class="block"><div class="block-label">Bemerkung</div><div class="block-body">'+rich(u.bemerkung)+'</div></div>';
     }
     if(split.rest.length){
       h += '<div class="subhead">Weitere Fotos</div>';
@@ -364,7 +379,7 @@
         + '<div class="sec-titles"><div class="sec-eyebrow">Kapitel '+(ki+1)+'</div><div class="sec-title">'+esc(k.name||'Unbenannt')+'</div></div></div>';
       if(split.haupt) html += bigImageHtml(split.haupt);
       if(notEmpty(k.einleitung)){
-        html += '<div class="block"><div class="block-body">'+esc(k.einleitung)+'</div></div>';
+        html += '<div class="block"><div class="block-body">'+rich(k.einleitung)+'</div></div>';
       }
       // Restliche Fotos (Auto-Layout: 4 fuellen, 6 fuellen, >6 naechste Seite)
       if(split.rest.length){
@@ -386,7 +401,7 @@
         if(!hasUkCont) return;
         html += '<div class="uk-block">'
           + '<div class="uk-title">'+esc(label)+'</div>';
-        if(notEmpty(uk.text)) html += '<div class="block-body">'+esc(uk.text)+'</div>';
+        if(notEmpty(uk.text)) html += '<div class="block-body">'+rich(uk.text)+'</div>';
         html += '</div>';
         if(ukBilder.length) html += gridHtml(ukBilder);
       });
@@ -405,7 +420,7 @@
       + '<div class="sec-head"><div class="sec-num">'+nextNum+'</div>'
       + '<div class="sec-titles"><div class="sec-eyebrow">Übergänge</div><div class="sec-title">Nachbaranschlüsse</div></div></div>';
     if(split.haupt) html += bigImageHtml(split.haupt);
-    if(notEmpty(n.text)) html += '<div class="block"><div class="block-body">'+esc(n.text)+'</div></div>';
+    if(notEmpty(n.text)) html += '<div class="block"><div class="block-body">'+rich(n.text)+'</div></div>';
     if(split.rest.length){
       html += '<div class="subhead">Weitere Fotos</div>';
       html += gridHtml(split.rest);
@@ -446,11 +461,11 @@
         + '</div>';
       if(notEmpty(m.beschreibung)){
         html += '<div class="mn-label">Mangel / Beschreibung</div>'
-          + '<div class="mn-text">'+esc(m.beschreibung)+'</div>';
+          + '<div class="mn-text">'+rich(m.beschreibung)+'</div>';
       }
       if(notEmpty(m.empfehlung)){
         html += '<div class="mn-label">Empfehlung</div>'
-          + '<div class="mn-text">'+esc(m.empfehlung)+'</div>';
+          + '<div class="mn-text">'+rich(m.empfehlung)+'</div>';
       }
       html += '</div>';
     });
