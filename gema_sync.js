@@ -1269,7 +1269,20 @@
     // Outbox: nicht synchronisierte Saves manuell nachsenden / Anzahl abfragen.
     flushOutbox: function(opts){ return _outboxFlush(opts); },
     pendingCount: _outboxCount,
-    pendingInfo: _pendingInfo
+    pendingInfo: _pendingInfo,
+
+    // BEIDE Verbindungswege (aktiver zuerst): direkt supabase.co und der
+    // Same-Origin-Proxy /sb. Wer eine gespeicherte Datei-URL laedt, kann
+    // damit den jeweils anderen Weg versuchen, wenn einer blockiert ist —
+    // eine im Record abgelegte URL zeigt IMMER auf den Weg, der beim
+    // Speichern aktiv war, und der muss beim Lesen nicht mehr gelten
+    // (anderes Geraet, Firewall, Werbeblocker). Konsument: GemaStorage.
+    sbBasen: function(){
+      var out = [_sbBase()];
+      var alt = _sbProxy ? SB_URL : (/^https?:/.test((typeof location!=='undefined'&&location.origin)||'') ? _proxyBase() : null);
+      if(alt && out.indexOf(alt) < 0) out.push(alt);
+      return out;
+    }
   };
   // SB_URL folgt dem aktiven Verbindungsweg (direkt supabase.co ODER
   // Same-Origin-Proxy /sb) — als Getter, damit alle Konsumenten

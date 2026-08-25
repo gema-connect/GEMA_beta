@@ -423,14 +423,16 @@ console.log('\n— B) Apparateliste: IV, Standard, Massangabe, Armaturen —');
   ok(/Spiegel/.test(wt.nurSpiegel) && !/Spiegel AP|Spiegel UP/.test(wt.nurSpiegel),
      'B5 ohne Schrank wird KEINE Montageart behauptet');
 
-  // B6 — Badewanne ohne Möbel (Gegenprobe: Waschtisch hat sie)
+  // B6 — Badewanne ohne Möbel UND ohne Unterbauelement (Gegenprobe: Waschtisch hat Möbel).
+  // Feedback 25.08.2026: gemeint war das Unterbauelement — es ist ersatzlos entfallen.
   const moebel = await page.evaluate(() => {
     const h = window._apHooks;
     const w = h.wizard();
-    const zeigen = (schritt, felder) => {
+    const zeigen = (schritt, felder, patch) => {
       w.open = true; w.mode = 'add'; w.editId = null;
       w.draft = h.newDraft(); w.draft.qty = 1;
       felder.forEach(f => { w.draft[f] = true; });
+      Object.assign(w.draft, patch || {});
       w.draft.apStatus = { bathtub: 'ja', washbasin: 'ja' };
       w.steps = h.stepsFor(w.draft.roomType);
       w.step = w.steps.findIndex(s => s.k === schritt);
@@ -440,12 +442,45 @@ console.log('\n— B) Apparateliste: IV, Standard, Massangabe, Armaturen —');
     };
     const bad = zeigen('bath', ['hasBathtub']);
     const wtb = zeigen('washbasin', ['hasWashbasin']);
+    // Bestandsschutz: ein Alt-Raum mit gesetztem Wert bekommt einen Hinweis + Entfernen-Knopf
+    const alt = zeigen('bath', ['hasBathtub'], { bathtubUnderbuild: true });
+    const altKnopf = !!document.querySelector('#modalBody button[onclick*="apBathUnterbauWeg"]');
+    let altWeg = null;
+    if (typeof window.apBathUnterbauWeg === 'function') {
+      window.apBathUnterbauWeg();
+      altWeg = { wert: h.wizard().draft.bathtubUnderbuild,
+                 text: (document.getElementById('modalBody') || {}).textContent || '' };
+    }
+    // Ein NEUER Raum erbt den entfallenen Wert nie aus den Voreinstellungen
+    const frisch = h.newDraft().bathtubUnderbuild;
     return { badMoebel: /Möbel/.test(bad.alles), wtMoebel: /Möbel/.test(wtb.alles),
-             badUnterbau: /Unterbauelement/.test(bad.alles) };
+             badUnterbau: /Unterbauelement/.test(bad.alles),
+             altHinweis: /Unterbauelement/.test(alt.alles), altKnopf, altWeg, frisch };
   });
   ok(!moebel.badMoebel, 'B6 die Badewanne hat KEINE Möbel-Gruppe');
   ok(moebel.wtMoebel, 'B6 Gegenprobe: beim Waschtisch gibt es sie weiterhin');
-  ok(moebel.badUnterbau, 'B6 das fachlich noetige Unterbauelement bleibt bei der Badewanne');
+  ok(!moebel.badUnterbau, 'B6 die Badewanne hat KEINE Unterbauelement-Gruppe mehr');
+  ok(moebel.frisch === false, 'B6 ein neuer Raum erbt den entfallenen Wert nicht');
+  ok(moebel.altHinweis, 'B6 Bestandsschutz: Alt-Raum mit dem Wert wird ausgewiesen');
+  ok(moebel.altKnopf, 'B6 Bestandsschutz: mit Entfernen-Knopf');
+  ok(moebel.altWeg && moebel.altWeg.wert === false, 'B6 Entfernen setzt den Alt-Wert zurueck');
+  ok(moebel.altWeg && !/Unterbauelement/.test(moebel.altWeg.text), 'B6 danach ist der Hinweis weg');
+
+  // B6b — kein STILLER Verlust: der Alt-Wert steht weiter in Liste/Bericht/CSV
+  const altZeile = await page.evaluate(() => {
+    const h = window._apHooks;
+    const mk = (unter) => {
+      const r = h.newDraft();
+      r.roomType = 'Badezimmer'; r.hasBathtub = true;
+      r.hasWashbasin = r.hasWC = r.hasShower = false;
+      r.bathtubUnderbuild = unter;
+      return (h.buildRows(r) || []).filter(z => /Badewanne/.test(z.app || ''))
+        .map(z => String(z.details || '')).join(' | ');
+    };
+    return { mit: mk(true), ohne: mk(false) };
+  });
+  ok(/Unterbauelement/.test(altZeile.mit), 'B6b Alt-Wert bleibt in der Positionszeile sichtbar');
+  ok(!/Unterbauelement/.test(altZeile.ohne), 'B6b ohne den Wert steht er nicht da');
 
   // B7 — «+» statt «&»
   const plus = await page.evaluate(() => {
