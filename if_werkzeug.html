@@ -128,6 +128,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
   .toolbar #btnWzSammel,
   .toolbar #btnWzActLog,
   .toolbar #btnWzExport,
+  .toolbar #btnWzAudit,
   .toolbar #btnAdvFilter{flex:1 1 calc((100% - 16px)/3);min-width:0;justify-content:center;padding:10px 8px;font-size:12.5px}
   /* Reihenfolge:
      Z1 (=order:-1): + Geraet hinzufuegen (volle Breite)
@@ -140,6 +141,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
   .toolbar #btnWzSammel{order:20}
   .toolbar #btnWzActLog{order:21}
   .toolbar #btnWzExport{order:23}
+  .toolbar #btnWzAudit{order:24}
   .toolbar #btnAdvFilter{order:22}
   .toolbar #advFilterBadge{order:22}
   .toolbar #searchMob{order:30;flex:1 1 calc(((100% - 16px)/3)*2 + 8px);margin-top:0}
@@ -655,6 +657,7 @@ tr.sml-err td{background:#fef2f2}
     <span class="wz-filter-badge" id="advFilterBadge" style="display:none;font-size:10px;font-weight:800;padding:2px 7px;border-radius:6px;background:var(--plan);color:#fff;cursor:pointer;margin-left:-6px" onclick="_wzClearAdvFilter()" title="Filter zurücksetzen">✕</span>
     <button class="nbtn" id="btnWzActLog" onclick="_wzOpenActLog()" style="display:none;background:#f1f5f9;color:#0f172a;border-color:#cbd5e1" title="Aktivitäten-Log (Magaziner/Admin)">📋 Aktivitäten</button>
     <button class="nbtn" id="btnWzExport" onclick="_wzExportOpen()" style="display:none;background:#f8fafc;color:#334155;border-color:#cbd5e1" title="Alle Daten als CSV exportieren (Excel)">📥 CSV</button>
+    <button class="nbtn" id="btnWzAudit" onclick="_wzAuditOpen()" style="display:none;background:#f8fafc;color:#334155;border-color:#cbd5e1" title="Prüfnachweis für die Kontrolle: alle Geräte mit Prüfstatus, letztem Nachweis und Prüfperson als PDF">🛡 Audit</button>
     <button class="nbtn" id="btnWzSettings" onclick="_wzOpenSettings()" style="display:none" title="Werkzeug-Einstellungen"><span class="wz-btn-ico">⚙️</span><span class="wz-btn-lbl"> Einstellungen</span></button>
     <div class="view-toggle" id="viewToggle">
       <button class="vt-btn active" id="vt_cards" onclick="setView('cards')" title="Karten">⊞</button>
@@ -6181,6 +6184,7 @@ function openBerichte(toolId){
       }
       return '<div style="background:'+bgCol+';border:1.5px solid '+brdCol+';border-radius:8px;padding:10px 12px;margin-bottom:8px">'
         +'<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#64748b"><span style="font-weight:800;color:#0f172a">'+icon+' '+typLabel+'</span><span>·</span><span>'+esc(b.autorName||'—')+'</span><span>·</span><span>'+fmt((b.datum||'').split('T')[0])+'</span></div>'
+        +_wzQualiBerichtHtml(b)
         +'<div style="font-size:13px;font-weight:700;margin-top:4px">'+esc(b.titel||'')+'</div>'
         +(b.beschreibung?'<div style="font-size:12px;color:#475569;margin-top:2px">'+esc(b.beschreibung)+'</div>':'')
         +(b.ergebnis?(function(){var E=wzErgebnisAnzeige(b.ergebnis);return '<div style="font-size:12px;margin-top:4px"><strong>Ergebnis:</strong> <span style="font-weight:800;color:'+E.farbe+'">'+E.icon+' '+esc(E.label)+'</span></div>';})():'')
@@ -6399,6 +6403,40 @@ function _wzMessBerichtHtml(b){
     +'</div>';
 }
 
+/* Qualifikation der pruefenden Person unter dem Pruefer-Feld.
+   SNR 462638 verlangt eine FACHKUNDIGE Person — steht auf dem Bericht
+   nur ein Name, ist der Nachweis angreifbar. Die Angabe kommt aus dem
+   PROFIL (eine Wahrheit, dort gepflegt) und wird beim Speichern als
+   Momentaufnahme mitgeschrieben.
+   Fehlt sie, wird das GESAGT statt verschwiegen — mit dem Weg dorthin;
+   die Erfassung bleibt trotzdem moeglich (der Bericht weist die Luecke
+   dann selbst aus, statt dass gar nichts dokumentiert wird). */
+function _wzQualiFeldHtml(u){
+  if(typeof wzQualiVonUser==='undefined') return '';
+  var q=wzQualiVonUser(u||{});
+  if(q.label){
+    return '<div style="font-size:11px;color:#0f766e;background:#f0fdfa;border:1px solid #99f6e4;border-radius:6px;padding:5px 8px;margin-top:5px">'
+      +'⚡ Qualifikation: <strong>'+esc(q.label)+'</strong>'
+      +'<div style="color:#64748b;font-weight:400;margin-top:1px">Wird mit dem Bericht gespeichert · Änderung im Profil</div></div>';
+  }
+  return '<div style="font-size:11px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:5px 8px;margin-top:5px">'
+    +'⚠ Keine Prüfqualifikation im Profil hinterlegt — SNR 462638 verlangt eine fachkundige Person.'
+    +'<div style="margin-top:2px"><a href="sys_profil.html" target="_blank" style="color:#b45309;font-weight:700">Im Profil nachtragen →</a></div></div>';
+}
+/* Der gespeicherte Qualifikations-Schnappschuss am Bericht.
+   NUR bei Pruefberichten — bei einer Defektmeldung ist die Frage
+   gegenstandslos. Fehlt die Angabe (Altbestand oder Pruefer ohne
+   Profil-Eintrag), wird das als LUECKE ausgewiesen statt verschwiegen:
+   genau das will der Kontrolleur sehen. */
+function _wzQualiBerichtHtml(b){
+  if(!b||b.typ!=='pruefbericht')return '';
+  var q=String(b.pruefQualifikation||'').trim();
+  if(q){
+    return '<div style="font-size:11px;color:#0f766e;margin-top:3px">⚡ Qualifikation: <strong>'+esc(q)+'</strong></div>';
+  }
+  return '<div style="font-size:11px;color:#b45309;margin-top:3px">⚠ Qualifikation der prüfenden Person nicht erfasst</div>';
+}
+
 function openPruefbericht(toolId){
   if(!_wzCanEdit()){alert('Keine Berechtigung');return;}
   var t=tools.find(function(x){return x.id===toolId;});
@@ -6412,7 +6450,7 @@ function openPruefbericht(toolId){
     + '    <div><label class="dlg-lbl">Prüfdatum *</label><input id="prDatum" type="date" value="'+today()+'" class="dlg-inp"/></div>'
     + '    <div><label class="dlg-lbl">Ergebnis *</label><select id="prErg" class="dlg-inp">'+WZ_ERGEBNIS.map(function(e){return '<option value="'+e.id+'">'+e.icon+' '+e.label+'</option>';}).join('')+'</select></div>'
     + '  </div>'
-    + '  <div><label class="dlg-lbl">Prüfer</label><input id="prPruefer" type="text" value="'+esc(u.name||'')+'" placeholder="Name des Prüfers" class="dlg-inp"/></div>'
+    + '  <div><label class="dlg-lbl">Prüfer</label><input id="prPruefer" type="text" value="'+esc(u.name||'')+'" placeholder="Name des Prüfers" class="dlg-inp"/>'+_wzQualiFeldHtml(u)+'</div>'
     + '  <div><label class="dlg-lbl">Titel</label><input id="prTitel" type="text" placeholder="z.B. Jahresprüfung" value="Jahresprüfung" class="dlg-inp"/></div>'
     + (t.hasElec ? '  <div style="border-top:1px dashed #e5e7eb;padding-top:10px"><div style="font-size:12px;font-weight:800;color:#0f172a;margin-bottom:6px">⚡ Messwerte Elektroprüfung</div>'+_wzMessFeldHtml(t)+'</div>' : '')
     + '  <div><label class="dlg-lbl">Bemerkungen</label><textarea id="prBemerk" rows="3" placeholder="Beobachtungen, durchgeführte Arbeiten …" class="dlg-txt"></textarea></div>'
@@ -6460,6 +6498,12 @@ function _wzSavePruefbericht(toolId){
       id:_wzNewBerichtId(),typ:'pruefbericht',
       datum:new Date(datum).toISOString(),
       autorUserId:u.id||'',autorName:pruefer,
+      // Qualifikations-SNAPSHOT (SNR 462638): der Bericht haelt fest, WER
+      // mit WELCHEM Nachweis geprueft hat. Wie die Grenzwerte wandert die
+      // Angabe in den Record — ein spaeter geaendertes Profil darf einen
+      // abgelegten Nachweis nicht rueckwirkend umdeuten. Leer bleibt leer
+      // (keine erfundene Qualifikation), der Bericht weist das aus.
+      pruefQualifikation:(typeof wzQualiVonUser!=='undefined')?wzQualiVonUser(u).label:'',
       titel:titel,beschreibung:bemerk,
       // Ergebnis als stabiler Schlüssel — die Beschriftung kommt beim
       // Anzeigen aus wzErgebnisLabel (Emoji-Strings waren nicht auswertbar).
@@ -7198,16 +7242,16 @@ function _wzPruefPDF(){
       +'<br/>'+esc(m.befund.text)+'<br/><span class="tun">→ '+esc(m.befund.massnahme)+'</span></li>';
   }).join('');
 
+  var pb=_wzPrintBrand();
+  var qual=(typeof wzQualiVonUser!=='undefined')?wzQualiVonUser(me).label:'';
   var w=window.open('','_blank');
   if(!w)return;
   w.document.write('<html><head><title>Prüfbericht Werkzeuge</title><style>'
-    +'body{font-family:"DM Sans",system-ui,sans-serif;padding:32px;color:#111;font-optical-sizing:auto;font-variation-settings:"opsz" 14}'
+    +_wzPrintCss(pb)
     +'table{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px}'
-    +'th{background:#f1f5f9;padding:7px 8px;border:1px solid #ddd;text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.03em}'
+    +'th{padding:7px 8px;border:1px solid #ddd;text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.03em}'
     +'td{padding:6px 8px;border:1px solid #ddd;vertical-align:top}'
     +'tr.grp td{background:#f8fafc;font-weight:800;font-size:12.5px}'
-    +'h1{font-size:20px;margin:0 0 2px}h2{font-size:14px;color:#475569;margin:0 0 4px;font-weight:700}'
-    +'h3{font-size:14px;margin:22px 0 6px}'
     +'.meta{font-size:12px;color:#64748b;margin:8px 0 18px}'
     +'.mut{color:#94a3b8;font-weight:400}'
     +'.tun{color:#b45309;font-weight:700}'
@@ -7216,16 +7260,17 @@ function _wzPruefPDF(){
     +'.ok{background:#f0fdf4;border:1.5px solid #bbf7d0;color:#15803d;font-weight:700}'
     +'ul{margin:8px 0 0 18px;font-size:12px;padding:0}li{margin-bottom:9px}'
     +'@media print{button{display:none}}</style></head><body>'
-    +'<h1>Prüfbericht Werkzeuge</h1>'
-    +'<h2>'+kopf+'</h2>'
-    +'<div class="meta">Prüfer: '+esc(me.name||me.username||'—')+' · Datum: '+fmt(new Date().toISOString().split('T')[0])
+    +_wzPrintKopf(pb,'Prüfbericht Werkzeuge',kopf,
+        'Prüfer: '+esc(me.name||me.username||'—')
+      +(qual?' · Qualifikation: '+esc(qual):'')
+      +' · Datum: '+fmt(new Date().toISOString().split('T')[0])
       +' · Gefunden: '+aus.gefunden.length+(s.mode!=='sammlung'?' von '+s.checklist.length:'')
-      +' · Zu erledigen: '+aus.massnahmen.length+'</div>'
+      +' · Zu erledigen: '+aus.massnahmen.length)
     +'<table><thead><tr><th></th><th>Bezeichnung</th><th>Hersteller / Modell</th><th>Serien-Nr.</th><th>Gehört in Koffer</th><th>Gefunden</th></tr></thead><tbody>'+body+'</tbody></table>'
     +'<h3>Zu erledigen</h3>'
     +(mass?'<div class="box warn"><ul>'+mass+'</ul></div>':'<div class="box ok">✓ Nichts zu erledigen — alles am richtigen Ort.</div>')
     +(aus.unbekannt.length?'<div class="box warn"><strong>Unbekannte Codes ('+aus.unbekannt.length+')</strong><div style="font-size:12px;margin-top:4px">'+aus.unbekannt.map(esc).join(', ')+' — gehören zu keinem Werkzeug dieser Firma.</div></div>':'')
-    +'<button onclick="window.print()" style="margin-top:24px;padding:10px 24px;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">🖨 Drucken</button>'
+    +'<button onclick="window.print()" style="margin-top:24px;padding:10px 24px;background:'+pb.acc+';color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">🖨 Drucken</button>'
     +'<\/body><\/html>');
   w.document.close();
 }
@@ -7411,25 +7456,197 @@ function _wzEnsureJsPDF(){
     document.head.appendChild(s);
   });
 }
+
+/* ══════════════════════════════════════════════════════════════
+   PDF-BRANDING — Firmenfarbe + Logo auf JEDEM Export
+   ══════════════════════════════════════════════════════════════
+   Muster pm_abnahme.html / gema_schaden_pdf.js, hier auf MILLIMETER
+   umgerechnet (dieses Modul erzeugt seine PDFs in mm, pm_abnahme in pt).
+
+   KONTRASTSCHUTZ (der Grund fuer den ganzen Aufwand): --accent traegt
+   Text AUF Weiss UND Flaechen UNTER weisser Schrift. Eine helle
+   Firmenfarbe (Gelb!) waere in beiden Rollen unlesbar. Darum wird sie
+   Richtung Schwarz skaliert, bis der WCAG-Kontrast gegen Weiss >= 4.5
+   ist — der Farbton bleibt, die Lesbarkeit ist garantiert. Weil der
+   Kontrast symmetrisch ist, taugt derselbe Ton fuer beides.
+
+   KEIN _wzRasterizeImage benutzen — das ist der 1-Bit-Monochrom-Rasterer
+   fuer Thermo-Etikettendrucker und macht aus einem Farblogo einen
+   Scherenschnitt. Fuers PDF gibt es _wzPdfLogo (Farbe, JPEG). */
+var _wzPdfLogoCache={};
+function _wzPdfLogo(){
+  var src=''; try{ src=_wzGetOrgLogoSrc()||''; }catch(e){}
+  if(!src) return Promise.resolve(null);
+  if(_wzPdfLogoCache[src]!==undefined) return Promise.resolve(_wzPdfLogoCache[src]);
+  return new Promise(function(res){
+    var img=new Image();
+    img.onload=function(){
+      try{
+        var iw=img.naturalWidth||img.width, ih=img.naturalHeight||img.height;
+        if(!iw||!ih){ _wzPdfLogoCache[src]=null; return res(null); }
+        // Hoch aufloesen (auch kleine Raster-Logos), damit der Druck scharf bleibt.
+        var sc=Math.min(900/iw, 900/ih, 4); if(sc<1)sc=1;
+        var c=document.createElement('canvas');
+        c.width=Math.round(iw*sc); c.height=Math.round(ih*sc);
+        var ctx=c.getContext('2d');
+        ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+        ctx.fillStyle='#fff'; ctx.fillRect(0,0,c.width,c.height);
+        ctx.drawImage(img,0,0,c.width,c.height);
+        // JPEG statt PNG: jsPDF bettet Canvas-PNGs unkomprimiert ein.
+        var out={dataUrl:c.toDataURL('image/jpeg',0.9), ratio:iw/ih};
+        _wzPdfLogoCache[src]=out; res(out);
+      }catch(e){ _wzPdfLogoCache[src]=null; res(null); }
+    };
+    img.onerror=function(){ _wzPdfLogoCache[src]=null; res(null); };
+    img.src=src;
+  });
+}
+function _wzHexToRgb(hex){
+  var h=String(hex||'').trim().replace(/^#/,'');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-f]{6}$/i.test(h)) return null;
+  return {r:parseInt(h.slice(0,2),16), g:parseInt(h.slice(2,4),16), b:parseInt(h.slice(4,6),16)};
+}
+function _wzRelLum(c){
+  var f=function(v){v=v/255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4);};
+  return 0.2126*f(c.r)+0.7152*f(c.g)+0.0722*f(c.b);
+}
+function _wzContrastVsWhite(c){ return 1.05/(_wzRelLum(c)+0.05); }
+function _wzDarken(hex,target){
+  var c=_wzHexToRgb(hex); if(!c) return null;
+  var f=1;
+  for(var i=0;i<40;i++){
+    var t={r:Math.round(c.r*f), g:Math.round(c.g*f), b:Math.round(c.b*f)};
+    if(_wzContrastVsWhite(t)>=target) return t;
+    f-=0.025;
+  }
+  return {r:31,g:41,b:51};
+}
+function _wzTint(hex,mix){
+  var c=_wzHexToRgb(hex); if(!c) return null;
+  var m=(mix===undefined?0.92:mix);
+  return {r:Math.round(c.r+(255-c.r)*m), g:Math.round(c.g+(255-c.g)*m), b:Math.round(c.b+(255-c.b)*m)};
+}
+/* Die eine Wahrheit fuer alle PDF-Farben dieses Moduls.
+   acc  = Titel/Linien/Flaechen · deep = kraeftiger Ton · tint = Zebra/Kopfzeile
+   Ohne hinterlegte Firmenfarbe: GEMA-Navy (unveraendertes Aussehen). */
+function _wzPdfBrand(){
+  var o=null; try{ o=GemaAuth.getCurrentOrg&&GemaAuth.getCurrentOrg(); }catch(e){}
+  var pf=o&&o.settings&&o.settings.pdfFarben;
+  if(pf&&pf.primary&&_wzHexToRgb(pf.primary)){
+    var acc=_wzDarken(pf.primary,4.5);
+    return {
+      acc:acc,
+      deep:_wzDarken(pf.primary,7)||acc,
+      tint:_wzTint(pf.primary)||{r:238,g:242,b:246},
+      org:o, orgName:(o&&o.name)||'GEMA'
+    };
+  }
+  return {acc:{r:15,g:23,b:42}, deep:{r:30,g:58,b:95}, tint:{r:238,g:242,b:246}, org:o, orgName:(o&&o.name)||'GEMA'};
+}
+/* Dieselben Farben fuer die HTML-Druckfenster (dort als CSS-Hex).
+   Laeuft ueber _wzPdfBrand — EINE Wahrheit, damit jsPDF-Export und
+   Druckfenster nie auseinanderlaufen. Das Logo kommt als Original-Quelle
+   (SVG bevorzugt): der Browser rastert selbst, kein Canvas noetig. */
+function _wzHex(c){
+  var h=function(v){return ('0'+Math.max(0,Math.min(255,v|0)).toString(16)).slice(-2);};
+  return '#'+h(c.r)+h(c.g)+h(c.b);
+}
+function _wzPrintBrand(){
+  var br=_wzPdfBrand();
+  var src=''; try{ src=_wzGetOrgLogoSrc()||''; }catch(e){}
+  return {acc:_wzHex(br.acc), deep:_wzHex(br.deep), tint:_wzHex(br.tint), logo:src, orgName:br.orgName};
+}
+/* Gebrandeter Kopf fuer ein Druckfenster (Logo rechts, Marke + Titel links,
+   Linie in der Firmenfarbe). Gibt fertiges HTML zurueck. */
+function _wzPrintKopf(pb,titel,unter,meta){
+  return '<div class="gp-kopf">'
+    +'<div><div class="gp-marke">'+esc(pb.orgName||'GEMA')+'</div>'
+    +'<h1>'+esc(titel||'')+'</h1>'
+    +(unter?'<h2>'+unter+'</h2>':'')+'</div>'
+    +(pb.logo?'<img class="gp-logo" src="'+esc(pb.logo)+'" alt=""/>':'')
+    +'</div>'
+    +(meta?'<div class="meta">'+meta+'</div>':'');
+}
+/* CSS-Bausteine des gebrandeten Druckfensters. */
+function _wzPrintCss(pb){
+  return 'body{font-family:"DM Sans",system-ui,sans-serif;padding:32px;color:#111;font-optical-sizing:auto;font-variation-settings:"opsz" 14}'
+    +'.gp-kopf{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;border-bottom:2px solid '+pb.acc+';padding-bottom:10px;margin-bottom:4px}'
+    +'.gp-logo{max-height:16mm;max-width:52mm;width:auto;height:auto;object-fit:contain}'
+    +'.gp-marke{font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:'+pb.acc+';margin-bottom:2px}'
+    +'h1{font-size:20px;margin:0 0 2px;color:'+pb.deep+'}'
+    +'h2{font-size:14px;color:'+pb.acc+';margin:0 0 4px;font-weight:700}'
+    +'h3{font-size:14px;margin:22px 0 6px;color:'+pb.acc+'}'
+    +'th{background:'+pb.tint+';color:'+pb.deep+'}';
+}
+function _wzSetCol(doc,c){ doc.setTextColor(c.r,c.g,c.b); }
+function _wzSetDraw(doc,c){ doc.setDrawColor(c.r,c.g,c.b); }
+function _wzSetFill(doc,c){ doc.setFillColor(c.r,c.g,c.b); }
+/* Titelblock mit Logo rechts. Gibt das neue y zurueck.
+   Das Logo behaelt sein Seitenverhaeltnis (eine feste Box verzerrt jedes
+   Logo, das nicht zufaellig passt) und wird ueber die HOEHE begrenzt. */
+function _wzPdfTitel(doc,br,logo,M,y,titel,unter,R){
+  var rechtsRand=R||195;
+  if(logo&&logo.dataUrl){
+    var lh=13, lw=lh*(logo.ratio||3);
+    if(lw>45){ lw=45; lh=lw/(logo.ratio||3); }
+    try{ doc.addImage(logo.dataUrl,'JPEG',rechtsRand-lw,y-6,lw,lh); }catch(e){}
+  }
+  doc.setFontSize(9);doc.setFont('helvetica','bold');_wzSetCol(doc,br.acc);
+  doc.text(String(br.orgName||'GEMA').toUpperCase(),M,y-2);
+  doc.setFontSize(19);doc.setFont('helvetica','bold');_wzSetCol(doc,br.deep);
+  doc.text(String(titel||''),M,y+7);
+  var ny=y+7;
+  if(unter){
+    doc.setFontSize(11);doc.setFont('helvetica','bold');_wzSetCol(doc,br.acc);
+    doc.text(String(unter),M,ny+6); ny+=6;
+  }
+  ny+=4; _wzSetDraw(doc,br.acc); doc.setLineWidth(0.6);
+  doc.line(M,ny,rechtsRand,ny); doc.setLineWidth(0.2);
+  return ny+7;
+}
+/* Abschnitts-Titel: farbiger Text mit feiner Linie DARUNTER —
+   bewusst kein vollflaechiges Farbband (Feedback 20.08.2026 pm_abnahme:
+   «nur die Primaerfarbe, nur fuer Titel»). */
+function _wzPdfBand(doc,br,M,y,text,R){
+  doc.setFontSize(11.5);doc.setFont('helvetica','bold');_wzSetCol(doc,br.acc);
+  doc.text(String(text||''),M,y);
+  _wzSetDraw(doc,br.acc); doc.line(M,y+2,R||195,y+2);
+  return y+8;
+}
+/* Kopf- und Fusszeile auf JEDER Seite. Laeuft ZULETZT, weil die
+   Gesamtzahl der Seiten erst dann feststeht. */
+function _wzPdfKopfFuss(doc,br,titel,rechtsRand){
+  var n=doc.internal.getNumberOfPages();
+  var pageH=doc.internal.pageSize.getHeight();
+  var M=15, R=rechtsRand||195;
+  for(var p=1;p<=n;p++){
+    doc.setPage(p);
+    if(p>1){
+      doc.setFontSize(8);doc.setFont('helvetica','normal');_wzSetCol(doc,br.acc);
+      doc.text(String(br.orgName||'GEMA'),M,10);
+      doc.text(String(titel||''),R,10,{align:'right'});
+      _wzSetDraw(doc,br.tint); doc.line(M,12,R,12);
+    }
+    _wzSetDraw(doc,br.tint); doc.line(M,pageH-11,R,pageH-11);
+    doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(120,130,145);
+    doc.text(String(br.orgName||'GEMA')+'  |  '+String(titel||''),M,pageH-7);
+    doc.text('Seite '+p+' / '+n,R,pageH-7,{align:'right'});
+  }
+}
 window._wzExportBerichtePDF=async function(toolId){
   var t=tools.find(function(x){return x.id===toolId;});if(!t)return;
   await _wzEnsureJsPDF();
   if(!(window.jspdf && window.jspdf.jsPDF)){alert('PDF-Bibliothek nicht verfügbar.');return;}
   var jsPDF=window.jspdf.jsPDF;
+  var br=_wzPdfBrand();
+  var logo=await _wzPdfLogo();
+  var laufTitel='Werkzeug-Berichte · '+(t.name||'');
   var doc=new jsPDF({unit:'mm',format:'a4'});
   var M=15, y=20;
   var pageH=doc.internal.pageSize.getHeight();
-  function ensureSpace(needed){if(y+needed>pageH-15){doc.addPage();y=20;_drawHeader();}}
-  function _drawHeader(){
-    doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(107,114,128);
-    doc.text('GEMA · Werkzeug-Berichte · '+(t.name||''),M,9);
-    doc.setDrawColor(229,231,235);doc.line(M,12,195,12);
-  }
-  // Titel
-  doc.setFontSize(20);doc.setFont('helvetica','bold');doc.setTextColor(15,23,42);
-  doc.text('Werkzeug-Berichte',M,y);y+=9;
-  doc.setFontSize(11);doc.setFont('helvetica','bold');doc.setTextColor(29,78,216);
-  doc.text(t.name||'—',M,y);y+=6;
+  function ensureSpace(needed){if(y+needed>pageH-18){doc.addPage();y=20;}}
+  y=_wzPdfTitel(doc,br,logo,M,y,'Werkzeug-Berichte',t.name||'—');
   doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(107,114,128);
   var infoLines=[
     'Hersteller / Modell: '+(t.brand||'—')+(t.model?' · '+t.model:''),
@@ -7439,7 +7656,7 @@ window._wzExportBerichtePDF=async function(toolId){
     'PDF erstellt: '+new Date().toLocaleString('de-CH')
   ];
   infoLines.forEach(function(line){doc.text(line,M,y);y+=4.2;});
-  y+=4;doc.setDrawColor(229,231,235);doc.line(M,y,195,y);y+=8;
+  y+=3;_wzSetDraw(doc,br.tint);doc.line(M,y,195,y);y+=8;
 
   var ber=Array.isArray(t.berichte)?t.berichte.slice():[];
   if(!ber.length){
@@ -7453,11 +7670,16 @@ window._wzExportBerichtePDF=async function(toolId){
       var datumStr=b.datum?new Date(b.datum).toLocaleDateString('de-CH'):'—';
       doc.setFontSize(11);doc.setFont('helvetica','bold');doc.setTextColor(15,23,42);
       doc.text(datumStr,M,y);
-      doc.setTextColor(b.typ==='defekt'?194:29, b.typ==='defekt'?65:78, b.typ==='defekt'?12:216);
+      // Defekt bleibt rot (Warnfarbe, keine Markenfrage) — der Pruefbericht
+      // traegt die Firmenfarbe.
+      if(b.typ==='defekt') doc.setTextColor(194,65,12); else _wzSetCol(doc,br.acc);
       doc.text('   '+icon,M+22,y);y+=5;
       doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(75,85,99);
       var meta=[];
       if(b.autorName)meta.push(b.autorName);
+      // Qualifikation der pruefenden Person — Kern des Nachweises nach
+      // SNR 462638. Fehlt sie, wird das AUSGEWIESEN statt verschwiegen.
+      if(b.typ==='pruefbericht')meta.push('Qualifikation: '+(b.pruefQualifikation||'nicht erfasst'));
       if(b.schweregrad)meta.push('Schweregrad '+b.schweregrad);
       // jsPDF-Standardfonts sind latin1 — Emoji/Sonderzeichen werden zu Muell,
       // darum nur das Klartext-Label ohne Icon.
@@ -7514,17 +7736,325 @@ window._wzExportBerichtePDF=async function(toolId){
         });
         y+=h+gap;
       }
-      y+=2;doc.setDrawColor(229,231,235);doc.line(M,y,195,y);y+=4;
+      y+=2;_wzSetDraw(doc,br.tint);doc.line(M,y,195,y);y+=4;
     });
   }
-  var totalPages=doc.internal.getNumberOfPages();
-  for(var p=1;p<=totalPages;p++){
-    doc.setPage(p);doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(156,163,175);
-    doc.text('Seite '+p+' / '+totalPages,195,pageH-7,{align:'right'});
-  }
+  _wzPdfKopfFuss(doc,br,laufTitel);
   var fname='Berichte_'+(t.name||t.id||'Werkzeug').replace(/[^a-z0-9]+/gi,'_')+'_'+new Date().toISOString().slice(0,10)+'.pdf';
   doc.save(fname);
 };
+
+/* ══════════════════════════════════════════════════════════════
+   AUDIT-EXPORT — der Ordner fuer die Kontrolle
+   ══════════════════════════════════════════════════════════════
+   EIN PDF pro Betrieb: jedes Geraet mit seinen Pruefpflichten, dem
+   letzten Nachweis, der pruefenden Person samt Qualifikation und dem
+   naechsten Termin.
+
+   LUECKEN STEHEN ZUOBERST (nicht am Schluss): ein Nachweis, der seine
+   Fehlstellen versteckt, ist wertlos — genau danach sucht der
+   Kontrolleur zuerst, und wer sie selbst ausweist, diskutiert ueber
+   Termine statt ueber Glaubwuerdigkeit.
+
+   Die Engine ist DOM-frei (heute kommt als Parameter, nicht aus
+   today()), damit sie im Node-Test direkt geprueft werden kann. */
+function _wzTageBis(datum,heute){
+  if(!datum)return null;
+  var a=new Date(datum), b=new Date(heute||today());
+  if(isNaN(a.getTime())||isNaN(b.getTime()))return null;
+  return Math.round((a-b)/864e5);
+}
+/* Neuester Pruefbericht eines Geraets. Defektmeldungen zaehlen NICHT —
+   ein gemeldeter Defekt ist kein Pruefnachweis. */
+function _wzLetzterPruefbericht(t){
+  var ber=Array.isArray(t&&t.berichte)?t.berichte:[];
+  var best=null;
+  ber.forEach(function(b){
+    if(!b||b.typ!=='pruefbericht')return;
+    if(!best||String(b.datum||'')>String(best.datum||''))best=b;
+  });
+  return best;
+}
+var _WZ_AUDIT_ARTEN=[
+  {key:'service',label:'Service / Wartung',an:function(t){return !!t.hasService;},
+   iv:function(t){return t.serviceInterval;},letzte:function(t){return t.lastService;},naechste:nextService},
+  {key:'elektro',label:'Elektroprüfung',an:function(t){return !!t.hasElec;},
+   iv:function(t){return t.elecInterval;},letzte:function(t){return t.lastElec;},naechste:nextElec},
+  {key:'leiter',label:'Leiterprüfung',an:function(t){return !!t.hasLeiter;},
+   iv:function(t){return t.leiterInterval;},letzte:function(t){return t.lastLeiter;},naechste:nextLeiter}
+];
+/* Gruppiert den Bestand fuer den Nachweis.
+
+   KRITISCH — «noch nie geprueft» ist NICHT automatisch ein Mangel:
+   ein letzten Monat gekauftes Geraet mit Jahres-Intervall ist erst in
+   elf Monaten faellig. Als echte Luecke gilt darum nur, was sich gar
+   nicht terminieren laesst (kein Intervall, oder weder Pruef- noch
+   Kaufdatum). Die ausstehende ERSTpruefung wird trotzdem an der Zeile
+   vermerkt und in der Zusammenfassung gezaehlt — sie verschwindet
+   nicht, sie wird nur nicht als Versaeumnis ausgegeben. */
+function _wzAuditPlan(list,heute){
+  heute=heute||today();
+  var g={ohne:[],ueberfaellig:[],bald:[],ok:[],keine:[],heute:heute,erstpruefung:0};
+  (list||[]).forEach(function(t){
+    if(!t)return;
+    var arten=[];
+    _WZ_AUDIT_ARTEN.forEach(function(a){
+      if(!a.an(t))return;
+      var iv=a.iv(t), letzte=a.letzte(t)||'', naechste=a.naechste(t)||null;
+      arten.push({key:a.key,label:a.label,intervall:iv||null,letzte:letzte,
+                  naechste:naechste,tage:_wzTageBis(naechste,heute),
+                  offen:!letzte,keinTermin:!naechste});
+    });
+    var e={tool:t,arten:arten,bericht:_wzLetzterPruefbericht(t),tage:null,gruppe:''};
+    if(!arten.length){ e.gruppe='keine'; g.keine.push(e); return; }
+    var tl=arten.map(function(a){return a.tage;}).filter(function(v){return v!==null;});
+    e.tage=tl.length?Math.min.apply(null,tl):null;
+    e.erstpruefung=arten.some(function(a){return a.offen&&!a.keinTermin;});
+    if(e.erstpruefung)g.erstpruefung++;
+    if(arten.some(function(a){return a.keinTermin;})){ e.gruppe='ohne'; g.ohne.push(e); }
+    else if(e.tage!==null&&e.tage<0){ e.gruppe='ueberfaellig'; g.ueberfaellig.push(e); }
+    else if(e.tage!==null&&e.tage<=30){ e.gruppe='bald'; g.bald.push(e); }
+    else { e.gruppe='ok'; g.ok.push(e); }
+  });
+  function srt(a,b){
+    var x=a.tage===null?9e9:a.tage, y=b.tage===null?9e9:b.tage;
+    if(x!==y)return x-y;
+    return String(a.tool.name||'').localeCompare(String(b.tool.name||''),'de');
+  }
+  ['ohne','ueberfaellig','bald','ok'].forEach(function(k){ g[k].sort(srt); });
+  g.keine.sort(function(a,b){return String(a.tool.name||'').localeCompare(String(b.tool.name||''),'de');});
+  g.gesamt=(list||[]).length;
+  g.pflichtig=g.ohne.length+g.ueberfaellig.length+g.bald.length+g.ok.length;
+  return g;
+}
+var _WZ_AUDIT_GRUPPEN=[
+  {key:'ohne',        titel:'Ohne terminierbaren Nachweis', rgb:{r:185,g:28,b:28},
+   hinweis:'Prüfpflicht gesetzt, aber kein Intervall bzw. kein Prüf- oder Kaufdatum — der nächste Termin lässt sich nicht bestimmen.'},
+  {key:'ueberfaellig',titel:'Überfällig',                   rgb:{r:185,g:28,b:28},
+   hinweis:'Der nächste Prüftermin liegt in der Vergangenheit.'},
+  {key:'bald',        titel:'Fällig innert 30 Tagen',        rgb:{r:180,g:83,b:9},
+   hinweis:''},
+  {key:'ok',          titel:'Prüfung gültig',                rgb:{r:21,g:128,b:61},
+   hinweis:''},
+  {key:'keine',       titel:'Ohne Prüfpflicht',              rgb:{r:100,g:116,b:139},
+   hinweis:'Für diese Geräte ist im System keine Service-, Elektro- oder Leiterprüfung hinterlegt.'}
+];
+/* Bestand fuer den Nachweis: ausgemusterte und verkaufte Geraete
+   gehoeren nicht in den Betriebs-Nachweis — die Zahl wird aber
+   ausgewiesen, damit niemand eine stille Auslassung vermutet. */
+var _wzAuditAlle=true;
+function _wzAuditBasis(){
+  var b=_wzAuditAlle?_wzViewBase():(function(){try{return getFiltered();}catch(e){return _wzViewBase();}})();
+  var raus=0;
+  var list=b.filter(function(t){
+    var lc=(t&&t.lifecycleStatus)||'aktiv';
+    if(lc==='ausgemustert'||lc==='verkauft'){raus++;return false;}
+    return true;
+  });
+  return {list:list,ausgeschieden:raus,basis:b.length};
+}
+function _wzAuditSetAlle(v){ _wzAuditAlle=!!v; _wzAuditOpen(); }
+window._wzAuditSetAlle=_wzAuditSetAlle;
+function _wzAuditOpen(){
+  var b=_wzAuditBasis(), p=_wzAuditPlan(b.list);
+  var zeilen=_WZ_AUDIT_GRUPPEN.map(function(gr){
+    var n=p[gr.key].length;
+    var farbe=n?('rgb('+gr.rgb.r+','+gr.rgb.g+','+gr.rgb.b+')'):'#94a3b8';
+    return '<div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid #f1f5f9;font-size:12.5px">'
+      +'<span style="color:#334155">'+esc(gr.titel)+'</span>'
+      +'<span style="font-weight:800;white-space:nowrap;color:'+farbe+'">'+n+'</span></div>';
+  }).join('');
+  var luecken=p.ohne.length+p.ueberfaellig.length;
+  var hint=luecken
+    ? '<div style="margin-top:10px;padding:8px 10px;border-radius:8px;background:#fef2f2;border:1px solid #fecaca;font-size:12px;color:#991b1b"><strong>'+luecken+'</strong> Gerät(e) ohne gültigen Nachweis — sie stehen im PDF <strong>zuoberst</strong>.</div>'
+    : '<div style="margin-top:10px;padding:8px 10px;border-radius:8px;background:#f0fdf4;border:1px solid #bbf7d0;font-size:12px;color:#166534">Alle prüfpflichtigen Geräte haben einen gültigen Nachweis.</div>';
+  var erst=p.erstpruefung
+    ? '<div style="font-size:11.5px;color:#b45309;margin-top:8px">'+p.erstpruefung+' Gerät(e) noch nie geprüft — Termin ab Kaufdatum gerechnet, im PDF als «Erstprüfung ausstehend» vermerkt.</div>'
+    : '';
+  var aus=b.ausgeschieden
+    ? '<div style="font-size:11.5px;color:#64748b;margin-top:6px">'+b.ausgeschieden+' ausgemusterte/verkaufte Gerät(e) sind nicht enthalten.</div>'
+    : '';
+  var scope='<label style="display:flex;align-items:center;gap:8px;margin:10px 0 0;font-size:12.5px;color:#334155;cursor:pointer">'
+    +'<input type="checkbox" '+(_wzAuditAlle?'checked':'')+' onchange="_wzAuditSetAlle(this.checked)" style="width:16px;height:16px;cursor:pointer">'
+    +'<span>Ganzer Bestand (Filter/Suche ignorieren)</span></label>';
+  _wzShowModal('<div class="dlg-card" style="max-width:480px">'
+    +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:800">🛡 Prüfnachweis (Audit)</h3>'
+    +'<div style="font-size:12.5px;color:#64748b;margin-bottom:10px">'
+      +'<strong>'+p.gesamt+'</strong> Gerät(e) · davon <strong>'+p.pflichtig+'</strong> prüfpflichtig — ein PDF mit Prüfstatus, letztem Nachweis und Prüfperson.</div>'
+    +'<div style="border:1px solid #e2e8f0;border-radius:10px;padding:4px 12px 8px;background:#f8fafc">'+zeilen+'</div>'
+    +hint+erst+aus+scope
+    +'<div class="dlg-row" style="flex-wrap:wrap;gap:8px">'
+      +'<button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button>'
+      +'<button onclick="_wzAuditPDF()" style="padding:9px 18px;border-radius:8px;border:none;background:#2563eb;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">📄 PDF erstellen</button>'
+    +'</div></div>');
+}
+window._wzAuditOpen=_wzAuditOpen;
+/* Kuerzt auf die Spaltenbreite. jsPDF bricht nicht von selbst um —
+   ohne das laeuft ein langer Geraetename in die Nachbarspalte. */
+function _wzPdfKurz(doc,text,maxW){
+  var s=String(text==null?'':text);
+  if(!s)return '';
+  if(doc.getTextWidth(s)<=maxW)return s;
+  while(s.length>1&&doc.getTextWidth(s+'…')>maxW)s=s.slice(0,-1);
+  return s+'…';
+}
+window._wzAuditPDF=async function(){
+  await _wzEnsureJsPDF();
+  if(!(window.jspdf&&window.jspdf.jsPDF)){alert('PDF-Bibliothek nicht verfügbar.');return;}
+  var jsPDF=window.jspdf.jsPDF;
+  var b=_wzAuditBasis(), p=_wzAuditPlan(b.list);
+  if(!p.gesamt){alert('Keine Geräte im gewählten Umfang.');return;}
+  var br=_wzPdfBrand();
+  var logo=await _wzPdfLogo();
+  // QUERFORMAT: acht Spalten (Geraet, Kategorie, Serien-Nr., Pruefart,
+  // Letzte, Naechste, Status, Nachweis) sind im Hochformat nicht mehr
+  // lesbar — beim Nachweis zaehlt, dass der Kontrolleur die Zeile ohne
+  // Nachschlagen versteht.
+  var doc=new jsPDF({unit:'mm',format:'a4',orientation:'landscape'});
+  var M=15, R=282, y=20;
+  var pageH=doc.internal.pageSize.getHeight();
+  var laufTitel='Prüfnachweis Werkzeuge · '+new Date(p.heute).toLocaleDateString('de-CH');
+  function platz(h){ if(y+h>pageH-16){ doc.addPage(); y=20; return true; } return false; }
+  y=_wzPdfTitel(doc,br,logo,M,y,'Prüfnachweis Werkzeuge',br.orgName||'',R);
+
+  doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(107,114,128);
+  [ 'Stichtag: '+new Date(p.heute).toLocaleDateString('de-CH')+'   ·   Erstellt: '+new Date().toLocaleString('de-CH'),
+    'Umfang: '+(_wzAuditAlle?'ganzer Bestand':'aktuelle Ansicht (Filter/Suche)')+'   ·   '+p.gesamt+' Gerät(e), davon '+p.pflichtig+' prüfpflichtig'
+    +(b.ausgeschieden?'   ·   '+b.ausgeschieden+' ausgemusterte/verkaufte nicht enthalten':'')
+  ].forEach(function(l){ doc.text(l,M,y); y+=4.4; });
+  y+=3;
+
+  // Zusammenfassung als Kaestchen-Reihe
+  var kW=(R-M-4*3)/5, kH=15;
+  _WZ_AUDIT_GRUPPEN.forEach(function(gr,i){
+    var n=p[gr.key].length, x=M+i*(kW+3);
+    _wzSetFill(doc,br.tint); doc.rect(x,y,kW,kH,'F');
+    _wzSetDraw(doc,br.tint); doc.rect(x,y,kW,kH,'S');
+    doc.setFontSize(16);doc.setFont('helvetica','bold');
+    if(n) doc.setTextColor(gr.rgb.r,gr.rgb.g,gr.rgb.b); else doc.setTextColor(148,163,184);
+    doc.text(String(n),x+4,y+8);
+    doc.setFontSize(7.5);doc.setFont('helvetica','normal');doc.setTextColor(71,85,105);
+    doc.text(_wzPdfKurz(doc,gr.titel,kW-8),x+4,y+12.5);
+  });
+  y+=kH+8;
+
+  if(p.erstpruefung){
+    doc.setFontSize(8.5);doc.setFont('helvetica','normal');doc.setTextColor(180,83,9);
+    doc.text('Hinweis: '+p.erstpruefung+' Gerät(e) sind noch nie geprüft worden — der Termin ist ab Kaufdatum gerechnet und in der Zeile vermerkt.',M,y);
+    y+=6;
+  }
+
+  // ── Tabelle ──
+  /* Sieben Spalten, Summe exakt R-M (267 mm). Der NACHWEIS steht bewusst NICHT
+     in einer Spalte, sondern als eingerueckte Unterzeile ueber die volle Breite:
+     «bestanden · Hans Muster · Elektrokontrolleur/in mit eidg. Fachausweis» sind
+     rund 68 Zeichen — in einer 39-mm-Spalte (~27 Zeichen bei 8 pt) waere genau
+     die Qualifikation weggeschnitten worden, also das, was den Nachweis erst
+     belastbar macht. Nichts still kappen. */
+  var SP=[
+    {t:'Gerät',      w:72},
+    {t:'Kategorie',  w:34},
+    {t:'Serien-Nr.', w:30},
+    {t:'Prüfart',    w:40},
+    {t:'Letzte',     w:28},
+    {t:'Nächste',    w:24},
+    {t:'Status',     w:39}
+  ];
+  function kopfzeile(){
+    _wzSetFill(doc,br.tint); doc.rect(M,y-4,R-M,6,'F');
+    doc.setFontSize(7.5);doc.setFont('helvetica','bold');_wzSetCol(doc,br.deep);
+    var x=M+1.5;
+    SP.forEach(function(s){ doc.text(_wzPdfKurz(doc,s.t,s.w-3),x,y); x+=s.w; });
+    y+=4;
+  }
+  function zelle(txt,x,w){ doc.text(_wzPdfKurz(doc,txt,w-3),x,y); }
+
+  _WZ_AUDIT_GRUPPEN.forEach(function(gr){
+    var eintraege=p[gr.key];
+    if(!eintraege.length)return;
+    platz(24);
+    y=_wzPdfBand(doc,br,M,y+2,gr.titel+' ('+eintraege.length+')',R);
+    if(gr.hinweis){
+      doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(107,114,128);
+      doc.text(gr.hinweis,M,y-2); y+=3;
+    }
+    y+=3; kopfzeile();
+    eintraege.forEach(function(e){
+      var t=e.tool;
+      var zeilen=e.arten.length?e.arten:[null];
+      if(platz(zeilen.length*4.6+7)) kopfzeile();
+      var kat=(CATS[t.cat]&&CATS[t.cat].label)||t.cat||'—';
+      var lc=(t.lifecycleStatus||'aktiv');
+      var lcTxt={in_reparatur:' (in Reparatur)',verloren:' (VERLOREN)'}[lc]||'';
+      var ber=e.bericht;
+      var nachweis=ber
+        ? ((ber.ergebnis?wzErgebnisAnzeige(ber.ergebnis).label:'—')
+           +' · '+(ber.autorName||'—')
+           +(ber.typ==='pruefbericht'?(' · '+(ber.pruefQualifikation||'Qualifikation nicht erfasst')):''))
+        : 'kein Prüfbericht erfasst';
+      zeilen.forEach(function(a,i){
+        doc.setFontSize(8);doc.setFont('helvetica','normal');
+        var x=M+1.5;
+        doc.setTextColor(15,23,42);
+        if(i===0){
+          doc.setFont('helvetica','bold');
+          zelle((t.name||'—')+(t.internKennung?'  ['+t.internKennung+']':'')+lcTxt,x,SP[0].w);
+          doc.setFont('helvetica','normal');
+        }
+        x+=SP[0].w;
+        doc.setTextColor(71,85,105);
+        if(i===0){ zelle(kat,x,SP[1].w); x+=SP[1].w; zelle(t.serial||'—',x,SP[2].w); x+=SP[2].w; }
+        else { x+=SP[1].w+SP[2].w; }
+        if(a){
+          zelle(a.label+(a.intervall?' ('+a.intervall+' Mt.)':''),x,SP[3].w); x+=SP[3].w;
+          zelle(a.letzte?fmt(a.letzte):(a.offen?'noch nie geprüft':'—'),x,SP[4].w); x+=SP[4].w;
+          zelle(a.naechste?fmt(a.naechste):'—',x,SP[5].w); x+=SP[5].w;
+          var st, col;
+          if(a.keinTermin){ st='nicht terminierbar'; col={r:185,g:28,b:28}; }
+          else if(a.tage===null){ st='—'; col={r:100,g:116,b:139}; }
+          else if(a.tage<0){ st=Math.abs(a.tage)+' T. überfällig'; col={r:185,g:28,b:28}; }
+          else if(a.tage<=30){ st='in '+a.tage+' T. fällig'; col={r:180,g:83,b:9}; }
+          else { st='gültig bis '+fmt(a.naechste); col={r:21,g:128,b:61}; }
+          doc.setTextColor(col.r,col.g,col.b);doc.setFont('helvetica','bold');
+          zelle(st,x,SP[6].w);
+          doc.setFont('helvetica','normal');doc.setTextColor(71,85,105);
+          x+=SP[6].w;
+        } else {
+          zelle('keine Prüfpflicht hinterlegt',x,SP[3].w+SP[4].w+SP[5].w+SP[6].w);
+          x+=SP[3].w+SP[4].w+SP[5].w+SP[6].w;
+        }
+        y+=4.6;
+      });
+      /* Nachweis-Unterzeile: volle Breite, damit die Qualifikation ungekuerzt
+         dasteht. Ohne Pruefpflicht gibt es nichts nachzuweisen. */
+      if(e.arten.length){
+        doc.setFontSize(7);doc.setFont('helvetica','normal');
+        doc.setTextColor(ber?120:180, ber?130:83, ber?145:9);
+        doc.text(_wzPdfKurz(doc,'↳ Nachweis: '+nachweis
+                 +(e.erstpruefung?' · Erstprüfung steht noch aus':''),R-M-8),M+6,y);
+        doc.setTextColor(71,85,105);
+        y+=4;
+      }
+      _wzSetDraw(doc,br.tint); doc.line(M,y-2.6,R,y-2.6);
+    });
+    y+=4;
+  });
+
+  platz(16);
+  y+=2;
+  doc.setFontSize(8);doc.setFont('helvetica','italic');doc.setTextColor(120,130,145);
+  doc.text('Dieser Nachweis gibt den in GEMA erfassten Stand wieder. Die Angabe der Qualifikation ist eine Selbstdeklaration der prüfenden Person.',M,y);
+
+  _wzPdfKopfFuss(doc,br,laufTitel,R);
+  doc.save('Pruefnachweis_Werkzeuge_'+new Date().toISOString().slice(0,10)+'.pdf');
+  _wzCloseModal();
+  try{ showToast('Prüfnachweis erstellt ✓'); }catch(e){}
+};
+/* Test-Hooks: die Audit-Engine ist DOM-frei und wird vom Drift-Guard
+   direkt mit erfundenen Bestaenden gefuettert. */
+window._wzAuditHooks={plan:_wzAuditPlan,basis:_wzAuditBasis,tageBis:_wzTageBis,
+  letzterBericht:_wzLetzterPruefbericht,gruppen:_WZ_AUDIT_GRUPPEN,arten:_WZ_AUDIT_ARTEN,
+  setAlle:function(v){_wzAuditAlle=!!v;}};
 
 function _wzScanFaelligkeiten(){
   if(typeof GemaNotify==='undefined')return;
@@ -7805,7 +8335,8 @@ function openPruefLiefAnsicht(toolId){
   var uploadBlock = pa.status!=='erledigt'
     ? '<div style="border-top:1px solid #e2e8f0;padding-top:14px;margin-top:6px">'
       + '<h4 style="margin:0 0 10px;font-size:13px;font-weight:800">📋 Prüfergebnis melden</h4>'
-      + '<div style="display:flex;flex-direction:column;gap:10px">'
+      + _wzQualiFeldHtml(_wzGetUser()||{})
+      + '<div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">'
       + '  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
       + '    <div><label class="dlg-lbl">Durchgeführt am *</label><input id="plDat" type="date" value="'+today()+'" class="dlg-inp"/></div>'
       + '    <div><label class="dlg-lbl">Ergebnis *</label><select id="plErg" class="dlg-inp">'+WZ_ERGEBNIS.map(function(e){return '<option value="'+e.id+'">'+e.icon+' '+e.label+'</option>';}).join('')+'</select></div>'
@@ -7873,6 +8404,7 @@ function _wzPruefLiefBerichtEinreichen(toolId){
       datum:new Date(datum).toISOString(),
       autorUserId:u.id||'',
       autorName:(u.profile&&u.profile.firma)||u.name||'Lieferant',
+      pruefQualifikation:(typeof wzQualiVonUser!=='undefined')?wzQualiVonUser(u).label:'',
       titel:'Prüfung durch Lieferant',
       beschreibung:bem,
       ergebnis:ergebnis,
@@ -9157,7 +9689,7 @@ function _wzCsvBestandZeile(t){
 // ── Detail-Tabellen ──
 function _wzCsvTabBerichte(list){
   var kopf=['Werkzeug-ID','Interne Kennung','Bezeichnung','Bericht-ID','Typ','Datum','Titel','Beschreibung',
-    'Schweregrad','Erledigt','Erledigt am','Autor','Ergebnis','Fehlende Teile','Nächste Prüfung',
+    'Schweregrad','Erledigt','Erledigt am','Autor','Qualifikation Prüfer','Ergebnis','Fehlende Teile','Nächste Prüfung',
     'Folgetermin','Folgetermin Text','Vom Lieferanten','Fotos','Lieferanten-Preis','Lieferanten-Nachricht','Lieferanten-PDF',
     // Messwerte der Elektropruefung — Wert UND Grenzwert, damit die Tabelle
     // ohne die App pruefbar ist.
@@ -9177,6 +9709,7 @@ function _wzCsvTabBerichte(list){
       }
       z.push([t.id,t.internKennung||'',t.name||'',b.id||'',b.typ||'',_wzCsvDat(b.datum||''),b.titel||'',b.beschreibung||'',
         b.schweregrad||'', b.typ==='defekt'?(b.erledigt?'Ja':'Nein'):'', _wzCsvDat(b.erledigtAm||''), b.autorName||'',
+        b.typ==='pruefbericht'?(b.pruefQualifikation||'nicht erfasst'):'',
         wzErgebnisAnzeige(b.ergebnis).label, (Array.isArray(b.fehlendeTeile)?b.fehlendeTeile.join(', '):''), b.naechstePruefung||'',
         b.followUpDate||'', b.followUpText||'', b.vonLieferant?'Ja':'',
         (Array.isArray(b.photos)?b.photos.length:0),
@@ -9429,6 +9962,8 @@ try{
   if(btnActLog && canEdit) btnActLog.style.display='';
   var btnExp=document.getElementById('btnWzExport');
   if(btnExp && canEdit) btnExp.style.display='';
+  var btnAud=document.getElementById('btnWzAudit');
+  if(btnAud && canEdit) btnAud.style.display='';
   var btnKoffer=document.getElementById('btnNeuKoffer');
   if(btnKoffer && canEdit) btnKoffer.style.display='';
   var btnInv=document.getElementById('btnInventur');
