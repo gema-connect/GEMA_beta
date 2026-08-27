@@ -97,10 +97,17 @@
   // deren ID NICHT in der Cloud existiert, bleiben lokal erhalten.
   // Cloud-Versionen einer ID gewinnen (Override moeglich). Fuer BENUTZER
   // gibt es bewusst keine Defaults.
-  function _loadCollectionFromCloud(storageKey){
+  // preRows (optional): bereits geladene Rows aus dem Migrations-Check —
+  // die Migration hat die Collection unmittelbar zuvor schon einmal gezogen
+  // («records-exist»); ohne Durchreichen wuerde JEDER Seitenstart dieselben
+  // drei Auth-Collections DOPPELT laden (6 statt 3 Requests).
+  function _loadCollectionFromCloud(storageKey, preRows){
     var def = _COLL[storageKey];
     if(!def || !_S()) return Promise.resolve(null);
-    return _S().loadCollection('auth', def.prefix).then(function(rows){
+    var p = (preRows && preRows.length)
+      ? Promise.resolve(preRows)
+      : _S().loadCollection('auth', def.prefix);
+    return p.then(function(rows){
       var cloudArr = (rows||[]).map(function(r){ return r.data; })
                                 .filter(function(d){ return d && d[def.idField]; });
       // GEMA Secure v1 — Guard: Unter RLS liefert ein Read OHNE gueltiges
@@ -203,7 +210,10 @@
     var def = _COLL[storageKey];
     if(!def || !_S()) return Promise.resolve({migrated:false});
     return _S().loadCollection('auth', def.prefix).then(function(existing){
-      if(existing && existing.length) return {migrated:false, reason:'records-exist'};
+      // rows mitgeben: der Bootstrap reicht sie an _loadCollectionFromCloud
+      // durch, damit dieselbe Collection nicht sofort ein zweites Mal
+      // geladen wird.
+      if(existing && existing.length) return {migrated:false, reason:'records-exist', rows: existing};
       return _legacyBlobFetch(storageKey).then(function(arr){
         if(!Array.isArray(arr) || !arr.length) return {migrated:false, reason:'no-blob'};
         var records = arr.filter(function(it){ return it && it[def.idField]; })
@@ -1000,12 +1010,14 @@
         _migrateBlobToRecordsIfNeeded(STORAGE_ORGS),
         _migrateBlobToRecordsIfNeeded(STORAGE_USERS),
         _migrateBlobToRecordsIfNeeded(STORAGE_ROLES)
-      ]).then(function(){
-        // Danach: per-Record laden, Cache ueberschreiben.
+      ]).then(function(migs){
+        // Danach: per-Record laden, Cache ueberschreiben. Die Rows aus dem
+        // Migrations-Check werden DURCHGEREICHT — sonst laedt jeder
+        // Seitenstart die drei Auth-Collections doppelt.
         return Promise.all([
-          _loadCollectionFromCloud(STORAGE_ORGS),
-          _loadCollectionFromCloud(STORAGE_USERS),
-          _loadCollectionFromCloud(STORAGE_ROLES)
+          _loadCollectionFromCloud(STORAGE_ORGS,  migs[0] && migs[0].rows),
+          _loadCollectionFromCloud(STORAGE_USERS, migs[1] && migs[1].rows),
+          _loadCollectionFromCloud(STORAGE_ROLES, migs[2] && migs[2].rows)
         ]);
       }).then(function(res){
         // Frisch angelegter Benutzer, den der Cloud-Read (noch) nicht

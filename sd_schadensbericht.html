@@ -5618,8 +5618,22 @@ window.addEventListener('DOMContentLoaded', function() {
     // aktualisiert direkt danach. Beim ersten Aufruf (leerer Cache) zeigt
     // sdRenderList eine Ladeanzeige statt eines leeren Bestands.
     try { sdLoad(); sdRenderList(); } catch(e) { /* noop */ }
+    // Quota-Opfer-Fall: IndexedDB-Preload stellt einen verdraengten Cache in
+    // den Speicher-Spiegel zurueck — sobald er da ist, sofort damit rendern.
+    try{
+      if (typeof window.GemaSync !== 'undefined' && window.GemaSync.cacheReady) {
+        window.GemaSync.cacheReady.then(function(){
+          if(!_sdCloudLoaded){ try{ sdLoad(); sdRenderList(); }catch(e){} }
+        });
+      }
+    }catch(e){}
     // Cloud-First Per-Record-Sync
     if (typeof window.GemaSync !== 'undefined') {
+      var _sdBootFertig = function(){
+        _sdCloudLoaded = true;
+        sdLoad();
+        sdRenderList();
+      };
       Promise.race([
         Promise.all([
           window.GemaSync.bindCollection('schadensbericht', STORAGE_KEY, 'schaden:', 'id'),
@@ -5629,10 +5643,10 @@ window.addEventListener('DOMContentLoaded', function() {
           window.GemaSync.bindCollection('trocknungsgeraete', 'gema_trocknung_v1', 'device:', 'id').catch(function(){})
         ]),
         new Promise(function(r){ setTimeout(r, 5000); })
-      ]).then(function(){
-        _sdCloudLoaded = true;
-        sdLoad();
-        sdRenderList();
+      ]).then(_sdBootFertig, function(){
+        // Auch ein abgewiesener Pull beendet die Ladeanzeige — sonst stuende
+        // bei leerem Cache dauerhaft der Spinner.
+        try{ _sdBootFertig(); }catch(e){ _sdCloudLoaded = true; }
       });
     } else {
       _sdCloudLoaded = true;

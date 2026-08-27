@@ -950,20 +950,29 @@ if(typeof _GemaDB==='undefined'){
 // Bootstrap) und aktualisiert sich, sobald _fzCloudPromise aufloest.
 var _fzCloudVehicles = null;
 var _fzCloudLoaded = false;
+// Orgs/Users (org.settings.fahrzeug, Garagen-Liste) kommen zentral ueber den
+// gema_auth-Boot-Pull derselben Seite — ein zweiter restoreFromCloud() hier
+// waeren 3 doppelte Collection-GETs im 6-s-Fenster der ersten Datenanzeige.
 var _fzCloudPromise = (typeof window.GemaSync !== 'undefined')
   ? Promise.race([
-      Promise.all([
-        window.GemaSync.bindCollection('fahrzeugmanagement','gema_vehicles','vehicle:','id')
-          .then(function(arr){ if(Array.isArray(arr)) _fzCloudVehicles = arr; }),
-        // Orgs frisch ziehen, damit org.settings.fahrzeug (Garagen-Liste)
-        // aktuell ist — und ueber den In-Memory-Spiegel quota-sicher.
-        (typeof GemaAuth !== 'undefined' && GemaAuth.restoreFromCloud)
-          ? Promise.resolve(GemaAuth.restoreFromCloud()).catch(function(){})
-          : Promise.resolve()
-      ]),
+      window.GemaSync.bindCollection('fahrzeugmanagement','gema_vehicles','vehicle:','id')
+        .then(function(arr){ if(Array.isArray(arr)) _fzCloudVehicles = arr; })
+        .catch(function(){}),
       new Promise(function(r){ setTimeout(r, 6000); })
     ])
   : Promise.resolve();
+// Quota-Opfer-Fall: IndexedDB-Preload stellt einen verdraengten Cache in den
+// Speicher-Spiegel zurueck — sobald er da ist, sofort damit rendern.
+try{
+  if(typeof window.GemaSync !== 'undefined' && window.GemaSync.cacheReady){
+    window.GemaSync.cacheReady.then(function(){
+      if(!_fzCloudLoaded){
+        try{ vehicles = _fzLoadVehicles(); }catch(e){}
+        try{ if(typeof render === 'function') render(); }catch(e){}
+      }
+    });
+  }
+}catch(e){}
 try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
 
 /* ═══════════════════════════════

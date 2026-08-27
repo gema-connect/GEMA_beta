@@ -88,6 +88,31 @@
       _bootPromise = Promise.resolve();
       return _bootPromise;
     }
+    // Der Pool ist CROSS-ORG und waechst unbegrenzt: Nicht-GEMA-Admins ziehen
+    // nur die Rows der eigenen Org (Server-Filter, BEWUSST ohne maxRows — die
+    // Pagination sortiert data_key.asc, ein Deckel behielte die AELTESTEN
+    // Eintraege und liesse die neuesten still weg) und VEREINIGEN sie mit dem
+    // lokalen Stand — Union statt Ersetzen, damit ein offline geschriebener
+    // Eintrag (liegt noch in der Outbox) den Reload ueberlebt. role_admin
+    // (und Sessions ohne aufgeloeste Org) ziehen weiterhin alles via
+    // bindCollection (Delta-Sync + Outbox-Overlay).
+    var u = _currentUser();
+    var isAdmin = !!(u && u.roleIds && u.roleIds.indexOf('role_admin') >= 0);
+    var orgId = u && u.orgId;
+    if (!isAdmin && orgId && window.GemaSync.loadCollection){
+      _bootPromise = window.GemaSync.loadCollection(MODULE_KEY, PREFIX, {
+        filter: 'payload->data->>orgId=eq.' + encodeURIComponent(orgId)
+      }).then(function(rows){
+        var arr = [];
+        (rows || []).forEach(function(r){ if (r && r.data && r.data.id) arr.push(r.data); });
+        var have = {};
+        arr.forEach(function(e){ have[e.id] = 1; });
+        _readLocal().forEach(function(e){ if (e && e.id && !have[e.id]) arr.push(e); });
+        arr.sort(function(a,b){ return String(b.ts||'').localeCompare(String(a.ts||'')); });
+        _writeLocal(arr);
+      }).catch(function(e){ console.warn('[ActLog] bind', e); });
+      return _bootPromise;
+    }
     _bootPromise = window.GemaSync.bindCollection(MODULE_KEY, STORAGE_KEY, PREFIX, 'id')
       .catch(function(e){ console.warn('[ActLog] bind', e); });
     return _bootPromise;

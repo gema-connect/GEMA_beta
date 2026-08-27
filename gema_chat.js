@@ -778,6 +778,10 @@
     _ctxClose();
     if(_panel)_panel.classList.remove('open');
     if(ST.msgTimer){clearInterval(ST.msgTimer);ST.msgTimer=null;}
+    // Der 45-s-Meta-Poll gehört zum OFFENEN Panel; geschlossen hält der
+    // Boot-Pull + visibilitychange den Badge frisch (sonst pollte jede
+    // Seite nach dem ersten Öffnen dauerhaft weiter).
+    if(ST.metaTimer){clearInterval(ST.metaTimer);ST.metaTimer=null;}
     _deepLinkClear(); // bewusst geschlossen → Deep-Link nicht erneut öffnen
   }
   function toggle(){

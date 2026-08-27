@@ -9877,19 +9877,27 @@ try{ _wzSortLoad(); }catch(e){}
 try{ _wzKofFoldLoad(); }catch(e){}
 try{ load(); _wzSyncCatsMap(); _wzApplyOptFelder(); _wzRestoreView(); }catch(e){ try{renderList();}catch(e2){} }
 
-// Cloud-First (DB primaer, localStorage nur Fallback): sowohl die Tools
-// (per-Record) als auch den Org (enthaelt die Kategorie-Symbole in
-// org.settings.werkzeug.kategorien) frisch aus der Datenbank ziehen.
+// Cloud-First (DB primaer, localStorage nur Fallback): die Tools per-Record
+// frisch ziehen. Orgs/Users (Kategorie-Symbole in org.settings.werkzeug)
+// kommen zentral ueber den gema_auth-Boot-Pull derselben Seite — ein
+// zweiter restoreFromCloud() hier waeren 3 doppelte Collection-GETs, die
+// das 6-s-Fenster fuer die erste Datenanzeige blockieren.
 var _wzCloudTools = null;
+// Quota-Opfer-Fall: war der localStorage-Cache verdraengt, stellt der
+// IndexedDB-Preload ihn in den Speicher-Spiegel zurueck — sobald er da
+// ist, sofort damit rendern statt auf den Cloud-Pull zu warten.
+try{
+  if(typeof window.GemaSync !== 'undefined' && window.GemaSync.cacheReady){
+    window.GemaSync.cacheReady.then(function(){
+      if(!_wzCloudLoaded){ try{ load(); renderList(); }catch(e){} }
+    });
+  }
+}catch(e){}
 if(typeof window.GemaSync !== 'undefined'){
   await Promise.race([
-    Promise.all([
-      window.GemaSync.bindCollection('werkzeugmanagement','gema_werkzeug','tool:','id')
-        .then(function(arr){ if(Array.isArray(arr)) _wzCloudTools = arr; }),
-      (typeof GemaAuth !== 'undefined' && GemaAuth.restoreFromCloud)
-        ? Promise.resolve(GemaAuth.restoreFromCloud()).catch(function(){})
-        : Promise.resolve()
-    ]),
+    window.GemaSync.bindCollection('werkzeugmanagement','gema_werkzeug','tool:','id')
+      .then(function(arr){ if(Array.isArray(arr)) _wzCloudTools = arr; })
+      .catch(function(){}),
     new Promise(function(r){ setTimeout(r, 6000); })
   ]);
 }
