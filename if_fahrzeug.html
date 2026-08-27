@@ -212,6 +212,30 @@ body.fz-view-table .toolbar #fzSortSelTop{display:none !important}
 .fz-lchip.green{background:#f0fdf4;color:#15803d}
 .fz-lchip.blue{background:#eff6ff;color:#1d4ed8}
 .fz-lgo{color:var(--muted2,#cbd5e1);font-size:17px;flex-shrink:0}
+
+/* ── Skeleton-Ladeanzeige ────────────────────────────────────────────
+   Platzhalter in der FORM der jeweiligen Ansicht (Karte / Listenzeile /
+   Tabellenzeile), statt eines Spinners: man sieht sofort, was kommt, und
+   beim Eintreffen der Daten springt nichts. Basis (.gema-sk, Schimmer)
+   steht zentral in gema_responsive.css Abschnitt 19.
+   Gezeigt NUR solange nichts da ist (!_fzCloudLoaded && !vehicles.length) —
+   ein gefüllter Cache rendert unverändert sofort die echten Fahrzeuge. */
+.fz-sk-card{background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow-xs);display:flex;flex-direction:column}
+.fz-sk-bar{height:4px;width:100%;background:var(--border2,#e2e8f0)}
+.fz-sk-body{padding:16px 18px}
+.fz-sk-top{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px}
+.fz-sk-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:7px}
+.fz-sk-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.fz-sk-stat{display:flex;flex-direction:column;gap:6px}
+.fz-sk-foot{padding:10px 18px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:6px}
+.fz-sk-lrow{display:flex;align-items:center;gap:11px;padding:10px 13px;border-bottom:1px solid var(--border)}
+.fz-sk-lrow:last-child{border-bottom:none}
+.fz-sk-lmain{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+/* Die KPI-Kacheln zeigen während des Ladens einen Balken statt einer 0 —
+   «0 Fahrzeuge» wäre eine Aussage, die zu dem Zeitpunkt niemand belegen kann.
+   Masse in em: .kpi-val ist line-height:1, der Balken ist damit exakt so hoch
+   wie die Zahl danach (34px Desktop, 22px Phone) — die Zeile springt nicht. */
+.fz-sk-val{display:block;height:1em;width:1.5em;border-radius:8px}
 table{width:100%;border-collapse:collapse;font-size:13px;}
 thead th{padding:11px 14px;background:var(--surface2);color:var(--muted);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;border-bottom:1.5px solid var(--border);text-align:left;white-space:nowrap;position:sticky;top:0;z-index:2;}
 thead th.right{text-align:right;}
@@ -1849,6 +1873,18 @@ function driverInitials(name){
 
 var _fzKpiActive='all';
 function renderKPIs(){
+  // Solange nichts geladen ist, waere «0» eine Behauptung ueber einen noch
+  // unbekannten Bestand — stattdessen Platzhalter (Muster updateStats in
+  // if_werkzeug). textContent weiter unten ersetzt sie sauber wieder.
+  if(_fzSkLaedt()){
+    ['kTotal','kActive','kService','kInactive'].forEach(function(id){
+      var e=document.getElementById(id);
+      if(!e || e.querySelector('.gema-sk')) return;
+      e.innerHTML='<span class="gema-sk fz-sk-val" aria-hidden="true"></span>';
+    });
+    document.querySelectorAll('.kpi-row .kpi').forEach(function(el){ el.classList.remove('active-f'); });
+    return;
+  }
   const total=vehicles.length;
   const active=vehicles.filter(v=>v.status==="aktiv").length;
   const svc=vehicles.filter(v=>isServiceSoon(v)).length;
@@ -1868,10 +1904,71 @@ function _fzKpiFilter(f){
 }
 window._fzKpiFilter=_fzKpiFilter;
 
+/* ── Skeleton-Ladeanzeige ────────────────────────────────────────────
+   Nur solange die Cloud beim ALLERERSTEN Aufruf (leerer Cache) laedt.
+   Bei vorhandenem Cache rendert die Seite sofort die zuletzt bekannten
+   Fahrzeuge — dort waere ein Skelett ein Rueckschritt.
+
+   Statt eines Spinners stehen Platzhalter in der FORM der jeweiligen
+   Ansicht: der Nutzer sieht, was kommt, und das Layout springt beim
+   Eintreffen der Daten nicht. Die Platzhalter tragen aria-hidden — ein
+   Screenreader soll leere Balken nicht vorlesen; die Ansage macht der
+   sichtbare .gema-sk-hint darunter.
+
+   Die Breiten sind bewusst UNGLEICH, sonst wirken die Platzhalter wie ein
+   Formular-Raster statt wie Inhalt. */
+function _fzSkLine(w,kl){ return '<span class="gema-sk gema-sk-line'+(kl?' '+kl:'')+'" style="width:'+w+'"></span>'; }
+function _fzSkLaedt(){ return !_fzCloudLoaded && !vehicles.length; }
+// Karten-Attrappe (Form von .v-card: Statusleiste, Avatar+Titel, 2×2-Raster,
+// Fussleiste).
+function _fzSkCards(n){
+  var h='',i,nw=[66,54,72,58],pw=[44,52,38,48];
+  for(i=0;i<(n||6);i++){
+    h+='<div class="fz-sk-card" aria-hidden="true">'
+      + '<div class="fz-sk-bar gema-sk" style="border-radius:0"></div>'
+      + '<div class="fz-sk-body">'
+        + '<div class="fz-sk-top">'
+          + '<span class="gema-sk gema-sk-ic" style="width:44px;height:44px;flex-shrink:0"></span>'
+          + '<span class="fz-sk-info">'+_fzSkLine(nw[i%4]+'%','sk-lg')+_fzSkLine(pw[i%4]+'%','sk-sm')+'</span>'
+        + '</div>'
+        + '<div class="fz-sk-grid">'
+          + '<span class="fz-sk-stat">'+_fzSkLine('46%','sk-sm')+_fzSkLine('68%')+'</span>'
+          + '<span class="fz-sk-stat">'+_fzSkLine('54%','sk-sm')+_fzSkLine('60%')+'</span>'
+          + '<span class="fz-sk-stat">'+_fzSkLine('50%','sk-sm')+_fzSkLine('72%')+'</span>'
+          + '<span class="fz-sk-stat">'+_fzSkLine('42%','sk-sm')+_fzSkLine('64%')+'</span>'
+        + '</div>'
+      + '</div>'
+      + '<div class="fz-sk-foot">'+_fzSkLine('62px','sk-sm')+_fzSkLine('48px','sk-sm')+'</div>'
+    + '</div>';
+  }
+  return h+'<div class="gema-sk-hint" style="grid-column:1/-1">Fahrzeuge werden geladen …</div>';
+}
+// Listen-Attrappe (Form von .fz-lrow: Icon + drei Textzeilen).
+function _fzSkListe(n){
+  var h='',i,w1=[58,66,50,62,54,70],w2=[46,38,54,42,58,40],w3=[36,44,30,38,46,32];
+  for(i=0;i<(n||7);i++){
+    h+='<div class="fz-sk-lrow" aria-hidden="true">'
+      + '<span class="gema-sk gema-sk-ic" style="width:36px;height:36px;border-radius:10px;flex-shrink:0"></span>'
+      + '<span class="fz-sk-lmain">'+_fzSkLine(w1[i%6]+'%')+_fzSkLine(w2[i%6]+'%','sk-sm')+_fzSkLine(w3[i%6]+'%','sk-sm')+'</span>'
+    + '</div>';
+  }
+  return h+'<div class="gema-sk-hint">Fahrzeuge werden geladen …</div>';
+}
+// Tabellen-Attrappe: gleiche Spaltenzahl (10) wie das <thead>.
+function _fzSkTabelle(n){
+  var h='',i,j,w=[[44,70,52,44,58,48,40,54,46,26],[52,58,60,44,46,56,44,48,52,26],[40,74,48,44,62,42,36,60,44,26]];
+  for(i=0;i<(n||6);i++){
+    h+='<tr aria-hidden="true">';
+    for(j=0;j<10;j++) h+='<td>'+_fzSkLine(w[i%3][j]+'%')+'</td>';
+    h+='</tr>';
+  }
+  return h+'<tr><td colspan="10" class="gema-sk-hint" style="border:none">Fahrzeuge werden geladen …</td></tr>';
+}
+
 function renderCards(list){
   const wrap=document.getElementById("cardsView");
-  if(list.length===0 && !_fzCloudLoaded && !vehicles.length){
-    wrap.innerHTML=`<div class="empty-state" style="grid-column:1/-1;"><svg width="30" height="30" viewBox="0 0 24 24" style="display:block;margin:0 auto 12px"><circle cx="12" cy="12" r="9" fill="none" stroke="#e2e8f0" stroke-width="3"/><path d="M12 3 a9 9 0 0 1 9 9" fill="none" stroke="#2563eb" stroke-width="3" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></path></svg><div class="em-title">Wird geladen …</div><div class="em-sub">Fahrzeuge werden aus der Cloud geladen.</div></div>`;
+  if(list.length===0 && _fzSkLaedt()){
+    wrap.innerHTML=_fzSkCards(6);
     return;
   }
   if(list.length===0){
@@ -1932,12 +2029,12 @@ function renderCards(list){
 
 function renderTable(list){
   const tbody=document.getElementById("tableBody");
-  if(list.length===0 && !_fzCloudLoaded && !vehicles.length){
-    tbody.innerHTML=`<tr><td colspan="11" class="center" style="padding:40px;color:var(--muted);">Wird geladen …</td></tr>`;
+  if(list.length===0 && _fzSkLaedt()){
+    tbody.innerHTML=_fzSkTabelle(6);
     return;
   }
   if(list.length===0){
-    tbody.innerHTML=`<tr><td colspan="11" class="center" style="padding:40px;color:var(--muted);">Keine Fahrzeuge gefunden.</td></tr>`;
+    tbody.innerHTML=`<tr><td colspan="10" class="center" style="padding:40px;color:var(--muted);">Keine Fahrzeuge gefunden.</td></tr>`;
     return;
   }
   tbody.innerHTML=list.map(v=>{
@@ -2001,10 +2098,13 @@ function renderListe(list){
   var tbc=document.getElementById('fzFilterBtnCt');
   if(tbc){tbc.textContent=nf;tbc.style.display=nf?'inline-block':'none';}
   if(!host)return;
-  if(ct)ct.textContent=list.length+(list.length===1?' Fahrzeug':' Fahrzeuge');
+  var laedt=(!list.length&&_fzSkLaedt());
+  // Waehrend des Ladens KEINE Trefferzahl — «0 Fahrzeuge» waere eine Aussage
+  // ueber einen Bestand, den wir noch gar nicht kennen.
+  if(ct)ct.textContent=laedt?'':(list.length+(list.length===1?' Fahrzeug':' Fahrzeuge'));
   if(!list.length){
-    host.innerHTML='<div style="padding:26px;text-align:center;color:var(--muted);font-size:13px">'
-      +((!_fzCloudLoaded&&!vehicles.length)?'Wird geladen …':'Keine Fahrzeuge gefunden.')+'</div>';
+    host.innerHTML=laedt?_fzSkListe(7)
+      :'<div style="padding:26px;text-align:center;color:var(--muted);font-size:13px">Keine Fahrzeuge gefunden.</div>';
     return;
   }
   host.innerHTML=list.map(renderListeRow).join('');
@@ -4890,7 +4990,11 @@ window._fzCanReturn=_fzCanReturn;
 // Test-/Debug-Hooks (Playwright) — Permission-Helper + Fahrzeug-Pool
 window._fzSortList=_fzSortList;
 window._fzSortOptsHtml=_fzSortSelectHtml;
-window._fzPermHooks={filtered:getFiltered,canEdit:_fzCanEdit,canAssign:_fzCanAssign,canLend:_fzCanLend,canCreate:_fzCanCreate,canReportDefect:_fzCanReportDefect,vehicles:function(){return vehicles;},katalog:_fzGetKatalogEntries};
+// Cross-Block-Scope: der native Handy-Screen liegt in einem EIGENEN
+// <script>-Block und erreicht nur, was an window haengt — deshalb auch der
+// Ladezustand (skLaedt), sonst zeigte er «Keine Fahrzeuge gefunden», solange
+// die Cloud noch laedt.
+window._fzPermHooks={filtered:getFiltered,canEdit:_fzCanEdit,canAssign:_fzCanAssign,canLend:_fzCanLend,canCreate:_fzCanCreate,canReportDefect:_fzCanReportDefect,vehicles:function(){return vehicles;},katalog:_fzGetKatalogEntries,skLaedt:_fzSkLaedt};
 
 /* ═══ DEFEKT ═══ */
 function openDefekt(vehicleId) {
@@ -6126,6 +6230,13 @@ window._fzBelegHooks={
   function natVs(){
     try{ return (window._fzPermHooks&&_fzPermHooks.vehicles()||[]).filter(function(v){ return (v.status||'aktiv')!=='stillgelegt'; }); }catch(e){ return []; }
   }
+  // Laedt der erste Cloud-Pull noch (leerer Cache)? — kommt ueber die Hooks,
+  // der Modul-Code liegt in einem anderen Script-Block. Faellt der Hook aus,
+  // gilt «nicht am Laden» (fail-open: lieber der bisherige Leer-Text als ein
+  // Skelett, das nie verschwindet).
+  function natLaedt(){
+    try{ return !!(window._fzPermHooks&&_fzPermHooks.skLaedt&&_fzPermHooks.skLaedt()); }catch(e){ return false; }
+  }
   function mfkDays(v){
     if(!v.mfk) return null;
     var d=new Date(v.mfk); if(isNaN(d)) return null;
@@ -6213,10 +6324,30 @@ window._fzBelegHooks={
     return String(name||'').trim().split(/\s+/).map(function(p){return p.charAt(0);}).join('').slice(0,2).toUpperCase();
   }
   function fmtKmN(k){ if(!k) return ''; try{ return parseInt(k,10).toLocaleString('de-CH')+' km'; }catch(e){ return k+' km'; } }
+  // Platzhalter in der Form einer .gn-row--lg (Icon + Titel + Unterzeile).
+  // Dieselben Klassen wie die echten Zeilen — damit sitzen auch die Trennlinien
+  // schon richtig und die Liste springt beim Eintreffen der Daten nicht.
+  function natSkeleton(n){
+    var h='',i,w1=[62,50,68,56,46],w2=[40,52,34,46,56];
+    for(i=0;i<(n||6);i++){
+      h+='<div class="gn-row gn-row--lg" aria-hidden="true" style="pointer-events:none">'
+       + '<span class="gema-sk gema-sk-ic" style="width:29px;height:29px;border-radius:7px;flex:none"></span>'
+       + '<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:7px">'
+         + '<span class="gema-sk gema-sk-line sk-lg" style="width:'+w1[i%5]+'%"></span>'
+         + '<span class="gema-sk gema-sk-line sk-sm" style="width:'+w2[i%5]+'%"></span>'
+       + '</span></div>';
+    }
+    return '<div class="gn-list" data-gema-sk="nativ">'+h+'</div>'
+      + '<div class="gema-sk-hint">Fahrzeuge werden geladen …</div>';
+  }
   function listHtml(){
     var rows=natVs().filter(natMatch);
     // EINE Sortier-Wahrheit: derselbe Vergleich wie Tabelle/Karten/Liste.
     try{ if(window._fzSortList) rows=_fzSortList(rows); }catch(e){}
+    // Stale-while-revalidate: solange nichts da ist, Platzhalter statt
+    // «Keine Fahrzeuge gefunden.» — das waere eine Aussage ueber einen
+    // Bestand, den GEMA noch gar nicht kennt.
+    if(!rows.length && natLaedt()) return natSkeleton(6);
     if(!rows.length) return '<div class="gn-label" style="text-transform:none;font-weight:500;padding-top:8px">Keine Fahrzeuge gefunden.</div>';
     return '<div class="gn-list">'+rows.map(function(v){
       var s=natStatus(v);
@@ -6251,7 +6382,7 @@ window._fzBelegHooks={
       '<div class="gn-compact" data-gn-compact><b>Fahrzeuge</b></div>'
       +'<div class="gn-screen" data-gn-scroll>'
         +'<div class="gn-toolbar">'
-          +'<div class="gn-large-title"><h1>Fahrzeuge</h1><p>'+vs.length+' Fahrzeuge · '+mfk+' MFK fällig</p></div>'          +'<button class="gn-icon-btn" data-nat-filter title="Filter"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M7 12h10M10 18h4"/></svg>'+(advN?'<span class="gn-dot">'+advN+'</span>':'')+'</button>'
+          +'<div class="gn-large-title"><h1>Fahrzeuge</h1><p>'+(natLaedt()?'wird geladen …':(vs.length+' Fahrzeuge · '+mfk+' MFK fällig'))+'</p></div>'        +'<button class="gn-icon-btn" data-nat-filter title="Filter"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M7 12h10M10 18h4"/></svg>'+(advN?'<span class="gn-dot">'+advN+'</span>':'')+'</button>'
           +(canCreate?'<button class="gn-icon-btn gn-icon-btn--primary" data-nat-add title="Neues Fahrzeug"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>':'')
         +'</div>'
         +'<div class="gn-searchbar"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.1" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-3.6-3.6"/></svg><input data-nat-q placeholder="Kennzeichen oder Fahrer" value="'+NE(nst.q)+'"></div>'
