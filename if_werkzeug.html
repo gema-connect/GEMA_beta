@@ -5695,11 +5695,27 @@ window._wzMarkGefunden=function(toolId){
 
 // ── Aktivitäten EINES Werkzeugs (Magaziner/Admin) ────────────────────
 // Oeffnet das zentrale Aktivitäten-Modal vorgefiltert auf diesen Datensatz.
-window._wzToolActLog=function(toolId){
+//
+// zurueckInsDetail=true: nach dem Schliessen wieder die Detailansicht.
+// Das ist KEIN Komfort, sondern noetig — der Weg dorthin fuehrt ueber
+// closeView(), die Detailansicht haelt aber noch den Scroll-Lock von
+// GemaScroll (der Auto-Hook sieht nur Attribut-Mutationen, das per
+// removeChild entfernte Aktivitäten-Modal also nicht und gibt den Lock
+// nie frei → die Seite liesse sich danach nicht mehr scrollen). Mit der
+// zurueckgeholten Detailansicht loest das naechste regulaere closeView()
+// den Lock sauber auf. Ohne das Flag (Toolbar, Scan-Ansicht, natives
+// Sheet) bleibt alles wie bisher — dort haelt niemand einen Lock.
+window._wzToolActLog=function(toolId,zurueckInsDetail){
   if(!_wzCanEdit())return;
   var t=tools.find(function(x){return x.id===toolId;});if(!t)return;
   if(typeof GemaActivityLog==='undefined'||!GemaActivityLog.openModal){alert('Aktivitätenlog nicht geladen.');return;}
-  GemaActivityLog.openModal({modul:'werkzeug',titel:'Aktivitäten — '+(t.name||''),recordId:t.id,recordName:t.name||''});
+  GemaActivityLog.openModal({
+    modul:'werkzeug',
+    titel:'Aktivitäten — '+(t.name||''),
+    recordId:t.id,
+    recordName:t.name||'',
+    onClose: zurueckInsDetail ? function(){ try{ openViewTool(toolId); }catch(e){} } : null
+  });
 };
 
 // ── Scan-Routing ─────────────────────────────────────────────────────
@@ -9466,7 +9482,7 @@ function openViewTool(id){
   act+=vmBtn('📝 Berichte'+(t.berichte&&t.berichte.length?' ('+t.berichte.length+')':''),`closeView();openBerichte('${t.id}')`);
   if(vmEdit){
     act+=vmBtn('🔲 QR / Etikette',`closeView();openQR('${t.id}')`);
-    act+=vmBtn('📋 Aktivitäten',`closeView();_wzToolActLog('${t.id}')`);
+    act+=vmBtn('📋 Aktivitäten',`closeView();_wzToolActLog('${t.id}',true)`);
     act+= vmLc==='verloren'
       ? vmBtn('✅ Wieder gefunden',`_wzMarkGefunden('${t.id}')`,{brd:'#bbf7d0',bg:'#f0fdf4',col:'#15803d'})
       : vmBtn('❓ Als verloren melden',`_wzMarkVerloren('${t.id}')`,{brd:'#fecaca',bg:'#fef2f2',col:'#b91c1c'});

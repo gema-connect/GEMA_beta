@@ -210,10 +210,21 @@
 
   // Oeffnet das Aktivitaeten-Modal fuer ein bestimmtes Modul.
   // opts: { modul:'werkzeug'|'fahrzeug'|'trocknung', titel?:string,
-  //         recordId?:string, recordName?:string }
+  //         recordId?:string, recordName?:string, onClose?:function }
   // Mit recordId werden NUR die Aktivitaeten dieses einen Datensatzes
   // gezeigt (per-Werkzeug-/per-Fahrzeug-Historie). recordName dient als
   // Fallback-Match fuer Alt-Eintraege ohne modulRecordId.
+  //
+  // onClose laeuft NACH dem Entfernen des Modals — gedacht fuer Aufrufer,
+  // die aus einer anderen Ansicht heraus geoeffnet haben und dorthin
+  // zurueckkehren wollen (if_werkzeug: Detailansicht → Aktivitaeten →
+  // zurueck ins Detail). Das ist dort kein Komfort, sondern noetig: dieses
+  // Modal wird per createElement/appendChild erzeugt und beim Schliessen
+  // per removeChild entfernt — der Auto-Hook in gema_scroll.js beobachtet
+  // aber NUR Attribut-Mutationen (kein childList), sieht das Entfernen
+  // also nicht und gibt den Scroll-Lock der aufrufenden Ansicht nie frei.
+  // Die zurueckgeholte Ansicht schliesst spaeter regulaer (Attribut-
+  // Mutation) und loest den Lock damit sauber auf.
   function openModal(opts){
     opts = opts || {};
     var modul = opts.modul || 'werkzeug';
@@ -280,7 +291,13 @@
       + '</div>';
     document.body.appendChild(bg);
 
-    function close(){ if (bg.parentNode) bg.parentNode.removeChild(bg); }
+    function close(){
+      if (bg.parentNode) bg.parentNode.removeChild(bg);
+      // erst entfernen, dann zurueckgeben — der Aufrufer oeffnet in onClose
+      // oft wieder seine eigene Ansicht und darf dieses Modal nicht mehr
+      // im DOM vorfinden.
+      if (typeof opts.onClose === 'function') { try { opts.onClose(); } catch (e) {} }
+    }
     bg.querySelector('#actlogClose').addEventListener('click', close);
     bg.addEventListener('click', function(e){ if (e.target === bg) close(); });
 
