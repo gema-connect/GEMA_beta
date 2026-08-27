@@ -573,6 +573,18 @@ async function actionPersistAuth(body, claims) {
           const SELF_EDITABLE = { name: 1, profile: 1, avatar: 1, einstellungen: 1, password: 1 };
           const merged = Object.assign({}, existing);
           for (const fk of Object.keys(data)) { if (SELF_EDITABLE[fk]) merged[fk] = data[fk]; }
+          // EIGENE ROLLEN: wer die Rollen seiner Mitarbeitenden vergeben darf,
+          // darf sie auch sich selbst geben — sonst meldet die Benutzer-
+          // verwaltung «gespeichert», waehrend roleIds still verworfen wird.
+          // Der GEMA-Admin ist oben schon durch (`if (admin) continue`), hier
+          // greift es fuer den Org-Admin der EIGENEN Org; role_admin bleibt
+          // ihm tabu (identische Regel wie im Mitarbeitenden-Zweig unten).
+          // orgId und active bleiben in JEDEM Selbst-Update eingefroren:
+          // kein Wechsel in eine fremde Org, kein Aussperren durch Vertippen.
+          if (isOrgAdmin && Array.isArray(data.roleIds)) {
+            if (!noAdminRole(data.roleIds)) return resp(403, { error: 'role_admin kann nur der GEMA-Admin vergeben' });
+            merged.roleIds = data.roleIds;
+          }
           merged.id = existing.id;
           rec.data = merged; // die Schreib-Schleife nutzt rec.data
         } else if (isOrgAdmin && String(existing.orgId) === String(requester.orgId)) {

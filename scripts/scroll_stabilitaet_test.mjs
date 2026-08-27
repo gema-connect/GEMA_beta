@@ -21,6 +21,23 @@
  *     Scroll-Position wird gar nicht erst angefasst. Auf iOS bleibt der
  *     fixed-Weg, der Rücksprung läuft aber ohne Smooth-Animation.
  *
+ *  D) if_werkzeug — Detailansicht → «📋 Aktivitäten» → schliessen: die Seite
+ *     liess sich danach GAR NICHT mehr scrollen. Ursache: das Aktivitäten-
+ *     Modal wird per createElement/appendChild erzeugt und per removeChild
+ *     entfernt; der Auto-Hook in gema_scroll.js beobachtet aber NUR Attribut-
+ *     Mutationen (kein childList) und sah das Entfernen nie — der Lock der
+ *     Detailansicht wurde also nie freigegeben.
+ *     Fix (ohne den Lock-Mechanismus anzufassen): GemaActivityLog.openModal
+ *     kennt opts.onClose, if_werkzeug holt damit die Detailansicht zurück.
+ *     Deren nächstes regulaeres closeView() ist wieder eine Attribut-
+ *     Mutation und loest den Lock sauber auf.
+ *     GEMESSEN wird UNMITTELBAR nach dem Schliessen der Aktivitäten — die
+ *     massgebende Invariante ist «eine Sperre gibt es nur mit sichtbarem
+ *     Modal». Ein späterer closeView()-Aufruf taugt als Nachweis NICHT:
+ *     classList.add('hidden') ruft setAttribute auch bei unverändertem Wert
+ *     und erzeugt damit selbst eine Mutation, die den haengenden Lock
+ *     nachträglich aufhebt — er würde das Symptom also maskieren.
+ *
  * Ausführen: CHROME=<chromium> node scripts/scroll_stabilitaet_test.mjs
  */
 import { chromium } from 'playwright-core';
@@ -63,6 +80,22 @@ console.log('— A) Quellcode-Invarianten —');
   ok(/paddingRight/.test(gs), 'Scrollbalken-Breite wird ausgeglichen (kein seitlicher Sprung)');
   const css = readFileSync(join(ROOT, 'gema_responsive.css'), 'utf8');
   ok(/html\.gema-modal-soft\{\s*overflow-y:hidden/.test(css), 'Sperr-Klasse liegt auf <html> (body-overflow propagiert nicht)');
+
+  // D-Invarianten: der Rückweg ins Detail ist verdrahtet — und der
+  // Lock-Mechanismus selbst blieb unangetastet (User-Vorgabe).
+  const al = readFileSync(join(ROOT, 'gema_aktivitaetslog.js'), 'utf8');
+  ok(/opts\.onClose\s*===\s*'function'|typeof opts\.onClose === 'function'/.test(al),
+     'GemaActivityLog.openModal ruft opts.onClose beim Schliessen');
+  ok(al.indexOf('bg.parentNode.removeChild(bg)') < al.indexOf('opts.onClose'),
+     'onClose laeuft NACH dem Entfernen (Aufrufer oeffnet dort seine Ansicht)');
+  ok(!/GemaScroll/.test(al), 'das Aktivitäten-Modal fasst den Scroll-Lock NICHT an');
+  const wz = readFileSync(join(ROOT, 'if_werkzeug.html'), 'utf8');
+  ok(/_wzToolActLog\('\$\{t\.id\}',true\)/.test(wz),
+     'Detailansicht öffnet die Aktivitäten mit Rückkehr-Flag');
+  ok(/onClose:\s*zurueckInsDetail\s*\?\s*function\(\)\{\s*try\{\s*openViewTool\(toolId\)/.test(wz),
+     '_wzToolActLog holt mit dem Flag die Detailansicht zurück');
+  ok(!/_wzToolActLog\('\+toolId\+'\),?true|_wzToolActLog\(id,\s*true\)/.test(wz),
+     'Scan-Ansicht und natives Sheet bleiben ohne Flag (dort hält niemand einen Lock)');
 }
 
 // ── Browser ───────────────────────────────────────────────────────
@@ -80,10 +113,21 @@ const st = seed(['role_admin']);
 st.gema_we_pool_v1 = [{ id: 'we_test', orgId: 'org_test', erstelltVon: 'u_test', erstelltVonName: 'Test',
   importDatum: '2026-08-01', lieferantFirma: 'Testlieferant AG', bestellnummer: 'B-1', bestelldatum: '2026-07-20',
   notiz: '', positionen: pos, status: 'offen', updatedAt: '2026-08-01T00:00:00.000Z' }];
+// Werkzeug + ein Log-Eintrag fuer Abschnitt D
+const TOOL = { id: 'wz_scroll', name: 'Bohrhammer Testgerät', cat: 'bohren', orgId: 'org_test',
+  brand: 'Hilti', model: 'TE 30', bought: '2026-01-15', berichte: [] };
+const LOG = { id: 'log_1', ts: '2026-08-01T09:00:00.000Z', orgId: 'org_test', modul: 'werkzeug',
+  modulRecordId: 'wz_scroll', modulRecordName: 'Bohrhammer Testgerät', aktion: 'erfasst',
+  beschreibung: 'Gerät erfasst', userId: 'u_test', userName: 'Test' };
+st.gema_werkzeug = [TOOL];
+st.gema_aktivitaetslog_v1 = [LOG];
+// Coachmark-Tour stilllegen — ihr Backdrop faengt sonst Klicks ab
+st.gema_coachmarks_done_werkzeug_erfassen_v1 = '1';
 await ctx.addInitScript(s => { for (const [k, v] of Object.entries(s)) localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v)); }, st);
-/* Die Lieferung muss aus der CLOUD kommen: bindCollection überschreibt den
+/* Die Daten muessen aus der CLOUD kommen: bindCollection überschreibt den
    localStorage-Cache mit der Cloud-Antwort — ein blosser localStorage-Seed
    würde vom leeren Standard-Mock wieder geleert. */
+const rows = (arr, pf) => arr.map(r => ({ data_key: pf + r.id, payload: { data: r, _lm: Date.now() } }));
 const cloudRow = [{ data_key: 'we:we_test', payload: { data: st.gema_we_pool_v1[0], _lm: Date.now() } }];
 await ctx.route('**/*', r => {
   const u = r.request().url();
@@ -91,7 +135,10 @@ await ctx.route('**/*', r => {
   if (u.indexOf('/.netlify/functions/') >= 0 || u.indexOf('/api/') >= 0) return r.fulfill({ contentType: 'application/json', body: '{"ok":false}' });
   if (u.indexOf('supabase') >= 0 || u.indexOf('/rest/v1/') >= 0 || u.indexOf('/sb/') >= 0) {
     if (r.request().method() !== 'GET') return r.fulfill({ contentType: 'application/json', body: '{}' });
-    const body = u.indexOf('module_key=eq.wareneingang') >= 0 && u.indexOf('we%3A') >= 0 ? JSON.stringify(cloudRow) : '[]';
+    let body = '[]';
+    if (u.indexOf('module_key=eq.wareneingang') >= 0 && u.indexOf('we%3A') >= 0) body = JSON.stringify(cloudRow);
+    else if (u.indexOf('module_key=eq.werkzeugmanagement') >= 0 && u.indexOf('tool%3A') >= 0) body = JSON.stringify(rows([TOOL], 'tool:'));
+    else if (u.indexOf('module_key=eq.aktivitaetslog') >= 0) body = JSON.stringify(rows([LOG], 'log:'));
     return r.fulfill({ contentType: 'application/json', body: body });
   }
   return r.abort();
@@ -202,6 +249,96 @@ console.log('— C) Werkzeug: Dialog auf/zu lässt die Seite stehen —');
   ok(zu.y === vor, 'Scroll-Position nach dem Schliessen unverändert (' + zu.y + ')');
   ok(!zu.soft, 'Sperre wieder aufgehoben');
   ok(zu.min === vor, 'Seite ist zwischendurch NIE nach oben gesprungen (min ' + zu.min + ' bei ' + zu.proben + ' Messungen)');
+  ok(errors.length === 0, 'keine pageerrors' + (errors.length ? ' — ' + errors[0] : ''));
+  await page.close();
+}
+
+// ── D) Werkzeug: Detail → Aktivitäten → schliessen ────────────────
+// Der gemeldete Weg. Entscheidend ist die LETZTE Prüfung: die Seite muss
+// sich danach wieder scrollen lassen.
+console.log('— D) Werkzeug: Detail → Aktivitäten → zurück ins Detail —');
+{
+  const page = await ctx.newPage();
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto(BASE + '/if_werkzeug.html', { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => typeof window.openViewTool === 'function', null, { timeout: 15000 });
+  await page.waitForTimeout(1600);
+  await page.evaluate(() => { document.body.style.minHeight = '4000px'; });
+  await page.waitForTimeout(200);
+
+  await page.evaluate(() => window.openViewTool('wz_scroll'));
+  await page.waitForTimeout(400);
+  const d1 = await page.evaluate(() => ({
+    detail: !document.getElementById('viewModal').classList.contains('hidden'),
+    knopf: !!document.querySelector('#vm_actions_grid button[onclick*="_wzToolActLog"]'),
+    soft: document.documentElement.classList.contains('gema-modal-soft')
+  }));
+  ok(d1.detail, 'Detailansicht ist offen');
+  ok(d1.knopf, '«📋 Aktivitäten» im Aktionen-Block vorhanden');
+  ok(d1.soft, 'Detailansicht hält den Scroll-Lock');
+
+  await page.click('#vm_actions_grid button[onclick*="_wzToolActLog"]');
+  await page.waitForTimeout(500);
+  const d2 = await page.evaluate(() => ({
+    log: !!document.getElementById('gema-actlog-modal'),
+    detail: !document.getElementById('viewModal').classList.contains('hidden'),
+    eintrag: (document.getElementById('actlogBody') || {}).textContent || ''
+  }));
+  ok(d2.log, 'Aktivitäten-Modal ist offen');
+  ok(!d2.detail, 'Detailansicht ist dahinter geschlossen');
+  ok(/Bohrhammer/.test(d2.eintrag), 'Log ist auf DIESES Gerät vorgefiltert');
+
+  // UNMITTELBAR nach dem Schliessen messen — hier haengt der Lock ohne den Fix
+  // fest. Ein closeView() davor wuerde ihn selbst wieder aufloesen (Attribut-
+  // Mutation) und das Symptom verdecken.
+  await page.click('#actlogClose');
+  await page.waitForTimeout(500);
+  const d3 = await page.evaluate(() => {
+    function sichtbar(el){
+      if (!el || !el.classList) return false;
+      if (el.classList.contains('open')) return true;
+      if (el.classList.contains('hidden')) return false;
+      const d = getComputedStyle(el).display;
+      return !!d && d !== 'none';
+    }
+    const offen = Array.prototype.filter.call(document.querySelectorAll('.modal-bg'), sichtbar);
+    const de = document.documentElement;
+    // Was den Nutzer wirklich blockiert. window.scrollTo taugt als Nachweis
+    // NICHT — bei overflow:hidden bleibt programmatisches Scrollen erlaubt,
+    // nur die Geste des Nutzers ist tot.
+    const gesperrt = de.classList.contains('gema-modal-soft')
+      || getComputedStyle(de).overflowY === 'hidden'
+      || document.body.classList.contains('gema-modal-open');
+    return {
+      log: !!document.getElementById('gema-actlog-modal'),
+      detail: !document.getElementById('viewModal').classList.contains('hidden'),
+      titel: (document.getElementById('vm_name') || {}).textContent || '',
+      locked: !!(window.GemaScroll && window.GemaScroll.isLocked()),
+      offene: offen.length,
+      gesperrt: gesperrt
+    };
+  });
+  ok(!d3.log, 'Aktivitäten-Modal geschlossen');
+  ok(d3.detail, 'man ist wieder in der Detailansicht');   // ← der Fix
+  ok(d3.detail && /Bohrhammer/.test(d3.titel), 'Detailansicht zeigt dasselbe Gerät');
+  // Das eigentliche Symptom: gesperrt, obwohl nichts mehr offen ist.
+  ok(!d3.locked || d3.offene > 0,
+     'kein GemaScroll-Lock ohne sichtbares Modal (locked=' + d3.locked + ', offene Modals=' + d3.offene + ')');
+  ok(!d3.gesperrt || d3.offene > 0,
+     'die Seite ist nur gesperrt, solange ein Modal offen ist (gesperrt=' + d3.gesperrt + ', offene Modals=' + d3.offene + ')');
+
+  await page.evaluate(() => window.closeView());
+  await page.waitForTimeout(400);
+  const d4 = await page.evaluate(() => {
+    const de = document.documentElement, prev = de.style.scrollBehavior;
+    de.style.scrollBehavior = 'auto'; window.scrollTo(0, 800); de.style.scrollBehavior = prev;
+    return { soft: de.classList.contains('gema-modal-soft'),
+             locked: !!(window.GemaScroll && window.GemaScroll.isLocked()),
+             y: window.scrollY };
+  });
+  ok(!d4.soft, 'Scroll-Sperre nach dem Schliessen aufgehoben');
+  ok(!d4.locked, 'GemaScroll meldet keinen offenen Lock mehr');
+  ok(d4.y > 500, 'die Seite laesst sich wieder scrollen (scrollY ' + d4.y + ')');
   ok(errors.length === 0, 'keine pageerrors' + (errors.length ? ' — ' + errors[0] : ''));
   await page.close();
 }
