@@ -1486,6 +1486,7 @@ function _wzRenderBulkBar(){
     +(_wzCanEdit()?'<button onclick="_wzBulkEdit()" '+(count?'':'disabled')+' title="Beliebige Felder der markierten Werkzeuge gemeinsam ändern" style="padding:6px 12px;border-radius:8px;border:none;background:#16a34a;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px;'+(count?'':'opacity:.4;cursor:not-allowed')+'">✏️ Bearbeiten</button>':'')
     +'<button onclick="_wzBulkSetStatus()" '+(count?'':'disabled')+' style="padding:6px 12px;border-radius:8px;border:none;background:#2563eb;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px;'+(count?'':'opacity:.4;cursor:not-allowed')+'">Status setzen</button>'
     +'<button onclick="_wzBulkAssign()" '+(count?'':'disabled')+' style="padding:6px 12px;border-radius:8px;border:none;background:#3730a3;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px;'+(count?'':'opacity:.4;cursor:not-allowed')+'">Person zuweisen</button>'
+    +'<button onclick="_wzBulkAusleihe()" '+(count?'':'disabled')+' title="Die ganze Auswahl an eine Person ausleihen" style="padding:6px 12px;border-radius:8px;border:none;background:#92400e;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px;'+(count?'':'opacity:.4;cursor:not-allowed')+'">🔄 Ausleihen</button>'
     +(canLabel?'<button onclick="_wzExportEtikettenBulk()" '+(count?'':'disabled')+' title="Markierte Werkzeuge als Etiketten-PDF (je eine 49×23mm-Seite)" style="padding:6px 12px;border-radius:8px;border:none;background:#7c3aed;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px;'+(count?'':'opacity:.4;cursor:not-allowed')+'">🏷 Etiketten</button>':'')
     +'<button onclick="_wzToggleBulkMode()" style="padding:6px 12px;border-radius:8px;border:1px solid #475569;background:transparent;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px">Abbrechen</button>';
 }
@@ -1529,6 +1530,151 @@ window._wzBulkApplyAssign=function(){
   });
   save();_wzCloseModal();_wzToggleBulkMode();
   if(typeof showToast==='function')showToast(changed+' Zuweisungen aktualisiert');
+};
+
+// ── Sammel-Ausleihe: die ganze Auswahl an EINE Person ausleihen ──
+// Guards identisch zur Einzel-Ausleihe (_wzOpenAusleihe/_wzSaveAusleihe):
+// bereits ausgeliehen, ausstehende Einbuchung und fremde Geräte gehen NICHT
+// mit — sie stehen mit Grund im Dialog, nie stillschweigend übergangen.
+// Ein markierter Koffer geht MIT seinem Inhalt (viaKoffer, Muster
+// _wzKofferAusleiheSave); wer nur einzelne Teile aushändigen will, nutzt
+// weiterhin die 🔄-Ausleihe des Koffers mit ihrer Inhalt-Checkliste.
+// KRITISCH: Ein Teil, das über seinen Koffer mitgeht, wird NICHT ein
+// zweites Mal einzeln vergeben (Merker `drin`) — sonst verlöre es sein
+// viaKoffer und die Rückgabe-Kontrolle des Koffers fände es nicht mehr.
+function _wzBulkLendPlan(){
+  var ids=Object.keys(_wzBulkSelected);
+  var sel=ids.map(function(id){return tools.find(function(t){return t.id===id;});}).filter(Boolean);
+  var offen=[], koffer=[], gesperrt=[], teile=0, teileGesperrt=0, drin={};
+  function pruef(t){
+    if(!_wzCanEditTool(t))            return 'gehört einer anderen Firma';
+    if(_wzIsPendingEinbuchung(t))     return 'Einbuchung noch nicht akzeptiert';
+    if(t.ausgeliehenAn)               return 'bereits ausgeliehen an '+(t.ausgeliehenAn.name||'—');
+    return '';
+  }
+  // 1) Koffer zuerst — ihre mitgehenden Teile sind danach vergeben
+  sel.filter(function(t){return _wzIsKoffer(t);}).forEach(function(k){
+    var g=pruef(k);
+    if(g){gesperrt.push({t:k,grund:g});return;}
+    var mit=[];
+    _wzKofferItems(k).forEach(function(t){
+      if(pruef(t)){teileGesperrt++;return;}   // bleibt einzeln wählbar (s. Schritt 2)
+      drin[t.id]=true;
+      mit.push(t);
+    });
+    teile+=mit.length;
+    koffer.push({k:k,teile:mit});
+  });
+  // 2) Einzelgeräte (inkl. Koffer-Teile, die nicht über ihren Koffer mitgehen)
+  sel.filter(function(t){return !_wzIsKoffer(t);}).forEach(function(t){
+    if(drin[t.id])return;                     // geht schon mit seinem Koffer
+    var g=pruef(t);
+    if(g){gesperrt.push({t:t,grund:g});return;}
+    offen.push(t);
+  });
+  return {offen:offen,koffer:koffer,gesperrt:gesperrt,teile:teile,teileGesperrt:teileGesperrt};
+}
+window._wzBulkAusleihe=function(){
+  if(!_wzCanEdit()){alert('Keine Berechtigung — nur Magaziner/Admin dürfen Werkzeuge ausleihen.');return;}
+  var ids=Object.keys(_wzBulkSelected);if(!ids.length)return;
+  var plan=_wzBulkLendPlan();
+  var n=plan.offen.length+plan.koffer.length;
+  if(!n){
+    GemaDialog.alert({title:'Nichts ausleihbar',
+      message:'Keines der '+ids.length+' markierten Geräte kann ausgeliehen werden:\n\n'
+        +plan.gesperrt.map(function(g){return '• '+g.t.name+' — '+g.grund;}).join('\n')});
+    return;
+  }
+  var me=_wzGetUser()||{};
+  var opts='<option value="">— Person wählen —</option>';
+  if(typeof GemaAuth!=='undefined'){
+    try{
+      (GemaAuth.getUsers()||[]).filter(function(p){
+        if(!p.active)return false;
+        if(me.orgId&&p.orgId!==me.orgId&&!_wzIsAdmin())return false;
+        return true;
+      }).forEach(function(p){
+        opts+='<option value="'+esc(p.id)+'">'+esc(p.name||p.username)+'</option>';
+      });
+    }catch(e){}
+  }
+  // Was geht mit — als Liste, damit man vor dem Ausleihen sieht, was übergeben wird
+  var zeilen=[];
+  plan.koffer.forEach(function(e){
+    zeilen.push('🧰 '+esc(e.k.name)+' <span style="color:#64748b;font-weight:400">· inkl. '+e.teile.length+' Teil'+(e.teile.length!==1?'e':'')+'</span>');
+  });
+  plan.offen.forEach(function(t){
+    var cat=CATS[t.cat]||CATS.sonstige;
+    zeilen.push(cat.icon+' '+esc(t.name));
+  });
+  var liste=zeilen.slice(0,8).join('<br>')+(zeilen.length>8?'<br><span style="color:#64748b">… und '+(zeilen.length-8)+' weitere</span>':'');
+  var block=plan.gesperrt.length
+    ? '<div style="margin-top:10px;padding:9px 11px;border:1px solid #fde68a;background:#fffbeb;border-radius:9px;font-size:11.5px;color:#92400e;line-height:1.5">'
+      +'<strong>'+plan.gesperrt.length+' Gerät'+(plan.gesperrt.length!==1?'e':'')+' kann nicht ausgeliehen werden:</strong><br>'
+      +plan.gesperrt.map(function(g){return esc(g.t.name)+' — '+esc(g.grund);}).join('<br>')
+      +'</div>'
+    : '';
+  var kofHint=plan.koffer.length
+    ? '<div style="margin-top:8px;font-size:11px;color:#64748b;line-height:1.5">Koffer gehen mit ihrem hinterlegten Inhalt. Um einzelne Teile abzuwählen, den Koffer über seinen eigenen 🔄-Knopf ausleihen.'
+      +(plan.teileGesperrt?' <strong>'+plan.teileGesperrt+' Teil'+(plan.teileGesperrt!==1?'e':'')+'</strong> aus den Koffern '+(plan.teileGesperrt!==1?'gehen':'geht')+' nicht mit (bereits ausgeliehen oder gesperrt).':'')
+      +'</div>'
+    : '';
+  var html='<div class="dlg-card" style="max-width:520px;max-height:88vh;overflow-y:auto">'
+    +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#92400e">🔄 Sammel-Ausleihe</h3>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:14px">'+n+' Gerät'+(n!==1?'e':'')
+    +(plan.teile?' · '+plan.teile+' Koffer-Teil'+(plan.teile!==1?'e':''):'')+' werden ausgeliehen</div>'
+    +'<label class="dlg-lbl">Ausgeliehen an</label>'
+    +'<select id="bulkLendUser" class="dlg-inp">'+opts+'</select>'
+    +'<div style="margin-top:12px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:9px;background:#fff;font-size:12.5px;line-height:1.7">'+liste+'</div>'
+    +kofHint
+    +block
+    +'<div class="dlg-row">'
+    +'  <button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button>'
+    +'  <button onclick="_wzBulkAusleiheSave()" style="padding:9px 18px;border-radius:8px;border:none;background:#92400e;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">🔄 Ausleihen</button>'
+    +'</div></div>';
+  _wzShowModal(html);
+};
+window._wzBulkAusleiheSave=function(){
+  if(!_wzCanEdit()){_wzCloseModal();return;}
+  var sel=document.getElementById('bulkLendUser');
+  var uid=sel?sel.value:'';
+  if(!uid){alert('Bitte Person wählen.');return;}
+  var users=(typeof GemaAuth!=='undefined')?(GemaAuth.getUsers()||[]):[];
+  var p=users.find(function(u){return u.id===uid;});
+  var pName=p?(p.name||p.username):uid;
+  var me=_wzGetUser()||{};
+  var plan=_wzBulkLendPlan();          // Guards erneut prüfen (Defense in Depth)
+  var seit=today(), nGer=0, nTeile=0;
+  plan.offen.forEach(function(t){
+    t.ausgeliehenAn={userId:uid,name:pName,seit:seit};
+    _wzActLog('ausleihe','Ausgeliehen an '+pName+' (Sammel-Ausleihe)',t);
+    nGer++;
+  });
+  plan.koffer.forEach(function(e){
+    e.k.ausgeliehenAn={userId:uid,name:pName,seit:seit};
+    e.teile.forEach(function(t){
+      t.ausgeliehenAn={userId:uid,name:pName,seit:seit,viaKoffer:e.k.id};
+      nTeile++;
+    });
+    _wzActLog('ausleihe','Koffer ausgeliehen an '+pName+' ('+e.teile.length+' Teil'+(e.teile.length!==1?'e':'')+', Sammel-Ausleihe)',e.k);
+    nGer++;
+  });
+  if(!nGer){_wzCloseModal();if(typeof showToast==='function')showToast('Nichts ausgeliehen.');return;}
+  _wzRememberAssignee(pName);
+  save();renderList();_wzCloseModal();_wzToggleBulkMode();
+  // EINE Sammel-Notifikation an die Person — nicht eine pro Gerät
+  if(typeof GemaNotify!=='undefined'&&uid!==me.id){
+    var namen=plan.offen.concat(plan.koffer.map(function(e){return e.k;})).slice(0,3)
+      .map(function(t){return t.name;}).join(', ');
+    GemaNotify.push({eventKey:'werkzeug_zuweisung',empfaengerUserId:uid,modul:'werkzeug',typ:'info',
+      titel:nGer+' Werkzeug'+(nGer!==1?'e':'')+' ausgeliehen',
+      text:namen+(nGer>3?' …':'')+(nTeile?' · inkl. '+nTeile+' Koffer-Teil'+(nTeile!==1?'e':''):''),
+      link:'if_werkzeug.html'});
+  }
+  if(typeof showToast==='function'){
+    showToast('✓ '+nGer+' Gerät'+(nGer!==1?'e':'')+(nTeile?' + '+nTeile+' Teil'+(nTeile!==1?'e':''):'')+' an '+pName+' ausgeliehen'
+      +(plan.gesperrt.length?' · '+plan.gesperrt.length+' übersprungen':''));
+  }
 };
 
 // ── Sammel-Bearbeitung: beliebige Felder der Auswahl gemeinsam ändern ──
