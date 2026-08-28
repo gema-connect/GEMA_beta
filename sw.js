@@ -109,13 +109,34 @@ self.addEventListener('fetch', function(event) {
     event.respondWith(fetch(event.request));
     return;
   }
-  // HTML & JS → Network-First (immer frisch laden, Cache als Fallback)
+  // HTML & JS & CSS → Stale-While-Revalidate: SOFORT aus dem Cache antworten
+  // (die App-Shell erscheint ohne Netz-Wartezeit — vorher lud Network-First
+  // bei JEDER Navigation erst ~1.5 MB HTML+JS herunter, bevor irgendetwas
+  // erschien), parallel im Hintergrund frisch laden und den Cache
+  // aktualisieren — die NAECHSTE Navigation hat den neuen Stand. Ein
+  // Deploy mit SW-Versionswechsel (CACHE_NAME) erneuert ohnehin alles
+  // sofort (install precached die neue Shell, activate loescht die alte).
+  // {ignoreSearch:true} NUR fuer HTML: sb_lu_tabelle.html?objekt=… ist
+  // dieselbe Shell wie der Precache-Eintrag; gespeichert wird HTML darum
+  // auch OHNE Query (ein Eintrag pro Datei statt einer pro Deep-Link).
+  // Bei JS/CSS bleibt die Query signifikant (Cache-Busting-Parameter).
   if (url.indexOf('.html') >= 0 || url.indexOf('.js') >= 0 || url.indexOf('.css') >= 0) {
+    var isHtml = url.indexOf('.html') >= 0;
     event.respondWith(
-      fetch(event.request).then(function(r) {
-        if (r.ok) { var c = r.clone(); caches.open(CACHE_NAME).then(function(cache) { cache.put(event.request, c); }); }
-        return r;
-      }).catch(function() { return caches.match(event.request); })
+      caches.match(event.request, isHtml ? { ignoreSearch: true } : undefined).then(function(cached) {
+        var netP = fetch(event.request).then(function(r) {
+          if (r.ok) {
+            var c = r.clone();
+            var putKey = isHtml ? url.split('#')[0].split('?')[0] : event.request;
+            caches.open(CACHE_NAME).then(function(cache) { cache.put(putKey, c); });
+          }
+          return r;
+        }).catch(function() { return cached; });
+        // Revalidierung am Leben halten, waehrend die Cache-Antwort schon
+        // ausgeliefert ist (SW darf sonst vorher beendet werden).
+        if (cached) { try { event.waitUntil(netP.catch(function() {})); } catch (e) {} }
+        return cached || netP;
+      })
     );
     return;
   }

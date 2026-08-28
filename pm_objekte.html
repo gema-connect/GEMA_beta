@@ -3374,7 +3374,21 @@ try{
 }catch(e){}
 try{ renderObjekte(); updateBadges(); }catch(e){}
 
-await load();
+// Der Cloud-Pull (GemaObjekte.ready) ist zeitlich begrenzt: haengt er auf
+// langsamem Netz, arbeitet die Seite mit dem Cache-Stand weiter — landet der
+// Pull spaeter doch noch, ziehen Liste + localStorage-Spiegel im .then nach.
+var _objNachzug = false;
+await Promise.race([
+  load().then(function(){
+    if(_objNachzug){
+      _objCloudLoaded = true;
+      try{localStorage.setItem(KEY,JSON.stringify(_mem));}catch(e){}
+      try{ renderObjekte(); updateBadges(); }catch(e){}
+    }
+  }),
+  new Promise(function(r){ setTimeout(r, 6000); })
+]);
+_objNachzug = true;
 _objCloudLoaded = true;
 // Mirror to localStorage so other modules can read via gema_objekte_api.js
 try{localStorage.setItem(KEY,JSON.stringify(_mem));}catch(e){}

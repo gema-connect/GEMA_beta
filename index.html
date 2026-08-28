@@ -1944,10 +1944,12 @@ function _favRefreshUI(){
 
 // Cloud-Pull beim Seitenstart — Cloud gewinnt (Cross-Device). Existiert noch
 // kein Cloud-Record, werden die lokalen Favoriten einmalig hochgespielt.
+// Liefert false, wenn (noch) keine Session/kein Sync da ist — sonst das
+// Promise des Pulls (truthy): der Init wiederholt NUR den Fehlstart.
 function _favCloudPull(){
   var uid = _favUserId();
-  if(!uid || typeof GemaSync === 'undefined' || !GemaSync.loadRecord) return;
-  GemaSync.loadRecord(FAV_MODULE, 'fav_' + uid).then(function(rec){
+  if(!uid || typeof GemaSync === 'undefined' || !GemaSync.loadRecord) return false;
+  return GemaSync.loadRecord(FAV_MODULE, 'fav_' + uid).then(function(rec){
     if(rec && rec.data && Array.isArray(rec.data.keys)){
       var cloud = new Set(rec.data.keys);
       var same = cloud.size === favs.size && [...cloud].every(function(k){ return favs.has(k); });
@@ -2245,10 +2247,10 @@ window._favHooks = {
 // ── INIT ──────────────────────────────────────────────────
 addStarButtons();
 buildFavGrid();
-// Favoriten aus der Cloud (pro User) nachziehen — sofort + nach kurzem
-// Delay (falls die Auth-Session beim ersten Lauf noch nicht bereit war).
-_favCloudPull();
-setTimeout(_favCloudPull, 1500);
+// Favoriten aus der Cloud (pro User) nachziehen; nur wenn die Auth-Session
+// beim ersten Lauf noch nicht bereit war, EINMAL nach kurzem Delay erneut
+// (sonst waere der zweite Pull ein Duplikat desselben GETs).
+if(!_favCloudPull()) setTimeout(_favCloudPull, 1500);
 </script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
 <script>document.addEventListener('DOMContentLoaded',function(){if(typeof GemaFeedback!=='undefined')GemaFeedback.init('module','Modulübersicht');});</script>

@@ -503,7 +503,27 @@
    */
   var LOAD_PAGE = 1000;      // = PostgREST db-max-rows Default (mehr kommt eh nie)
   var LOAD_MAX_PAGES = 30;   // Deckel: 30'000 Rows pro Collection-Pull
+  // In-Flight-Dedupe: identische PARALLELE Pulls (gleiches Modul/Prefix/
+  // Filter) teilen sich EINE Netzwerk-Anfrage. Beim Seitenstart fragen sonst
+  // mehrere Schichten (bindCollection, Modul-Direktaufrufe, Prefetch)
+  // dieselbe Collection gleichzeitig ab — jede Anfrage kostet einen vollen
+  // Roundtrip. Jeder Aufrufer bekommt eine EIGENE flache Array-Kopie
+  // (niemand haengt dem anderen Ergebnis-Mutationen an); ein Reject raeumt
+  // den Eintrag ab, damit ein Retry eine frische Anfrage startet.
+  var _loadInflight = {};
   function loadCollection(moduleKey, prefix, opts){
+    opts = opts || {};
+    var ik = moduleKey + '|' + prefix + '|' + (opts.filter || '') + '|' + (opts.maxRows || 0);
+    var run = _loadInflight[ik];
+    if(!run){
+      run = _loadCollectionPages(moduleKey, prefix, opts);
+      _loadInflight[ik] = run;
+      var clear = function(){ if(_loadInflight[ik] === run) delete _loadInflight[ik]; };
+      run.then(clear, clear);
+    }
+    return run.then(function(rows){ return rows.slice(); });
+  }
+  function _loadCollectionPages(moduleKey, prefix, opts){
     opts = opts || {};
     var base = _sbBase() + '/rest/v1/' + SB_TABLE
       + '?module_key=eq.' + encodeURIComponent(moduleKey)
@@ -542,6 +562,163 @@
       _noteFailure(e);
       throw e;
     });
+  }
+
+  // ── Delta-Sync: nur GEAENDERTE Rows laden statt der ganzen Collection ──
+  // Jede Row traegt payload._lm (ISO-Zeitstempel, von _postRecords gesetzt).
+  // ISO-Strings vergleichen lexikografisch == chronologisch, also kann
+  // PostgREST serverseitig filtern: payload->>_lm=gt.<letzter Stand>.
+  // Beim zweiten Besuch einer Seite kommen so statt 450 Records nur die
+  // paar geaenderten uebers Netz — die Ladezeit waechst damit NICHT mehr
+  // linear mit dem Datenbestand.
+  //
+  // Absicherung (Delta kann Loeschungen nicht sehen — die Row ist weg):
+  //   1. Parallel laeuft eine billige Zaehl-Abfrage (Prefer: count=exact,
+  //      limit=1 → Content-Range-Header). Stimmt die Server-Zahl nicht mit
+  //      dem gemergten Stand ueberein (Loeschung, _lm-lose SQL-Seeds,
+  //      Uhren-Drift jenseits der Kulanz), laeuft sofort ein Full-Resync.
+  //   2. Waehrend fuer die Collection OUTBOX-Eintraege warten, ist die
+  //      Zaehl-Kontrolle NICHT aussagekraeftig (lokale Records fehlen
+  //      serverseitig) → Kontrolle aussetzen, sonst wuerde jeder Boot
+  //      einen sinnlosen Full-Resync ausloesen.
+  //   3. Uhren-Kulanz DELTA_SKEW_MS: das Delta fragt ab (letzter _lm −
+  //      10 min) — doppelt gelieferte Rows sind idempotent (Merge per id).
+  //   4. Spätestens alle FULL_RESYNC_MS (24 h) ein erzwungener Full-Pull —
+  //      selbst ein uebersehener Randfall heilt sich damit von selbst.
+  //   5. Kleine Collections (< DELTA_MIN_ROWS) bleiben beim Full-Pull:
+  //      dort spart das Delta nichts, kostet aber die Zaehl-Abfrage.
+  // Rows OHNE _lm (per SQL geseedet) sind fuer das Delta unsichtbar —
+  // Aenderungen daran holt die Zaehl-Kontrolle bzw. der 24-h-Resync.
+  var META_KEY = 'gema_sync_meta_v1';
+  var DELTA_MIN_ROWS = 40;
+  var DELTA_SKEW_MS = 10 * 60 * 1000;
+  var FULL_RESYNC_MS = 24 * 60 * 60 * 1000;
+  var _metaMem = null;
+  function _metaLoad(){
+    if(_metaMem) return _metaMem;
+    _metaMem = {};
+    try{
+      if(typeof localStorage !== 'undefined'){
+        var raw = localStorage.getItem(META_KEY);
+        if(raw){ var o = JSON.parse(raw); if(o && typeof o === 'object' && !Array.isArray(o)) _metaMem = o; }
+      }
+    }catch(e){ _metaMem = {}; }
+    return _metaMem;
+  }
+  function _metaGet(storageKey){ return _metaLoad()[storageKey] || null; }
+  function _metaSet(storageKey, meta){
+    var all = _metaLoad();
+    all[storageKey] = meta;
+    try{ if(typeof localStorage !== 'undefined') localStorage.setItem(META_KEY, JSON.stringify(all)); }
+    catch(e){ /* Memory-Spiegel _metaMem haelt den Stand fuer diese Sitzung */ }
+  }
+  function _isoMinus(iso, ms){
+    var t = Date.parse(iso);
+    if(!isFinite(t)) return iso;
+    try{ return new Date(t - ms).toISOString(); }catch(e){ return iso; }
+  }
+  // Server-Row-Zahl einer Collection, OHNE die Rows zu laden: limit=1 +
+  // Prefer: count=exact → Content-Range "0-0/450" bzw. "*/0". Fehlender/
+  // unlesbarer Header → null (NIE als 0 deuten — null heisst "unbekannt",
+  // der Aufrufer laesst die Kontrolle dann aus).
+  function _countCollection(moduleKey, prefix){
+    var url = _sbBase() + '/rest/v1/' + SB_TABLE
+      + '?module_key=eq.' + encodeURIComponent(moduleKey)
+      + '&data_key=like.' + encodeURIComponent(prefix) + '*'
+      + '&select=data_key&limit=1';
+    return fetch(url, { headers: _hdrs({ 'Prefer': 'count=exact' }) })
+      .then(function(r){
+        if(r.status === 401) _handle401();
+        if(!r.ok) throw new Error('HTTP ' + r.status);
+        _noteSuccess();
+        var cr = r.headers.get('content-range') || '';
+        var m = /\/(\d+)\s*$/.exec(cr);
+        return m ? parseInt(m[1], 10) : null;
+      });
+  }
+  // Voller Pull + Sync-Meta neu setzen. ghost = Rows ohne verwertbares
+  // data/idField (z.B. Roh-Seeds) — sie stehen nie im Cache, zaehlen aber
+  // in der Server-Zahl; die Delta-Kontrolle rechnet sie wieder dazu.
+  function _fullPull(moduleKey, storageKey, prefix, idField){
+    return loadCollection(moduleKey, prefix).then(function(rows){
+      rows = rows || [];
+      var maxLm = '', valid = 0;
+      for(var i = 0; i < rows.length; i++){
+        var r = rows[i];
+        if(r.lm && r.lm > maxLm) maxLm = r.lm;
+        if(r.data && r.data[idField] != null) valid++;
+      }
+      _metaSet(storageKey, {
+        lm: maxLm || null, n: rows.length, ghost: rows.length - valid,
+        full: Date.now(), chk: Date.now()
+      });
+      return { rows: rows, arr: null, delta: false };
+    });
+  }
+  function _syncRun(moduleKey, storageKey, prefix, idField){
+    var meta = _metaGet(storageKey);
+    var cached = _readCache(storageKey);
+    var now = Date.now();
+    var canDelta = !!(meta && meta.lm && meta.full
+      && (now - meta.full) < FULL_RESYNC_MS
+      && cached.length >= DELTA_MIN_ROWS
+      && _authToken() && !_tokenlessSession());
+    if(!canDelta) return _fullPull(moduleKey, storageKey, prefix, idField);
+    var filter = 'payload->>_lm=gt.' + encodeURIComponent(_isoMinus(meta.lm, DELTA_SKEW_MS));
+    var deltaP = loadCollection(moduleKey, prefix, { filter: filter });
+    var countP = _outboxHasFor(moduleKey, prefix)
+      ? Promise.resolve(null)
+      : _countCollection(moduleKey, prefix).catch(function(){ return null; });
+    return Promise.all([deltaP, countP]).then(function(res){
+      var rows = res[0] || [], serverN = res[1];
+      // Merge per id UEBER den Cache — Reihenfolge des Caches bleibt
+      // erhalten, neue Records werden hinten angehaengt (Module sortieren
+      // ohnehin selbst).
+      var byId = {}, order = [];
+      for(var i = 0; i < cached.length; i++){
+        var it = cached[i];
+        if(it && it[idField] != null){
+          var k = String(it[idField]);
+          if(!(k in byId)) order.push(k);
+          byId[k] = it;
+        }
+      }
+      var maxLm = meta.lm, invalid = 0;
+      for(var n = 0; n < rows.length; n++){
+        var d = rows[n].data;
+        if(!d || d[idField] == null){ invalid++; continue; }
+        var kk = String(d[idField]);
+        if(!(kk in byId)) order.push(kk);
+        byId[kk] = d;
+        if(rows[n].lm && rows[n].lm > maxLm) maxLm = rows[n].lm;
+      }
+      // Delta-Row ohne verwertbare Daten → ghost-Buchhaltung waere ab jetzt
+      // unsicher (neu oder aktualisiert? nicht unterscheidbar) → Full-Pull.
+      if(invalid > 0) return _fullPull(moduleKey, storageKey, prefix, idField);
+      var merged = order.map(function(k2){ return byId[k2]; });
+      var ghost = meta.ghost || 0;
+      if(serverN != null && serverN !== merged.length + ghost){
+        // Loeschung / _lm-lose Aenderung / Drift → einmal voll neu laden.
+        return _fullPull(moduleKey, storageKey, prefix, idField);
+      }
+      _metaSet(storageKey, {
+        lm: maxLm, n: (serverN != null ? serverN : meta.n), ghost: ghost,
+        full: meta.full, chk: now
+      });
+      return { rows: null, arr: merged, delta: true, changed: rows.length };
+    });
+  }
+  // Pro storageKey laeuft immer nur EIN Sync — ein echter Bind und ein
+  // gleichzeitiger Hintergrund-Prefetch teilen sich dasselbe Ergebnis.
+  var _syncInflight = {};
+  function _syncCollection(moduleKey, storageKey, prefix, idField){
+    var run = _syncInflight[storageKey];
+    if(run) return run;
+    run = _syncRun(moduleKey, storageKey, prefix, idField);
+    _syncInflight[storageKey] = run;
+    var clear = function(){ if(_syncInflight[storageKey] === run) delete _syncInflight[storageKey]; };
+    run.then(clear, clear);
+    return run;
   }
 
   /**
@@ -806,6 +983,7 @@
     var json;
     try{ json = JSON.stringify(arr||[]); }catch(e){ json = '[]'; }
     _memCache[storageKey] = json;
+    _idbPut(storageKey, json);
     if(typeof localStorage === 'undefined') return;
     try{ localStorage.setItem(storageKey, json); }
     catch(e){
@@ -853,11 +1031,74 @@
     return [];
   }
 
-  function bindCollection(moduleKey, storageKey, prefix, idField){
+  // ── IndexedDB-Zweitschicht fuer Collection-Caches ────────────────────
+  // localStorage ist v.a. auf iOS auf ~5 MB gedeckelt: bildlastige Pools
+  // (Werkzeug-Kaufbelege, Berichte) fliegen beim Quota-Fehler aus dem
+  // localStorage — der naechste Seitenstart fand dann KEINEN Cache und
+  // musste den kompletten Cloud-Pull abwarten (DER Hauptgrund fuer
+  // «3–4 Sekunden bis Daten sichtbar sind»). IndexedDB hat dieses Limit
+  // nicht. Regeln:
+  //   - localStorage bleibt FUEHREND (kann von anderen Tabs frischer
+  //     sein); IndexedDB fuellt _memCache beim Boot NUR fuer Keys, die im
+  //     localStorage FEHLEN (Quota-Opfer).
+  //   - _idbReady rejected NIE (resolve(false) bei Fehler/Timeout 2.5 s)
+  //     — bindCollection wartet darauf, darf aber nie daran haengen.
+  //   - Schreiben ist fire-and-forget (best effort).
+  var IDB_NAME = 'gema_sync_cache_v1', IDB_STORE = 'collections';
+  var _idb = null;
+  var _idbReady = (function(){
+    if(typeof indexedDB === 'undefined') return Promise.resolve(false);
+    return new Promise(function(resolve){
+      var done = false;
+      function fin(ok){ if(!done){ done = true; resolve(ok); } }
+      var to = setTimeout(function(){ fin(false); }, 2500);
+      try{
+        var req = indexedDB.open(IDB_NAME, 1);
+        req.onupgradeneeded = function(){ try{ req.result.createObjectStore(IDB_STORE); }catch(e){} };
+        req.onerror = function(){ clearTimeout(to); fin(false); };
+        req.onblocked = function(){ clearTimeout(to); fin(false); };
+        req.onsuccess = function(){
+          _idb = req.result;
+          try{
+            var tx = _idb.transaction(IDB_STORE, 'readonly');
+            var cur = tx.objectStore(IDB_STORE).openCursor();
+            cur.onsuccess = function(ev){
+              var c = ev.target.result;
+              if(!c){ clearTimeout(to); fin(true); return; }
+              var k = String(c.key);
+              var inLs = false;
+              try{ inLs = typeof localStorage !== 'undefined' && localStorage.getItem(k) != null; }catch(e){}
+              if(!inLs && _memCache[k] == null && typeof c.value === 'string') _memCache[k] = c.value;
+              c.continue();
+            };
+            cur.onerror = function(){ clearTimeout(to); fin(true); };
+          }catch(e){ clearTimeout(to); fin(true); }
+        };
+      }catch(e){ clearTimeout(to); fin(false); }
+    });
+  })();
+  function _idbPut(storageKey, json){
+    if(!_idb) return;
+    try{ _idb.transaction(IDB_STORE, 'readwrite').objectStore(IDB_STORE).put(json, storageKey); }
+    catch(e){ /* best effort */ }
+  }
+
+  function bindCollection(moduleKey, storageKey, prefix, idField, _opts){
     if(!idField) idField = 'id';
     var reg = (_collReg[moduleKey] = _collReg[moduleKey] || []);
     if(!reg.some(function(r){ return r.prefix === prefix; })) reg.push({ storageKey: storageKey, prefix: prefix, idField: idField });
-    return loadCollection(moduleKey, prefix).then(function(rows){
+    _bindregNote(moduleKey, storageKey, prefix, idField, !!(_opts && _opts.prefetch));
+    return _idbReady.then(function(){
+      return _syncCollection(moduleKey, storageKey, prefix, idField);
+    }).then(function(res){
+      // Delta-Pfad: nur die geaenderten Rows kamen uebers Netz; res.arr ist
+      // der fertig gemergte Vollstand (Zaehl-Kontrolle war in Ordnung).
+      if(res && res.delta){
+        var arrD = _outboxApplyTo(moduleKey, prefix, idField, res.arr);
+        _writeCache(storageKey, arrD);
+        return arrD;
+      }
+      var rows = res ? res.rows : [];
       if(rows && rows.length){
         var arr = rows.map(function(r){ return r.data; }).filter(function(d){ return d && d[idField] != null; });
         // Noch nicht synchronisierte (Outbox-)Aenderungen ueberlagern den
@@ -908,6 +1149,75 @@
     });
   }
 
+  // ── Hintergrund-Prefetch: haeufige Collections leise warmhalten ──────
+  // Persistente Bind-Registry (welche Collections dieses Geraet zuletzt
+  // wirklich gebunden hat, Cap 24 nach Recency). ~6 s nach dem Seitenstart
+  // werden die zuletzt genutzten Collections im Leerlauf nachgeladen —
+  // der NAECHSTE Modul-Besuch rendert dann aus einem frischen Cache und
+  // der Delta-Sync dort hat fast nichts mehr zu holen. Regeln:
+  //   - Nur echte Binds aktualisieren die Recency (ein Prefetch haelt
+  //     sich sonst selbst fuer immer «zuletzt genutzt»).
+  //   - Sequenziell mit 400 ms Abstand, Cap 12 pro Seite — nie ein
+  //     Request-Sturm neben der eigentlichen Seiten-Arbeit.
+  //   - Nur mit Token, sichtbarem Tab und erreichbarer Cloud; pro
+  //     Collection hoechstens alle 5 min (meta.chk).
+  var BINDREG_KEY = 'gema_sync_bindreg_v1', BINDREG_MAX = 24;
+  var PREFETCH_DELAY_MS = 6000, PREFETCH_GAP_MS = 400, PREFETCH_MAX = 12,
+      PREFETCH_MIN_MS = 5 * 60 * 1000;
+  var _boundThisPage = {};
+  function _bindregLoad(){
+    try{
+      if(typeof localStorage !== 'undefined'){
+        var raw = localStorage.getItem(BINDREG_KEY);
+        if(raw){ var o = JSON.parse(raw); if(o && typeof o === 'object' && !Array.isArray(o)) return o; }
+      }
+    }catch(e){}
+    return {};
+  }
+  function _bindregNote(moduleKey, storageKey, prefix, idField, isPrefetch){
+    _boundThisPage[storageKey] = 1;
+    if(isPrefetch) return;   // Prefetch haelt die Recency NICHT frisch
+    try{
+      var reg = _bindregLoad();
+      reg[storageKey] = { m: moduleKey, p: prefix, id: idField, ts: Date.now() };
+      var keys = Object.keys(reg);
+      if(keys.length > BINDREG_MAX){
+        keys.sort(function(a, b){ return (reg[b].ts || 0) - (reg[a].ts || 0); });
+        keys.slice(BINDREG_MAX).forEach(function(k){ delete reg[k]; });
+      }
+      if(typeof localStorage !== 'undefined') localStorage.setItem(BINDREG_KEY, JSON.stringify(reg));
+    }catch(e){}
+  }
+  function _bgPrefetch(){
+    if(!_authToken() || _tokenlessSession()) return Promise.resolve(0);
+    if(typeof document !== 'undefined' && document.visibilityState === 'hidden') return Promise.resolve(0);
+    if(!_lastReachable) return Promise.resolve(0);
+    var reg = _bindregLoad();
+    var now = Date.now();
+    var kand = Object.keys(reg).filter(function(k){
+      if(_boundThisPage[k]) return false;
+      var meta = _metaGet(k);
+      if(meta && meta.chk && (now - meta.chk) < PREFETCH_MIN_MS) return false;
+      return !!(reg[k] && reg[k].m && reg[k].p);
+    });
+    kand.sort(function(a, b){ return (reg[b].ts || 0) - (reg[a].ts || 0); });
+    kand = kand.slice(0, PREFETCH_MAX);
+    if(!kand.length) return Promise.resolve(0);
+    var done = 0, chain = Promise.resolve();
+    kand.forEach(function(k){
+      chain = chain.then(function(){
+        var r = reg[k];
+        return bindCollection(r.m, k, r.p, r.id || 'id', { prefetch: true })
+          .catch(function(){ return null; })
+          .then(function(){
+            done++;
+            return new Promise(function(res){ setTimeout(res, PREFETCH_GAP_MS); });
+          });
+      });
+    });
+    return chain.then(function(){ return done; });
+  }
+
   // ── Outbox: verlustfreie Warteschlange fuer nicht synchronisierte Saves ──
   // Jeder fehlgeschlagene Cloud-Push landet hier dauerhaft (localStorage) und
   // wird automatisch nachgesendet — bei Reconnect, periodisch, beim Seiten-
@@ -944,6 +1254,20 @@
     _outboxPersist();
   }
   function _outboxCount(){ return Object.keys(_outboxLoad()).length; }
+  // Liegt fuer diese Collection noch ein NICHT gepushter lokaler Record in
+  // der Outbox? Dann ist die Server-Zaehlung als Drift-Kontrolle wertlos
+  // (lokal gibt es Records, die der Server noch gar nicht kennt) — der
+  // Delta-Sync ueberspringt die Zaehl-Kontrolle dann, sonst wuerde JEDER
+  // Seitenstart einen sinnlosen Voll-Resync ausloesen.
+  function _outboxHasFor(moduleKey, prefix){
+    var ob = _outboxLoad();
+    var ks = Object.keys(ob);
+    for(var i = 0; i < ks.length; i++){
+      var op = ob[ks[i]];
+      if(op && op.m === moduleKey && String(op.key).indexOf(prefix) === 0) return true;
+    }
+    return false;
+  }
   // Sichtbare Diagnose der wartenden Uploads: Modul, Schluessel, Groesse,
   // Versuche und der LETZTE ECHTE FEHLER pro Eintrag — damit «es laedt nicht
   // hoch» nie wieder ein Blindflug ist (Details-Box im Banner + Test-Hook).
@@ -1271,6 +1595,11 @@
     pendingCount: _outboxCount,
     pendingInfo: _pendingInfo,
 
+    // Delta-Sync/Cache-Diagnose + Prefetch-Hooks (Tests, Konsole).
+    cacheReady: _idbReady,
+    syncMeta: function(storageKey){ return _metaGet(storageKey); },
+    prefetchNow: function(){ return _bgPrefetch(); },
+
     // BEIDE Verbindungswege (aktiver zuerst): direkt supabase.co und der
     // Same-Origin-Proxy /sb. Wer eine gespeicherte Datei-URL laedt, kann
     // damit den jeweils anderen Weg versuchen, wenn einer blockiert ist —
@@ -1319,6 +1648,13 @@
     if(typeof setInterval !== 'undefined'){
       setInterval(function(){ if(_outboxCount() && (_online || _lastReachable)) _outboxFlush(); }, 60000);
     }
+    // Hintergrund-Prefetch der zuletzt genutzten Collections — im Leerlauf,
+    // deutlich nach dem Boot, damit die eigentliche Seiten-Arbeit Vorrang hat.
+    setTimeout(function(){
+      var kick = function(){ try{ _bgPrefetch(); }catch(e){} };
+      if(typeof requestIdleCallback === 'function') requestIdleCallback(kick, { timeout: 4000 });
+      else kick();
+    }, PREFETCH_DELAY_MS);
     // Seitenstart: evtl. liegt noch etwas aus einer fruerheren Sitzung herum.
     _scheduleFlush(2500);
   }
