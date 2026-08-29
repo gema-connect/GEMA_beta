@@ -325,6 +325,25 @@ button.wz-lchip.koffer:hover{background:#fef9c3}
 tr.wz-tsub>td{background:#fffdf6}
 tr.wz-tsub>td:first-child{box-shadow:inset 5px 0 0 #fde047;padding-left:26px}
 tr.wz-tsub .wz-tkof{display:none}
+/* ── PERSONENANSICHT (Feedback 28.08.2026) ──
+   Vierte Ansicht: Abschnitte je Person (dann Plaetze, zuletzt «Ohne
+   Zuteilung»), Kopf mit «N Werkzeuge · M Koffer». Abschnitte starten
+   ZUGEKLAPPT (Uebersicht zuerst); aufgeklappt rendern die kompakten
+   Listen-Zeilen samt Koffer-Buendelung. */
+.wz-pers{margin-bottom:10px}
+.wz-pers-hd{display:flex;align-items:center;gap:10px;width:100%;padding:12px 14px;border:1.5px solid var(--brd2);border-radius:12px;background:var(--sur);font-family:inherit;cursor:pointer;text-align:left;min-width:0;box-shadow:var(--sh-sm)}
+.wz-pers-hd:hover{background:var(--bg2)}
+.wz-pers-cx{font-size:11px;color:var(--mut);flex-shrink:0;width:12px}
+.wz-pers-ic{width:34px;height:34px;border-radius:10px;background:var(--plan-bg);border:1px solid var(--plan-bd);display:grid;place-items:center;font-size:17px;flex-shrink:0}
+.wz-pers.platz .wz-pers-ic{background:var(--bg2);border-color:var(--brd2)}
+.wz-pers-nm{font-size:14px;font-weight:800;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.wz-pers-ct{font-size:12px;font-weight:700;color:var(--mut);margin-left:auto;flex-shrink:0;white-space:nowrap}
+.wz-pers-bd{margin-top:8px}
+@media(hover:none) and (pointer:coarse){.wz-pers-hd{min-height:48px}}
+
+/* 📡 NFC-Direktschreiben in der Listen-Zeile (rendert nur auf Android Chrome) */
+.wz-lnfc{flex-shrink:0;width:36px;height:36px;border-radius:9px;border:1.5px solid var(--brd2);background:var(--bg2);font-size:15px;cursor:pointer;display:grid;place-items:center;padding:0;font-family:inherit}
+.wz-lnfc:active{transform:scale(.94)}
 .pill{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:7px;font-size:11.5px;font-weight:700;white-space:nowrap}
 
 /* EMPTY */
@@ -686,6 +705,7 @@ tr.sml-err td{background:#fef2f2}
       <button class="vt-btn active" id="vt_cards" onclick="setView('cards')" title="Karten">⊞</button>
       <button class="vt-btn"        id="vt_list"  onclick="setView('list')"  title="Liste (kompakt)">≡</button>
       <button class="vt-btn"        id="vt_table" onclick="setView('table')" title="Tabelle">☰</button>
+      <button class="vt-btn"        id="vt_person" onclick="setView('person')" title="Personen — wer hat was?">👤</button>
     </div>
     <button class="tb-search-toggle" id="searchToggle" onclick="_wzToggleMobSearch()" title="Suche"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg></button>
     <div class="tb-search-mob tb-search" id="searchMob">
@@ -727,6 +747,18 @@ tr.sml-err td{background:#fef2f2}
       </tr></thead>
       <tbody id="toolTbody"></tbody>
     </table>
+  </div>
+
+  <!-- Personenansicht (Feedback 28.08.2026): Geraete gruppiert nach der Person,
+       die sie faktisch hat (_wzHalter — Ausleihe schlaegt Zuweisung, Koffer-Teile
+       erben ueber ihren Koffer), danach Plaetze, zuletzt «Ohne Zuteilung».
+       Nutzt die kompakten Listen-Zeilen (renderListeRow) je Abschnitt. -->
+  <div id="personWrap" style="display:none">
+    <div class="wz-lbar">
+      <button class="wz-lfilt" id="wzPersFilter" onclick="_wzOpenAdvFilter()" title="Erweiterte Filter">🔍 Filter<span class="wz-lfilt-ct" id="wzPersFilterCt" style="display:none">0</span></button>
+      <span class="wz-lcount" id="wzPersCount"></span>
+    </div>
+    <div id="wzPersonen"></div>
   </div>
 </div>
 
@@ -1855,9 +1887,14 @@ function _wzBulkApplyEdit(changes,ziele){
 // ══════════════════════════════════════════════════════════════
 // SAMMELERFASSUNG (Desktop) — mehrere Werkzeuge in EINER Tabelle
 // erfassen. 📌-Vorgabe-Zeile: Werte gelten für ALLE Zeilen ohne
-// eigenen Wert (interne Kennung zählt hoch, wenn die Vorgabe auf
-// eine Zahl endet). Spalten sind ausblendbar (pro Gerät gemerkt);
-// ausgeblendete Vorgaben wirken weiter und werden ausgewiesen.
+// eigenen Wert; die Vorgabe-Felder haben dieselben Vorschläge wie
+// die Einzelerfassung (Feedback 28.08.2026). Erfasst werden NUR
+// Zeilen mit eigener Eingabe — leere Zeilen bleiben still liegen.
+// Prüfungen (Service/Elektro/Leiter) werden wie im Einzelformular
+// automatisch vorgeschlagen (Kategorie + frühere Einträge); eine
+// eigene Eingabe — auch 0 = keine Prüfung — gewinnt immer.
+// Spalten sind ausblendbar (pro Gerät gemerkt); ausgeblendete
+// Vorgaben wirken weiter und werden ausgewiesen.
 // Zeilen leben NUR im DOM (Fokus-Regel: nie die Liste neu bauen).
 // ══════════════════════════════════════════════════════════════
 var SML_COLS=[
@@ -1873,11 +1910,16 @@ var SML_COLS=[
   {id:'supplier',lbl:'Lieferant',       w:135, ac:'supplier', hid:true, ph:'z.B. Engel'},
   {id:'notes',   lbl:'Standort / Notiz',w:145, ac:'standort', hid:true, ph:'z.B. Lager EG'},
   {id:'zuw',     lbl:'Zuweisung',       w:220, typ:'zuw'},
-  {id:'service', lbl:'Service (Mt.)',   w:105, typ:'num', hid:true, ph:'Mt.', fixTitle:'Intervall in Monaten — aktiviert die Service-/Wartungsprüfung'},
-  {id:'elec',    lbl:'Elektro NIV (Mt.)',w:115, typ:'num', hid:true, ph:'Mt.', fixTitle:'Intervall in Monaten — aktiviert die Elektroprüfung (NIV)'}
+  {id:'service', lbl:'Service (Mt.)',   w:105, typ:'num', hid:true, ph:'Mt.', fixTitle:'Intervall in Monaten — aktiviert die Service-/Wartungsprüfung. Wird aus früheren Einträgen automatisch vorgeschlagen; 0 = bewusst keine Prüfung.'},
+  {id:'elec',    lbl:'Elektro NIV (Mt.)',w:115, typ:'num', hid:true, ph:'Mt.', fixTitle:'Intervall in Monaten — aktiviert die Elektroprüfung (NIV). Wird bei kabelgebundenen Kategorien und aus früheren Einträgen automatisch vorgeschlagen; 0 = bewusst keine Prüfung.'},
+  {id:'leiter',  lbl:'Leiter EKAS (Mt.)',w:115, typ:'num', hid:true, ph:'Mt.', fixTitle:'Intervall in Monaten — aktiviert die Leiterprüfung (EKAS). Zählt nur bei Kategorie Leiter/Gerüst; 0 = bewusst keine Prüfung.'}
 ];
 var _SML_COLS_LS='gema_wz_sml_cols_v1';
 var _smlRowSeq=0;
+// Session-Aufdeckung: Spalten, die ein Prüf-AUTO-Wert sichtbar gemacht hat
+// (z.B. ausgeblendete Elektro-Spalte bei Kabel-Kategorie). BEWUSST nicht in
+// gema_wz_sml_cols_v1 persistiert — die gemerkte Spaltenwahl bleibt unberührt.
+var _smlForceVis={};
 function _smlVisibleCols(){
   var def=SML_COLS.filter(function(c){return !c.hid;}).map(function(c){return c.id;});
   try{
@@ -1940,6 +1982,7 @@ window._wzSmlZuwChange=function(sel){
 window._wzSammelOpen=function(){
   if(!_wzCanEdit()){alert('Keine Berechtigung — nur Magaziner/Admin dürfen Geräte erfassen.');return;}
   _smlRowSeq=0;
+  _smlForceVis={};
   var vis=_smlVisibleCols();
   var colMenu=SML_COLS.map(function(c){
     var chk=vis.indexOf(c.id)>=0;
@@ -1959,6 +2002,7 @@ window._wzSammelOpen=function(){
       +'<button class="nbtn" onclick="_wzSmlAddRows(5)">＋ 5 Zeilen</button>'
     +'</span></div>'
     +'<div id="smlHiddenInfo" class="sml-hiddeninfo" style="display:none"></div>'
+    +'<div id="smlAutoInfo" class="sml-hiddeninfo" style="display:none"></div>'
     +'<div class="sml-body"><table class="sml-tbl" id="smlTable">'
     +'<thead><tr>'+head+'<th class="sml-delth"></th></tr>'
     +'<tr class="sml-fixrow">'+fix+'<th class="sml-delth"></th></tr></thead>'
@@ -1972,10 +2016,22 @@ window._wzSammelOpen=function(){
   _wzShowModal(html);
   // Vorgabe-Defaults wie die Einzelerfassung: Kaufdatum = heute
   var fb=document.getElementById('sml_fix_bought'); if(fb&&!fb.value)fb.value=today();
-  // Vorgabe-Änderung → Platzhalter/Zähler/Info nachführen
+  // Vorgabe-Felder mit denselben Vorschlägen wie die Einzelerfassung
+  _smlWireFix();
+  // Vorgabe-Änderung → Platzhalter/Zähler/Info nachführen; Tippen in einem
+  // Prüf-Feld = bewusste Eingabe (Auto-Marker lösen), Trigger-Felder
+  // (Kategorie/Name/Hersteller/Modell) stossen die Prüf-Automatik an
   var fr=document.querySelector('#smlTable .sml-fixrow');
-  if(fr)fr.addEventListener('input',_smlSyncVorgaben);
-  if(fr)fr.addEventListener('change',_smlSyncVorgaben);
+  if(fr)fr.addEventListener('input',function(e){
+    var t=e.target;
+    if(t&&t.id&&/^sml_fix_(service|elec|leiter)$/.test(t.id)){t.removeAttribute('data-smlauto');t.setAttribute('data-smluser','1');}
+    _smlSyncVorgaben();
+  });
+  if(fr)fr.addEventListener('change',function(e){
+    var t=e.target;
+    if(t&&t.id&&/^sml_fix_(cat|name|brand|model)$/.test(t.id))_smlAutoPruefungen(null);
+    _smlSyncVorgaben();
+  });
   // Spalten-Menü: Toggle anwenden + merken; Klick daneben schliesst
   var menu=document.getElementById('smlColMenu');
   if(menu)menu.addEventListener('change',function(e){
@@ -2002,9 +2058,12 @@ window._wzSmlColsReset=function(){
   _smlApplyColVis();_smlSyncVorgaben();
 };
 function _smlApplyColVis(){
+  // Reines style.display — NIE Rebuild: getippte Werte überleben das
+  // Umschalten, und versteckte Inputs halten ihre (Auto-)Werte weiter.
   var vis=_smlVisibleCols();
   document.querySelectorAll('#smlTable [data-smlcol]').forEach(function(el){
-    el.style.display=(vis.indexOf(el.getAttribute('data-smlcol'))>=0)?'':'none';
+    var id=el.getAttribute('data-smlcol');
+    el.style.display=(vis.indexOf(id)>=0||_smlForceVis[id])?'':'none';
   });
 }
 window._wzSmlAddRows=function(n){
@@ -2024,6 +2083,89 @@ window._wzSmlDelRow=function(btn){
   var tr=btn.closest('tr');if(tr)tr.remove();
   _smlSyncVorgaben();
 };
+// 📌-Vorgabe-Zeile mit denselben Vorschlägen wie die Einzelerfassung
+// (Feedback 28.08.2026): Name-Pick füllt die Kategorie-Vorgabe nach
+// (häufigste Kategorie der Treffer) und stösst die Prüf-Automatik an.
+function _smlWireFix(){
+  _wzInitAC('sml_fix_name',_wzNameSuggestions,function(item){
+    try{
+      var sel=document.getElementById('sml_fix_cat');
+      if(sel&&!sel.value&&item&&item.value){
+        var nm=item.value.toLowerCase();
+        var match=_wzGetKatalogEntries().filter(function(e){return (e.name||'').toLowerCase()===nm&&e.cat;});
+        var cat=_wzMostFrequent(match,function(e){return e.cat;});
+        if(cat&&sel.querySelector('option[value="'+cat+'"]'))sel.value=cat;
+      }
+    }catch(e){}
+    _smlAutoPruefungen(null);
+    _smlSyncVorgaben();
+  });
+  _wzInitAC('sml_fix_brand',function(q){return _wzBrandSuggestions(q,_smlFixVal('name'));},null);
+  _wzInitAC('sml_fix_model',function(q){return _wzModelSuggestions(q,_smlFixVal('name'),_smlFixVal('brand'));},null);
+  _wzInitAC('sml_fix_supplier',_wzSupplierSuggestions,null);
+  _wzInitAC('sml_fix_notes',_wzStandortSuggestions,null);
+}
+// Prüf-Intervalle automatisch vorschlagen — DERSELBE Mechanismus wie die
+// Einzelerfassung (Feedback 28.08.2026): frühere Einträge gleichen Namens
+// (Hersteller/Modell verfeinern nur, wenn ausgefüllt — ein Name-Pick ist
+// bereits eine bewusste Katalog-Wahl) UND kabelgebundene Kategorien
+// (maschine-kabel/ladegeraet → Elektro NIV, Muster onCatChange).
+// tr = Zeile ODER null = 📌-Vorgabe-Zeile. Marker:
+//   data-smlauto='1'  = automatisch gesetzt (folgt Trigger-Änderungen,
+//                       wird zurückgenommen, wenn der Auslöser wegfällt)
+//   data-smluser='1'  = bewusste Eingabe — wird NIE überschrieben
+//                       (auch bewusstes Leeren und getippte 0 = keine Prüfung)
+function _smlAutoPruefungen(tr){
+  function gv(col){
+    if(!tr) return _smlFixVal(col);
+    var el=tr.querySelector('[data-smlrowcol="'+col+'"]');
+    var v=el?(el.value||'').trim():'';
+    return v||_smlFixVal(col);
+  }
+  function tf(col){
+    if(!tr) return document.getElementById('sml_fix_'+col);
+    return tr.querySelector('[data-smlrowcol="'+col+'"]');
+  }
+  var opt=_wzGetOptFelder();
+  var name=(gv('name')||'').trim().toLowerCase();
+  var cat=gv('cat');
+  var brand=(gv('brand')||'').trim().toLowerCase();
+  var model=(gv('model')||'').trim().toLowerCase();
+  var matching=[];
+  if(name){
+    matching=tools.filter(function(t){
+      if(_wzIsKoffer(t))return false;
+      if((t.name||'').trim().toLowerCase()!==name)return false;
+      if(brand&&(t.brand||'').trim().toLowerCase()!==brand)return false;
+      if(model&&(t.model||'').trim().toLowerCase()!==model)return false;
+      return true;
+    });
+  }
+  var changedVis=false;
+  [
+    {col:'service',flag:'hasService',intKey:'serviceInterval',on:opt.service!==false},
+    {col:'elec',flag:'hasElec',intKey:'elecInterval',on:opt.elektro!==false},
+    {col:'leiter',flag:'hasLeiter',intKey:'leiterInterval',on:opt.leiter!==false&&cat==='leiter'}
+  ].forEach(function(c){
+    if(!c.on)return;
+    var el=tf(c.col);if(!el)return;
+    if(el.getAttribute('data-smluser')==='1')return;              // bewusste Eingabe — nie überschreiben
+    if(el.value&&el.getAttribute('data-smlauto')!=='1')return;    // fremder Wert — stehen lassen
+    var iv='';
+    var withCheck=matching.filter(function(t){return !!t[c.flag];});
+    if(withCheck.length)iv=_wzMostFrequent(withCheck,function(t){return t[c.intKey]?String(t[c.intKey]):'';})||'12';
+    // Kategorie gewinnt bei Elektro (kabelgebunden), wenn der Bestand nichts hergibt
+    if(!iv&&c.col==='elec'&&['maschine-kabel','ladegeraet'].indexOf(cat)>=0)iv='12';
+    if(iv){
+      if(el.value!==iv)el.value=iv;
+      el.setAttribute('data-smlauto','1');
+      if(_smlVisibleCols().indexOf(c.col)<0&&!_smlForceVis[c.col]){_smlForceVis[c.col]=true;changedVis=true;}
+    }else if(el.getAttribute('data-smlauto')==='1'){
+      el.value='';el.removeAttribute('data-smlauto');   // Auslöser weggefallen → Auto-Wert zurücknehmen
+    }
+  });
+  if(changedVis)_smlApplyColVis();
+}
 function _smlWireRow(tr,ri){
   // Geteilte Vorschlags-Quellen (wie Einzelformular + native Sheets);
   // Hersteller/Modell kreuzfiltern über den EFFEKTIVEN Namen (Zeile→Vorgabe)
@@ -2038,6 +2180,7 @@ function _smlWireRow(tr,ri){
         if(cat&&sel.querySelector('option[value="'+cat+'"]'))sel.value=cat;
       }
     }catch(e){}
+    _smlAutoPruefungen(tr);
     _smlSyncVorgaben();
   });
   _wzInitAC('sml_r'+ri+'_brand',function(q){return _wzBrandSuggestions(q,v('sml_r'+ri+'_name')||_smlFixVal('name'));},null);
@@ -2048,6 +2191,9 @@ function _smlWireRow(tr,ri){
     var t=e.target;
     // Eigene Datum-Eingabe löst die gespiegelte Vorgabe (Vorrang der Zeile)
     if(t.type==='date')t.removeAttribute('data-fromfix');
+    // Tippen in einem Prüf-Intervall = bewusste Eingabe (auch 0 oder Leeren)
+    // — die Automatik fasst das Feld danach NIE mehr an
+    if(t.getAttribute&&['service','elec','leiter'].indexOf(t.getAttribute('data-smlrowcol'))>=0){t.removeAttribute('data-smlauto');t.setAttribute('data-smluser','1');}
     // Spreadsheet-Gefühl: Tippen in der Bezeichnung der LETZTEN Zeile
     // hängt automatisch eine neue Zeile an (kein Rebuild — Fokus bleibt)
     if(t.getAttribute&&t.getAttribute('data-smlrowcol')==='name'&&t.value.trim()&&!tr.nextElementSibling)_wzSmlAddRows(1);
@@ -2056,6 +2202,8 @@ function _smlWireRow(tr,ri){
   tr.addEventListener('change',function(e){
     var t=e.target;
     if(t.type==='date'){t.removeAttribute('data-fromfix');_smlSyncVorgaben();}
+    var col=t.getAttribute&&t.getAttribute('data-smlrowcol');
+    if(col==='cat'||col==='name'||col==='brand'||col==='model'){_smlAutoPruefungen(tr);_smlSyncVorgaben();}
   });
   // Verlässt der Nutzer ein Datumsfeld, das leer geblieben ist, greift die
   // 📌-Vorgabe wieder (die Spiegelung wurde beim ersten Tastendruck gelöst).
@@ -2102,8 +2250,10 @@ function _smlRowData(tr){
 }
 function _smlRows(){return Array.prototype.slice.call(document.querySelectorAll('#smlTbody tr.sml-row'));}
 function _smlRowCounts(d){
-  var own=SML_COLS.some(function(c){return d[c.id];});
-  return own||!!_smlFixVal('name');
+  // NUR Zeilen mit eigener Eingabe zählen (Feedback 28.08.2026) — leere
+  // Zeilen werden nie erfasst; für eine Serie über die 📌-Vorgabe genügt
+  // EIN eigener Wert pro Zeile (z.B. die Serien-Nr.).
+  return SML_COLS.some(function(c){return d[c.id];});
 }
 function _smlZuwLabel(zv){
   if(!zv)return '';
@@ -2169,8 +2319,16 @@ function _smlSyncVorgaben(){
     info.style.display=hidden.length?'':'none';
     info.textContent=hidden.length?('📌 Ausgeblendete Vorgaben wirken weiter — '+hidden.join(' · ')):'';
   }
+  // Auto-Prüfungen ausweisen — ein automatisch gesetzter Wert darf nie
+  // unkommentiert wirken (No-silent-Regel)
+  var autoInfo=document.getElementById('smlAutoInfo');
+  if(autoInfo){
+    var hatAuto=!!document.querySelector('#smlTable [data-smlauto="1"]');
+    autoInfo.style.display=hatAuto?'':'none';
+    autoInfo.textContent=hatAuto?'⚡ Prüf-Intervalle automatisch vorgeschlagen (aus früheren Einträgen bzw. Kategorie) — anpassen oder 0 setzen = keine Prüfung.':'';
+  }
   var cEl=document.getElementById('smlCount');
-  if(cEl)cEl.textContent=count?(count+' von '+rows.length+' Zeile'+(rows.length!==1?'n':'')+' wird'+(count!==1?'en':'')+' erfasst'):'Zeilen ausfüllen — oder eine Bezeichnung als 📌-Vorgabe setzen';
+  if(cEl)cEl.textContent=count?(count+' von '+rows.length+' Zeile'+(rows.length!==1?'n':'')+(count!==1?' werden':' wird')+' erfasst'):'Zeilen ausfüllen — leere Zeilen werden nicht erfasst';
   var btn=document.getElementById('smlSaveBtn');
   if(btn){
     btn.textContent='✓ '+(count?count+' ':'')+'Werkzeug'+(count!==1?'e':'')+' erfassen';
@@ -2186,7 +2344,7 @@ window._wzSammelSave=function(){
   rows.forEach(function(tr,idx){
     tr.classList.remove('sml-err');
     var d=_smlRowData(tr);
-    if(!_smlRowCounts(d))return;   // leere Zeile ohne Namens-Vorgabe → überspringen
+    if(!_smlRowCounts(d))return;   // Zeile ohne eigene Eingabe → wird nicht erfasst (Feedback 28.08.2026)
     // Vorgabe gilt 1:1 für jede Zeile ohne eigenen Wert (auch die Kennung)
     var eff={};
     SML_COLS.forEach(function(c){ eff[c.id]=d[c.id]||(c.nofix?'':_smlFixVal(c.id)); });
@@ -2202,7 +2360,7 @@ window._wzSammelSave=function(){
     return;
   }
   if(!items.length){
-    GemaDialog.alert({title:'Nichts zu erfassen',message:'Mindestens eine Zeile ausfüllen — oder eine Bezeichnung als 📌-Vorgabe setzen.'});
+    GemaDialog.alert({title:'Nichts zu erfassen',message:'Mindestens eine Zeile ausfüllen — leere Zeilen werden nicht erfasst; die 📌-Vorgaben ergänzen nur Zeilen mit eigener Eingabe.'});
     return;
   }
   // IDs: Zeile 1 bekommt den höchsten Timestamp → die Liste (neueste
@@ -2215,6 +2373,10 @@ window._wzSammelSave=function(){
   items.forEach(function(eff,i){
     var srvIv=parseInt(eff.service,10)||0;
     var elecIv=parseInt(eff.elec,10)||0;
+    // Leiterprüfung zählt nur bei Kategorie Leiter/Gerüst (wie das
+    // Einzelformular — dort ist die Sektion sonst gar nicht sichtbar)
+    var leiterIv=parseInt(eff.leiter,10)||0;
+    var leiterOn=leiterIv>0&&eff.cat==='leiter';
     var zuwObj=null;
     if(eff.zuw&&eff.zuw.indexOf('u:')===0){
       var uid=eff.zuw.slice(2),p=null;
@@ -2245,7 +2407,7 @@ window._wzSammelSave=function(){
       // Grenzwert-Angaben der Elektropruefung: in der Sammelerfassung
       // bewusst leer — sie stehen auf dem Typenschild des EINZELNEN Geraets.
       schutzklasse:'',leitungLaengeM:null,heizleistungKw:null,
-      hasLeiter:false,leiterInterval:12,lastLeiter:null,leiterHistory:[],
+      hasLeiter:leiterOn,leiterInterval:leiterOn?leiterIv:12,lastLeiter:null,leiterHistory:[],
       kaufbeleg:null,
       zugewiesenAn:zuwObj,
       berichte:[],pruefAnfrage:null,ersatzAnfragen:[],ausgeliehenAn:null,
@@ -3353,6 +3515,40 @@ function getFiltered(){
     if(currentFilter==='ok')return wd===null||wd>30;
     return true;
   });
+  // «Suche & Koffer» (Feedback 28.08.2026, Org-Einstellung kofferSucheVoll):
+  // trifft eine Eingrenzung den Koffer ODER ein Teil darin, kommt der GANZE
+  // Koffer samt Inhalt in die Liste zurueck — sonst steht der Treffer ohne
+  // seinen Zusammenhang da («N von M Teilen»). Gilt bewusst NUR fuer die
+  // Kriterien-Filter (Suchtext, Kategorie-Chip, erweiterter Filter); die
+  // Status-Ampel (ueberfaellig/bald/ok) bleibt eine ehrliche Statussicht und
+  // wird nie mit Nicht-Treffern aufgefuellt. Ergaenzt wird ausschliesslich
+  // aus _wzViewBase() (Rechte-Grenze — Monteur/Partner sehen nie fremde
+  // Teile) und mit derselben Lebenszyklus-Regel wie oben.
+  try{
+    var kofErg = !!q || currentCat!=='all' || !!Object.keys(_wzAdvFilter||{}).length;
+    if(kofErg && currentFilter==='all' && _wzKofSucheVoll()){
+      var lcOk=function(t){
+        var lc=t.lifecycleStatus||'aktiv';
+        if(currentLifecycle==='archive') return lc==='ausgemustert'||lc==='verkauft';
+        if(currentLifecycle!=='all') return !(lc==='ausgemustert'||lc==='verkauft');
+        return true;
+      };
+      var kofIdx=_wzKofIndex(tools), kofIds={};
+      res.forEach(function(t){
+        if(_wzIsKoffer(t)){ kofIds[t.id]=1; return; }
+        var k=kofIdx[t.id];
+        if(k&&lcOk(k)) kofIds[k.id]=1;
+      });
+      if(Object.keys(kofIds).length){
+        var have={}; res.forEach(function(t){ have[t.id]=1; });
+        _wzViewBase().forEach(function(t){
+          if(have[t.id]||!lcOk(t))return;
+          var k=kofIdx[t.id];
+          if(kofIds[t.id]||(k&&kofIds[k.id])){ res.push(t); have[t.id]=1; }
+        });
+      }
+    }
+  }catch(e){}
   return _wzSortList(res);
 }
 
@@ -3463,6 +3659,7 @@ function renderList(){
   const grid=document.getElementById('cardGrid');
   const tbody=document.getElementById('toolTbody');
   const lhost=document.getElementById('wzList');
+  const phost=document.getElementById('wzPersonen');
   // Stale-while-revalidate: solange die Cloud noch laedt UND lokal noch nichts
   // da ist, eine Ladeanzeige statt des "keine Geraete"-Zustands zeigen — sonst
   // wirkt es faelschlich wie ein leerer Bestand.
@@ -3487,6 +3684,19 @@ function renderList(){
     var nf=Object.keys(_wzAdvFilter||{}).length;
     if(lf)lf.classList.toggle('on',nf>0);
     if(lfc){lfc.textContent=nf;lfc.style.display=nf?'inline-block':'none';}
+  } else if(currentView==='person'){
+    var pleer=_wzIsPartnerView()
+      ? '<div class="empty-state"><div class="ei">📋</div><h3>Keine Prüfaufträge</h3><p>'+_wzPartnerEmptyText(true)+'</p></div>'
+      : _wzIsMonteurView()
+      ? '<div class="empty-state"><div class="ei">🔒</div><h3>Keine Werkzeuge zugewiesen</h3><p>'+_wzMonteurEmptyText(true)+'</p></div>'
+      : '<div class="empty-state"><div class="ei">👤</div><h3>Keine Geräte gefunden</h3><p>Passen Sie Suche oder Filter an.</p></div>';
+    if(phost)phost.innerHTML = showLoading ? _wzSkListe(7) : (f.length?_wzPersonenHtml(f):pleer);
+    var pct=document.getElementById('wzPersCount');
+    if(pct)pct.textContent=showLoading?'':(f.length+' Gerät'+(f.length!==1?'e':''));
+    var pf=document.getElementById('wzPersFilter'), pfc=document.getElementById('wzPersFilterCt');
+    var npf=Object.keys(_wzAdvFilter||{}).length;
+    if(pf)pf.classList.toggle('on',npf>0);
+    if(pfc){pfc.textContent=npf;pfc.style.display=npf?'inline-block':'none';}
   } else {
     var emptyRow=_wzIsPartnerView()
       ? `<tr><td colspan="8" style="padding:44px 24px;text-align:center;color:var(--mut)">📋 ${_wzPartnerEmptyText(false)}</td></tr>`
@@ -3500,7 +3710,7 @@ function renderList(){
   // Platzhalter der letzten Ladung, und ein Container, der irgendwann ohne
   // renderList() sichtbar wird, zeigte dauerhaft «wird geladen».
   if(!showLoading){
-    [grid,lhost,tbody].forEach(function(c){
+    [grid,lhost,tbody,phost].forEach(function(c){
       if(c&&c.querySelector&&c.querySelector('.gema-sk'))c.innerHTML='';
     });
   }
@@ -3560,6 +3770,68 @@ function _wzTabelleHtml(f){
     var out=renderRow(g.tool,false,g);
     if(g.offen) out += g.items.map(function(t){return renderRow(t,true);}).join('');
     return out;
+  }).join('');
+}
+// ── PERSONENANSICHT (Feedback 28.08.2026) ──
+// Gruppiert die GEFILTERTE Liste nach der Person, die das Geraet faktisch hat
+// (_wzHalter — Ausleihe schlaegt Zuweisung, Koffer-Teile erben ueber ihren
+// Koffer, genau eine Ebene), danach Platz-Zuweisungen, zuletzt «Ohne
+// Zuteilung». Der Abschnitts-Kopf zaehlt Werkzeuge und Koffer getrennt; die
+// Abschnitte starten ZUGEKLAPPT — der Fold-Zustand ist reine Sitzungs-UI
+// (_wzPersonOpen, nie persistiert, Schluessel = stabiler Abschnitts-Key).
+// Aufgeklappt rendern die kompakten Listen-Zeilen samt Koffer-Buendelung
+// (_wzGruppen auf der Teil-Liste). Der Toggle laeuft ueber den INDEX in
+// _wzPersKeys — Platz-Namen sind Freitext und gehoeren nie in ein
+// onclick-Attribut interpoliert.
+var _wzPersonOpen={}, _wzPersKeys=[];
+window._wzPersonToggle=function(i){
+  var key=_wzPersKeys[i]; if(key==null)return;
+  _wzPersonOpen[key]=!_wzPersonOpen[key];
+  renderList();
+};
+function _wzPersonenHtml(f){
+  var secs={}, order=[];
+  function sec(key,titel,ic,art){
+    if(!secs[key]){ secs[key]={key:key,titel:titel,ic:ic,art:art,items:[]}; order.push(secs[key]); }
+    return secs[key];
+  }
+  f.forEach(function(t){
+    var h=null; try{ h=_wzHalter(t); }catch(e){}
+    if(h&&h.userId){ sec('u:'+h.userId, h.name||'Unbekannte Person','👤','person').items.push(t); return; }
+    var za=t.zugewiesenAn;
+    if(za&&za.typ==='platz'){
+      var pl=String(za.platz||za.name||'Platz');
+      sec('p:'+pl.toLowerCase(), pl,'📍','platz').items.push(t); return;
+    }
+    sec('x:frei','Ohne Zuteilung','📦','frei').items.push(t);
+  });
+  var rang={person:0,platz:1,frei:2};
+  order.sort(function(a,b){
+    var d=(rang[a.art]||0)-(rang[b.art]||0);
+    return d||_wzNatCmp(a.titel,b.titel);
+  });
+  _wzPersKeys=order.map(function(s){return s.key;});
+  return order.map(function(s,i){
+    var nKof=0,nWz=0;
+    s.items.forEach(function(t){ if(_wzIsKoffer(t))nKof++; else nWz++; });
+    var teile=[];
+    if(nWz)teile.push(nWz+' Werkzeug'+(nWz!==1?'e':''));
+    if(nKof)teile.push(nKof+' Koffer');
+    var open=!!_wzPersonOpen[s.key];
+    return '<div class="wz-pers '+s.art+'">'
+      + '<button type="button" class="wz-pers-hd" onclick="_wzPersonToggle('+i+')" title="'+(open?'Zuklappen':'Aufklappen')+'">'
+        + '<span class="wz-pers-cx">'+(open?'▾':'▸')+'</span>'
+        + '<span class="wz-pers-ic">'+s.ic+'</span>'
+        + '<span class="wz-pers-nm">'+esc(s.titel)+'</span>'
+        + '<span class="wz-pers-ct">'+(teile.join(' · ')||'—')+'</span>'
+      + '</button>'
+      + (open?'<div class="wz-list wz-pers-bd">'+_wzGruppen(s.items).map(function(g){
+          if(g.typ!=='koffer') return renderListeRow(g.tool);
+          var out=renderListeRow(g.tool,false,g);
+          if(g.offen) out+=g.items.map(function(t){return renderListeRow(t,true);}).join('');
+          return out;
+        }).join('')+'</div>':'')
+      + '</div>';
   }).join('');
 }
 function renderCard(t,grp){
@@ -3763,6 +4035,11 @@ function _wzKofFoldSave(){ try{ localStorage.setItem(_WZ_KOF_FOLD_LS,JSON.string
 // also die Buendelung, ohne etwas tun zu muessen.
 function _wzKofBuendeln(){ try{ return _wzGetOrgSettings().kofferBuendeln!==false; }catch(e){ return true; } }
 function _wzKofStdOffen(){ try{ return _wzGetOrgSettings().kofferOffen!==false; }catch(e){ return true; } }
+// Suche & Koffer (Feedback 28.08.2026): Standard AUS = heutiges Verhalten
+// (nur echte Treffer erscheinen). AN = trifft die Suche den Koffer ODER ein
+// Teil darin, wird der GANZE Koffer samt Inhalt gezeigt — man sieht, in
+// welchem Set der Treffer steckt.
+function _wzKofSucheVoll(){ try{ return _wzGetOrgSettings().kofferSucheVoll===true; }catch(e){ return false; } }
 // Kein Eintrag = Org-Standard (Fold-Kanon aller GEMA-Module).
 function _wzKofOffen(id){ var v=_wzKofFold[id]; return (v===true||v===false)?v:_wzKofStdOffen(); }
 window._wzKofToggle=function(id,ev){
@@ -3908,6 +4185,12 @@ function renderListeRow(t,sub,grp){
   var click=_wzBulkMode
     ? 'onclick="_wzBulkToggle(\''+t.id+'\',event)"'
     : 'onclick="_wzCardClick(event,\''+t.id+'\')"';
+  // 📡 NFC-Direktschreiben (Feedback 28.08.2026): rendert nur, wo Web-NFC
+  // existiert (Android Chrome — «nur auf Android»), nur mit Bearbeitungsrecht
+  // und nie im Bulk-Modus (dort waehlt der Zeilen-Tap aus).
+  var nfc=(!_wzBulkMode&&('NDEFReader' in window)&&_wzCanEditTool(t))
+    ? '<button type="button" class="wz-lnfc" title="NFC-Tag direkt beschreiben" onclick="_wzListNfc(\''+t.id+'\',event)">📡</button>'
+    : '';
   return '<div class="wz-lrow'+sel+dim+subCls+'" data-bulk-id="'+t.id+'" '+click+'>'
     +lead
     +'<div class="wz-lmain">'
@@ -3916,7 +4199,7 @@ function renderListeRow(t,sub,grp){
     +'<div class="wz-l2">'+meta+'</div>'
     +'<div class="wz-l3">'+chips.join('')+'</div>'
     +'</div>'
-    +(_wzBulkMode?'':'<span class="wz-lgo">›</span>')
+    +(_wzBulkMode?'':nfc+'<span class="wz-lgo">›</span>')
     +'</div>';
 }
 
@@ -3982,14 +4265,16 @@ function setFilter(f){
 }
 var _WZ_VIEW_LS='gema_wz_view_v1';
 function setView(v,merken){
-  currentView=(v==='table'||v==='list')?v:'cards';
+  currentView=(v==='table'||v==='list'||v==='person')?v:'cards';
   v=currentView;
   document.getElementById('cardGrid').style.display=v==='cards'?'':'none';
   var lw=document.getElementById('listWrap'); if(lw)lw.style.display=v==='list'?'':'none';
   document.getElementById('tableWrap').style.display=v==='table'?'':'none';
+  var pw=document.getElementById('personWrap'); if(pw)pw.style.display=v==='person'?'':'none';
   document.getElementById('vt_cards').classList.toggle('active',v==='cards');
   var vl=document.getElementById('vt_list'); if(vl)vl.classList.toggle('active',v==='list');
   document.getElementById('vt_table').classList.toggle('active',v==='table');
+  var vp=document.getElementById('vt_person'); if(vp)vp.classList.toggle('active',v==='person');
   if(merken!==false){try{localStorage.setItem(_WZ_VIEW_LS,v);}catch(e){}}
   renderList();
 }
@@ -3999,7 +4284,7 @@ function setView(v,merken){
 function _wzRestoreView(){
   var v='';
   try{v=localStorage.getItem(_WZ_VIEW_LS)||'';}catch(e){}
-  if(v!=='cards'&&v!=='table'&&v!=='list'){
+  if(v!=='cards'&&v!=='table'&&v!=='list'&&v!=='person'){
     var phone=!!(window.matchMedia&&matchMedia('(max-width:640px)').matches);
     v=phone?'list':'cards';
   }
@@ -5086,10 +5371,11 @@ window._wzSaveKofferForm=function(kofferId){
   var kennung=(document.getElementById('kofKennung').value||'').trim();
   var notes=(document.getElementById('kofNotes').value||'').trim();
   var u=_wzGetUser()||{};
-  var k,isNew=false;
+  var k,isNew=false,kennungAlt='';
   if(kofferId){
     k=tools.find(function(x){return x.id===kofferId;});
     if(!k)return;
+    kennungAlt=(k.internKennung||'').trim();   // VOR dem Überschreiben merken (Kennung-Übertragung)
     k.name=name;k.internKennung=kennung;k.notes=notes;
   }else{
     isNew=true;
@@ -5102,10 +5388,182 @@ window._wzSaveKofferForm=function(kofferId){
   save();renderList();
   _wzActLog(isNew?'erfasst':'geaendert',isNew?'Koffer erstellt':'Koffer geändert',k);
   _wzCloseModal();
-  if(isNew)openKofferInhalt(k.id);
-  // Nur nach einer echten Zuteilungs-Änderung fragen, ob der Inhalt mitgeht
-  // (ein neuer Koffer ist noch leer → dort öffnet der Inhalt-Editor).
-  else if(zuwGeaendert)_wzKofferZuwFrage(k.id);
+  if(isNew){openKofferInhalt(k.id);return;}   // neuer Koffer ist leer → direkt befüllen
+  // Dialog-REIHENFOLGE (KRITISCH): erst die Kennung-Übertragung (GemaDialog,
+  // z-index 12800), DANN die Inhalt-Frage (_wzShowModal, 10500) — gleichzeitig
+  // läge der GemaDialog ÜBER dem Zuweisungs-Modal und dessen Checkliste wäre
+  // nicht bedienbar. done() der Kennung-Frage kettet deshalb weiter.
+  var weiter=function(){ if(zuwGeaendert)_wzKofferZuwFrage(k.id); };
+  // Geänderte Kennung auf den Inhalt übertragen? (Feedback 28.08.2026) —
+  // nur bei NEU gesetzter/geänderter, nicht-leerer Kennung und vorhandenem
+  // Inhalt; ein geleertes Feld überträgt bewusst nichts (Löschung wäre eine
+  // destruktive Sammel-Aktion, die niemand «nebenbei» auslösen soll).
+  if(kennung&&kennung!==kennungAlt&&_wzKofferItems(k).length)_wzKofferKennungFrage(k.id,weiter);
+  else weiter();
+};
+
+// ── Kennung-Übertragung auf den Kofferinhalt (Feedback 28.08.2026) ──
+// «Wenn man bei einem Koffer die interne Kennung ändert, soll dies möglich
+// sein, auch für alle Artikel zu übertragen, die im Koffer drin sind.»
+// Serien-Regel wie Sammelerfassung/Sammel-Bearbeitung (22.08.2026): DIESELBE
+// Kennung 1:1 auf alle Teile — kein Hochzählen. done() läuft in JEDEM Fall
+// (auch bei Abbrechen/nichts zu tun), damit die nachgelagerte Inhalt-Frage
+// der Zuweisung nie verschluckt wird.
+function _wzKofferKennungFrage(kofferId,done){
+  done=done||function(){};
+  var k=tools.find(function(x){return x.id===kofferId;});
+  if(!k||!_wzIsKoffer(k)||!_wzCanEditTool(k)){done();return;}
+  var kennung=(k.internKennung||'').trim();
+  if(!kennung){done();return;}
+  var ohne=[],anders=[],gleich=0,gesperrt=[];
+  _wzKofferItems(k).forEach(function(t){
+    var kn=(t.internKennung||'').trim();
+    if(kn===kennung){gleich++;return;}                       // trägt sie schon
+    if(!_wzCanEditTool(t)){gesperrt.push({t:t,grund:'gehört einer anderen Firma'});return;}
+    if(_wzIsPendingEinbuchung(t)){gesperrt.push({t:t,grund:'Einbuchung noch nicht akzeptiert'});return;}
+    (kn?anders:ohne).push(t);
+  });
+  if(!ohne.length&&!anders.length){
+    // Nichts zu übertragen → KEIN Dialog; gesperrte Teile trotzdem benennen
+    if(gesperrt.length)showToast('🏷 '+gesperrt.length+' Teil'+(gesperrt.length!==1?'e':'')+' im Koffer konnte'+(gesperrt.length!==1?'n':'')+' die Kennung nicht übernehmen ('+gesperrt[0].grund+')');
+    done();return;
+  }
+  var teile=[];
+  if(ohne.length)teile.push(ohne.length+' Teil'+(ohne.length!==1?'e':'')+' ohne Kennung übernimmt'+(ohne.length!==1?' sie':' sie'));
+  // Bestehende ANDERE Kennungen werden ERSETZT — der Dialog sagt das mit
+  // Namen und altem Wert, nie stillschweigend (No-silent-Regel)
+  if(anders.length)teile.push('<strong>'+anders.length+' Teil'+(anders.length!==1?'e':'')+' mit ANDERER Kennung wird ersetzt:</strong><br>'+anders.map(function(t){return esc(t.name)+' (bisher 🏷 '+esc((t.internKennung||'').trim())+')';}).join('<br>'));
+  if(gleich)teile.push(gleich+' Teil'+(gleich!==1?'e trägt':' trägt')+' die Kennung bereits');
+  if(gesperrt.length)teile.push('<span style="color:#92400e">'+gesperrt.length+' Teil'+(gesperrt.length!==1?'e bleibt':' bleibt')+' aussen vor: '+gesperrt.map(function(g){return esc(g.t.name)+' — '+esc(g.grund);}).join(' · ')+'</span>');
+  GemaDialog.confirm({
+    title:'Kennung auf den Inhalt übertragen?',
+    html:true,   // Inhalte oben selbst escaped
+    message:'Die interne Kennung <strong>«'+esc(kennung)+'»</strong> des Koffers <strong>'+esc(k.name)+'</strong> auch auf die Werkzeuge darin übernehmen?<br><br>'+teile.join('<br>'),
+    confirmLabel:'🏷 Übertragen'
+  }).then(function(ok){
+    if(ok){
+      var n=0;
+      _wzKofferItems(k).forEach(function(t){
+        var kn=(t.internKennung||'').trim();
+        if(kn===kennung)return;
+        // Guards erneut prüfen (Defense in Depth gegen direkte Aufrufe)
+        if(!_wzCanEditTool(t)||_wzIsPendingEinbuchung(t))return;
+        t.internKennung=kennung;                     // 1:1 — Serien-Regel 22.08.2026
+        _wzActLog('geaendert','Interne Kennung «'+kennung+'» vom Koffer «'+k.name+'» übernommen',t);
+        n++;
+      });
+      if(n){save();renderList();showToast('🏷 Kennung auf '+n+' Teil'+(n!==1?'e':'')+' übertragen');}
+    }
+    done();
+  });
+}
+window._wzKofferKennungFrage=_wzKofferKennungFrage;
+
+// ── Koffer kopieren (Feedback 28.08.2026) ──
+// «Diesen Koffer kopieren und dann nur noch Serien-Nummer ändern und zum
+// Beispiel Datum, weil man es gekauft hat.» Kopiert werden Bezeichnungen,
+// Marke/Modell, interne Kennungen (Serien-Regel: 1:1) und die PRÜF-
+// EINSTELLUNGEN (Intervalle + Typenschild-Angaben) — NICHT kopiert:
+// Serien-Nr. (pro Teil im Dialog neu erfassbar), Kaufdatum (EIN Feld für
+// alle), Prüf-Historie (last* = null → die Erstprüfung rechnet ab dem neuen
+// Kaufdatum), Ausleihe/Zuweisung, Berichte, Kaufbeleg, Einbuchung, Anfragen
+// (Muster openDuplicate in if_trocknung: «Serien-Nr. … bleiben bewusst leer»).
+window._wzKofferKopieren=function(kofferId){
+  if(!_wzCanEdit())return;
+  var k=tools.find(function(x){return x.id===kofferId;});
+  if(!k||!_wzIsKoffer(k))return;
+  var items=_wzKofferItems(k);
+  var rows=items.map(function(t,i){
+    var cat=CATS[t.cat]||CATS.sonstige;
+    var meta=[[t.brand,t.model].filter(Boolean).join(' '),(t.internKennung?'🏷 '+t.internKennung:'')].filter(Boolean).map(esc).join(' · ');
+    return '<div style="display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid #e5e7eb;border-radius:9px;background:#fff">'
+      +'<span style="font-size:15px;flex-shrink:0">'+cat.icon+'</span>'
+      +'<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(t.name)+'</div>'
+      +'<div style="font-size:11px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(meta||'—')+'</div></div>'
+      +'<input id="kopSer_'+i+'" class="dlg-inp" style="width:160px;margin:0;flex-shrink:0" placeholder="Serien-Nr. (leer = ohne)"/>'
+      +'</div>';
+  }).join('');
+  var html='<div class="dlg-card" style="max-width:560px;max-height:88vh;overflow-y:auto">'
+    +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#854d0e">📋 Koffer kopieren</h3>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:12px;line-height:1.5">Teile, Kennungen und Prüf-Einstellungen von <strong>'+esc(k.name)+'</strong> werden übernommen. Serien-Nummern pro Teil neu erfassen; die Prüf-Historie startet leer — die Erstprüfung rechnet ab dem neuen Kaufdatum.</div>'
+    +'<label class="dlg-lbl">Bezeichnung *</label>'
+    +'<input id="kopName" class="dlg-inp" value="'+esc(k.name+' (Kopie)')+'"/>'
+    +'<label class="dlg-lbl">Interne Kennung (Koffer)</label>'
+    +'<input id="kopKennung" class="dlg-inp" placeholder="z.B. K-12 — leer lassen und später vergeben"/>'
+    +'<label class="dlg-lbl">Kaufdatum (gilt für alle Teile)</label>'
+    +'<input id="kopBought" type="date" class="dlg-inp" value="'+today()+'"/>'
+    +(items.length
+      ?('<label class="dlg-lbl">'+items.length+' Teil'+(items.length!==1?'e':'')+' — Serien-Nummern</label>'
+        +'<div style="display:flex;flex-direction:column;gap:6px">'+rows+'</div>')
+      :'<div style="font-size:12px;color:#94a3b8">Der Koffer ist leer — kopiert wird nur die Hülle.</div>')
+    +'<div class="dlg-row">'
+    +'  <button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button>'
+    +'  <button onclick="_wzKofferKopierenSave(\''+esc(k.id)+'\')" style="padding:9px 18px;border-radius:8px;border:none;background:#854d0e;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">✓ '+(items.length?'Koffer + '+items.length+' Teil'+(items.length!==1?'e':'')+' anlegen':'Koffer anlegen')+'</button>'
+    +'</div></div>';
+  _wzShowModal(html);
+};
+window._wzKofferKopierenSave=function(kofferId){
+  if(!_wzCanEdit())return;
+  var k=tools.find(function(x){return x.id===kofferId;});
+  if(!k||!_wzIsKoffer(k))return;
+  var name=(document.getElementById('kopName').value||'').trim();
+  if(!name){alert('Bitte Bezeichnung eingeben.');return;}
+  var kennung=(document.getElementById('kopKennung').value||'').trim();
+  var kauf=(document.getElementById('kopBought').value||'')||today();
+  var me=_wzGetUser()||{};
+  var items=_wzKofferItems(k);
+  // ID-Block reservieren: Koffer zuoberst (höchster Timestamp), Teile
+  // darunter — Kollisions-Guard wie die Sammelerfassung
+  var base=Date.now();
+  var frei=function(b){
+    if(tools.some(function(t){return t.id==='t_'+b;}))return false;
+    for(var j=0;j<items.length;j++){
+      var id='t_'+(b-1-j);
+      if(tools.some(function(t){return t.id===id;}))return false;
+    }
+    return true;
+  };
+  while(!frei(base))base+=items.length+2;
+  var neuIds=[];
+  items.forEach(function(t,i){
+    var serEl=document.getElementById('kopSer_'+i);
+    var teil={
+      id:'t_'+(base-1-i),
+      name:t.name,cat:t.cat,
+      orgId:me.orgId||'',
+      internKennung:t.internKennung||'',
+      brand:t.brand||'',model:t.model||'',
+      supplier:t.supplier||'',supplierId:t.supplierId||'',
+      bought:kauf,
+      warranty:addMonths(kauf,24),
+      serial:serEl?(serEl.value||'').trim():'',
+      notes:t.notes||'',
+      lifecycleStatus:'aktiv',
+      hasService:!!t.hasService,serviceInterval:t.serviceInterval||12,lastService:null,
+      hasElec:!!t.hasElec,elecInterval:t.elecInterval||12,lastElec:null,
+      elecHistory:[],
+      schutzklasse:t.schutzklasse||'',
+      leitungLaengeM:(t.leitungLaengeM!=null?t.leitungLaengeM:null),
+      heizleistungKw:(t.heizleistungKw!=null?t.heizleistungKw:null),
+      hasLeiter:!!t.hasLeiter,leiterInterval:t.leiterInterval||12,lastLeiter:null,leiterHistory:[],
+      kaufbeleg:null,
+      zugewiesenAn:null,
+      berichte:[],pruefAnfrage:null,ersatzAnfragen:[],ausgeliehenAn:null,
+      bildUrl:t.bildUrl||'',katalogProduktId:t.katalogProduktId||'',einbuchung:null
+    };
+    tools.unshift(teil);
+    neuIds.push(teil.id);
+    _wzActLog('erfasst','Koffer-Kopie: Teil erfasst (aus «'+k.name+'»)',teil);
+  });
+  var neu={id:'t_'+base,name:name,cat:'koffer',istKoffer:true,internKennung:kennung,
+    kofferInhalt:neuIds,brand:'',model:'',bought:'',warranty:'',serial:'',
+    notes:k.notes||'',
+    hasService:false,hasElec:false,hasLeiter:false,orgId:me.orgId||''};
+  tools.unshift(neu);
+  _wzActLog('erfasst','Koffer kopiert von «'+k.name+'»'+(items.length?' ('+items.length+' Teil'+(items.length!==1?'e':'')+')':''),neu);
+  save();renderList();_wzCloseModal();
+  if(typeof showToast==='function')showToast('📋 Koffer «'+name+'»'+(items.length?' mit '+items.length+' Teil'+(items.length!==1?'en':''):'')+' angelegt');
+  openViewTool(neu.id);
 };
 
 // ── Inhalt-Editor: Reihenfolge + Teile hinzufuegen/entfernen ──
@@ -5151,6 +5609,7 @@ window.openKofferInhalt=function(kofferId){
     +'<div style="display:flex;align-items:flex-start;gap:8px">'
     +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#854d0e;flex:1;min-width:0">🧰 '+esc(k.name)+'</h3>'
     +(_wzCanEdit()?'<button onclick="openKofferForm(\''+esc(k.id)+'\')" style="padding:6px 12px;border-radius:8px;border:1px solid #e5e7eb;background:#fff;color:#475569;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;flex-shrink:0" title="Bezeichnung, Kennung, Zuteilung und Notizen bearbeiten">✏️ Bearbeiten</button>':'')
+    +(_wzCanEdit()?'<button onclick="_wzKofferKopieren(\''+esc(k.id)+'\')" style="padding:6px 12px;border-radius:8px;border:1px solid #e5e7eb;background:#fff;color:#475569;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;flex-shrink:0" title="Koffer samt Teilen und Prüf-Einstellungen kopieren — Serien-Nr. und Kaufdatum neu">📋 Kopieren</button>':'')
     +'</div>'
     +'<div style="font-size:12px;color:#64748b;margin-bottom:12px">'+items.length+' Teil'+(items.length!==1?'e':'')
     +(k.zugewiesenAn?' · Zugeteilt: <strong>'+esc(k.zugewiesenAn.name||'')+'</strong>':'')
@@ -6806,6 +7265,7 @@ function _wzOpenSettings(){
   var etikName = (s.etiketteName==='immer'||s.etiketteName==='fragen')?s.etiketteName:'nie';
   var kofBuend = s.kofferBuendeln!==false;   // Standard: gebündelt
   var kofOffen  = s.kofferOffen!==false;      // Standard: aufgeklappt
+  var kofSuche  = s.kofferSucheVoll===true;   // Standard: nur echte Treffer
   var opt = _wzGetOptFelder();
   var cats = _wzGetCats();
 
@@ -6869,6 +7329,13 @@ function _wzOpenSettings(){
             + '<option value="0"'+(kofOffen?'':' selected')+'>Zugeklappt — nur Koffer und Teilezahl</option>'
           + '</select>'
           + '<div style="font-size:11.5px;color:#64748b;margin-top:6px;line-height:1.4">Nur der <strong>Startwert</strong>. Jeder Koffer lässt sich in der Liste einzeln auf- und zuklappen; diese Wahl merkt sich das Gerät und geht der Vorgabe vor.</div>'
+          + '<div style="height:1px;background:#eef2f7;margin:12px 0"></div>'
+          + '<div style="font-size:13px;font-weight:700;color:#0f172a;margin-bottom:6px">Suche &amp; Filter bei Koffern</div>'
+          + '<select id="wzs_kofferSuche" style="width:100%;padding:8px 10px;border:1.5px solid #dbe2ee;border-radius:8px;font:inherit;font-size:13px;background:#fff">'
+            + '<option value="0"'+(kofSuche?'':' selected')+'>Nur Treffer anzeigen — nicht passende Teile im Koffer ausblenden</option>'
+            + '<option value="1"'+(kofSuche?' selected':'')+'>Ganzen Koffer zeigen, wenn der Koffer oder ein Teil passt</option>'
+          + '</select>'
+          + '<div style="font-size:11.5px;color:#64748b;margin-top:6px;line-height:1.4">Wirkt auf Suchtext, Kategorie-Chips und den erweiterten Filter. Die Prüf-Ampel (überfällig / bald fällig) bleibt davon unberührt — dort erscheinen nie Geräte, die den Status nicht haben.</div>'
         + '</div>'
       + '</section>'
       // 2. Optionale Felder
@@ -6996,6 +7463,8 @@ function _wzSaveSettings(){
     if(kbSel) wz.kofferBuendeln = (kbSel.value === '1');
     var koSel = document.getElementById('wzs_kofferOffen');
     if(koSel) wz.kofferOffen = (koSel.value === '1');
+    var ksSel = document.getElementById('wzs_kofferSuche');
+    if(ksSel) wz.kofferSucheVoll = (ksSel.value === '1');
     // Optionale Felder einsammeln
     var optOut = {};
     document.querySelectorAll('.wzs_opt').forEach(function(cb){
@@ -8870,10 +9339,16 @@ function _wzNfcAbortOp(){
   _wzNfcCancelWrite();
   if(c)c();
 }
-function _wzWriteNFC(){
+function _wzWriteNFC(opts){
+  opts=opts||{};
   if(!('NDEFReader' in window)){alert('NFC wird von diesem Browser nicht unterstützt. Benötigt: Android + Chrome.');return;}
-  var st=document.getElementById('nfcStatus');
-  var btn=document.getElementById('nfcBtn');
+  // Seit Feedback 28.08.2026 parametrisierbar (Listen-Direktschreiben):
+  // url/statusId/btnId/onEnd — ohne opts verhaelt sich alles exakt wie
+  // bisher (QR-Dialog: _currentNfcUrl, #nfcStatus, #nfcBtn).
+  var url=opts.url||_currentNfcUrl;
+  var st=document.getElementById(opts.statusId||'nfcStatus');
+  var btn=document.getElementById(opts.btnId||'nfcBtn');
+  var btnLbl=(btn&&btn.textContent)||'📡 NFC';
   // Bereits ein Vorgang aktiv? → derselbe Button bricht ihn ab.
   if(_wzNfcWriteCtl){_wzNfcAbortOp();if(st)st.textContent='Abgebrochen.';return;}
   var gen=_wzScanNewSession(); // verdraengt Lese-Sessions (Koffer/Sammel)
@@ -8891,8 +9366,9 @@ function _wzWriteNFC(){
     if(_wzNfcWriteCtl===ctl)_wzNfcWriteCtl=null;
     if(autoLock&&wrote)_wzNfcWriterInst=null; // Instanz mit Sperr-Historie nie weiterverwenden
     _wzNfcWatchStop();
-    if(btn){btn.textContent='📡 NFC';btn.disabled=false;btn.style.opacity='1';}
+    if(btn){btn.textContent=btnLbl;btn.disabled=false;btn.style.opacity='1';}
     if(st&&msgHtml!==undefined)st.innerHTML=msgHtml;
+    if(opts.onEnd){try{opts.onEnd();}catch(_e){}}
   }
   function cancelFn(){endOp('Abgebrochen.');}
   _wzNfcActiveCancel=cancelFn;
@@ -8908,7 +9384,7 @@ function _wzWriteNFC(){
     if(!finished&&!busy&&st)st.textContent='📡 Kein Tag erkannt — liegt er schon am Gerät? Kurz WEGNEHMEN und erneut anhalten.';
   },window._WZ_NFC_HINT_MS||5000);
   _wzNfcWatchStart();
-  _wzNfcLog('write_start',(autoLock?'mit Auto-Sperren · ':'')+((_currentNfcUrl.split('scan=')[1])||''));
+  _wzNfcLog('write_start',(autoLock?'mit Auto-Sperren · ':'')+((url.split('scan=')[1])||''));
   if(btn){btn.textContent='✕ Abbrechen';}
   _wzNfcCooldown(st).then(function(){
     if(finished)return;
@@ -8924,13 +9400,13 @@ function _wzWriteNFC(){
             if(r.recordType==='url')existing=new TextDecoder().decode(r.data);
           });
         }catch(_e){}
-        if(existing===_currentNfcUrl&&!autoLock){
+        if(existing===url&&!autoLock){
           _wzNfcLog('write_skip','Tag traegt bereits diese URL');
           endOp('<span style="color:#16a34a;font-weight:700">✓ Tag ist bereits mit diesem Werkzeug beschrieben.</span>');
           return;
         }
         if(st)st.textContent='⏳ Tag erkannt — wird beschrieben … (Tag am Gerät LASSEN)';
-        await _wzNfcWriter().write({records:[{recordType:'url',data:_currentNfcUrl}]},ctl?{overwrite:true,signal:ctl.signal}:{overwrite:true});
+        await _wzNfcWriter().write({records:[{recordType:'url',data:url}]},ctl?{overwrite:true,signal:ctl.signal}:{overwrite:true});
         wrote=true;
         _wzNfcLog('write_ok','');
         if(autoLock){
@@ -8960,6 +9436,67 @@ function _wzWriteNFC(){
     endOp('<span style="color:#dc2626">NFC konnte nicht gestartet werden: '+esc((e&&e.message)||'Berechtigung?')+' — Chrome fragt beim ersten Mal nach der NFC-Berechtigung.</span>');
   });
 }
+// ── NFC-DIREKTSCHREIBEN AUS DER LISTE (Feedback 28.08.2026) ──
+// 📡 direkt an der Listen-Zeile: Tag beschreiben OHNE Umweg ueber den
+// QR-Dialog. Nur wo Web-NFC existiert (Android Chrome — der Knopf rendert
+// sonst gar nicht) und nur fuer Geraete, die man bearbeiten darf
+// (_wzCanEditTool — externe Partner/Nicht-Editoren fail-closed). Der Status
+// laeuft in einer fixen Pille unten (#wzNfcPill, safe-area-aware) statt im
+// Dialog; dieselbe _wzWriteNFC-Maschinerie (write-on-detect, Timeout,
+// Auto-Sperren, Abbruch) via opts. Gleiches Werkzeug nochmals tippen =
+// Abbruch (Toggle), anderes Werkzeug = alten Vorgang abloesen + neu starten.
+var _wzListNfcHideT=null, _wzListNfcToolId=null;
+function _wzListNfcPill(){
+  var p=document.getElementById('wzNfcPill');
+  if(p)return p;
+  p=document.createElement('div');
+  p.id='wzNfcPill';
+  p.style.cssText='position:fixed;left:50%;transform:translateX(-50%);bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:10800;display:none;align-items:center;gap:10px;max-width:min(480px,calc(100vw - 24px));background:#fff;border:1.5px solid #e2e8f0;border-radius:14px;box-shadow:0 10px 30px rgba(15,23,42,.18);padding:10px 12px';
+  p.innerHTML='<div style="min-width:0;flex:1">'
+    +'<div id="wzNfcPillNm" style="font-size:11.5px;font-weight:800;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>'
+    +'<div id="wzNfcPillSt" style="font-size:12.5px;font-weight:600;color:#0f172a"></div>'
+    +'</div>'
+    +'<button type="button" onclick="_wzListNfcClose()" style="flex-shrink:0;border:1.5px solid #e2e8f0;background:#f8fafc;border-radius:9px;padding:7px 10px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">✕ Abbrechen</button>';
+  document.body.appendChild(p);
+  return p;
+}
+window._wzListNfcClose=function(){
+  _wzListNfcToolId=null;
+  _wzNfcAbortOp();               // sicherer No-Op, wenn gerade nichts laeuft
+  clearTimeout(_wzListNfcHideT); // onEnd des Abbruchs plant sonst ein Auto-Hide
+  var p=document.getElementById('wzNfcPill'); if(p)p.style.display='none';
+};
+window._wzListNfc=function(id,ev){
+  if(ev){ev.stopPropagation();ev.preventDefault();}
+  if(!('NDEFReader' in window)){alert('NFC-Schreiben braucht Android + Chrome (Web NFC).');return;}
+  var t=tools.find(function(x){return x.id===id;});
+  if(!t)return;
+  if(!_wzCanEditTool(t)){alert('Keine Berechtigung, den NFC-Tag dieses Geräts zu beschreiben.');return;}
+  if(_wzNfcWriteCtl){
+    var same=(_wzListNfcToolId===id);
+    _wzNfcAbortOp();
+    if(same){window._wzListNfcClose();return;}
+  }
+  clearTimeout(_wzListNfcHideT);
+  _wzListNfcToolId=id;
+  var pill=_wzListNfcPill();
+  pill.style.display='flex';
+  var nm=document.getElementById('wzNfcPillNm');
+  if(nm)nm.textContent='📡 '+(t.internKennung?t.internKennung+' · ':'')+(t.name||'');
+  var stEl=document.getElementById('wzNfcPillSt');
+  if(stEl)stEl.textContent='NFC wird vorbereitet …';
+  _wzWriteNFC({
+    url:location.href.split('?')[0]+'?scan='+id,
+    statusId:'wzNfcPillSt',
+    onEnd:function(){
+      _wzListNfcToolId=null;
+      clearTimeout(_wzListNfcHideT);
+      _wzListNfcHideT=setTimeout(function(){
+        var p=document.getElementById('wzNfcPill'); if(p)p.style.display='none';
+      },7000);
+    }
+  });
+};
 function _wzMakeNFCReadOnly(){
   if(!('NDEFReader' in window)){alert('NFC wird von diesem Browser nicht unterstützt. Benötigt: Android + Chrome.');return;}
   if(!_wzCanEdit()){alert('Keine Berechtigung — nur Magaziner und Admins dürfen Tags sperren.');return;}
@@ -9586,6 +10123,7 @@ function openViewTool(id){
         :'<div style="font-size:11.5px;color:#a16207">Noch leer — über «Inhalt» befüllen.</div>')
       +'</div>'
       +'<button onclick="openKofferInhalt(\''+t.id+'\')" style="padding:10px 15px;border-radius:9px;border:1.5px solid #854d0e;background:#fff;color:#854d0e;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;flex-shrink:0;min-height:42px">🧰 Inhalt</button>'
+      +(_wzCanEdit()?'<button onclick="closeView();_wzKofferKopieren(\''+t.id+'\')" style="padding:10px 15px;border-radius:9px;border:1.5px solid #854d0e;background:#fff;color:#854d0e;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;flex-shrink:0;min-height:42px" title="Koffer samt Teilen und Prüf-Einstellungen kopieren — Serien-Nr. und Kaufdatum neu">📋 Kopieren</button>':'')
       +'</div>';
   }
 

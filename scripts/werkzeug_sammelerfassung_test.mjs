@@ -5,7 +5,10 @@
 //     📌-Vorgabe-Zeile (gilt für alle Zeilen ohne eigenen Wert), Spalten
 //     ein-/ausblendbar + pro Gerät gemerkt (gema_wz_sml_cols_v1, ↺ Standard),
 //     Live-Zähler am Speichern-Button, Auto-Zeile beim Tippen in der letzten
-//     Zeile, interne Kennung gilt 1:1 (Feedback 31.07.2026 — KEIN Hochzählen),
+//     Zeile, EIGEN-EINGABE-SEMANTIK (Feedback 28.08.2026: eine 📌-Vorgabe allein
+//     füllt keine Zeile — leere Zeilen werden nicht erfasst; bewusster
+//     Guard-Nachzug gegenüber dem Stand bis 27.08.2026),
+//     interne Kennung gilt 1:1 (Feedback 31.07.2026 — KEIN Hochzählen),
 //     DATUM-Vorgaben werden sichtbar in die Zeilen gespiegelt (type=date kann
 //     keinen Platzhalter zeigen; eigene Eingabe löst die Spiegelung, gespiegelte
 //     Werte zählen nicht als «ausgefüllt»), ausgeblendete Vorgaben ausgewiesen,
@@ -238,12 +241,19 @@ try {
   await page.evaluate(() => window._wzSmlColsReset());
   ok(await page.evaluate(() => document.querySelector('#smlTable thead th[data-smlcol="model"]').style.display) !== 'none', '↺ Standard-Spalten stellt «Modell» wieder her');
 
-  // Vorgabe Bezeichnung → alle 5 Zeilen zählen; Button trägt den Zähler
+  // Vorgabe Bezeichnung: Platzhalter ja — aber eine Vorgabe allein füllt KEINE Zeile.
+  // BEWUSSTER GUARD-NACHZUG (Feedback 28.08.2026 «Zeilen automatisch anpassen»):
+  // Früher zählte eine 📌-Vorgabe alle 5 Zeilen mit, und leere Zeilen wurden als
+  // Geräte erfasst. Massgebend ist seither die EIGENE Eingabe der Zeile —
+  // Code-Anker in if_werkzeug.html:
+  //   if(!_smlRowCounts(d))return;   // Zeile ohne eigene Eingabe → wird nicht erfasst
   await page.evaluate(() => {
     const f = document.getElementById('sml_fix_name');
     f.value = 'Bohrhammer TE 30'; f.dispatchEvent(new Event('input', { bubbles: true }));
   });
-  ok(await page.evaluate(() => document.getElementById('smlSaveBtn').textContent.trim()) === '✓ 5 Werkzeuge erfassen', 'Vorgabe-Bezeichnung → Button «✓ 5 Werkzeuge erfassen»');
+  ok(await page.evaluate(() => document.getElementById('smlSaveBtn').disabled) === true, 'Vorgabe allein füllt keine Zeile → Button bleibt deaktiviert');
+  ok(await page.evaluate(() => document.getElementById('smlSaveBtn').textContent.trim()) === '✓ Werkzeuge erfassen', 'Button ohne Zähler, solange keine Zeile eine eigene Eingabe hat');
+  ok(await page.evaluate(() => document.getElementById('smlCount').textContent.trim()) === 'Zeilen ausfüllen — leere Zeilen werden nicht erfasst', 'Zähler erklärt, dass leere Zeilen nicht erfasst werden');
   ok(await page.evaluate(() => {
     const inp = document.querySelector('#smlTbody tr.sml-row [data-smlrowcol="name"]');
     return inp.placeholder;
