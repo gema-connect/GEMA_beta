@@ -140,6 +140,10 @@ tr.tg-row-sel{background:var(--plan-bg2,#ede9fe)}
 .badge-plan{background:var(--plan-bg);color:var(--plan);border:1px solid var(--plan-bd)}
 .tc-body{padding:0 18px 14px}
 .tc-einsatz{background:var(--amb-bg);border:1px solid var(--amb-bd);border-radius:10px;padding:10px 13px;margin-top:6px}
+/* Banner fuehrt in den Schadensbericht (nur mit Lese-Recht gerendert) */
+a.tc-einsatz{display:block;text-decoration:none;color:inherit;transition:background .12s,border-color .12s}
+a.tc-einsatz:hover{background:#fef3c7;border-color:var(--amb)}
+.tc-einsatz-go{float:right;font-size:11px;font-weight:800;color:var(--amb)}
 .tc-einsatz-lbl{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--amb);margin-bottom:4px}
 .tc-einsatz-val{font-size:13px;font-weight:700;color:var(--txt)}
 .tc-einsatz-sub{font-size:11px;color:var(--mut);margin-top:2px}
@@ -1271,6 +1275,16 @@ function _tgCanReportDefect() {
   var u = _tgGetUser();
   return !!u;
 }
+// Link in den Schadensbericht des laufenden Einsatzes — leer, wenn es
+// keinen gibt (Alt-Einsatz ohne schadenId) oder das Konto den Bericht
+// nicht lesen darf (der Link waere dort eine Sackgasse).
+function _tgSchadenLink(d) {
+  var e = d && d.einsatz;
+  if (!e || !e.schadenId || d.status !== 'im_einsatz') return '';
+  try { if (window.GemaAuth && GemaAuth.can && !GemaAuth.can('read', 'schadensbericht')) return ''; } catch(err){}
+  return 'sd_schadensbericht.html?id=' + encodeURIComponent(e.schadenId)
+       + '&geraet=' + encodeURIComponent(d.id);
+}
 // Hat das Geraet einen offenen (nicht erledigten) Defekt-Bericht?
 function _tgHasOpenDefekt(d) {
   if (!d || !Array.isArray(d.berichte)) return false;
@@ -1578,11 +1592,16 @@ function renderCards(list) {
     // Einsatz-Info
     if (d.einsatz && d.status === 'im_einsatz') {
       var days = daysBetween(d.einsatz.eingesetztAm || today(), today());
-      html += '<div class="tc-body"><div class="tc-einsatz">';
-      html += '<div class="tc-einsatz-lbl">Aktueller Einsatz</div>';
+      var einsatzLink = _tgSchadenLink(d);
+      html += '<div class="tc-body">';
+      html += einsatzLink
+        ? '<a class="tc-einsatz" href="' + einsatzLink + '" title="Schadensbericht öffnen und zum Gerät springen">'
+        : '<div class="tc-einsatz">';
+      html += '<div class="tc-einsatz-lbl">Aktueller Einsatz' + (einsatzLink ? '<span class="tc-einsatz-go">Bericht öffnen ›</span>' : '') + '</div>';
       html += '<div class="tc-einsatz-val">📋 ' + esc(d.einsatz.schadenTitel || 'Schadensprojekt') + '</div>';
       html += '<div class="tc-einsatz-sub">📍 ' + esc(d.einsatz.raum || '—') + ' · ' + days + ' Tag' + (days !== 1 ? 'e' : '') + ' im Einsatz</div>';
-      html += '</div></div>';
+      html += einsatzLink ? '</a>' : '</div>';
+      html += '</div>';
     }
 
     // Footer actions
@@ -1635,7 +1654,12 @@ function renderTable(list) {
     html += '<td><span class="pill" style="background:' + st.color + '15;color:' + st.color + ';border:1px solid ' + st.color + '30">' + st.label + '</span></td>';
     html += '<td>';
     if (d.einsatz && d.status === 'im_einsatz') {
-      html += esc(d.einsatz.schadenTitel || '—') + '<br><span style="font-size:11px;color:var(--mut)">📍 ' + esc(d.einsatz.raum || '') + '</span>';
+      var tLink = _tgSchadenLink(d);
+      var tTitel = esc(d.einsatz.schadenTitel || '—');
+      html += tLink
+        ? '<a href="' + tLink + '" style="color:var(--amb);font-weight:700;text-decoration:none" title="Schadensbericht öffnen und zum Gerät springen">' + tTitel + ' ›</a>'
+        : tTitel;
+      html += '<br><span style="font-size:11px;color:var(--mut)">📍 ' + esc(d.einsatz.raum || '') + '</span>';
     } else {
       html += '<span style="color:var(--mut)">—</span>';
     }
@@ -2505,7 +2529,14 @@ window.openDetail = function(id) {
     html += '<div class="dm-section">Aktueller Einsatz</div>';
     html += '<div style="background:var(--amb-bg);border:1.5px solid var(--amb-bd);border-radius:12px;padding:14px 16px">';
     html += '<div class="dm-grid">';
-    html += dmField('Schadensprojekt', d.einsatz.schadenTitel || '—');
+    var dLink = _tgSchadenLink(d);
+    if (dLink) {
+      html += '<div class="dm-field"><div class="dm-field-lbl">Schadensprojekt</div><div class="dm-field-val">'
+        + '<a href="' + dLink + '" style="color:var(--amb);font-weight:700;text-decoration:none" title="Schadensbericht öffnen und zum Gerät springen">'
+        + esc(d.einsatz.schadenTitel || 'Schadensbericht') + ' ›</a></div></div>';
+    } else {
+      html += dmField('Schadensprojekt', d.einsatz.schadenTitel || '—');
+    }
     html += dmField('Raum / Zone', d.einsatz.raum || '—');
     html += dmField('Einsatz seit', fmt(d.einsatz.eingesetztAm) + ' (' + days + ' Tage)');
     if (dZTyp !== 'kein') {
@@ -3391,6 +3422,24 @@ document.addEventListener('DOMContentLoaded', async function() {
   _tgSetupAutocomplete();
   renderList();
   checkUrlParams();
+
+  // Gegenrichtung des Cross-Modul-Abgleichs: bucht der Schadensbericht ein
+  // Geraet aus (oder wieder ein), schreibt er denselben Pool und feuert
+  // 'gema-trocknung-updated'. In einem ANDEREN Tab kommt das als
+  // 'storage'-Ereignis an. Beides fuehrt hier nur zu load()+renderList()
+  // — nie zu einem Schreibvorgang, also keine Rueckkopplung.
+  var _tgRefreshT = null;
+  function _tgRefreshExtern(){
+    if(_tgRefreshT) return;               // Bursts zusammenfassen
+    _tgRefreshT = setTimeout(function(){
+      _tgRefreshT = null;
+      try { load(); renderList(); } catch(e){ console.warn('[tg] refresh', e); }
+    }, 120);
+  }
+  window.addEventListener('gema-trocknung-updated', _tgRefreshExtern);
+  window.addEventListener('storage', function(ev){
+    if(ev && ev.key === STORAGE_KEY) _tgRefreshExtern();
+  });
 });
 
 })();

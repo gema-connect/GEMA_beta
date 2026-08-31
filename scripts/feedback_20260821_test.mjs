@@ -80,8 +80,15 @@ if (!chromium || !process.env.CHROME) {
   const srv = await startServer();
   const br = await chromium.launch({ executablePath: process.env.CHROME });
 
-  async function sicht(rollen) {
-    const ctx = await br.newContext();
+  /* opts.viewport: die Uebersicht wird auf dem Phone als ZEILEN gerendert
+     (gema_responsive.css Abschnitt 12) — genau dort erzwingt ein
+     `.mod-card{display:flex!important}` frueher jede gefilterte Kachel
+     zurueck. Der Filter versteckt per Inline-Style, und `!important`
+     schlaegt Inline ohne `!important`. Deshalb faehrt C5 dieselben
+     Invarianten bei 390px. */
+  async function sicht(rollen, opts) {
+    opts = opts || {};
+    const ctx = await br.newContext(opts.viewport ? { viewport: opts.viewport, hasTouch: true, isMobile: true } : {});
     await ctx.route('**/*', r => r.request().url().startsWith(BASE)
       ? r.continue()
       : r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
@@ -137,7 +144,10 @@ if (!chromium || !process.env.CHROME) {
         footer: !!document.querySelector('footer.footer'),
         impressum: document.body.innerText.includes('Impressum'),
         adresse: document.body.innerText.includes('Lindenstrasse'),
-        planSichtbar: !!(document.querySelector('#plan') || {}).offsetParent
+        planSichtbar: !!(document.querySelector('#plan') || {}).offsetParent,
+        // Nachweis, dass wirklich die KLASSISCHE Ansicht geprueft wurde —
+        // in der App-Ansicht gibt es die Kacheln gar nicht.
+        nativAktiv: document.documentElement.classList.contains('gn-native-on')
       };
     });
     await ctx.close();
@@ -172,6 +182,20 @@ if (!chromium || !process.env.CHROME) {
     && a.ausblicke['Gebäudeautomation'] === true
     && a.ausblicke['Duschschlauch-Manager'] === true, JSON.stringify(a.ausblicke));
   T('kein Footer gerendert', !a.footer);
+
+  /* ── C5) Klassische Ansicht auf dem PHONE ───────────────────────────
+     Gemeldet 29.08.2026: «Warum sieht ein Monteur in der Normalansicht auf
+     dem Handy immer noch alle Module?» — C1 lief nur im Desktop-Viewport.
+     Gemessen war der Unterschied krass: Desktop 17 sichtbare Kacheln,
+     iPhone 33 (Badge «8 Module» ueber 21 Kacheln). Ursache/Fix siehe
+     gema_responsive.css Abschnitt 20. */
+  console.log('\n── C5) Klassische Ansicht auf dem Phone (Monteur, 390px) ──');
+  const mp = await sicht(['role_monteur'], { viewport: { width: 390, height: 844 } });
+  T('klassische Ansicht (nicht die App-Ansicht) wird geprüft', mp.nativAktiv === false, JSON.stringify({ nativAktiv: mp.nativAktiv }));
+  T('Planung & Management ist offen (sonst prüft der Test nichts)', mp.planSichtbar, JSON.stringify(mp));
+  T('Phone: KEINE unerreichbare Kachel sichtbar', mp.unerreichbar.length === 0, mp.unerreichbar.join(' · '));
+  T('Phone: Sektions-Zähler passt zu den Kacheln', mp.zaehlerFalsch.length === 0, mp.zaehlerFalsch.join(' · '));
+  T('Phone: Auslastungsplanung ist WEG', mp.ausblicke['Auslastungsplanung'] === false, JSON.stringify(mp.ausblicke));
 
   /* ── C4) App-Ansicht bleibt, wie sie war ────────────────────────── */
   console.log('\n── C4) Native Ansicht (Monteur, Phone) unverändert ──');

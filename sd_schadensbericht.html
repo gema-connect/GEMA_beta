@@ -321,6 +321,11 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 .dc-val input:focus{border-color:var(--plan);background:var(--sur)}
 .dc-run{display:inline-block;font-size:9.5px;font-weight:800;color:var(--plan);background:var(--bg2);padding:1px 7px;border-radius:6px;margin-left:6px;text-transform:uppercase;letter-spacing:.3px;vertical-align:middle}
 @media(max-width:380px){.dev-card-grid{grid-template-columns:1fr}.dc-row.dc-edit{grid-column:auto}}
+/* Interne Kennung als Badge (Quelle: Geraeteverwaltung, sonst Snapshot) */
+.dev-kennung{display:inline-block;font-size:10px;font-weight:800;color:#0369a1;background:#e0f2fe;border:1px solid #bae6fd;padding:1px 7px;border-radius:10px;vertical-align:1px;letter-spacing:.2px}
+/* Sprung aus der Geraeteverwaltung: Zielkachel kurz hervorheben */
+.dev-card.sd-puls{animation:sdDevPuls 1.6s ease-out 2}
+@keyframes sdDevPuls{0%{box-shadow:0 0 0 0 rgba(37,99,235,.45)}70%{box-shadow:0 0 0 12px rgba(37,99,235,0)}100%{box-shadow:0 0 0 0 rgba(37,99,235,0)}}
 
 /* ROOMS TAGS */
 .tag-wrap{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
@@ -1966,6 +1971,11 @@ function sdOpenDetail(id) {
   // Detailansicht IST die Bearbeitungsflaeche (jede Eingabe speichert).
   // Nur fuer Bearbeitende; sdCloseDetail loest den Lock wieder.
   try{ if(window.GemaEditLock && _sdCanMeasure()) GemaEditLock.watch({key:'schaden:'+id, label:(s.titel||'Schadensbericht')}); }catch(e){}
+  // Selbstheilung: EINMAL beim Oeffnen gegen den Trocknungsgeraete-Pool
+  // abgleichen (ausgebuchte Geraete freigeben, wieder geoeffnete zurueck in
+  // den Einsatz). NIE aus sdRenderDetail rufen — der laeuft nach jeder
+  // Eingabe und wuerde eine Schreib-Schleife erzeugen.
+  try{ _sdSyncTgEinsatz(s); }catch(e){ console.warn('[sd] sync TG einsatz', e); }
   sdRenderDetail(s);
   document.getElementById('detailOverlay').classList.remove('hidden');
   document.body.style.overflow = 'hidden';
@@ -2115,6 +2125,25 @@ function sdToggleAcc(key) {
   var el = document.getElementById('acc_' + key);
   if (el) el.classList.toggle('open');
 }
+
+// Sprung ans Geraet (aus der Geraeteverwaltung, ?geraet=<tgDeviceId>):
+// Trocknungs-Phase aufklappen, zur Kachel scrollen, kurz hervorheben.
+// Nichts zu finden = nichts tun (das Geraet kann inzwischen entfernt sein).
+function _sdScrollToGeraet(tgId) {
+  if (!tgId) return false;
+  var acc = document.getElementById('acc_trocknung');
+  if (acc && !acc.classList.contains('open')) acc.classList.add('open');
+  var sel = '.dev-card[data-devid="' + String(tgId).replace(/"/g, '\\"') + '"]';
+  var card = document.querySelector(sel);
+  if (!card) return false;
+  try { card.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e){ card.scrollIntoView(); }
+  card.classList.remove('sd-puls');
+  void card.offsetWidth;
+  card.classList.add('sd-puls');
+  setTimeout(function(){ try{ card.classList.remove('sd-puls'); }catch(e){} }, 3600);
+  return true;
+}
+window._sdScrollToGeraet = _sdScrollToGeraet;
 
 // ── PHASE 1: ERFASSUNG ──
 function sdRenderErfassung(s, canEdit) {
@@ -2520,6 +2549,7 @@ function _sdBereichEndeApply(schadenId, area){
     if(!sdGeraetEnde(g)) g.entferntAm = heute;
   });
   sdSave();
+  try{ _sdSyncTgEinsatz(s); }catch(e){ console.warn('[sd] sync TG einsatz', e); }
   sdRenderDetail(s);
 }
 window.sdBereichTrocknungEnde = sdBereichTrocknungEnde;
@@ -2545,6 +2575,7 @@ function sdBereichTrocknungReopen(schadenId, areaIdx){
       if(!Object.keys(s2.trocknung.bereichEnde).length) delete s2.trocknung.bereichEnde;
     }
     sdSave();
+    try{ _sdSyncTgEinsatz(s2); }catch(e){ console.warn('[sd] sync TG einsatz', e); }
     sdRenderDetail(s2);
   });
 }
@@ -2699,8 +2730,9 @@ function _sdDevCardOne(s, gi, editable, canEdit){
   var zEinheit = zTyp === 'kwh' ? 'kWh' : (zTyp === 'kein' ? '' : 'h');
   var zBadge = zTyp === 'kwh' ? '⚡ kWh' : (zTyp === 'laufzeit' ? '🕒 Laufzeit' : (zTyp === 'kein' ? '–' : '⏱ h'));
   var hasZaehler = (zTyp === 'stunden' || zTyp === 'kwh');
-  var h = '<div class="dev-card">';
-  h += '<div class="dev-card-head"><div class="dev-card-name">⚡ ' + esc(g.name) + (g.tgDeviceId ? ' <span style="font-size:10px;color:#7c3aed;background:#f5f3ff;padding:1px 6px;border-radius:10px;font-weight:800;vertical-align:1px">QR</span>' : '') + '</div>';
+  // data-devid: Sprung-Anker aus der Geraeteverwaltung (?geraet=<tgDeviceId>)
+  var h = '<div class="dev-card"' + (g.tgDeviceId ? ' data-devid="' + esc(g.tgDeviceId) + '"' : '') + '>';
+  h += '<div class="dev-card-head"><div class="dev-card-name">⚡ ' + esc(g.name) + _sdKennungBadge(g) + (g.tgDeviceId ? ' <span style="font-size:10px;color:#7c3aed;background:#f5f3ff;padding:1px 6px;border-radius:10px;font-weight:800;vertical-align:1px">QR</span>' : '') + '</div>';
   if(editable) h += '<button class="btn-del-icon" title="Gerät in anderen Bereich verschieben" style="margin-right:2px" onclick="sdMoveItemDialog(\'' + s.id + '\',\'dev\',\'trocknung\',' + gi + ')">⇄</button>';
   if(canEdit && !g.tgDeviceId) h += '<button class="btn-del-icon" title="Gerät bearbeiten" style="margin-right:2px" onclick="sdOpenDevEdit(\'' + s.id + '\',' + gi + ')">✏️</button>';
   if(canEdit) h += '<button class="btn-del-icon" title="Gerät entfernen" onclick="sdDelDev(\'' + s.id + '\',' + gi + ')">✕</button>';
@@ -3125,6 +3157,9 @@ function sdUpdateDevEnd(id, idx, val) {
   if(g.tgDeviceId && val !== '' && val != null){
     try{ _sdUpdateTgAktuellerStand(g.tgDeviceId, parseFloat(val)); }catch(e){ console.warn('[sd] sync TG aktStand', e); }
   }
+  // Endwert gesetzt = ausgebucht → Geraet in der Verwaltung freigeben
+  // (bzw. wieder einbuchen, wenn der Endwert geleert wurde).
+  try{ _sdSyncTgEinsatz(s); }catch(e){ console.warn('[sd] sync TG einsatz', e); }
   sdRenderDetail(s);
 }
 
@@ -3146,12 +3181,54 @@ function _sdTgReadAll(){
   try{ var a=JSON.parse(raw||'[]'); return Array.isArray(a)?a:[]; }catch(e){ return []; }
 }
 function _sdTgWriteAll(all){
+  _sdTgMemo.a = null; // Lese-Memo verwerfen — der Pool hat sich geaendert
   if(typeof window.GemaSync!=='undefined' && window.GemaSync.persistCollection){
     return window.GemaSync.persistCollection('trocknungsgeraete','gema_trocknung_v1','device:','id', all).catch(function(){});
   }
   var json=JSON.stringify(all||[]);
   try{ if(typeof _GemaDB!=='undefined' && _GemaDB.save) _GemaDB.save('gema_trocknung_v1', json); }catch(e){}
   try{ localStorage.setItem('gema_trocknung_v1', json); }catch(e){}
+}
+// Lese-Memo NUR fuer die Anzeige (Kennung-Badge je Geraete-Karte): jeder
+// _sdTgReadAll-Aufruf parst den Pool neu — bei 8 Geraeten waeren das 8
+// Parses pro Render. Mutationen lesen bewusst WEITER ueber _sdTgReadAll
+// (frische Kopie), das Memo wird bei jedem Write und bei jedem
+// gema-trocknung-updated verworfen.
+var _sdTgMemo = { t:0, a:null };
+function _sdTgReadAllMemo(){
+  var now = Date.now();
+  if(_sdTgMemo.a && (now - _sdTgMemo.t) < 800) return _sdTgMemo.a;
+  _sdTgMemo.a = _sdTgReadAll(); _sdTgMemo.t = now;
+  return _sdTgMemo.a;
+}
+function _sdTgEvent(){
+  try{ window.dispatchEvent(new CustomEvent('gema-trocknung-updated', { detail:{ts:new Date().toISOString()} })); }catch(e){}
+}
+// Interne Kennung eines Geraets (Badge in der Geraete-Karte).
+// Kanon denormalisierter Namen: der LIVE-Wert aus der Geraeteverwaltung
+// gewinnt, der beim Hinzufuegen gespeicherte Schnappschuss ist NUR
+// Rueckfallebene (fremdes Geraet / Pool offline / Geraet geloescht).
+// Steht das Geraet im Pool und traegt dort KEINE Kennung mehr, zeigt der
+// Bericht auch keine — sonst klebte eine geloeschte Kennung ewig weiter.
+function _sdKennung(g){
+  if(!g) return '';
+  if(g.tgDeviceId){
+    try{
+      var all = _sdTgReadAllMemo();
+      for(var i=0;i<all.length;i++){
+        if(all[i] && all[i].id === g.tgDeviceId){
+          return all[i].internKennung ? String(all[i].internKennung) : '';
+        }
+      }
+    }catch(e){}
+  }
+  return g.internKennung ? String(g.internKennung) : '';
+}
+// Badge-Markup fuer die interne Kennung (leer = kein Badge).
+function _sdKennungBadge(g){
+  var k = _sdKennung(g);
+  if(!k) return '';
+  return ' <span class="dev-kennung" title="Interne Kennung">🏷 ' + esc(k) + '</span>';
 }
 function _sdUpdateTgAktuellerStand(tgId, neuerStand){
   if(!tgId || isNaN(neuerStand)) return;
@@ -3182,6 +3259,9 @@ function sdUpdateDevEndDate(id, idx, val) {
   if (!g) return;
   g.entferntAm = val || null;
   sdSave();
+  // Ausgebucht/wieder laufend → Verwaltung abgleichen. Kein Re-Render
+  // hier (Fokus-Regel) — das uebernimmt sdDevDateBlur.
+  try{ _sdSyncTgEinsatz(s); }catch(e){ console.warn('[sd] sync TG einsatz', e); }
 }
 // Start-Datum pro Geraet manuell ueberschreiben (leer = zurueck auf den
 // Trocknungs-Start der Phase als Default).
@@ -3912,34 +3992,60 @@ window.sdObjektWechsel = sdObjektWechsel;
 // Setzt im Trocknungs-Modul (gema_trocknung_v1) das Geraet auf
 // 'im_einsatz' und verknuepft es mit dem Schaden — analog zu
 // if_trocknung.html → openEinsatz.
-function _sdMarkTgDeviceInUse(tgId, schaden, raum, zaehlerStart){
-  var all = _sdTgReadAll();
-  var idx = all.findIndex(function(d){ return d.id === tgId; });
-  if(idx<0) return;
+// Gehoert der laufende Einsatz des Geraets zu DIESEM Schaden?
+// Ein Alt-Einsatz OHNE schadenId gilt als zugehoerig (Bestandsschutz) —
+// ein Einsatz mit FREMDER schadenId NIE (kein Geraet aus einem anderen
+// Bericht wegnehmen).
+function _sdTgEinsatzGehoert(d, schadenId){
+  if(!d || !d.einsatz) return false;
+  var sid = d.einsatz.schadenId;
+  return !sid || sid === schadenId;
+}
+function _sdTgFindIdx(all, tgId){
+  for(var i=0;i<all.length;i++){ if(all[i] && all[i].id === tgId) return i; }
+  return -1;
+}
+// ── Einsatz-Mutationen IM ARRAY (ohne Write) ──────────────────────────
+// EINE Wahrheit fuer den Einzel-Aufruf (_sdMarkTgDeviceInUse /
+// _sdReleaseTgDevice) und den Sammel-Abgleich (_sdSyncTgEinsatz).
+// Rueckgabe: true = etwas geaendert (nur dann wird geschrieben).
+function _sdTgMarkInto(all, tgId, schaden, raum, zaehlerStart, geraet){
+  var idx = _sdTgFindIdx(all, tgId); if(idx<0) return false;
+  var d = all[idx];
+  // Laeuft bereits fuer DIESEN Schaden → nichts zu tun.
+  if(d.einsatz && _sdTgEinsatzGehoert(d, schaden.id)) return false;
+  // Laeuft fuer einen FREMDEN Schaden → nie uebernehmen.
+  if(d.einsatz) return false;
   var u = (typeof GemaAuth!=='undefined') ? GemaAuth.getCurrentUser() : null;
-  all[idx].einsatz = {
+  d.einsatz = {
     schadenId: schaden.id,
     schadenTitel: schaden.titel || '',
     objektId: schaden.objektId || '',
     objektName: sdObjektName(schaden.objektId) || '',
     raum: raum || '',
-    eingesetztAm: sdToday(),
+    eingesetztAm: (geraet && geraet.eingesetztAm) || sdToday(),
     eingesetztVon: { userId: u ? u.id : '', name: u ? (u.name||'') : '' },
     zaehlerStart: zaehlerStart || 0
   };
-  all[idx].status = 'im_einsatz';
-  _sdTgWriteAll(all);
-  // Cross-Modul-Event fuer if_trocknung-Tab
-  try { window.dispatchEvent(new CustomEvent('gema-trocknung-updated', { detail:{ts:new Date().toISOString()}})); } catch(e){}
+  d.status = 'im_einsatz';
+  return true;
+}
+function _sdMarkTgDeviceInUse(tgId, schaden, raum, zaehlerStart, geraet){
+  var all = _sdTgReadAll();
+  if(_sdTgMarkInto(all, tgId, schaden, raum, zaehlerStart, geraet)){
+    _sdTgWriteAll(all);
+    _sdTgEvent(); // Cross-Modul-Event fuer if_trocknung-Tab
+  }
 }
 // Umgekehrt: Geraet wieder freigeben (Status verfuegbar), Einsatz-
 // Historie ergaenzen. Wird beim sdDelDev aufgerufen, wenn ein
 // verknuepftes TG-Geraet entfernt wird.
-function _sdReleaseTgDevice(tgId, geraet, tr){
-  var all = _sdTgReadAll();
-  var idx = all.findIndex(function(d){ return d.id === tgId; });
-  if(idx<0) return;
+function _sdTgReleaseInto(all, tgId, geraet, tr, schadenId){
+  var idx = _sdTgFindIdx(all, tgId); if(idx<0) return false;
   var d = all[idx];
+  // NIE ein Geraet freigeben, das laut Verwaltung in einem ANDEREN
+  // Schaden im Einsatz ist.
+  if(schadenId && d.einsatz && !_sdTgEinsatzGehoert(d, schadenId)) return false;
   if(d.einsatz){
     if(!Array.isArray(d.einsatzHistorie)) d.einsatzHistorie = [];
     var hist = JSON.parse(JSON.stringify(d.einsatz));
@@ -3969,13 +4075,103 @@ function _sdReleaseTgDevice(tgId, geraet, tr){
       hist.betriebsstunden = Math.round(diff*100)/100;
       hist.kwhTotal = Math.round(diff*(d.kw||0)*100)/100;
     }
+    // Herkunfts-Marke: erlaubt das Zuruecknehmen des Historie-Eintrags,
+    // wenn dasselbe Bericht-Geraet wieder eingebucht wird (Fehlklick beim
+    // End-Datum) — sonst wuechse die Historie bei jedem Aus-/Einbuchen.
+    hist.devId = (geraet && geraet.id) || null;
     d.einsatzHistorie.push(hist);
     d.einsatz = null;
     d.status = 'verfuegbar';
+    return true;
   }
-  _sdTgWriteAll(all);
-  try { window.dispatchEvent(new CustomEvent('gema-trocknung-updated', { detail:{ts:new Date().toISOString()}})); } catch(e){}
+  return false;
 }
+function _sdReleaseTgDevice(tgId, geraet, tr, schadenId){
+  var all = _sdTgReadAll();
+  if(_sdTgReleaseInto(all, tgId, geraet, tr, schadenId)){
+    _sdTgWriteAll(all);
+    _sdTgEvent();
+  }
+}
+// Gegenstueck zum Freigeben: ein wieder laufendes Geraet (End-Datum
+// geloescht) erneut auf diesen Schaden einbuchen. Wurde der Einsatz von
+// GENAU DIESEM Bericht-Geraet beendet, wird der letzte Historie-Eintrag
+// zurueckgenommen statt ein neuer Einsatz mit heutigem Datum gestempelt —
+// so bleibt das urspruengliche Einsatz-Datum erhalten und die Historie
+// waechst nicht bei jedem Korrigieren.
+function _sdTgResumeInto(all, tgId, schaden, g){
+  var idx = _sdTgFindIdx(all, tgId); if(idx<0) return false;
+  var d = all[idx];
+  if(d.einsatz) return false; // laeuft schon (hier oder in einem anderen Bericht)
+  var e = null;
+  var H = Array.isArray(d.einsatzHistorie) ? d.einsatzHistorie : null;
+  if(H && H.length){
+    var last = H[H.length-1];
+    if(last && last.schadenId === schaden.id && g && last.devId && last.devId === g.id){
+      H.pop();
+      e = last;
+      delete e.zurueckAm; delete e.zaehlerEnde; delete e.zaehlerTyp;
+      delete e.betriebsstunden; delete e.kwhTotal; delete e.devId;
+    }
+  }
+  if(!e){
+    var u = (typeof GemaAuth!=='undefined') ? GemaAuth.getCurrentUser() : null;
+    e = {
+      schadenId: schaden.id,
+      schadenTitel: schaden.titel || '',
+      objektId: schaden.objektId || '',
+      objektName: sdObjektName(schaden.objektId) || '',
+      raum: (g && g.raum) || '',
+      eingesetztAm: (g && g.eingesetztAm) || sdToday(),
+      eingesetztVon: { userId: u ? u.id : '', name: u ? (u.name||'') : '' },
+      zaehlerStart: (g && g.zaehlerStart != null) ? g.zaehlerStart : 0
+    };
+  }
+  d.einsatz = e;
+  d.status = 'im_einsatz';
+  return true;
+}
+// ── Abgleich Schadensbericht ⇄ Trocknungsgeraete ─────────────────────
+// Der Bericht ist die Wahrheit ueber den EINSATZ-Zustand seiner eigenen
+// Geraete: ist ein verknuepftes Geraet im Bericht ausgebucht
+// (sdGeraetEnde), wird es in der Verwaltung freigegeben; laeuft es wieder,
+// wird es erneut eingebucht. Laeuft in JEDEM Pfad, der ein Ende setzt oder
+// aufhebt (Zaehler-Ende, End-Datum, Bereich abschliessen/wieder oeffnen)
+// UND einmal beim Oeffnen des Berichts (Selbstheilung fuer Altbestand und
+// fuer Enden, die auf einem anderen Geraet gesetzt wurden).
+// NIE aus sdRenderDetail heraus aufrufen — das Re-Render laeuft nach jeder
+// Aenderung und wuerde Schreib-Schleifen erzeugen.
+function _sdSyncTgEinsatz(s){
+  if(!s || !s.trocknung || !Array.isArray(s.trocknung.geraete)) return false;
+  var ger = s.trocknung.geraete.filter(function(g){ return g && g.tgDeviceId; });
+  if(!ger.length) return false;
+  var all = _sdTgReadAll();
+  // EMPTY-READ-GUARD: ein leerer Pool ist KEIN Beweis dafuer, dass es die
+  // Geraete nicht mehr gibt (offline, Cloud noch nicht geladen, RLS) —
+  // dann lieber nichts anfassen.
+  if(!all.length) return false;
+  var tr = s.trocknung, dirty = false;
+  ger.forEach(function(g){
+    var idx = _sdTgFindIdx(all, g.tgDeviceId); if(idx<0) return;
+    var d = all[idx];
+    if(sdGeraetEnde(g)){
+      if(_sdTgReleaseInto(all, g.tgDeviceId, g, tr, s.id)) dirty = true;
+    } else {
+      if(d.einsatz) return; // laeuft bereits — hier oder in einem anderen Bericht
+      var st = d.status || 'verfuegbar';
+      // Defekt/Wartung nie automatisch wieder einbuchen — das ist eine
+      // bewusste Angabe der Verwaltung.
+      if(st === 'defekt' || st === 'in_wartung') return;
+      if(_sdTgResumeInto(all, g.tgDeviceId, s, g)) dirty = true;
+    }
+  });
+  if(dirty){ _sdTgWriteAll(all); _sdTgEvent(); }
+  return dirty;
+}
+// Der Abgleich haengt an den Aufruf-Stellen unten (Zaehler-Ende, End-Datum,
+// Bereichs-Abschluss, Detail-Boot). Window-exponiert, damit der Drift-Guard
+// den EMPTY-READ-GUARD direkt pruefen kann.
+window._sdSyncTgEinsatz = _sdSyncTgEinsatz;
 
 function sdAddGeraet() {
   var id = document.getElementById('devAddModal').dataset.schadenId;
@@ -4020,12 +4216,13 @@ function sdAddGeraet() {
     stundenProTag: stundenProTag,
     eingesetztAm: sdToday(),
     entferntAm: null,
-    tgDeviceId: linkedTgId || null
+    tgDeviceId: linkedTgId || null,
+    internKennung: linkedTgId ? (_sdKennung({ tgDeviceId: linkedTgId }) || null) : null
   });
   sdSave();
   // Wenn aus der Geraeteverwaltung gewaehlt: dort ebenfalls einsetzen
   if(linkedTgId){
-    try { _sdMarkTgDeviceInUse(linkedTgId, s, raum, zaehlerStart); } catch(e){ console.warn('[sd] mark in use', e); }
+    try { _sdMarkTgDeviceInUse(linkedTgId, s, raum, zaehlerStart, s.trocknung.geraete[s.trocknung.geraete.length-1]); } catch(e){ console.warn('[sd] mark in use', e); }
   }
   document.getElementById('devAddModal').classList.add('hidden');
   sdRenderDetail(s);
@@ -4038,7 +4235,7 @@ function sdDelDev(id, idx) {
     // Wenn Geraet aus Verwaltung kam → dort wieder freigeben (tr-Kontext
     // fuer die Laufzeit-Berechnung: Tage × h/Tag brauchen die Phase)
     if(g && g.tgDeviceId){
-      try { _sdReleaseTgDevice(g.tgDeviceId, g, s.trocknung); } catch(e){ console.warn('[sd] release', e); }
+      try { _sdReleaseTgDevice(g.tgDeviceId, g, s.trocknung, s.id); } catch(e){ console.warn('[sd] release', e); }
     }
     s.trocknung.geraete.splice(idx, 1);
     sdSave();
@@ -5658,6 +5855,10 @@ window.addEventListener('DOMContentLoaded', function() {
     // oder zurueckgegeben wird, re-rendern wir den aktuellen Schaden,
     // damit die Live-Spiegelung sofort aktuell ist.
     function _sdReRenderCurrent(){
+      // Der Geraete-Pool kann sich geaendert haben (anderes Modul/anderer
+      // Tab) — Anzeige-Memo verwerfen, sonst zeigt der Kennung-Badge bis
+      // zu 800 ms den alten Stand.
+      try{ _sdTgMemo.a = null; }catch(e){}
       if(!_sdCurrentDetailId) return;
       var s = sdGetById(_sdCurrentDetailId);
       if(s) sdRenderDetail(s);
@@ -5682,7 +5883,13 @@ window.addEventListener('DOMContentLoaded', function() {
     // URL param: open detail directly
     var params = new URLSearchParams(location.search);
     if (params.get('id')) {
-      setTimeout(function() { sdOpenDetail(params.get('id')); }, 500);
+      setTimeout(function() {
+        sdOpenDetail(params.get('id'));
+        // ?geraet=<tgDeviceId>: aus der Geraeteverwaltung direkt an die
+        // Geraete-Kachel springen (Trocknungs-Phase aufklappen + scrollen).
+        var tgId = params.get('geraet');
+        if (tgId) setTimeout(function(){ _sdScrollToGeraet(tgId); }, 260);
+      }, 500);
     }
   })();
 });
