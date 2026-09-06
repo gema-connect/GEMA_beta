@@ -93,7 +93,12 @@ const stzM = await page.evaluate(() => ({
 t(stzM.aktiv === 0 && !stzM.hidden, 'manueller Wert löst die Chip-Auswahl');
 t(stzM.feinF === '7', 'Spiegel folgt dem manuellen Wert (untouched): ' + stzM.feinF);
 // Feinplanung-Feld selbst anfassen → Spiegel stoppt
-await page.evaluate(() => { document.querySelector('[data-tab="wt4"]').click(); });
+// Nachzug Feedback 05.09.2026 #7 (Sandro Caso): «Anzahl Stutzen» ist mit der Speicher-
+// wärmeverlust-Kette aus Karte 4.1 (Tab ④) in die neue Karte 3.3 der FEINPLANUNG (Tab ③)
+// gewandert — verschoben, nicht gespiegelt. page.locator().fill() verlangt Sichtbarkeit,
+// darum steht hier wt3 statt wt4; die Zusicherung von #5 (eigene Eingabe stoppt den
+// Spiegel) bleibt unverändert.
+await page.evaluate(() => { document.querySelector('[data-tab="wt3"]').click(); });
 await page.locator('#ww_stutzenF').fill('9');
 await page.locator('#ww_stutzenF').dispatchEvent('input');
 await page.evaluate(() => { document.querySelector('[data-tab="wt2"]').click(); });

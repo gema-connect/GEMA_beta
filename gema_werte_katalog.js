@@ -15,7 +15,7 @@
  * wenn der Admin das Werkzeug oeffnet) — sie ist zu gross, um auf jeder
  * Berechnungsseite mitzulaufen.
  *
- * Stand: 1485 Werte in 48 Modulen.
+ * Stand: 1494 Werte in 48 Modulen.
  */
 (function (w) {
   'use strict';
@@ -11351,6 +11351,42 @@
     "quelle": "gema_warmwasser_sia385__<objektId>"
    },
    {
+    "id": "warmwasser_sia385.ww_verlustfaktor",
+    "feld": "ww_verlustfaktor",
+    "label": "1.5 gem. SIA 385/2:2025 (oder 1+ϛIS/100 aus Grobauslegung)",
+    "art": "eingabe",
+    "typ": "zahl",
+    "einheit": "–",
+    "quelle": "gema_warmwasser_sia385__<objektId>"
+   },
+   {
+    "id": "warmwasser_sia385.ww_ladezyklen",
+    "feld": "ww_ladezyklen",
+    "label": "1 Ladezyklus ≈ 2–3 h (Bodenheizung) / 1–2 h (Radiatoren)",
+    "art": "eingabe",
+    "typ": "zahl",
+    "einheit": "–",
+    "quelle": "gema_warmwasser_sia385__<objektId>"
+   },
+   {
+    "id": "warmwasser_sia385.ww_fsto",
+    "feld": "ww_fsto",
+    "label": "Bauart unten wählen — die Auswahl setzt den Wert",
+    "art": "eingabe",
+    "typ": "zahl",
+    "einheit": "–",
+    "quelle": "gema_warmwasser_sia385__<objektId>"
+   },
+   {
+    "id": "warmwasser_sia385.ww_stutzenF",
+    "feld": "ww_stutzenF",
+    "label": "Speichervolumen [VW,sto]",
+    "art": "eingabe",
+    "typ": "zahl",
+    "einheit": "Stk",
+    "quelle": "gema_warmwasser_sia385__<objektId>"
+   },
+   {
     "id": "warmwasser_sia385.ww_tWwL",
     "feld": "ww_tWwL",
     "label": "ww_tWwL",
@@ -11544,43 +11580,6 @@
     "label": "ww_zeitWohn",
     "art": "eingabe",
     "typ": "auswahl",
-    "quelle": "gema_warmwasser_sia385__<objektId>",
-    "unsicher": true
-   },
-   {
-    "id": "warmwasser_sia385.ww_verlustfaktor",
-    "feld": "ww_verlustfaktor",
-    "label": "1.5 gem. SIA 385/2:2025 (oder 1+ϛIS/100 aus Grobauslegung)",
-    "art": "eingabe",
-    "typ": "zahl",
-    "einheit": "–",
-    "quelle": "gema_warmwasser_sia385__<objektId>"
-   },
-   {
-    "id": "warmwasser_sia385.ww_ladezyklen",
-    "feld": "ww_ladezyklen",
-    "label": "1 Ladezyklus ≈ 2–3 h (Bodenheizung) / 1–2 h (Radiatoren)",
-    "art": "eingabe",
-    "typ": "zahl",
-    "einheit": "–",
-    "quelle": "gema_warmwasser_sia385__<objektId>"
-   },
-   {
-    "id": "warmwasser_sia385.ww_fsto",
-    "feld": "ww_fsto",
-    "label": "Bauart unten wählen — die Auswahl setzt den Wert",
-    "art": "eingabe",
-    "typ": "zahl",
-    "einheit": "–",
-    "quelle": "gema_warmwasser_sia385__<objektId>"
-   },
-   {
-    "id": "warmwasser_sia385.ww_stutzenF",
-    "feld": "ww_stutzenF",
-    "label": "ww_stutzenF",
-    "art": "eingabe",
-    "typ": "zahl",
-    "einheit": "Stk",
     "quelle": "gema_warmwasser_sia385__<objektId>",
     "unsicher": true
    },
@@ -11982,6 +11981,69 @@
     "id": "warmwasser_sia385.ww_out_heizlast",
     "feld": "ww_out_heizlast",
     "label": "Massgebende Heizlast",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_feinTotal3",
+    "feld": "ww_out_feinTotal3",
+    "label": "Nutzwarmwasserbedarf Feinplanung [V'W,u]",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_vwd1",
+    "feld": "ww_out_vwd1",
+    "label": "Wärmebedarf WW-Versorgung [V'W,d]",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_pk3",
+    "feld": "ww_out_pk3",
+    "label": "aus den Stundenspitzen (3.1)",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_ctrl1",
+    "feld": "ww_out_ctrl1",
+    "label": "Steuervolumen [VW,sto,ctrl]",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_cont1",
+    "feld": "ww_out_cont1",
+    "label": "Bereitschaftsvolumen [VW,sto,cont]",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_vsto1",
+    "feld": "ww_out_vsto1",
+    "label": "Speichervolumen [VW,sto]",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_qStoGrund",
+    "feld": "ww_out_qStoGrund",
+    "label": "Grundverlust Speicher",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_qStoStutzen",
+    "feld": "ww_out_qStoStutzen",
+    "label": "Stutzenverluste",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_qStoF",
+    "feld": "ww_out_qStoF",
+    "label": "Speicherwärmeverluste [Q'W,sto,Is]",
     "art": "ergebnis",
     "typ": "zahl"
    },
