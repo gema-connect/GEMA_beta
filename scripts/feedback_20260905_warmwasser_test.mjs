@@ -540,6 +540,148 @@ try {
   ok(nutz.every(k => /\[P\]/.test(k.s || '')),
     '#25: das Einheiten-Kuerzel steht weiterhin dabei', nutz.map(k => k.s));
 
+  // ────────────────────────────────────────────────────────────────────────
+  // #13 — «Stärke des Warmhaltebands muss wählbar sein. Der Durchmesser vom Rohr
+  //       plus die Dicke des Warmhaltebands ergibt den nächst grösseren
+  //       Durchmesser für die Verlustrechnung.» (Domotec 6 · Raychem 7 · Systec 7.5)
+  // ────────────────────────────────────────────────────────────────────────
+  const band = await page.evaluate(() => {
+    const e = document.querySelector('[data-tab="wt3"]'); if (e) e.click();
+    const sel = document.getElementById('ww_whbBand');
+    const opts = sel ? [...sel.options].map(o => ({ v: o.value, t: o.textContent })) : null;
+    // Bestandsschutz: Default «ohne Zuschlag» → wirksamer ø = Rohr-ø
+    document.getElementById('ww_lWhbF').value = '10';
+    document.getElementById('ww_oeWhb').value = '35';
+    if (sel) sel.value = '0';
+    wwRecalc();
+    const r0 = wwCalc();
+    const ohne = { tab: r0.whbTab, q: r0.qWhbF, info: (document.getElementById('ww_out_whbInfo') || {}).textContent };
+    // 35 + 6 = 41 → nächstgrösserer Tabellenwert 42
+    if (sel) sel.value = '6';
+    wwRecalc();
+    const r6 = wwCalc();
+    const info6 = (document.getElementById('ww_out_whbInfo') || {}).textContent;
+    // 35 + 7.5 = 42.5 → nächstgrösserer Tabellenwert 54
+    if (sel) sel.value = '7.5';
+    wwRecalc();
+    const r75 = wwCalc();
+    return {
+      opts, ohne,
+      mit6: { tab: r6.whbTab, q: r6.qWhbF, info: info6 },
+      mit75: { tab: r75.whbTab, q: r75.qWhbF },
+      inZelle: !!(sel && sel.closest('td') === document.getElementById('ww_oeWhb').closest('td'))
+    };
+  });
+  ok(!!band.opts, '#13: Auswahlfeld für die Bandstärke vorhanden', band.opts);
+  ok(band.opts && band.opts.length === 4 && band.opts[0].v === '0',
+    '#13: «ohne Zuschlag» steht zuerst und ist der Default (Bestandsschutz)', band.opts && band.opts[0]);
+  ok(band.opts && ['6', '7', '7.5'].every(v => band.opts.some(o => o.v === v)),
+    '#13: die drei Fabrikate des Kunden sind wählbar (6 · 7 · 7.5 mm)', band.opts);
+  ok(band.opts && /Domotec/.test(band.opts.map(o => o.t).join('|'))
+    && /Raychem/.test(band.opts.map(o => o.t).join('|'))
+    && /Systec/.test(band.opts.map(o => o.t).join('|')),
+    '#13: die Fabrikate sind benannt (Domotec · Raychem · Systec Therm AG)', band.opts && band.opts.map(o => o.t));
+  ok(band.inZelle, '#13: die Bandstärke steht in derselben Zelle wie der Rohr-ø');
+  ok(band.ohne.tab === 35, '#13: ohne Zuschlag rechnet der reine Rohr-ø weiter (Bestandsschutz)', band.ohne);
+  ok(band.mit6.tab === 42, '#13: ø 35 + 6 mm = 41 → nächstgrösserer Tabellenwert 42 mm', band.mit6);
+  ok(band.mit75.tab === 54, '#13: ø 35 + 7.5 mm = 42.5 → nächstgrösserer Tabellenwert 54 mm', band.mit75);
+  ok(band.mit6.q > band.ohne.q, '#13: der Zuschlag erhöht den Verlust (er wird wirklich gerechnet)',
+    { ohne: band.ohne.q, mit6: band.mit6.q });
+  ok(/35/.test(band.mit6.info || '') && /42/.test(band.mit6.info || ''),
+    '#13: die Herleitung steht unter dem Zeilentitel (kein stiller Sprung)', band.mit6.info);
+
+  // ────────────────────────────────────────────────────────────────────────
+  // #18 — «Temperaturen sollen pro Warmhaltetyp wählbar sein. Wenn die Werte beim
+  //       ersten (konventionell) gewählt werden übernommen werden und anschliessend
+  //       anpassbar sein.»
+  // ────────────────────────────────────────────────────────────────────────
+  const t0 = await page.evaluate(() => {
+    const e = document.querySelector('[data-tab="wt3"]'); if (e) e.click();
+    return {
+      felder: ['ww_tWwL', 'ww_tRaum', 'ww_tWwRar', 'ww_tRaumRar', 'ww_tWwWhb', 'ww_tRaumWhb']
+        .map(id => !!document.getElementById(id)),
+      dtZellen: ['ww_out_dtLeitung', 'ww_out_dtRar', 'ww_out_dtWhb'].map(id => !!document.getElementById(id)),
+      tab: !!document.querySelector('.ww-temptab'),
+      punkte: [...document.querySelectorAll('.ww-temptab .ww-cdot')].map(d => d.style.background)
+    };
+  });
+  ok(t0.felder.every(Boolean), '#18: θWW und θR je Warmhaltetyp erfassbar', t0.felder);
+  ok(t0.dtZellen.every(Boolean), '#18: ∆T wird je Zeile ausgewiesen', t0.dtZellen);
+  ok(t0.tab, '#18: die drei Typen stehen als Tabelle (nicht als sechs Einzelfelder)');
+  ok(t0.punkte.length === 3, '#18: ein Farbpunkt je Warmhaltetyp — dieselbe Zuordnung wie die Leitungstabelle', t0.punkte);
+
+  // Übernahme: konventionell aendern -> RaR/WHB folgen
+  const t1 = await page.evaluate(async () => {
+    const w = document.getElementById('ww_tWwL'), r = document.getElementById('ww_tRaum');
+    w.value = '65'; w.dispatchEvent(new Event('input', { bubbles: true }));
+    r.value = '15'; r.dispatchEvent(new Event('input', { bubbles: true }));
+    wwRecalc();
+    const g = id => (document.getElementById(id) || {}).value;
+    const c = wwCalc();
+    return {
+      rar: [g('ww_tWwRar'), g('ww_tRaumRar')], whb: [g('ww_tWwWhb'), g('ww_tRaumWhb')],
+      dt: [c.dtLeitung, c.dtRar, c.dtWhb],
+      mark: (document.getElementById('ww_tRarMark') || {}).textContent.trim()
+    };
+  });
+  ok(t1.rar[0] === '65' && t1.rar[1] === '15' && t1.whb[0] === '65' && t1.whb[1] === '15',
+    '#18: Rohr-an-Rohr und Warmhalteband übernehmen die konventionellen Werte', t1);
+  ok(t1.dt[0] === 50 && t1.dt[1] === 50 && t1.dt[2] === 50,
+    '#18: ∆T folgt der Übernahme (65 − 15 = 50 K in allen drei Zeilen)', t1.dt);
+  ok(/auto/.test(t1.mark), '#18: die uebernommene Zeile ist als «auto» markiert', t1.mark);
+
+  // Eigene Eingabe (isTrusted) gewinnt und wird NICHT mehr ueberschrieben
+  await page.click('#ww_tRaumRar', { clickCount: 3 });
+  await page.keyboard.type('10');
+  await page.evaluate(() => wwRecalc());
+  const t2 = await page.evaluate(() => {
+    const w = document.getElementById('ww_tWwL');
+    w.value = '55'; w.dispatchEvent(new Event('input', { bubbles: true }));   // konv. erneut aendern
+    wwRecalc();
+    const g = id => (document.getElementById(id) || {}).value;
+    const c = wwCalc();
+    return {
+      touch: (document.getElementById('ww_tRarTouch') || {}).value,
+      rar: [g('ww_tWwRar'), g('ww_tRaumRar')], whb: [g('ww_tWwWhb'), g('ww_tRaumWhb')],
+      dt: [c.dtLeitung, c.dtRar, c.dtWhb],
+      mark: (document.getElementById('ww_tRarMark') || {}).textContent.trim(),
+      reset: !!document.querySelector('#ww_tRarMark .ww-treset')
+    };
+  });
+  ok(t2.touch === '1', '#18: eine echte Eingabe (isTrusted) löst die Automatik NUR dieser Zeile', t2.touch);
+  ok(t2.rar[1] === '10', '#18: die eigene Raumtemperatur bleibt erhalten (kein Überschreiben)', t2.rar);
+  ok(t2.whb[0] === '55', '#18: die noch nicht angefasste Zeile folgt weiterhin der konventionellen', t2.whb);
+  ok(t2.dt[1] === 55 && t2.dt[2] === 40,
+    '#18: jede Zeile rechnet mit IHREM ∆T (RaR 65−10 = 55 K, WHB 55−15 = 40 K)', t2.dt);
+  ok(t2.reset, '#18: die gelöste Zeile bietet den Rückweg «↺ auto» an', t2.mark);
+
+  // ∆T wirkt wirklich je Zeile auf die kWh
+  const t3 = await page.evaluate(() => {
+    document.getElementById('ww_lRarF').value = '10';
+    document.getElementById('ww_oeRarVL').value = '22';
+    document.getElementById('ww_oeRarRL').value = '22';
+    wwRecalc();
+    const c = wwCalc();
+    return { dtRar: c.dtRar, dtWhb: c.dtWhb, qRar: c.qRarF, tab: c.rarTab };
+  });
+  const erwartetRar = 10 * t3.dtRar * 0.003633333;   // Σ 44 → Tabellenwert 54 mm
+  ok(t3.tab === 54 && Math.abs(t3.qRar - erwartetRar) < 1e-6,
+    '#18: die RaR-Zeile rechnet mit ihrem eigenen ∆T', { ist: t3.qRar, soll: erwartetRar, tab: t3.tab });
+
+  // Rueckweg stellt die Automatik wieder her
+  const t4 = await page.evaluate(() => {
+    wwTempReset('rar');
+    const g = id => (document.getElementById(id) || {}).value;
+    return {
+      touch: (document.getElementById('ww_tRarTouch') || {}).value,
+      rar: [g('ww_tWwRar'), g('ww_tRaumRar')],
+      mark: (document.getElementById('ww_tRarMark') || {}).textContent.trim()
+    };
+  });
+  ok(t4.touch !== '1' && t4.rar[0] === '55' && t4.rar[1] === '15',
+    '#18: «↺ auto» holt die konventionellen Werte zurück', t4);
+  ok(/auto/.test(t4.mark) && !/↺/.test(t4.mark), '#18: danach steht die Zeile wieder auf «auto»', t4.mark);
+
   ok(errs.length === 0, 'Keine JS-Fehler auf der Seite', errs.slice(0, 3));
 } finally {
   if (browser) await browser.close();
