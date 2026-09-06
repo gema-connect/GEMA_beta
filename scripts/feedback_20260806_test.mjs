@@ -169,18 +169,25 @@ console.log('■ B: Browser — Zirkulation (RV-Karte, Detail, Schema, 2 Fabrika
   // #4: Detailzeile — «angeschlossene Teilstrecken» + Bauart ausgeschrieben
   await page.evaluate(() => zkToggleRow(1));
   await page.waitForTimeout(200);
+  // Feedback 05.09.2026 #2: die Auswahlfelder sind aus der Detailzeile in die
+  // Kopfzeile gewandert. Die Absicht des 06.08-Feedbacks (Beschriftung + aus-
+  // geschriebene Optionen) gilt unveraendert — nur der Ort hat gewechselt.
   const det = await page.evaluate(() => {
-    const d = document.querySelector('.zk-detrow');
-    const anschl = d ? d.querySelector('.zk-anschl') : null;
-    const art = d ? d.querySelector('select[data-k="art"]') : null;
+    const h = document.querySelector('#zkBody tr.zk-head');
+    const anschl = h ? h.querySelector('td.zk-anschl') : null;
+    const art = h ? h.querySelector('select[data-k="art"]') : null;
+    const kopf = [...document.querySelectorAll('#zkBody tr.zk-sub th')].map(t => t.textContent.trim());
     return {
-      da: !!d, anschl: !!anschl,
-      titel: anschl ? (anschl.querySelector('.zk-grptit') || {}).textContent : '',
+      da: !!h, anschl: !!anschl,
+      labels: anschl ? [...anschl.querySelectorAll('.zk-tslbl')].map(x => x.textContent.trim()) : [],
+      selects: anschl ? anschl.querySelectorAll('select.zk-ts').length : 0,
+      spalte: kopf.indexOf('angeschlossene Teilstrecken') >= 0,
       artOpts: art ? [...art.options].map(o => o.textContent) : []
     };
   });
-  ok(det.da && det.anschl && det.titel === 'angeschlossene Teilstrecken',
-    '#4: roter Punkt — Titel «angeschlossene Teilstrecken» über den Feldern', det.titel);
+  ok(det.da && det.anschl && det.selects === 2 && det.labels.join('/') === 'TS 1/TS 2' && det.spalte,
+    '#4: roter Punkt — Spalte «angeschlossene Teilstrecken» mit TS 1 / TS 2 beschriftet',
+    det.labels.join('/') + ' | Spalte:' + det.spalte);
   ok(det.artOpts.indexOf('konventionell') >= 0 && det.artOpts.indexOf('Rohr an Rohr') >= 0,
     '#4: grüner Punkt — Bauart-Optionen ausgeschrieben', det.artOpts);
 
