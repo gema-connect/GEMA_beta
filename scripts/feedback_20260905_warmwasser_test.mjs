@@ -30,6 +30,11 @@
  *   #20 «Heizlast frei gewaehlt» steht UNTER den Ergebniszeilen ueber die volle Breite
  *   #21 «⇩ Angaben Wohnungen aus Grobauslegung» steht VOR der Tabelle 3.2
  *
+ * Etappe 6 — Tab ② Verlustzahl + Tab ① Ergebnis:
+ *   #24 «Fixwert» steht als eigene Spalte VOR dem Wert, die Zahlenwerte in 2.2
+ *       fluchten dadurch mit den Verlust-Werten darunter (Kanon Feedback 19.08.2026 #5)
+ *   #25 Ergebnis 1.4 zeigt eine Kachel je NUTZUNGSEINHEIT statt einer Sammelzahl je Einheit
+ *
  * Ausfuehren:  CHROME=<chromium> node scripts/feedback_20260905_warmwasser_test.mjs
  */
 import { readFileSync } from 'node:fs';
@@ -471,6 +476,69 @@ try {
   ok(btn && !btn.linksBuendig, '#29: er klebt nicht mehr am linken Rand', btn);
   ok(btn && Math.abs(btn.abstandRechts - btn.refAbstandRechts) <= 2,
     '#29: gleicher rechter Abstand wie der Knopf in 1.1 («dito oben bei Wohnungen»)', btn);
+
+  /* ── Etappe 6 · #24 Fixwert-Spalte, #25 Kacheln je Nutzungseinheit ── */
+  console.log('\n── Etappe 6 · Tab ② Verlustzahl + Tab ① Ergebnis ──');
+
+  // #24 — Tab ② oeffnen und die Geometrie der drei Fixwert-Zeilen in 2.2 messen.
+  await page.evaluate(() => { const e = document.querySelector('[data-tab="wt2"]'); if (e) e.click(); });
+  const fix = await page.evaluate(() => {
+    const zeile = el => el && el.closest('.g-result-row');
+    const rowOf = id => zeile(document.getElementById(id));
+    // Die drei Fixwert-Zeilen (Wärmeverlust pro Meter) und ihre Verlust-Pendants darunter.
+    const fixRows = [...document.querySelectorAll('.g-result-row')]
+      .filter(r => /Wärmeverlust pro Meter/.test(r.textContent) && r.querySelector('.ww-fix-tag'));
+    const konv = rowOf('ww_out_qKonv');
+    const wertL = r => { const v = r && r.querySelector('.g-result-val'); return v ? Math.round(v.getBoundingClientRect().left) : null; };
+    const badge = r => { const b = r && r.querySelector('.ww-fix-tag'); return b ? { left: Math.round(b.getBoundingClientRect().left), w: Math.round(b.getBoundingClientRect().width), direkt: b.parentElement === r } : null; };
+    const chip = konv && konv.querySelector('.frml');
+    return {
+      anzahl: fixRows.length,
+      badges: fixRows.map(badge),
+      werte: fixRows.map(wertL),
+      verlustWert: wertL(konv),
+      chipLeft: chip ? Math.round(chip.getBoundingClientRect().left) : null,
+      chipW: chip ? Math.round(chip.getBoundingClientRect().width) : null
+    };
+  });
+  ok(fix.anzahl === 3, '#24: drei Fixwert-Zeilen in 2.2 gefunden', fix.anzahl);
+  ok(fix.badges.every(b => b && b.direkt),
+    '#24: das «Fixwert»-Badge ist direktes Kind der Zeile (eigene Spalte, nicht mehr im Wert)', fix.badges);
+  ok(fix.werte.length === 3 && fix.werte.every(w => w !== null && w === fix.werte[0]),
+    '#24: die drei Fixwert-Zahlenwerte fluchten untereinander', fix.werte);
+  ok(fix.verlustWert !== null && fix.werte[0] === fix.verlustWert,
+    '#24: sie fluchten auch mit den Verlust-Werten darunter («Zahlenwerte untereinander»)',
+    { fixwert: fix.werte[0], verlust: fix.verlustWert });
+  ok(fix.chipLeft !== null && fix.badges[0] && fix.badges[0].left === fix.chipLeft,
+    '#24: das Badge sitzt in derselben Spalte wie die Formel-Chips', { badge: fix.badges[0], chipLeft: fix.chipLeft });
+  ok(fix.chipW !== null && fix.badges[0] && fix.badges[0].w === fix.chipW,
+    '#24: Badge- und Chip-Spalte sind gleich breit (92 px Kanon)', { badgeW: fix.badges[0] && fix.badges[0].w, chipW: fix.chipW });
+
+  // #25 — zwei verschiedene Nutzungen mit DERSELBEN Einheit «P»: frueher eine
+  // Sammelkachel «52 Personen», neu eine Kachel je Nutzungseinheit.
+  const kach = await page.evaluate(() => {
+    wwState.grob = [{ ne: 1, n: '40' }, { ne: 2, n: '12' }];   // Mehrfamilienhaus + Büros
+    wwRenderTables(); wwRecalc();
+    const e = document.querySelector('[data-tab="wt1"]'); if (e) e.click();
+    const host = document.getElementById('ww_out_einheiten');
+    const kacheln = [...host.querySelectorAll('.ww-kpi')].map(k => ({
+      v: (k.querySelector('.v') || {}).textContent,
+      l: (k.querySelector('.l') || {}).textContent,
+      s: (k.querySelector('.s') || {}).textContent
+    }));
+    return { kacheln, zeilen: (wwCalc().einheitenZeilen || []).map(z => ({ label: z.label, n: z.n, einheit: z.einheit })),
+             summe: (wwCalc().einheiten || {}) };
+  });
+  const nutz = kach.kacheln.filter(k => !/aus 1\.3/.test(k.s || ''));
+  ok(kach.zeilen.length === 2, '#25: wwCalc liefert eine Zeile je Nutzungseinheit', kach.zeilen);
+  ok(kach.zeilen.every(z => z.n === 40 || z.n === 12),
+    '#25: die Anzahlen bleiben getrennt (40 + 12, nicht 52)', kach.zeilen.map(z => z.n));
+  ok(kach.summe.P === 52, '#25: res.einheiten bleibt als Summe je Einheit erhalten (Bestandsschutz)', kach.summe);
+  ok(nutz.length === 2, '#25: zwei Kacheln statt einer Sammelkachel', nutz);
+  ok(nutz.some(k => /Mehrfamilienhaus/.test(k.l)) && nutz.some(k => /Büros/.test(k.l)),
+    '#25: jede Kachel nennt ihre Nutzungseinheit', nutz.map(k => k.l));
+  ok(nutz.every(k => /\[P\]/.test(k.s || '')),
+    '#25: das Einheiten-Kuerzel steht weiterhin dabei', nutz.map(k => k.s));
 
   ok(errs.length === 0, 'Keine JS-Fehler auf der Seite', errs.slice(0, 3));
 } finally {
