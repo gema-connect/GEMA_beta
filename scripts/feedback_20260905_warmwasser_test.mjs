@@ -35,6 +35,23 @@
  *       fluchten dadurch mit den Verlust-Werten darunter (Kanon Feedback 19.08.2026 #5)
  *   #25 Ergebnis 1.4 zeigt eine Kachel je NUTZUNGSEINHEIT statt einer Sammelzahl je Einheit
  *
+ * Etappe 7 — Tab ③ Feinplanung, 3.3 Warmgehaltene Leitungen:
+ *   #13 Staerke des Warmhaltebands waehlbar (Domotec 6 · Raychem 7 · Systec Therm AG 7.5 mm);
+ *       der Zuschlag laeuft ueber DIESELBE wwRarTab-Treppe wie Rohr-an-Rohr
+ *   #18 Temperaturen je Warmhaltetyp (konv · RaR · WHB) statt EINEM Paar fuer alle;
+ *       RaR/WHB spiegeln die konventionellen Werte, bis eine ECHTE Eingabe sie loest
+ *
+ * Etappe 8 — Tab ③ Feinplanung (3.1 / 3.3 / 3.4):
+ *   #9  Entnahmen je NE mit Vorschlag 2 (auto-Chip) + Rechenweg-Spalte
+ *       perE x entn x n — die Doppelzaehlung wird dadurch sichtbar
+ *   #15 beide Uebernahme-Knoepfe stehen VOR der Tabelle 3.3;
+ *       «⇩ Laengen aus Grobauslegung (2.2)» legt die EINE konventionelle Laenge
+ *       GANZ in den Vorlauf und sagt es im Dialog (GEMA raet die VL/RL-Teilung nicht)
+ *   #23 sichtbare Beschriftung ueber den drei Auswahlfeldern der Feinplanung
+ *       («Nutzungseinheit» / «Hinweis» / «Stundenspitze») +
+ *       «⇩ Als Nutzungseinheiten uebernehmen» in der Grob-Echo-Box;
+ *       zugeordnet wird ueber den NORMWERT (Ø l/d), nicht ueber den Namen
+ *
  * Ausfuehren:  CHROME=<chromium> node scripts/feedback_20260905_warmwasser_test.mjs
  */
 import { readFileSync } from 'node:fs';
@@ -107,6 +124,77 @@ ok(/l Bereitschaft'/.test(WW),                '#3: Unterzeile nennt die Bezugsgr
   const blk = WW.slice(WW.indexOf('id="wwFstoTiles"'), WW.indexOf('id="wwFstoTiles"') + 6000);
   ok(!/var\(--/.test(blk.slice(0, blk.indexOf('</div>\n        </div>') + 40) || blk),
     'Kachel-SVG ohne var()-Farben (literale Hex)');
+}
+
+// ── Etappe 8 · statisch ──────────────────────────────────────────────────────
+
+// #9 — «Entnahmen» meint die Zahl JE Nutzungseinheit, nicht die Gesamtzahl.
+//      Der Screenshot des Kunden zeigt 27.8 = 2 x 13.9 im Feld: die Gesamtzahl
+//      wurde erfasst und danach nochmals mit n multipliziert (Doppelzaehlung).
+{
+  ok(/var WW_ENTN_AUTO=2;/.test(WW), '#9: Vorschlagswert 2 Entnahmen je NE als eigene Konstante');
+  const kopf = (WW.match(/Entnahmen\/NE[\s\S]{0,400}?<\/tr>/) || [''])[0];
+  ok(/Entnahmen\/NE/.test(WW),  '#9: Spaltentitel sagt «/NE» statt nur «Entnahmen»');
+  ok(/Entnahmen JE Nutzungseinheit/.test(WW),
+    '#9: der Kopf-Tooltip benennt die Verwechslung ausdruecklich');
+  ok(/>Rechenweg</.test(kopf), '#9: eigene Rechenweg-Spalte in 3.4', kopf.slice(0, 160));
+  ok(/data-c="weg"/.test(WW),  '#9: Rechenweg-Zelle wird pro Zeile bemalt');
+  ok(/data-c="entnMark"/.test(WW) && /ww-auto-tag/.test(WW),
+    '#9: «auto»-Chip markiert den Vorschlag (kein stiller Default)');
+  ok(/\.ww-auto-tag\{/.test(WW) && /\.ww \.ww-weg\{/.test(WW), '#9: CSS fuer Chip und Rechenweg-Spalte');
+  ok(/eigen\?\(parseFloat\(r\.entnahmen\)\|\|0\):WW_ENTN_AUTO/.test(WW),
+    '#9: eine eigene Eingabe gewinnt IMMER ueber den Vorschlag (Bestandsschutz)');
+}
+
+// #15 — beide Uebernahmen stehen VOR der Tabelle (Muster 3.2, Feedback #21)
+{
+  const i33  = WW.indexOf('3.3 Warmgehaltene Leitungen');
+  const blk  = WW.slice(i33, i33 + 4200);
+  const iGr  = blk.indexOf('wwLeitAusGrob()');
+  const iZk  = blk.indexOf('wwZirkUebernehmen()');
+  const iTab = blk.indexOf('<table');
+  ok(i33 > 0 && iGr > 0 && iZk > 0 && iTab > 0, '#15: Karte 3.3 mit beiden Knoepfen gefunden',
+    { i33, iGr, iZk, iTab });
+  ok(iGr < iTab, '#15: «⇩ Längen aus Grobauslegung» steht VOR der Tabelle', { iGr, iTab });
+  ok(iZk < iTab, '#15: «⇩ aus Zirkulationsberechnung» steht VOR der Tabelle', { iZk, iTab });
+  ok(blk.slice(iTab).indexOf('wwZirkUebernehmen()') < 0,
+    '#15: der Zirkulations-Knopf steht NICHT mehr unter der Tabelle');
+  ok(/window\.wwLeitAusGrob=function/.test(WW), '#15: Uebernahme-Funktion vorhanden');
+  ok(/das ist die GESAMTE Länge aus 2\.2/.test(WW),
+    '#15: der Dialog sagt, dass die eine Länge GANZ in den Vorlauf geht (keine geratene Teilung)');
+}
+
+// #23 — sichtbare Beschriftung + Uebernahme aus der Grobauslegung
+{
+  ok(/<span class="k">Nutzungseinheit<\/span>/.test(WW), '#23: Beschriftung «Nutzungseinheit»');
+  ok(/<span class="k">Hinweis<\/span>/.test(WW),         '#23: Beschriftung «Hinweis»');
+  ok(/<span class="k">Stundenspitze<\/span>/.test(WW),   '#23: Beschriftung «Stundenspitze»');
+  ok(/\.ww-fein-sel\{/.test(WW) && /\.ww-fein-l1\{display:flex;align-items:flex-end/.test(WW),
+    '#23: CSS — Beschriftung waechst nach oben, Felder bleiben auf einer Linie');
+  ok(/window\.wwFeinAusGrob=function/.test(WW), '#23: Uebernahme-Funktion vorhanden');
+  ok(/onclick="wwFeinAusGrob\(\)"/.test(WW),    '#23: Knopf verdrahtet');
+  {
+    const iEcho = WW.indexOf("echo.innerHTML=");
+    const iBtn  = WW.indexOf('wwFeinAusGrob()', iEcho);
+    ok(iEcho > 0 && iBtn > iEcho && iBtn - iEcho < 1400,
+      '#23: der Knopf steht IN der Grob-Echo-Box (dort steht die Auswahl, die uebernommen wird)',
+      { iEcho, iBtn });
+  }
+  const map = (WW.match(/var WW_GROB2FEIN=\[([^\]]*)\]/) || [])[1];
+  ok(!!map, '#23: Zuordnungstabelle GROB → FEIN vorhanden');
+  if (map) {
+    const arr = map.split(',').map(x => x.trim());
+    ok(arr.length === 14, '#23: die Tabelle deckt alle 14 Grob-Nutzungen ab', arr.length);
+    ok(arr[3] === 'null', '#23: «Gastronomie» hat kein Fein-Pendant und wird NICHT geraten', arr[3]);
+    ok(arr[0] === '0' && arr[1] === '3' && arr[13] === '25',
+      '#23: zugeordnet wird ueber den Normwert (EFH→0, MFH→3, Baden→25)', arr.slice(0, 2).concat(arr[13]));
+  }
+  ok(/NICHT übernommen \(kein Pendant in der Feinplanung\)/.test(WW),
+    '#23: eine nicht zuordenbare Zeile wird BENANNT (no-silent-Regel)');
+  ok(/Abweichender Normwert/.test(WW),
+    '#23: eine abweichende Norm-Stufe wird ausgewiesen statt still uebernommen');
+  ok(/altProfil\[r\.ne\]=r\.profil/.test(WW),
+    '#23: eine bereits gewaehlte Stundenspitze ueberlebt das Ersetzen (Kundenwunsch)');
 }
 
 // ─────────────────────────────────────────────────────────────── Browser
@@ -681,6 +769,165 @@ try {
   ok(t4.touch !== '1' && t4.rar[0] === '55' && t4.rar[1] === '15',
     '#18: «↺ auto» holt die konventionellen Werte zurück', t4);
   ok(/auto/.test(t4.mark) && !/↺/.test(t4.mark), '#18: danach steht die Zeile wieder auf «auto»', t4.mark);
+
+  // ── Etappe 8 · Browser ────────────────────────────────────────────────────
+
+  sec('C · Etappe 8 — #9 / #15 / #23');
+
+  // Dialoge abfangen: die drei Uebernahmen melden ueber GemaDialog. Ohne Stub
+  // wuerde der Test auf einen echten Dialog warten.
+  await page.evaluate(() => {
+    window.__dlg = [];
+    window.__dlgAntwort = true;
+    window.GemaDialog = {
+      alert: function (o) { window.__dlg.push(String((o && o.message) || '')); return Promise.resolve(true); },
+      confirm: function (o) { window.__dlg.push('CONFIRM:' + String((o && o.message) || '')); return Promise.resolve(window.__dlgAntwort); },
+      prompt: function () { return Promise.resolve(null); }
+    };
+  });
+
+  // #9 — Vorschlag 2 je NE, «auto»-Chip, Rechenweg
+  const e9 = await page.evaluate(() => {
+    const e = document.querySelector('[data-tab="wt3"]'); if (e) e.click();
+    wwState.ausstoss = [{ kat: 'Wohneinheiten', n: '10', entnahmen: '', zeit: '10' }];
+    wwRenderTables(); wwRecalc();
+    const r = wwCalc().ausstoss[0] || {};
+    const tr = document.querySelector('#wwAusstossBody tr');
+    const chip = tr && tr.querySelector('[data-c="entnMark"]');
+    const weg = tr && tr.querySelector('[data-c="weg"]');
+    return {
+      perE: r.perE, entn: r.entn, n: r.n, tot: r.tot, auto: r.auto,
+      chip: chip ? getComputedStyle(chip).display : 'fehlt',
+      weg: weg ? weg.textContent.trim() : ''
+    };
+  });
+  ok(e9.entn === 2 && e9.auto === true,
+    '#9: ein leeres Feld nimmt den Vorschlag 2 Entnahmen je NE', e9);
+  ok(Math.abs(e9.tot - e9.perE * 2 * e9.n) < 1e-9,
+    '#9: gerechnet wird perE × Entnahmen je NE × Anzahl NE', e9);
+  ok(e9.chip !== 'none' && e9.chip !== 'fehlt', '#9: der «auto»-Chip ist sichtbar', e9.chip);
+  ok(/×/.test(e9.weg) && e9.weg.split('×').length === 3,
+    '#9: die Rechenweg-Zelle zeigt alle drei Faktoren', e9.weg);
+
+  const e9b = await page.evaluate(() => {
+    wwState.ausstoss[0].entnahmen = '5';
+    wwRenderTables(); wwRecalc();
+    const r = wwCalc().ausstoss[0] || {};
+    const chip = document.querySelector('#wwAusstossBody [data-c="entnMark"]');
+    return { entn: r.entn, auto: r.auto, tot: r.tot, perE: r.perE, n: r.n,
+             chip: chip ? getComputedStyle(chip).display : 'fehlt' };
+  });
+  ok(e9b.entn === 5 && e9b.auto === false, '#9: eine eigene Eingabe gewinnt', e9b);
+  ok(e9b.chip === 'none', '#9: der «auto»-Chip verschwindet bei eigener Eingabe', e9b.chip);
+  ok(Math.abs(e9b.tot - e9b.perE * 5 * e9b.n) < 1e-9,
+    '#9: der eigene Wert geht in dieselbe Rechnung', e9b);
+
+  // #15 — die eine konventionelle Laenge aus 2.2 geht GANZ in den Vorlauf
+  const e15 = await page.evaluate(async () => {
+    window.__dlg = [];
+    const set = (id, v) => { const el = document.getElementById(id); el.value = v;
+      el.dispatchEvent(new Event('input', { bubbles: true })); };
+    set('ww_lKonv', '40'); set('ww_lRar', '12'); set('ww_lWhb', '7');
+    set('ww_lVL', '0'); set('ww_lRL', '0'); set('ww_lRarF', '0'); set('ww_lWhbF', '0');
+    wwLeitAusGrob();
+    await new Promise(r => setTimeout(r, 60));
+    const v = id => document.getElementById(id).value;
+    return { vl: v('ww_lVL'), rl: v('ww_lRL'), rar: v('ww_lRarF'), whb: v('ww_lWhbF'),
+             txt: (window.__dlg[0] || '') };
+  });
+  ok(e15.vl === '40', '#15: die konventionelle Länge landet GANZ im Vorlauf', e15);
+  ok(e15.rar === '12' && e15.whb === '7', '#15: RaR und Warmhalteband werden mit übernommen', e15);
+  ok(e15.rl === '0', '#15: der Rücklauf wird NICHT geraten (bleibt unverändert)', e15);
+  ok(/GESAMTE Länge/.test(e15.txt) && /Rücklauf/.test(e15.txt),
+    '#15: der Dialog erklärt die Vor-/Rücklauf-Aufteilung', e15.txt.slice(0, 200));
+  ok(/40/.test(e15.txt) && /12/.test(e15.txt) && /7/.test(e15.txt),
+    '#15: der Dialog nennt jeden übernommenen Wert', e15.txt.slice(0, 240));
+
+  const e15b = await page.evaluate(async () => {
+    window.__dlg = []; window.__dlgAntwort = false;   // «Abbrechen» → nichts ersetzen
+    wwLeitAusGrob();
+    await new Promise(r => setTimeout(r, 60));
+    const first = window.__dlg[0] || '';
+    window.__dlgAntwort = true;
+    return { confirm: /^CONFIRM:/.test(first), vl: document.getElementById('ww_lVL').value };
+  });
+  ok(e15b.confirm, '#15: bei bereits erfassten Längen wird vor dem Ersetzen gefragt', e15b);
+  ok(e15b.vl === '40', '#15: «Abbrechen» lässt die erfassten Längen unangetastet', e15b);
+
+  // #23 — Beschriftung sichtbar + Uebernahme aus der Grobauslegung
+  // Die Feinplanung liegt in Tab ③ — Geometrie lässt sich nur an einem
+  // SICHTBAREN Element messen (versteckt liefert getBoundingClientRect() Nullen).
+  await page.evaluate(() => {
+    wwState.fein = [{ ne: 3, n: '50', profil: 'wohnbau' }];
+    wwRenderTables(); wwRecalc();
+    const t = document.querySelector('[data-tab="wt3"]'); if (t) t.click();
+  });
+  await page.waitForTimeout(300);
+
+  const e23 = await page.evaluate(() => {
+    // die Zeilen der Feinplanung sind <div data-kind>, kein <tr>
+    const tr = document.querySelector('#wwFeinBody [data-kind]');
+    const l1 = tr && tr.querySelector('.ww-fein-l1');
+    const caps = l1 ? [].map.call(l1.querySelectorAll('.ww-fein-sel .k'), n => n.textContent.trim()) : [];
+    const sel = l1 ? l1.querySelectorAll('select') : [];
+    const boxen = [].map.call(sel, s => s.getBoundingClientRect());
+    const capB = l1 ? [].map.call(l1.querySelectorAll('.ww-fein-sel .k'), n => n.getBoundingClientRect()) : [];
+    return {
+      caps: caps,
+      selN: sel.length,
+      // die Beschriftung steht ÜBER dem Feld, nicht daneben
+      ueber: capB.length === 3 && boxen.length === 3 &&
+             capB.every((c, i) => c.bottom <= boxen[i].top + 1),
+      // alle drei Felder stehen auf derselben Linie
+      linie: boxen.length === 3 && Math.abs(boxen[0].top - boxen[1].top) < 2 &&
+             Math.abs(boxen[1].top - boxen[2].top) < 2,
+      breit: boxen.length === 3 && boxen.every(b => b.width > 120)
+    };
+  });
+  ok(e23.caps.join('|') === 'Nutzungseinheit|Hinweis|Stundenspitze',
+    '#23: alle drei Auswahlfelder tragen eine sichtbare Beschriftung', e23.caps);
+  ok(e23.ueber, '#23: die Beschriftung steht ÜBER ihrem Feld', e23);
+  ok(e23.linie, '#23: die drei Felder fluchten weiterhin auf einer Linie', e23);
+  ok(e23.breit, '#23: kein Feld wird durch die Beschriftung gequetscht', e23);
+
+  const e23b = await page.evaluate(async () => {
+    window.__dlg = [];
+    // Grobauslegung: EFH (0) · Gastronomie (3, kein Pendant) · Cafeteria (4, 15 → 20 l/d)
+    wwState.grob = [{ ne: 0, n: '4' }, { ne: 3, n: '2' }, { ne: 4, n: '30' }];
+    wwState.fein = [{ ne: 3, n: '50', profil: 'wohnbau' }];   // MFH bereits erfasst
+    wwRenderTables(); wwRecalc();
+    window.__dlgAntwort = true;                                 // «Ersetzen»
+    wwFeinAusGrob();
+    await new Promise(r => setTimeout(r, 80));
+    return {
+      rows: wwState.fein.map(r => ({ ne: r.ne, n: r.n, profil: r.profil })),
+      txt: window.__dlg.join('\n')
+    };
+  });
+  ok(e23b.rows.length === 2, '#23: nur die zuordenbaren Zeilen werden übernommen', e23b.rows);
+  ok(e23b.rows[0] && e23b.rows[0].ne === 0 && e23b.rows[0].n === '4',
+    '#23: EFH 4 P wandert 1:1 in die Feinplanung', e23b.rows[0]);
+  ok(e23b.rows[1] && e23b.rows[1].ne === 6 && e23b.rows[1].n === '30',
+    '#23: Cafeteria landet auf der kleinsten Fein-Stufe (Normwert 20 l/d)', e23b.rows[1]);
+  ok(/Gastronomie/.test(e23b.txt) && /NICHT übernommen/.test(e23b.txt),
+    '#23: die nicht zuordenbare Zeile wird namentlich BENANNT', e23b.txt.slice(0, 400));
+  ok(/Abweichender Normwert/.test(e23b.txt) && /15 → 20/.test(e23b.txt),
+    '#23: die abweichende Norm-Stufe wird ausgewiesen', e23b.txt.slice(0, 500));
+  ok(/Stundenspitzen-Profil bleibt Ihre Wahl/.test(e23b.txt),
+    '#23: der Dialog sagt, dass die Stundenspitze Sache des Planers bleibt');
+
+  const e23c = await page.evaluate(async () => {
+    window.__dlg = [];
+    wwState.fein = [{ ne: 0, n: '4', profil: 'hotel' }];        // eigene Wahl der Stundenspitze
+    wwState.grob = [{ ne: 0, n: '9' }];
+    wwRenderTables(); wwRecalc();
+    window.__dlgAntwort = true;
+    wwFeinAusGrob();
+    await new Promise(r => setTimeout(r, 80));
+    return wwState.fein.map(r => ({ ne: r.ne, n: r.n, profil: r.profil }));
+  });
+  ok(e23c.length === 1 && e23c[0].n === '9' && e23c[0].profil === 'hotel',
+    '#23: die bereits gewählte Stundenspitze überlebt das Ersetzen', e23c);
 
   ok(errs.length === 0, 'Keine JS-Fehler auf der Seite', errs.slice(0, 3));
 } finally {
