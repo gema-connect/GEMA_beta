@@ -21,7 +21,7 @@
 //         sb_niederschlag),
 //     (5) K-Wert wählbar (inkl. frei) + Dauerbelastung Qc,
 //     (6) Apparate nach DU-Wert gruppiert mit Gruppensummen,
-//     (7) Schritt-Nummern 1)–4) an den Karten,
+//     (7) Schritt-Nummern an den Karten (seit 05.09.2026 «1.»–«4.», neue Reihenfolge),
 //     (8) Druckverlust-Diagramm (Hvj-Kurve + v-Gerade + Betriebspunkt).
 //
 // Aufruf: CHROME=<chromium> node scripts/feedback_20260806_1_test.mjs
@@ -87,9 +87,15 @@ console.log('■ B: Statik — Abwasserhebeanlage');
   ok(tabs[0] === 'Hebeanlage' && tabs[1] === 'Schacht' && tabs[2] === 'Pumpendruckleitung',
     '#3: Tab-Reihenfolge Hebeanlage · Schacht · Pumpendruckleitung', tabs);
 }
-ok(/<h2>1\) Eingangsdaten<\/h2>/.test(hb) && /<h2>2\) Angeschlossene Apparate<\/h2>/.test(hb) &&
-   /<h2>3\) Schachtvolumen<\/h2>/.test(hb) && /<h2>4\) Pumpendruckleitung &amp; Druckverlust<\/h2>/.test(hb),
-  '#7: Schritt-Nummern 1)–4) an den vier Karten');
+/* NACHGEZOGEN 05.09.2026 (Feedback #4 «Nummerierung wie bei anderen Modulen»):
+   «N)» erkennt gema_sektion.js NICHT — nur «N. » wird zum .gsek-nr-Chip adoptiert.
+   Dazu stehen die Apparate seit dem Feedback VOR den Eingangsdaten (#4 «grün: Angeschlossene
+   Apparate als erstes»), die Nummern 1./2. sind also getauscht. Geprüft wird die neue
+   Reihenfolge; die alte Schreibweise «N)» darf nicht zurückkommen. */
+ok(/<h2>1\. Angeschlossene Apparate<\/h2>/.test(hb) && /<h2>2\. Eingangsdaten<\/h2>/.test(hb) &&
+   /<h2>3\. Schachtvolumen<\/h2>/.test(hb) && /<h2>4\. Pumpendruckleitung &amp; Druckverlust<\/h2>/.test(hb) &&
+   !/<h2>\d\) /.test(hb),
+  '#7: Schritt-Nummern 1.–4. an den vier Karten (Punkt-Schreibweise, neue Reihenfolge)');
 ok(/data-schunit="m"/.test(hb) && /data-schunit="cm"/.test(hb) && /function schToM\(/.test(hb) &&
    /function schFromM\(/.test(hb) && /function setSchUnit\(/.test(hb),
   '#1: m/cm-Umschalter für die Schachtmasse');
