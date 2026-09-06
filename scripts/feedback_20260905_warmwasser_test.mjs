@@ -12,6 +12,11 @@
  *   #11 Zeit-Select schneidet «Standard (10 s)» nicht mehr ab
  *   #12 Beschriftung + Hinweis nebeneinander, kleines Auswahlfeld, Schnellwahl 10/15 s
  *
+ * Etappe 3 — Tab ③ Feinplanung, 3.3 Warmgehaltene Leitungen:
+ *   #14 kWh/d je Zeile in der Farbe ihrer Leitungsart (Kanon 2.2)
+ *   #17 ø-Auswahl folgt dem Material (PEX 12/16/20/25/32 · CNS 15…108),
+ *       gespeicherter ø ausserhalb der Reihe bleibt als «(bisherig)» waehlbar
+ *
  * Ausfuehren:  CHROME=<chromium> node scripts/feedback_20260905_warmwasser_test.mjs
  */
 import { readFileSync } from 'node:fs';
@@ -227,6 +232,79 @@ try {
   ok(nach2.chips.join(',') === '10:-,15:a', '#12: die aktive Marke wandert mit', nach2.chips);
   ok(/Standard \(15 s\)/.test(nach2.std),
     '#12: die Zeilen uebernehmen den neuen Standard (change wurde gefeuert)', nach2.std);
+
+  /* ── Etappe 3 · 3.3 Warmgehaltene Leitungen (#14, #17) ── */
+  console.log('\n── Etappe 3 · 3.3 Warmgehaltene Leitungen ──');
+
+  // #14 — die kWh/d tragen die Farbe ihrer Leitungsart (exakt die Farbpunkt-Toene aus 2.2)
+  const farb = await page.evaluate(() => {
+    const c = id => {
+      const e = document.getElementById(id);
+      if (!e) return null;
+      const dot = e.closest('tr').querySelector('.ww-cdot');
+      return { zelle: getComputedStyle(e).color, punkt: dot ? getComputedStyle(dot).backgroundColor : null };
+    };
+    return { vl: c('ww_out_qVL'), rl: c('ww_out_qRL'), rar: c('ww_out_qRarF'), whb: c('ww_out_qWhbF') };
+  });
+  ok(farb.vl && farb.vl.zelle === 'rgb(217, 119, 6)', '#14: Vorlauf konventionell amber (#d97706)', farb.vl);
+  ok(farb.rl && farb.rl.zelle === 'rgb(217, 119, 6)', '#14: Ruecklauf konventionell amber (#d97706)', farb.rl);
+  ok(farb.rar && farb.rar.zelle === 'rgb(220, 38, 38)', '#14: Rohr-an-Rohr rot (#dc2626)', farb.rar);
+  ok(farb.whb && farb.whb.zelle === 'rgb(37, 99, 235)', '#14: Warmhalteband blau (#2563eb)', farb.whb);
+  ok(['vl', 'rl', 'rar', 'whb'].every(k => farb[k] && farb[k].zelle === farb[k].punkt),
+    '#14: die Wertfarbe ist EXAKT der Farbpunkt der Zeile (kein zweiter Farbkanon)',
+    Object.keys(farb).map(k => k + ':' + (farb[k] && farb[k].zelle === farb[k].punkt)).join(' '));
+
+  // #17 — ø-Reihe folgt dem Material
+  const dims = id => page.evaluate(i => [...document.getElementById(i).options].map(o => o.value).join(','), id);
+
+  ok(await dims('ww_oeVL') === '15,18,22,28,35,42,54,64,76.1,108',
+    '#17: CNS zeigt die Edelstahl-Reihe (76.1 statt der nicht existierenden 78.1)', await dims('ww_oeVL'));
+  ok(await dims('ww_oeRarRL') === '15,18,22,28,35,42,54,64,76.1,108',
+    '#17: auch RaR-RL folgt dem Material (die alte Sonderliste 12…63 ist weg)', await dims('ww_oeRarRL'));
+
+  await page.evaluate(() => {
+    const m = document.getElementById('ww_matRL');
+    m.value = 'pex';
+    m.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await page.waitForTimeout(200);
+  // synthetisch (isTrusted false) = Boot/Restore-Pfad → kein Klemmen, Wert bleibt
+  const pex = await page.evaluate(() => {
+    const s = document.getElementById('ww_oeRL');
+    return {
+      opts: [...s.options].map(o => o.value).join(','),
+      val: s.value,
+      alt: [...s.options].filter(o => o.classList.contains('ww-oe-alt')).map(o => o.textContent).join('|')
+    };
+  });
+  ok(pex.opts.indexOf('12,16,20,25,32') === 0, '#17: PEX zeigt 12/16/20/25/32', pex.opts);
+  ok(pex.val === '22' && /22 \(bisherig\)/.test(pex.alt),
+    '#17: der gespeicherte ø 22 bleibt als «(bisherig)» erhalten (Bestandsschutz, kein stilles Kappen)', pex);
+
+  /* echte Benutzer-Wahl → klemmt auf den naechstgroesseren Wert der Reihe.
+     KRITISCH: page.selectOption() feuert ein SYNTHETISCHES change (isTrusted false)
+     und traefe damit den Restore-Pfad von oben. Eine echte Wahl entsteht im Test nur
+     ueber die CDP-Tastatur (Kanon: HX_KLIMA-Stationswahl in lt_hx_diagramm). */
+  await page.focus('#ww_matWhb');
+  await page.keyboard.press('ArrowDown');
+  await page.waitForTimeout(200);
+  const whb = await page.evaluate(() => {
+    const s = document.getElementById('ww_oeWhb');
+    return { opts: [...s.options].map(o => o.value).join(','), val: s.value };
+  });
+  ok(whb.opts === '12,16,20,25,32', '#17: echte Wahl baut die Reihe ohne Alt-Option um', whb.opts);
+  ok(whb.val === '25', '#17: der ø 22 klemmt auf den naechstgroesseren PEX-Wert 25', whb.val);
+
+  await page.focus('#ww_matWhb');
+  await page.keyboard.press('ArrowUp');
+  await page.waitForTimeout(200);
+  ok(await dims('ww_oeWhb') === '15,18,22,28,35,42,54,64,76.1,108',
+    '#17: zurueck auf CNS stellt die Edelstahl-Reihe wieder her', await dims('ww_oeWhb'));
+
+  // Rechenkette unveraendert: ein PEX-ø ohne eigenen Faktor nimmt den naechstgroesseren Tabellenwert
+  const faktor = await page.evaluate(() => ({ f12: wwOeFaktor(12), f15: wwOeFaktor(15), f16: wwOeFaktor(16), f18: wwOeFaktor(18) }));
+  ok(faktor.f12 === faktor.f15, '#17: PEX 12 nimmt den naechstgroesseren Faktor (15) — kein erfundener Zwischenwert', faktor);
+  ok(faktor.f16 === faktor.f18, '#17: PEX 16 unveraendert auf dem 18er-Faktor (Bestandsverhalten)', faktor);
 
   ok(errs.length === 0, 'Keine JS-Fehler auf der Seite', errs.slice(0, 3));
 } finally {
