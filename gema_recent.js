@@ -104,6 +104,7 @@
     'sb_regenwasser_luzern':'Regenwasser Luzern',
     'sb_vonroll':'Von-Roll Tabellen',
     'sb_warmwasser':'Warmwasser SIA 385',
+    'sb_summenlinien':'Summenliniendiagramm',
     'sb_zirkulation':'Zirkulationsberechnung',
     'sd_schadensbericht':'Schadensberichte',
     'sp_dachbericht':'Dachinspektion',
