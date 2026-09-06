@@ -2653,29 +2653,65 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('zirk
       kids[r.nr]=[r.e,r.f].map(function(c){return parseInt(c,10);}).filter(function(c){return c&&byNr[c];});
       kids[r.nr].forEach(function(c){parentOf[c]=r.nr;});
     });
-    // DFS ab Root: Tiefe, Reihenfolge, y über Leaf-Slots (innere Knoten mittig über den Kindern)
-    var depth={},posY={},order=[],seen={},leafSlots=0,maxDepth=0;
-    (function walk(nr,dp){
+    /* DFS ab Root — Feedback 05.09.2026 #1 «Abgänge nach Zuordnung der Teilstrecken
+       logisch verteilen»: Die Tabelle sagt es bereits (Tooltip der Spalte
+       «angeschlossene Teilstrecken»): TS 1 = FORTSETZUNG des Strangs, TS 2 =
+       ABGANG. Genau so wird jetzt auch gezeichnet — die Fortsetzung steigt in
+       DERSELBEN Spalte weiter (eine durchgehende Steigleitung), nur der Abgang
+       bekommt eine eigene Spalte. Früher sass ein innerer Knoten mittig ÜBER
+       seinen Kindern (Mittelwert der Leaf-Slots); dadurch liefen die waagrechten
+       Verbinder nach BEIDEN Seiten und kreuzten quer durchs Bild.
+       «vom Wassererwärmer nach links … einen Abgang»: ein Abgang, der direkt am
+       Root hängt und selbst keine Kinder hat, bekommt Slot -1 und wird damit
+       LINKS der Steigleitung gezeichnet (zwischen RV und Pumpe); slotMin
+       normalisiert danach auf 0. */
+    var depth={},posY={},order=[],seen={},maxDepth=0,slotNext=0;
+    (function walk(nr,dp,slot){
       if(seen[nr])return;
-      seen[nr]=1;depth[nr]=dp;maxDepth=Math.max(maxDepth,dp);order.push(nr);
+      seen[nr]=1;depth[nr]=dp;maxDepth=Math.max(maxDepth,dp);order.push(nr);posY[nr]=slot;
       var ks=kids[nr]||[];
-      if(!ks.length){posY[nr]=leafSlots++;return;}
-      ks.forEach(function(c){walk(c,dp+1);});
-      var ys=ks.filter(function(c){return posY[c]!=null;}).map(function(c){return posY[c];});
-      posY[nr]=ys.length?ys.reduce(function(a,b){return a+b;},0)/ys.length:leafSlots++;
-    })(res.root,0);
+      ks.forEach(function(c,idx){
+        if(seen[c])return;
+        if(idx===0){walk(c,dp+1,slot);return;}            // Fortsetzung: gleiche Spalte
+        var links=(nr===res.root)&&!(kids[c]||[]).length;  // Abgang am Erwärmer → nach links
+        walk(c,dp+1,links?-1:++slotNext);
+      });
+    })(res.root,0,0);
     var unreach=rows.filter(function(r){return !seen[r.nr];}).map(function(r){return r.nr;});
-    // Geometrie — GEDREHT (Feedback 06.08.2026: «Darstellung drehen, von
-    // unten nach oben»): Erwärmer + RV + Pumpe unten, die Leitungen steigen
-    // wie Steigzonen nach oben; jede End-TS endet oben mit Drosselventil +
-    // Strang-Chip. Slots = ehemalige Leaf-Zeilen, jetzt Spalten.
-    var topPad=150, levH=70;
+    var slotMin=0;order.forEach(function(nr){slotMin=Math.min(slotMin,posY[nr]);});
+    var leafSlots=slotNext-slotMin+1;
+    /* Geometrie — GEDREHT (Feedback 06.08.2026: «Darstellung drehen, von
+       unten nach oben»): Erwärmer + RV + Pumpe unten, die Leitungen steigen
+       wie Steigzonen nach oben; jede End-TS endet oben mit Drosselventil +
+       Strang-Chip.
+       Feedback 05.09.2026 #1 «Wenn Länge unterschiedlich soll dies ersichtlich
+       sein»: die Höhe einer Teilstrecke ist NICHT mehr ein fixes Raster
+       (früher levH=70 pro Ebene), sondern folgt ihrer LÄNGE. LEN_MIN hält auch
+       eine sehr kurze TS sicht- und beschriftbar, LEN_MAX deckelt die längste;
+       gleich lange Teilstrecken sehen damit weiterhin gleich aus. Bei sehr
+       tiefen Netzen staucht `komp` ALLE Längen gleichmässig — die relativen
+       Unterschiede bleiben dadurch erhalten. */
+    var LEN_MIN=38, LEN_MAX=96, PX_MAX=560;
+    var lenMax=0;order.forEach(function(nr){var l=parseFloat(byNr[nr].len)||0;if(l>lenMax)lenMax=l;});
+    function lenPx0(nr){
+      var l=parseFloat(byNr[nr].len)||0;
+      if(!(lenMax>0))return LEN_MIN;
+      return LEN_MIN+Math.max(0,Math.min(1,l/lenMax))*(LEN_MAX-LEN_MIN);
+    }
+    var depthPx0={};
+    order.forEach(function(nr){
+      depthPx0[nr]=(nr===res.root?0:depthPx0[parentOf[nr]])+lenPx0(nr);
+    });
+    var maxPx0=0;order.forEach(function(nr){if(depthPx0[nr]>maxPx0)maxPx0=depthPx0[nr];});
+    var komp=maxPx0>PX_MAX?PX_MAX/maxPx0:1;
+    var depthPx={};order.forEach(function(nr){depthPx[nr]=depthPx0[nr]*komp;});
+    var topPad=150;
     var x0=190, colW=180;
-    var yBase=topPad+(maxDepth+1)*levH;
+    var yBase=topPad+maxPx0*komp;
     var Hgt=Math.max(330,yBase+80);
     var W=Math.max(760,x0+leafSlots*colW+40);
-    function X(nr){return x0+posY[nr]*colW;}
-    function Y(nr){return yBase-(depth[nr]+1)*levH;}
+    function X(nr){return x0+(posY[nr]-slotMin)*colW;}
+    function Y(nr){return yBase-depthPx[nr];}
     // Temperatur-Spanne für die Farbskala
     var tmin=null,tmax=null;
     order.forEach(function(nr){
@@ -2753,8 +2789,19 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('zirk
       // Fliessrichtungs-Pfeil Richtung Pumpe (Zirkulation fliesst abwärts zum Erwärmer)
       var ay=(y1+y2)/2;
       s+='<path d="M'+(x2-4)+' '+(ay-4)+' L'+x2+' '+(ay+4)+' L'+(x2+4)+' '+(ay-4)+'" fill="none" stroke="#ffffff" stroke-width="1.6"/>';
+      /* T-Stück sichtbar machen (Feedback 05.09.2026 #1 «Darstellung optimieren
+         und Styl ändern»): ein gefüllter Punkt sitzt dort, wo sich der Strang
+         wirklich teilt — also nur bei einem Elternknoten mit mehr als einem
+         Kind; eine blosse Fortsetzung ist kein Abzweig. Zwei Kinder zeichnen
+         denselben Punkt zweimal an dieselbe Stelle (deckungsgleich, harmlos). */
+      if(nr!==res.root&&(kids[parentOf[nr]]||[]).length>1)
+        s+='<circle cx="'+x1+'" cy="'+y1.toFixed(1)+'" r="4.6" fill="#0f172a"/>';
       // TS-Label (klickbar → Tabellenzeile) — rechts neben der Steigleitung
-      var lbl='TS '+nr+' · DN '+r.dn+(o.pipeErr?' ⚠':'');
+      /* Feedback 05.09.2026 #1 «Wenn Länge unterschiedlich soll dies ersichtlich
+         sein»: die Länge steht jetzt AM Label — die Höhe der Leitung zeigt sie,
+         die Zahl belegt sie. Der Präfix «TS n · DN x» bleibt unverändert
+         (berechnungs_schema_test sucht ihn per indexOf). */
+      var lbl='TS '+nr+' · DN '+r.dn+' · '+fmt(parseFloat(r.len)||0,1)+' m'+(o.pipeErr?' ⚠':'');
       s+='<g data-zkziel="ts|'+nr+'" style="cursor:pointer">'
         +'<rect x="'+(x2+7)+'" y="'+(ay+6)+'" width="'+(Math.round(lbl.length*5.6)+10)+'" height="15" rx="4" fill="#ffffff" opacity="0.82"/>'
         +'<text x="'+(x2+12)+'" y="'+(ay+17)+'" font-size="9.5" font-weight="700" fill="'+(o.pipeErr?'#dc2626':'#475569')+'">'+esc(lbl)+'</text></g>';
@@ -2763,10 +2810,17 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('zirk
       if(st){
         /* Regulierventil NACH der Volumenstromtrennung (Feedback 06.08.2026):
            direkt über dem Abzweig aus der Sammelleitung, nicht am Strang-Ende —
-           dort sitzt es auch in der Anlage. */
-        var yVent=Math.min(y1-24,(y1+y2)/2+18);
+           dort sitzt es auch in der Anlage.
+           Feedback 05.09.2026 #1 «Die Regelventile immer gleich nach dem T-Stück
+           darstellen»: das Symbol sass bisher auf halber Strangöhe; es sitzt
+           jetzt unmittelbar ÜBER dem Abzweigpunkt (y1). Das Symbol ragt durch
+           rotate(-90) um 24 px nach OBEN — die Klemme hält es auf der Leitung,
+           auch wenn die Teilstrecke sehr kurz gezeichnet ist. Die Beschriftung
+           steht LINKS der Steigleitung, das TS-Label rechts: so überlagern sie
+           sich auch bei kurzen Strängen nie. */
+        var yVent=Math.min(y1-2,Math.max(y2+26,y1-6));
         s+='<g transform="translate('+x2+','+yVent.toFixed(1)+') rotate(-90)"><path d="M0 -7 L12 0 L0 7 Z M24 -7 L12 0 L24 7 Z" fill="'+col+'"/></g>';
-        s+='<text x="'+(x2+16)+'" y="'+(yVent-11).toFixed(1)+'" font-size="8.5" font-weight="700" fill="#64748b">Reg.-Ventil</text>';
+        s+='<text x="'+(x2-10)+'" y="'+(yVent-9).toFixed(1)+'" text-anchor="end" font-size="8.5" font-weight="700" fill="#64748b">Reg.-Ventil</text>';
         var isMax=maxS&&maxS.name===st.name;
         var badKv=st.kv==null&&st.dpDr<0;
         var chipTxt='Strang '+st.name+(isMax?' ★':'')+' · '+(badKv?'Drossel —':'KV '+fmt(st.kv,0)+' l/h');

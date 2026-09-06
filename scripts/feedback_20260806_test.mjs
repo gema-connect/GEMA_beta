@@ -57,8 +57,17 @@ ok(/class="zk-anschl"/.test(zk) && /angeschlossene Teilstrecken/.test(zk),
   '#4: Detail-Block «angeschlossene Teilstrecken» mit eigenem Titel');
 ok(/<option value="kon"[^>]*>konventionell<\/option>/.test(zk) && />Rohr an Rohr<\/option>/.test(zk),
   '#4: Bauart ausgeschrieben (konventionell / Rohr an Rohr)');
-ok(/yBase-\(depth\[nr\]\+1\)\*levH/.test(zk),
-  '#5: Schema-Y wächst nach OBEN (yBase − Tiefe·levH — von unten nach oben)');
+/* Guard-Nachzug 05.09.2026 (Kanon «bewusst übersteuertes Feedback wird
+   invertiert/nachgezogen, nicht gelöscht»): Feedback 06.08.2026 #5 verlangte
+   «von unten nach oben» — das gilt unverändert. Die damals geprüfte FORMEL
+   `yBase-(depth[nr]+1)*levH` gibt es aber nicht mehr: Feedback 05.09.2026 #1
+   («Wenn Länge unterschiedlich soll dies ersichtlich sein») hat das feste
+   Ebenen-Raster durch eine LÄNGEN-proportionale Höhe ersetzt. Geprüft wird
+   darum die Absicht statt des Wortlauts — dass Y von yBase aus nach oben
+   abgetragen wird. Die eigentliche Zusicherung von #5 ist ohnehin die
+   GEOMETRISCHE Messung weiter unten (TS 3 über TS 1, RV zuunterst). */
+ok(/function Y\(nr\)\{return yBase-depthPx\[nr\];\}/.test(zk),
+  '#5: Schema-Y wächst nach OBEN (yBase − Länge — von unten nach oben)');
 
 console.log('■ A: Statik — Osmose');
 ok(/addConsumerRow\("Verbraucher 1"/.test(os) && !/addConsumerRow\("Verbraucher 2"/.test(os),
