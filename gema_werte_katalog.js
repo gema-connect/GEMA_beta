@@ -15,7 +15,7 @@
  * wenn der Admin das Werkzeug oeffnet) — sie ist zu gross, um auf jeder
  * Berechnungsseite mitzulaufen.
  *
- * Stand: 1457 Werte in 48 Modulen.
+ * Stand: 1485 Werte in 48 Modulen.
  */
 (function (w) {
   'use strict';
@@ -150,18 +150,36 @@
     "quelle": "gema_abwasserhebeanlage__<objektId>"
    },
    {
-    "id": "abwasserhebeanlage.sch_res",
-    "feld": "sch_res",
-    "label": "Reservevolumen (Höhe)",
+    "id": "abwasserhebeanlage.sch_tschalt",
+    "feld": "sch_tschalt",
+    "label": "Schaltspielzeit tSchalt",
     "art": "eingabe",
     "typ": "zahl",
-    "einheit": "m",
+    "einheit": "s",
+    "quelle": "gema_abwasserhebeanlage__<objektId>"
+   },
+   {
+    "id": "abwasserhebeanlage.sch_fres",
+    "feld": "sch_fres",
+    "label": "Reservefaktor fres",
+    "art": "eingabe",
+    "typ": "zahl",
+    "einheit": "%",
     "quelle": "gema_abwasserhebeanlage__<objektId>"
    },
    {
     "id": "abwasserhebeanlage.sch_nutz",
     "feld": "sch_nutz",
     "label": "Nutzvolumen (Höhe)",
+    "art": "eingabe",
+    "typ": "zahl",
+    "einheit": "m",
+    "quelle": "gema_abwasserhebeanlage__<objektId>"
+   },
+   {
+    "id": "abwasserhebeanlage.sch_res",
+    "feld": "sch_res",
+    "label": "Reservevolumen (Höhe)",
     "art": "eingabe",
     "typ": "zahl",
     "einheit": "m",
@@ -197,6 +215,15 @@
     "unsicher": true
    },
    {
+    "id": "abwasserhebeanlage.sch_res_src",
+    "feld": "sch_res_src",
+    "label": "Sch src",
+    "art": "ergebnis",
+    "typ": "zahl",
+    "einheit": "Liter",
+    "unsicher": true
+   },
+   {
     "id": "abwasserhebeanlage.v_res",
     "feld": "v_res",
     "label": "Reservevolumen",
@@ -209,8 +236,7 @@
     "feld": "v_res_u",
     "label": "Reservevolumen",
     "art": "ergebnis",
-    "typ": "zahl",
-    "einheit": "Liter"
+    "typ": "zahl"
    }
   ]
  },
@@ -5066,7 +5092,7 @@
     "label": "80 l ≙ 24.9 kg · 140 l ≙ 43.5 kg N2 (300 bar)",
     "art": "eingabe",
     "typ": "auswahl",
-    "einheit": "Liter",
+    "einheit": "l",
     "quelle": "gema_gasloeschung__<objektId>"
    },
    {
@@ -7357,6 +7383,15 @@
     "quelle": "gema_kreisprofil__<objektId>"
    },
    {
+    "id": "kreisprofil.kp_abzug",
+    "feld": "kp_abzug",
+    "label": "Wandstärke s der Innenbeschichtung — beidseitig: Di,eff = Di − 2·s",
+    "art": "eingabe",
+    "typ": "zahl",
+    "einheit": "mm",
+    "quelle": "gema_kreisprofil__<objektId>"
+   },
+   {
     "id": "kreisprofil.kp_out_nu",
     "feld": "kp_out_nu",
     "label": "Kinematische Zähigkeit ν",
@@ -7371,16 +7406,23 @@
     "typ": "zahl"
    },
    {
+    "id": "kreisprofil.kp_out_dieff",
+    "feld": "kp_out_dieff",
+    "label": "Wirksamer Innendurchmesser Di,eff Di,eff = Di − 2·s",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
     "id": "kreisprofil.kp_out_av",
     "feld": "kp_out_av",
-    "label": "Rohrquerschnitt Av Av = π·Di²/4",
+    "label": "Rohrquerschnitt Av Av = π·Di,eff²/4",
     "art": "ergebnis",
     "typ": "zahl"
    },
    {
     "id": "kreisprofil.kp_out_uv",
     "feld": "kp_out_uv",
-    "label": "Rohrumfang Uv Uv = π·Di",
+    "label": "Rohrumfang Uv Uv = π·Di,eff",
     "art": "ergebnis",
     "typ": "zahl"
    },
@@ -7401,7 +7443,7 @@
    {
     "id": "kreisprofil.kp_out_q07",
     "feld": "kp_out_q07",
-    "label": "Max. Abflusswert bei Füllgrad 0.7 Q0.7 = 0.84 · Qv",
+    "label": "Max. Abflusswert bei Füllgrad h/Di = 0.7 Q0.7 = 0.84 · Qv",
     "art": "ergebnis",
     "typ": "zahl"
    }
@@ -9776,6 +9818,14 @@
     "quelle": "gema_schlammsammler__<objektId>"
    },
    {
+    "id": "schlammsammler.abgangDN",
+    "feld": "abgangDN",
+    "label": "Abgangsdimension",
+    "art": "eingabe",
+    "typ": "auswahl",
+    "quelle": "gema_schlammsammler__<objektId>"
+   },
+   {
     "id": "schlammsammler.sludgeDepth",
     "feld": "sludgeDepth",
     "label": "Schlammraumtiefe",
@@ -10617,6 +10667,22 @@
     "quelle": "gema_waermepumpe__<objektId>"
    },
    {
+    "id": "waermepumpe.wpe_db_herst",
+    "feld": "wpe_db_herst",
+    "label": "WP-Datenbank — Hersteller",
+    "art": "eingabe",
+    "typ": "auswahl",
+    "quelle": "gema_waermepumpe__<objektId>"
+   },
+   {
+    "id": "waermepumpe.wpe_db_typ",
+    "feld": "wpe_db_typ",
+    "label": "WP-Datenbank — Gerät",
+    "art": "eingabe",
+    "typ": "auswahl",
+    "quelle": "gema_waermepumpe__<objektId>"
+   },
+   {
     "id": "waermepumpe.wpe_stufig",
     "feld": "wpe_stufig",
     "label": "Stufigkeit",
@@ -11199,35 +11265,9 @@
     "quelle": "gema_warmwasser_sia385__<objektId>"
    },
    {
-    "id": "warmwasser_sia385.ww_wrgAnzahl",
-    "feld": "ww_wrgAnzahl",
-    "label": "Anzahl Duschen",
-    "art": "eingabe",
-    "typ": "zahl",
-    "einheit": "Stk",
-    "quelle": "gema_warmwasser_sia385__<objektId>"
-   },
-   {
-    "id": "warmwasser_sia385.ww_wrgStd",
-    "feld": "ww_wrgStd",
-    "label": "Normliter pro Duschvorgang [VW,u,sho,i]",
-    "art": "eingabe",
-    "typ": "auswahl",
-    "quelle": "gema_warmwasser_sia385__<objektId>"
-   },
-   {
-    "id": "warmwasser_sia385.ww_wrgEta",
-    "feld": "ww_wrgEta",
-    "label": "Energetischer Wirkungsgrad Wärmeübertrager [ηhr]",
-    "art": "eingabe",
-    "typ": "zahl",
-    "einheit": "%",
-    "quelle": "gema_warmwasser_sia385__<objektId>"
-   },
-   {
     "id": "warmwasser_sia385.ww_stutzen",
     "feld": "ww_stutzen",
-    "label": "z.B. WWV, WWR, KW, HV, HR",
+    "label": "Schätzung Speichervolumen [VW,sto]",
     "art": "eingabe",
     "typ": "zahl",
     "einheit": "Stk",
@@ -11236,7 +11276,7 @@
    {
     "id": "warmwasser_sia385.ww_lKonv",
     "feld": "ww_lKonv",
-    "label": "Vor- und Rücklauf [lWWV+R,i]",
+    "label": "Länge Zirkulation konventionellVor- und Rücklauf [lWWV+R,i]",
     "art": "eingabe",
     "typ": "zahl",
     "einheit": "m",
@@ -11245,7 +11285,7 @@
    {
     "id": "warmwasser_sia385.ww_lRar",
     "feld": "ww_lRar",
-    "label": "nur Vorlauf [lWWV,i]",
+    "label": "Länge Zirkulation Rohr-an-Rohr/Rohr-in-Rohrnur Vorlauf [lWWV,i]",
     "art": "eingabe",
     "typ": "zahl",
     "einheit": "m",
@@ -11254,7 +11294,7 @@
    {
     "id": "warmwasser_sia385.ww_lWhb",
     "feld": "ww_lWhb",
-    "label": "nur Vorlauf",
+    "label": "Länge Warmhaltebandnur Vorlauf",
     "art": "eingabe",
     "typ": "zahl",
     "einheit": "m",
@@ -11270,9 +11310,17 @@
     "quelle": "gema_warmwasser_sia385__<objektId>"
    },
    {
+    "id": "warmwasser_sia385.ww_ausstossAktiv",
+    "feld": "ww_ausstossAktiv",
+    "label": "Hilfsenergie Wärmepumpe",
+    "art": "eingabe",
+    "typ": "ja_nein",
+    "quelle": "gema_warmwasser_sia385__<objektId>"
+   },
+   {
     "id": "warmwasser_sia385.ww_ausstossTyp",
     "feld": "ww_ausstossTyp",
-    "label": "Ausstosswärmeverluste in % der Speicherverluste",
+    "label": "Ausstossleitungen",
     "art": "eingabe",
     "typ": "auswahl",
     "quelle": "gema_warmwasser_sia385__<objektId>"
@@ -11305,28 +11353,74 @@
    {
     "id": "warmwasser_sia385.ww_tWwL",
     "feld": "ww_tWwL",
-    "label": "WW-Temperatur [θWW]",
+    "label": "ww_tWwL",
     "art": "eingabe",
     "typ": "zahl",
-    "einheit": "°C",
-    "quelle": "gema_warmwasser_sia385__<objektId>"
+    "quelle": "gema_warmwasser_sia385__<objektId>",
+    "unsicher": true
    },
    {
     "id": "warmwasser_sia385.ww_tRaum",
     "feld": "ww_tRaum",
-    "label": "Raumtemperatur [θR]",
+    "label": "ww_tRaum",
     "art": "eingabe",
     "typ": "zahl",
-    "einheit": "°C",
-    "quelle": "gema_warmwasser_sia385__<objektId>"
+    "quelle": "gema_warmwasser_sia385__<objektId>",
+    "unsicher": true
+   },
+   {
+    "id": "warmwasser_sia385.ww_tWwRar",
+    "feld": "ww_tWwRar",
+    "label": "ww_tWwRar",
+    "art": "eingabe",
+    "typ": "zahl",
+    "quelle": "gema_warmwasser_sia385__<objektId>",
+    "unsicher": true
+   },
+   {
+    "id": "warmwasser_sia385.ww_tRaumRar",
+    "feld": "ww_tRaumRar",
+    "label": "ww_tRaumRar",
+    "art": "eingabe",
+    "typ": "zahl",
+    "quelle": "gema_warmwasser_sia385__<objektId>",
+    "unsicher": true
+   },
+   {
+    "id": "warmwasser_sia385.ww_tWwWhb",
+    "feld": "ww_tWwWhb",
+    "label": "ww_tWwWhb",
+    "art": "eingabe",
+    "typ": "zahl",
+    "quelle": "gema_warmwasser_sia385__<objektId>",
+    "unsicher": true
+   },
+   {
+    "id": "warmwasser_sia385.ww_tRaumWhb",
+    "feld": "ww_tRaumWhb",
+    "label": "ww_tRaumWhb",
+    "art": "eingabe",
+    "typ": "zahl",
+    "quelle": "gema_warmwasser_sia385__<objektId>",
+    "unsicher": true
    },
    {
     "id": "warmwasser_sia385.ww_lVL",
     "feld": "ww_lVL",
-    "label": "Temperaturdifferenz Medium−Umgebung [∆T] ∆T = θWW − θR",
+    "label": "ww_lVL",
     "art": "eingabe",
     "typ": "zahl",
-    "quelle": "gema_warmwasser_sia385__<objektId>"
+    "quelle": "gema_warmwasser_sia385__<objektId>",
+    "unsicher": true
+   },
+   {
+    "id": "warmwasser_sia385.ww_matVL",
+    "feld": "ww_matVL",
+    "label": "ww_matVL",
+    "art": "eingabe",
+    "typ": "auswahl",
+    "quelle": "gema_warmwasser_sia385__<objektId>",
+    "unsicher": true
    },
    {
     "id": "warmwasser_sia385.ww_oeVL",
@@ -11347,6 +11441,15 @@
     "unsicher": true
    },
    {
+    "id": "warmwasser_sia385.ww_matRL",
+    "feld": "ww_matRL",
+    "label": "ww_matRL",
+    "art": "eingabe",
+    "typ": "auswahl",
+    "quelle": "gema_warmwasser_sia385__<objektId>",
+    "unsicher": true
+   },
+   {
     "id": "warmwasser_sia385.ww_oeRL",
     "feld": "ww_oeRL",
     "label": "ww_oeRL",
@@ -11361,6 +11464,24 @@
     "label": "ww_lRarF",
     "art": "eingabe",
     "typ": "zahl",
+    "quelle": "gema_warmwasser_sia385__<objektId>",
+    "unsicher": true
+   },
+   {
+    "id": "warmwasser_sia385.ww_matRar",
+    "feld": "ww_matRar",
+    "label": "ww_matRar",
+    "art": "eingabe",
+    "typ": "auswahl",
+    "quelle": "gema_warmwasser_sia385__<objektId>",
+    "unsicher": true
+   },
+   {
+    "id": "warmwasser_sia385.ww_matRarRL",
+    "feld": "ww_matRarRL",
+    "label": "ww_matRarRL",
+    "art": "eingabe",
+    "typ": "auswahl",
     "quelle": "gema_warmwasser_sia385__<objektId>",
     "unsicher": true
    },
@@ -11392,6 +11513,15 @@
     "unsicher": true
    },
    {
+    "id": "warmwasser_sia385.ww_matWhb",
+    "feld": "ww_matWhb",
+    "label": "ww_matWhb",
+    "art": "eingabe",
+    "typ": "auswahl",
+    "quelle": "gema_warmwasser_sia385__<objektId>",
+    "unsicher": true
+   },
+   {
     "id": "warmwasser_sia385.ww_oeWhb",
     "feld": "ww_oeWhb",
     "label": "ww_oeWhb",
@@ -11401,12 +11531,21 @@
     "unsicher": true
    },
    {
-    "id": "warmwasser_sia385.ww_zeitWohn",
-    "feld": "ww_zeitWohn",
-    "label": "Entnahmen pro Whg = Ø-Belegung·5 + 2",
+    "id": "warmwasser_sia385.ww_whbBand",
+    "feld": "ww_whbBand",
+    "label": "Stärke des Warmhaltebands — wird auf den Rohr-ø addiert",
     "art": "eingabe",
     "typ": "auswahl",
     "quelle": "gema_warmwasser_sia385__<objektId>"
+   },
+   {
+    "id": "warmwasser_sia385.ww_zeitWohn",
+    "feld": "ww_zeitWohn",
+    "label": "ww_zeitWohn",
+    "art": "eingabe",
+    "typ": "auswahl",
+    "quelle": "gema_warmwasser_sia385__<objektId>",
+    "unsicher": true
    },
    {
     "id": "warmwasser_sia385.ww_verlustfaktor",
@@ -11438,11 +11577,12 @@
    {
     "id": "warmwasser_sia385.ww_stutzenF",
     "feld": "ww_stutzenF",
-    "label": "Anzahl genutzte Stutzen [ncp]",
+    "label": "ww_stutzenF",
     "art": "eingabe",
     "typ": "zahl",
     "einheit": "Stk",
-    "quelle": "gema_warmwasser_sia385__<objektId>"
+    "quelle": "gema_warmwasser_sia385__<objektId>",
+    "unsicher": true
    },
    {
     "id": "warmwasser_sia385.ww_leistung",
@@ -11622,6 +11762,32 @@
     "unsicher": true
    },
    {
+    "id": "warmwasser_sia385.ww_wrgAnzahl",
+    "feld": "ww_wrgAnzahl",
+    "label": "Anzahl Duschen",
+    "art": "eingabe",
+    "typ": "zahl",
+    "einheit": "Stk",
+    "quelle": "gema_warmwasser_sia385__<objektId>"
+   },
+   {
+    "id": "warmwasser_sia385.ww_wrgStd",
+    "feld": "ww_wrgStd",
+    "label": "Normliter pro Duschvorgang [VW,u,sho,i]",
+    "art": "eingabe",
+    "typ": "auswahl",
+    "quelle": "gema_warmwasser_sia385__<objektId>"
+   },
+   {
+    "id": "warmwasser_sia385.ww_wrgEta",
+    "feld": "ww_wrgEta",
+    "label": "Energetischer Wirkungsgrad Wärmeübertrager [ηhr]",
+    "art": "eingabe",
+    "typ": "zahl",
+    "einheit": "%",
+    "quelle": "gema_warmwasser_sia385__<objektId>"
+   },
+   {
     "id": "warmwasser_sia385.ww_rows",
     "feld": "ww_rows",
     "label": "ww_rows",
@@ -11634,6 +11800,13 @@
     "id": "warmwasser_sia385.ww_out_bueroPers",
     "feld": "ww_out_bueroPers",
     "label": "Personen Büro",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_grobTotal2",
+    "feld": "ww_out_grobTotal2",
+    "label": "Total Nutzwarmwasserbedarf [V'W,u]",
     "art": "ergebnis",
     "typ": "zahl"
    },
@@ -11658,34 +11831,6 @@
     "art": "ergebnis",
     "typ": "zahl",
     "unsicher": true
-   },
-   {
-    "id": "warmwasser_sia385.ww_out_wrgNl",
-    "feld": "ww_out_wrgNl",
-    "label": "Pro Duschvorgang kWh = Normliter · 0.058",
-    "art": "ergebnis",
-    "typ": "zahl"
-   },
-   {
-    "id": "warmwasser_sia385.ww_out_wrgTot",
-    "feld": "ww_out_wrgTot",
-    "label": "Total Wärmebedarf Duschvorgänge (ohne WRG) [QW,u,sho,i]",
-    "art": "ergebnis",
-    "typ": "zahl"
-   },
-   {
-    "id": "warmwasser_sia385.ww_out_wrgRedE",
-    "feld": "ww_out_wrgRedE",
-    "label": "Reduktion pro Duschvorgang ηhr · kWh ÷ 100",
-    "art": "ergebnis",
-    "typ": "zahl"
-   },
-   {
-    "id": "warmwasser_sia385.ww_out_wrgRed",
-    "feld": "ww_out_wrgRed",
-    "label": "Reduktion des Wärmebedarfs [fWhr,PWC]",
-    "art": "ergebnis",
-    "typ": "zahl"
    },
    {
     "id": "warmwasser_sia385.ww_out_vzBedarf",
@@ -11796,6 +11941,30 @@
     "typ": "zahl"
    },
    {
+    "id": "warmwasser_sia385.ww_out_feinTotal",
+    "feld": "ww_out_feinTotal",
+    "label": "Ww fein Total",
+    "art": "ergebnis",
+    "typ": "zahl",
+    "unsicher": true
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_feinKwh",
+    "feld": "ww_out_feinKwh",
+    "label": "Ww fein Kwh",
+    "art": "ergebnis",
+    "typ": "zahl",
+    "unsicher": true
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_spitze",
+    "feld": "ww_out_spitze",
+    "label": "Ww spitze",
+    "art": "ergebnis",
+    "typ": "zahl",
+    "unsicher": true
+   },
+   {
     "id": "warmwasser_sia385.ww_out_heizWspez",
     "feld": "ww_out_heizWspez",
     "label": "Spezifische Heizlast aus Liste",
@@ -11819,9 +11988,42 @@
    {
     "id": "warmwasser_sia385.ww_out_dtLeitung",
     "feld": "ww_out_dtLeitung",
-    "label": "Temperaturdifferenz Medium−Umgebung [∆T] ∆T = θWW − θR",
+    "label": "Ww dt Leitung",
     "art": "ergebnis",
-    "typ": "zahl"
+    "typ": "zahl",
+    "unsicher": true
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_dtRar",
+    "feld": "ww_out_dtRar",
+    "label": "Ww dt Rar",
+    "art": "ergebnis",
+    "typ": "zahl",
+    "unsicher": true
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_dtWhb",
+    "feld": "ww_out_dtWhb",
+    "label": "Ww dt Whb",
+    "art": "ergebnis",
+    "typ": "zahl",
+    "unsicher": true
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_qVL",
+    "feld": "ww_out_qVL",
+    "label": "Ww q VL",
+    "art": "ergebnis",
+    "typ": "zahl",
+    "unsicher": true
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_qRL",
+    "feld": "ww_out_qRL",
+    "label": "Ww q RL",
+    "art": "ergebnis",
+    "typ": "zahl",
+    "unsicher": true
    },
    {
     "id": "warmwasser_sia385.ww_out_rarInfo",
@@ -11832,11 +12034,36 @@
     "unsicher": true
    },
    {
+    "id": "warmwasser_sia385.ww_out_qRarF",
+    "feld": "ww_out_qRarF",
+    "label": "Ww q Rar F",
+    "art": "ergebnis",
+    "typ": "zahl",
+    "unsicher": true
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_whbInfo",
+    "feld": "ww_out_whbInfo",
+    "label": "Ww whb Info",
+    "art": "ergebnis",
+    "typ": "zahl",
+    "unsicher": true
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_qWhbF",
+    "feld": "ww_out_qWhbF",
+    "label": "Ww q Whb F",
+    "art": "ergebnis",
+    "typ": "zahl",
+    "unsicher": true
+   },
+   {
     "id": "warmwasser_sia385.ww_out_qhl",
     "feld": "ww_out_qhl",
-    "label": "Totaler Leitungsverlust [QW,hl,Is]",
+    "label": "Ww qhl",
     "art": "ergebnis",
-    "typ": "zahl"
+    "typ": "zahl",
+    "unsicher": true
    },
    {
     "id": "warmwasser_sia385.ww_out_qemF",
@@ -11867,16 +12094,9 @@
     "typ": "zahl"
    },
    {
-    "id": "warmwasser_sia385.ww_out_vzFein",
-    "feld": "ww_out_vzFein",
-    "label": "Verlustzahl Feinplanung",
-    "art": "ergebnis",
-    "typ": "zahl"
-   },
-   {
-    "id": "warmwasser_sia385.ww_out_qstoF",
-    "feld": "ww_out_qstoF",
-    "label": "Speicherverluste Feinplanung",
+    "id": "warmwasser_sia385.ww_out_pk",
+    "feld": "ww_out_pk",
+    "label": "Spitzendeckungsvolumen [VW,sto,pk]",
     "art": "ergebnis",
     "typ": "zahl"
    },
@@ -11891,13 +12111,6 @@
     "id": "warmwasser_sia385.ww_out_ladezeitTotal",
     "feld": "ww_out_ladezeitTotal",
     "label": "Totale Ladezeit pro Tag Ladezeit · Ladungen",
-    "art": "ergebnis",
-    "typ": "zahl"
-   },
-   {
-    "id": "warmwasser_sia385.ww_out_pk",
-    "feld": "ww_out_pk",
-    "label": "Spitzendeckungsvolumen [VW,sto,pk]",
     "art": "ergebnis",
     "typ": "zahl"
    },
@@ -12054,6 +12267,34 @@
     "label": "Eff. Speichervolumen SIA (Tab ④)",
     "art": "ergebnis",
     "typ": "zahl"
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_wrgNl",
+    "feld": "ww_out_wrgNl",
+    "label": "Pro Duschvorgang kWh = Normliter · 0.058",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_wrgTot",
+    "feld": "ww_out_wrgTot",
+    "label": "Total Wärmebedarf Duschvorgänge (ohne WRG) [QW,u,sho,i]",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_wrgRedE",
+    "feld": "ww_out_wrgRedE",
+    "label": "Reduktion pro Duschvorgang ηhr · kWh ÷ 100",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "warmwasser_sia385.ww_out_wrgRed",
+    "feld": "ww_out_wrgRed",
+    "label": "Reduktion des Wärmebedarfs [fWhr,PWC]",
+    "art": "ergebnis",
+    "typ": "zahl"
    }
   ]
  },
@@ -12116,6 +12357,15 @@
     "quelle": "gema_zirkulation__<objektId>"
    },
    {
+    "id": "zirkulation.zk_rows",
+    "feld": "zk_rows",
+    "label": "zk_rows",
+    "art": "eingabe",
+    "typ": "zahl",
+    "quelle": "gema_zirkulation__<objektId>",
+    "unsicher": true
+   },
+   {
     "id": "zirkulation.zk_z",
     "feld": "zk_z",
     "label": "Zuschlag auf ΣR·l",
@@ -12168,15 +12418,6 @@
     "typ": "zahl",
     "einheit": "°C",
     "quelle": "gema_zirkulation__<objektId>"
-   },
-   {
-    "id": "zirkulation.zk_rows",
-    "feld": "zk_rows",
-    "label": "zk_rows",
-    "art": "eingabe",
-    "typ": "zahl",
-    "quelle": "gema_zirkulation__<objektId>",
-    "unsicher": true
    },
    {
     "id": "zirkulation.zk_rvtyp",
