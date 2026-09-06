@@ -52,6 +52,15 @@
  *       «⇩ Als Nutzungseinheiten uebernehmen» in der Grob-Echo-Box;
  *       zugeordnet wird ueber den NORMWERT (Ø l/d), nicht ueber den Namen
  *
+ * Etappe 9 — Diagramme (Tab ③ Summenlinien / Tab ④ Ladestunden):
+ *   #22 Summenlinien-Karte: JEDE Stunde als «00 / 01 / 02 …», Legende untereinander,
+ *       Liter-Werte rot (Tabelle + linke Achse), Prozent schwarz belassen,
+ *       Zeilenfolge % · Σ % · l · Σ l — die padL|24xW/24|padR-Geometrie der
+ *       Stunden-Tabelle bleibt unangetastet (Kanon Feedback 19.08.2026 #2)
+ *   #5  Ladestunden-Diagramm: die Spitzendeckung laeuft PARALLEL zur Verbrauchs-
+ *       kurve (verbCum+pk) statt als waagrechte Linie, beide Achsen zeigen
+ *       zusaetzlich Prozent des Tagesbedarfs, X-Achse stuendlich «00 / 01 / 02 …»
+ *
  * Ausfuehren:  CHROME=<chromium> node scripts/feedback_20260905_warmwasser_test.mjs
  */
 import { readFileSync } from 'node:fs';
@@ -195,6 +204,82 @@ ok(/l Bereitschaft'/.test(WW),                '#3: Unterzeile nennt die Bezugsgr
     '#23: eine abweichende Norm-Stufe wird ausgewiesen statt still uebernommen');
   ok(/altProfil\[r\.ne\]=r\.profil/.test(WW),
     '#23: eine bereits gewaehlte Stundenspitze ueberlebt das Ersetzen (Kundenwunsch)');
+}
+
+// ── Etappe 9 · statisch ─────────────────────────────────────────────────────
+
+// #22 — Summenlinien der Nutzungseinheiten (Tab ③)
+{
+  ok(/\.ww-slfein-legend\{[^}]*flex-direction:column/.test(WW),
+    '#22: Legende untereinander (flex-direction:column)');
+  ok(/\.ww-slh tr\.ww-lit td,\.ww-slh tr\.ww-lit td\.lead\{color:#dc2626\}/.test(WW),
+    '#22: Liter-Zeilen der Stunden-Tabelle rot');
+  ok(/function reihe\(lbl,tip,fn,dec,cls\)/.test(WW),
+    '#22: reihe() nimmt eine Zeilen-Klasse entgegen');
+  const rows = [...WW.matchAll(/\+reihe\('([^']+)'/g)].map(m => m[1]);
+  ok(rows.join('|') === '%|Σ %|l|Σ l',
+    '#22: Zeilenfolge Prozent zuerst, Liter darunter', rows);
+  {
+    // jede +reihe(...)-Zeile steht fuer sich — so muss der Regex nicht ueber die
+    // Klammern der inline-Funktion hinweglesen
+    const rz = WW.split('\n').filter(l => l.includes("+reihe('"));
+    const lit = rz.filter(l => l.includes("'ww-lit'"));
+    ok(rz.length === 4 && lit.length === 2
+       && lit[0].includes("reihe('l',") && lit[1].includes("reihe('Σ l',"),
+      '#22: nur die beiden Liter-Zeilen tragen .ww-lit', rz.map(l => l.trim()));
+  }
+  ok(/var slotW=W\/24,lblStep=slotW>=22\?1:\(slotW>=13\?2:3\);/.test(WW),
+    '#22: die Beschriftung duennt bei schmalen Slots aus — das Format bleibt');
+  ok(/ctx\.fillText\(\('0'\+\(t1%24\)\)\.slice\(-2\),x,padT\+H\+15\);/.test(WW),
+    '#22: X-Achse zweistellig «00 / 01 / 02 …»');
+  ok(!/'03:00'|:00'/.test(WW.slice(WW.indexOf('var slotW=W/24'), WW.indexOf('var slotW=W/24') + 400)),
+    '#22: keine gemischte «03:00»-Beschriftung mehr');
+  {
+    // der CSS-Kommentar weiter oben beginnt gleich — erst die volle Zeile ist eindeutig
+    const i = WW.indexOf('#22: Liter-Werte rot, Prozent-Werte schwarz belassen');
+    const blk = WW.slice(i, i + 420);
+    ok(/ctx\.fillStyle='#dc2626';[\s\S]{0,120}' l'/.test(blk),
+      '#22: linke Achse (Liter) rot', blk.slice(0, 200));
+    ok(/ctx\.fillStyle='#94a3b8';[\s\S]{0,140}' %'/.test(blk),
+      '#22: rechte Achse (Prozent) schwarz belassen');
+  }
+  // Kanon Feedback 19.08.2026 #2: die Tabelle fluchtet ueber DIESELBE Geometrie
+  // wie das Diagramm — padL | 24 gleiche Stunden-Spalten | padR bei Breite cssW.
+  // #22 aendert nur Beschriftung/Farbe/Zeilenfolge; DIESE Zeilen bleiben unberuehrt.
+  ok(WW.includes(`var cols='<colgroup><col style="width:'+padL+'px">';`),
+    '#22: colgroup beginnt unveraendert mit der padL-Lead-Spalte');
+  ok(WW.includes("for(var c=0;c<24;c++)cols+='<col>';"),
+    '#22: colgroup hat unveraendert 24 gleich breite Stunden-Spalten');
+  ok(WW.includes(`cols+='<col style="width:'+padR+'px"></colgroup>';`),
+    '#22: colgroup schliesst unveraendert mit der padR-Pad-Spalte');
+  ok(/style="width:'\+cssW\+'px"/.test(WW),
+    '#22: Tabelle behaelt die Canvas-Breite (Spaltengrenzen bleiben auf X(h))');
+}
+
+// #5 — Ladestunden-Diagramm (Tab ④)
+{
+  const i = WW.indexOf('function wwSoDraw(');
+  const blk = WW.slice(i, i + 6000);
+  ok(i > 0, '#5: wwSoDraw gefunden');
+  ok(/var verbMax=verbTot\+\(pk>0\?pk:0\);/.test(blk),
+    '#5: die Skala reicht bis Tagesbedarf + Spitzendeckung (nichts wird abgeschnitten)');
+  ok(/function YV\(v\)\{return padT\+H-\(v\/verbMax\)\*H;\}/.test(blk),
+    '#5: eigene Verbrauchs-Skala YV()');
+  ok(/for\(var tp=0;tp<=24;tp\+\+\)/.test(blk) && /YV\(verbCum\[tp\]\+pk\)/.test(blk),
+    '#5: die Spitzendeckung laeuft als Kurve verbCum+pk');
+  ok(!/ctx\.moveTo\(padL,Y\(pk\)\)/.test(blk),
+    '#5: die frühere waagrechte Spitzendeckungs-Linie ist weg');
+  ok(/'\+ Spitzendeckung '/.test(blk),
+    '#5: die Kurve ist als «+ Spitzendeckung» beschriftet');
+  ok(/Math\.round\(yv\/verbTot\*100\)\+' %'/.test(blk),
+    '#5: linke Achse zeigt zusaetzlich Prozent des Tagesbedarfs');
+  ok(/Math\.round\(vv\/verbTot\*100\)\+' %'/.test(blk),
+    '#5: rechte Achse in Prozent (vorher dieselben Liter-Werte wie links)');
+  ok(/var soSlotW=W\/24,soLblStep=soSlotW>=22\?1:\(soSlotW>=13\?2:3\);/.test(blk),
+    '#5: dieselbe Ausduenn-Regel wie in den Summenlinien');
+  ok(/ctx\.fillText\(\('0'\+\(t3%24\)\)\.slice\(-2\),x,padT\+H\+15\);/.test(blk),
+    '#5: X-Achse stuendlich «00 / 01 / 02 …»');
+  ok(!/':00'/.test(blk), '#5: keine «hh:00»-Beschriftung mehr');
 }
 
 // ─────────────────────────────────────────────────────────────── Browser
@@ -928,6 +1013,102 @@ try {
   });
   ok(e23c.length === 1 && e23c[0].n === '9' && e23c[0].profil === 'hotel',
     '#23: die bereits gewählte Stundenspitze überlebt das Ersetzen', e23c);
+
+  // ── Etappe 9 · Browser ────────────────────────────────────────────────────
+
+  sec('D · Etappe 9 — #22 / #5');
+
+  // #22 — Summenlinien-Karte (Tab ③): Legende, Liter-Farbe, Zeilenfolge
+  const e22 = await page.evaluate(async () => {
+    const e = document.querySelector('[data-tab="wt3"]'); if (e) e.click();
+    wwState.fein = [
+      { ne: 3, n: '50', profil: 'wohnbau' },
+      { ne: 6, n: '30', profil: 'restaurant' }
+    ];
+    wwRenderTables(); wwRecalc();
+    await new Promise(r => setTimeout(r, 250));
+    const lg   = document.getElementById('wwFeinSlLegend');
+    const tbl  = document.querySelector('#wwFeinSlTable table.ww-slh');
+    const cv   = document.getElementById('wwFeinSlCanvas');
+    const leads = tbl ? [...tbl.querySelectorAll('tbody td.lead')].map(td => td.textContent.trim()) : [];
+    const litTd = tbl ? tbl.querySelector('tbody tr.ww-lit td') : null;
+    const pctTd = tbl ? tbl.querySelector('tbody tr:not(.ww-lit) td') : null;
+    const cols  = tbl ? [...tbl.querySelectorAll('colgroup col')].length : 0;
+    const kopf  = tbl ? [...tbl.querySelectorAll('thead th')].length : 0;
+    return {
+      dir: lg ? getComputedStyle(lg).flexDirection : 'fehlt',
+      items: lg ? lg.querySelectorAll('.it').length : 0,
+      leads,
+      litColor: litTd ? getComputedStyle(litTd).color : '',
+      pctColor: pctTd ? getComputedStyle(pctTd).color : '',
+      cols, kopf,
+      tblW: tbl ? Math.round(tbl.getBoundingClientRect().width) : 0,
+      cvW:  cv  ? Math.round(cv.getBoundingClientRect().width)  : 0
+    };
+  });
+  ok(e22.dir === 'column', '#22: Legende steht untereinander', e22.dir);
+  ok(e22.items >= 2, '#22: Legende zeigt die Serien', e22.items);
+  ok(e22.leads.join('|') === '%|Σ %|l|Σ l',
+    '#22: Zeilenfolge im DOM — Prozent oben, Liter darunter', e22.leads);
+  ok(/^rgb\(220,\s*38,\s*38\)$/.test(e22.litColor), '#22: Liter-Zeilen rot', e22.litColor);
+  ok(!/^rgb\(220,\s*38,\s*38\)$/.test(e22.pctColor),
+    '#22: Prozent-Zeilen NICHT rot (schwarz belassen)', e22.pctColor);
+  ok(e22.cols === 26 && e22.kopf === 26,
+    '#22: colgroup + Kopfzeile unveraendert (padL | 24 Stunden | padR)', e22);
+  ok(e22.tblW > 0 && Math.abs(e22.tblW - e22.cvW) <= 2,
+    '#22: Tabelle und Diagramm sind exakt gleich breit (Spalten fluchten)', e22);
+
+  // #5 — Ladestunden-Diagramm (Tab ④): parallele Spitzendeckung, Prozent, Stunden
+  const e5 = await page.evaluate(async () => {
+    const e = document.querySelector('[data-tab="wt4"]'); if (e) e.click();
+    await new Promise(r => setTimeout(r, 120));
+    const cv = document.getElementById('wwSoCanvas');
+    const ctx = cv.getContext('2d');
+    const log = { texts: [], paths: [] };
+    let pts = [];
+    const oMove = ctx.moveTo.bind(ctx), oLine = ctx.lineTo.bind(ctx);
+    const oStroke = ctx.stroke.bind(ctx), oText = ctx.fillText.bind(ctx);
+    ctx.moveTo = function (x, y) { pts = [[x, y]]; return oMove(x, y); };
+    ctx.lineTo = function (x, y) { pts.push([x, y]); return oLine(x, y); };
+    ctx.stroke = function () { log.paths.push({ st: String(ctx.strokeStyle), pts: pts.slice() }); return oStroke(); };
+    ctx.fillText = function (t, x, y) { log.texts.push({ t: String(t), x: Math.round(x), y: Math.round(y) }); return oText(t, x, y); };
+    wwRecalc();
+    await new Promise(r => setTimeout(r, 200));
+    ctx.moveTo = oMove; ctx.lineTo = oLine; ctx.stroke = oStroke; ctx.fillText = oText;
+    const lang = log.paths.filter(p => p.pts.length === 25);
+    const rot  = lang.find(p => p.st === '#dc2626');
+    const org  = lang.find(p => p.st === '#d97706');
+    let dy = [];
+    if (rot && org) for (let i = 0; i < 25; i++) dy.push(+(org.pts[i][1] - rot.pts[i][1]).toFixed(4));
+    const stunden = log.texts.filter(t => /^\d\d$/.test(t.t)).map(t => t.t);
+    return {
+      hatRot: !!rot, hatOrg: !!org, dy,
+      stunden,
+      pct: log.texts.filter(t => / %$/.test(t.t)).map(t => ({ t: t.t, x: t.x })),
+      lit: log.texts.filter(t => / l$/.test(t.t)).map(t => t.t),
+      spitze: log.texts.some(t => /^\+ Spitzendeckung/.test(t.t)),
+      sigma:  log.texts.some(t => /^Σ Verbrauch/.test(t.t))
+    };
+  });
+  ok(e5.hatRot && e5.hatOrg,
+    '#5: Verbrauchs-Summenlinie UND Spitzendeckungs-Kurve werden gezeichnet', {
+      rot: e5.hatRot, org: e5.hatOrg });
+  ok(e5.dy.length === 25 && e5.dy.every(d => Math.abs(d - e5.dy[0]) < 0.01) && e5.dy[0] > 1,
+    '#5: die Spitzendeckung laeuft PARALLEL ueber der Verbrauchskurve (konstanter Abstand)',
+    e5.dy.slice(0, 4).concat(e5.dy.slice(-2)));
+  ok(e5.spitze, '#5: die Kurve ist als «+ Spitzendeckung» beschriftet');
+  ok(e5.sigma,  '#5: die Verbrauchskurve ist als «Σ Verbrauch» beschriftet');
+  ok(e5.stunden.length >= 20 && e5.stunden[0] === '00' && e5.stunden.includes('01'),
+    '#5: X-Achse stuendlich zweistellig beschriftet', e5.stunden.slice(0, 6));
+  {
+    const links = e5.pct.filter(p => p.x < 120), rechts = e5.pct.filter(p => p.x >= 120);
+    ok(links.length >= 5 && rechts.length >= 5,
+      '#5: BEIDE Achsen zeigen Prozent des Tagesbedarfs',
+      { links: links.length, rechts: rechts.length });
+    ok(links.some(p => p.t === '0 %') && rechts.some(p => p.t === '0 %'),
+      '#5: beide Prozent-Achsen beginnen bei 0 %');
+  }
+  ok(e5.lit.length >= 5, '#5: die linke Achse fuehrt weiterhin die Liter-Werte', e5.lit.slice(0, 3));
 
   ok(errs.length === 0, 'Keine JS-Fehler auf der Seite', errs.slice(0, 3));
 } finally {

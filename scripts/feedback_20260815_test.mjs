@@ -200,8 +200,12 @@ t(slh.da, 'Stunden-Tabelle gerendert');
 // Diagramm fluchtet → 26 Spalten (Stunde + 24 + Pad).
 t(slh.da && slh.koepfe === 26, '26 Spalten (Stunde + 24 + Pad), ist ' + (slh.da ? slh.koepfe : 0));
 t(slh.da && slh.vorCanvas, 'Tabelle steht ÜBER dem Diagramm (Foto-Layout)');
-t(slh.da && slh.zeilen.join('|') === '%|l|Σ %|Σ l',
-  'kompakte Referenz-Labels % / l / Σ % / Σ l (ist ' + (slh.da ? slh.zeilen.join('|') : '—') + ')');
+// Feedback 05.09.2026 #22 (Sandro) übersteuert die REIHENFOLGE bewusst: die
+// Prozent-Zeilen stehen jetzt zusammen oben, die Liter-Zeilen darunter (und sind
+// rot) — «Zeile nach oben schieben». Die Zusicherung von 15.08.2026 bleibt:
+// es sind dieselben vier kompakten Referenz-Zeilen.
+t(slh.da && slh.zeilen.join('|') === '%|Σ %|l|Σ l',
+  'kompakte Referenz-Labels % / Σ % / l / Σ l (ist ' + (slh.da ? slh.zeilen.join('|') : '—') + ')');
 
 // Rotation der SI-1991-Profile: WW_TYP_PROFILE (mitternachtsbasiert) MUSS exakt
 // das 05:00-basierte VSSH-Original aus WW_SL_PROFILE sein — pct[h] = SL[(h+19)%24].

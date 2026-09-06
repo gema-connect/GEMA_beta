@@ -585,7 +585,8 @@ table.ww{border-collapse:collapse;width:100%;font-size:12.5px}
 .ww-fsto-tile.active{border-color:var(--accent);background:var(--accent-bg,#eff6ff);box-shadow:0 0 0 2px rgba(37,99,235,.12)}
 .ww-fsto-tile .t{font-size:11.5px;font-weight:800;margin-top:6px}
 .ww-fsto-tile .f{font-size:11px;color:var(--muted);font-weight:700}
-.ww-slfein-legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11.5px;margin-top:8px}
+/* #22: Legende untereinander (eine Nutzungseinheit je Zeile) */
+.ww-slfein-legend{display:flex;flex-direction:column;align-items:flex-start;gap:5px;font-size:11.5px;margin-top:8px}
 .ww-slfein-legend .it{display:flex;align-items:center;gap:6px;font-weight:600}
 .ww-slfein-legend .dot{width:10px;height:10px;border-radius:99px;flex-shrink:0}
 /* ── Excel-Vollausbau 08/2026: Speicheroptimierung — 24 Ladestunden-Toggles ──
@@ -754,6 +755,10 @@ table.ww-slh{border-collapse:collapse;font-size:10px;font-variant-numeric:tabula
 .ww-slh th{background:var(--surface2);font-size:9px;color:var(--muted);text-align:center;padding:3px 1px}
 .ww-slh td.lead,.ww-slh th.lead{text-align:left;font-weight:800;background:var(--surface2);font-size:10px}
 .ww-slh td.pad,.ww-slh th.pad{border:0;background:transparent}
+/* #22: Liter-Werte rot, Prozent-Werte schwarz (gleiche Farbe wie die
+   Liter-Achse des Diagramms — literales Hex, damit Tabelle und Canvas
+   im PDF-Export denselben Ton tragen) */
+.ww-slh tr.ww-lit td,.ww-slh tr.ww-lit td.lead{color:#dc2626}
 /* #22: Feld-Hinweis zwischen Beschriftung und Eingabe */
 .ww-fg-note{display:block;font-size:10.5px;color:var(--muted2);font-weight:400;margin-top:2px;max-width:340px;white-space:normal;line-height:1.35}
 /* #23: Karte 2.4 abwählbar — Inhalt ausgegraut */
@@ -3253,16 +3258,25 @@ function wwFeinSlDraw(res){
   for(var g=0;g<=4;g++){
     var yv=maxY*g/4,y=Y(yv);
     ctx.beginPath();ctx.moveTo(padL,y);ctx.lineTo(padL+W,y);ctx.stroke();
-    ctx.textAlign='right';ctx.fillText(Math.round(yv).toLocaleString('de-CH')+' l',padL-6,y+3);
-    ctx.textAlign='left';ctx.fillText(Math.round(pctBasis>0?yv/pctBasis*100:0)+' %',padL+W+6,y+3);
+    // #22: Liter-Werte rot, Prozent-Werte schwarz belassen
+    ctx.textAlign='right';ctx.fillStyle='#dc2626';
+    ctx.fillText(Math.round(yv).toLocaleString('de-CH')+' l',padL-6,y+3);
+    ctx.textAlign='left';ctx.fillStyle='#94a3b8';
+    ctx.fillText(Math.round(pctBasis>0?yv/pctBasis*100:0)+' %',padL+W+6,y+3);
   }
+  // #22: JEDE Stunde gleich beschriftet — «00 / 01 / 02 …» statt der frueheren
+  // Mischung aus «03:00» und kleinem «04». Die Stundenstriche bleiben stuendlich;
+  // nur wenn ein Stunden-Slot zu schmal fuer zwei Ziffern wird (Phone), wird die
+  // BESCHRIFTUNG ausgeduennt — das Format bleibt in jedem Fall dasselbe.
+  var slotW=W/24,lblStep=slotW>=22?1:(slotW>=13?2:3);
+  ctx.font='9px DM Sans, sans-serif';
   for(var t1=0;t1<=24;t1++){
     var x=X(t1);
     ctx.beginPath();ctx.moveTo(x,padT);ctx.lineTo(x,padT+H);
     ctx.strokeStyle=t1%3===0?'#e2e8f0':'#f1f5f9';ctx.stroke();
+    if(t1%lblStep!==0&&t1!==24)continue;
     ctx.textAlign='center';ctx.fillStyle='#94a3b8';
-    if(t1%3===0){ctx.font='10px DM Sans, sans-serif';ctx.fillText(('0'+(t1%24)).slice(-2)+':00',x,padT+H+16);}
-    else{ctx.font='8.5px DM Sans, sans-serif';ctx.fillText(('0'+t1).slice(-2),x,padT+H+14);}
+    ctx.fillText(('0'+(t1%24)).slice(-2),x,padT+H+15);
   }
   ctx.font='10px DM Sans, sans-serif';
   ctx.strokeStyle='#cbd5e1';ctx.lineWidth=1.4;
@@ -3304,16 +3318,18 @@ function wwFeinSlDraw(res){
       var hdr='<tr><th class="lead">Stunde</th>';
       for(var h=0;h<24;h++)hdr+='<th>'+('0'+h).slice(-2)+'–'+('0'+(h+1)).slice(-2)+'</th>';
       hdr+='<th class="pad"></th></tr>';
-      function reihe(lbl,tip,fn,dec){
-        var r='<tr><td class="lead" title="'+tip+'">'+lbl+'</td>';
+      // #22: Prozent-Zeilen zusammen (%, Σ %), darunter die Liter-Zeilen (l, Σ l).
+      // Die Liter-Zeilen tragen .ww-lit und werden rot dargestellt.
+      function reihe(lbl,tip,fn,dec,cls){
+        var r='<tr'+(cls?' class="'+cls+'"':'')+'><td class="lead" title="'+tip+'">'+lbl+'</td>';
         for(var h=0;h<24;h++)r+='<td>'+wwFmt(fn(h),dec)+'</td>';
         return r+'<td class="pad"></td></tr>';
       }
       tblHost.innerHTML='<table class="ww-slh" style="width:'+cssW+'px">'+cols+'<thead>'+hdr+'</thead><tbody>'
         +reihe('%','Bedarf je Stunde in % des Tagesbedarfs',function(h){return (basis[h+1]-basis[h])/basisTot*100;},1)
-        +reihe('l','Bedarf je Stunde in Litern',function(h){return basis[h+1]-basis[h];},0)
         +reihe('Σ %','kumulierte Summe in % (summiert sich je Stunde auf 100 %)',function(h){return basis[h+1]/basisTot*100;},1)
-        +reihe('Σ l','kumulierte Summe in Litern',function(h){return basis[h+1];},0)
+        +reihe('l','Bedarf je Stunde in Litern',function(h){return basis[h+1]-basis[h];},0,'ww-lit')
+        +reihe('Σ l','kumulierte Summe in Litern',function(h){return basis[h+1];},0,'ww-lit')
         +'</tbody></table>';
     } else tblHost.innerHTML='';
   }
@@ -3459,28 +3475,45 @@ function wwSoDraw(res){
   ctx.fillStyle='#dcfce7';
   so.rows.forEach(function(r){if(r.prod>0)ctx.fillRect(X(r.h),padT,W/24,H);});
   // Raster + Y-Labels
-  ctx.font='10px DM Sans, sans-serif';ctx.lineWidth=1;
+  // #5 (Feedback 05.09.2026): die linke Achse zeigt den Speicherinhalt zusaetzlich
+  // als Anteil am TAGESBEDARF. Bezugsgroesse beider Prozent-Achsen ist derselbe
+  // Tagesbedarf (verbTot) — links grau zum blauen Inhalt-Verlauf, rechts orange
+  // zur Verbrauchs-Summenlinie; die Farbe ordnet die Achse ihrer Kurve zu.
+  ctx.lineWidth=1;
   for(var g=0;g<=4;g++){
     var yv=minY+(maxY-minY)*g/4,y=Y(yv);
     ctx.strokeStyle='#e2e8f0';
     ctx.beginPath();ctx.moveTo(padL,y);ctx.lineTo(padL+W,y);ctx.stroke();
     ctx.textAlign='right';ctx.fillStyle='#94a3b8';
-    ctx.fillText(Math.round(yv).toLocaleString('de-CH')+' l',padL-6,y+3);
+    ctx.font='10px DM Sans, sans-serif';
+    ctx.fillText(Math.round(yv).toLocaleString('de-CH')+' l',padL-6,y+1);
+    ctx.font='8.5px DM Sans, sans-serif';
+    ctx.fillText(Math.round(yv/verbTot*100)+' %',padL-6,y+11);
   }
-  for(var t3=0;t3<=24;t3+=3){
+  ctx.font='10px DM Sans, sans-serif';
+  // #5: JEDE Stunde als «00 / 01 / 02 …» beschriften (gleiches Format wie die
+  // Summenlinien in Tab ③). Die Striche bleiben stuendlich; wird ein Stunden-Slot
+  // zu schmal fuer zwei Ziffern (Phone), duennt nur die BESCHRIFTUNG aus — das
+  // Format bleibt in jedem Fall dasselbe.
+  var soSlotW=W/24,soLblStep=soSlotW>=22?1:(soSlotW>=13?2:3);
+  ctx.font='9px DM Sans, sans-serif';
+  for(var t3=0;t3<=24;t3++){
     var x=X(t3);
-    ctx.strokeStyle=t3%6===0?'#e2e8f0':'#f1f5f9';
+    ctx.strokeStyle=t3%3===0?'#e2e8f0':'#f1f5f9';
     ctx.beginPath();ctx.moveTo(x,padT);ctx.lineTo(x,padT+H);ctx.stroke();
+    if(t3%soLblStep!==0&&t3!==24)continue;
     ctx.textAlign='center';ctx.fillStyle='#94a3b8';
-    ctx.fillText(('0'+(t3%24)).slice(-2)+':00',x,padT+H+16);
+    ctx.fillText(('0'+(t3%24)).slice(-2),x,padT+H+15);
   }
+  ctx.font='10px DM Sans, sans-serif';
   // Null-Linie (nur wenn der Verlauf negativ wird)
   if(minY<0){
     ctx.strokeStyle='#64748b';ctx.setLineDash([2,3]);
     ctx.beginPath();ctx.moveTo(padL,Y(0));ctx.lineTo(padL+W,Y(0));ctx.stroke();
     ctx.setLineDash([]);
   }
-  // Kapazität (grün gestrichelt) + Spitzendeckung (rot gestrichelt)
+  // Kapazität (grün gestrichelt). Die Spitzendeckung ist seit #5 KEINE waagrechte
+  // Linie mehr, sondern laeuft parallel zur Verbrauchskurve (weiter unten).
   ctx.textAlign='left';
   if(cap>0){
     ctx.strokeStyle='#16a34a';ctx.setLineDash([6,4]);
@@ -3488,30 +3521,45 @@ function wwSoDraw(res){
     ctx.setLineDash([]);ctx.fillStyle='#16a34a';
     ctx.fillText('Kapazität '+Math.round(cap).toLocaleString('de-CH')+' l',padL+4,Y(cap)-4);
   }
-  if(pk>0){
-    ctx.strokeStyle='#dc2626';ctx.setLineDash([6,4]);
-    ctx.beginPath();ctx.moveTo(padL,Y(pk));ctx.lineTo(padL+W,Y(pk));ctx.stroke();
-    ctx.setLineDash([]);ctx.fillStyle='#dc2626';
-    ctx.fillText('Spitzendeckung '+Math.round(pk).toLocaleString('de-CH')+' l',padL+4,Y(pk)+12);
-  }
   // Achsen (rechts die Verbrauchs-Summenlinie in l — Feedback 15.08.2026 #3)
   ctx.strokeStyle='#cbd5e1';ctx.lineWidth=1.4;
   ctx.beginPath();ctx.moveTo(padL,padT);ctx.lineTo(padL,padT+H);ctx.lineTo(padL+W,padT+H);ctx.lineTo(padL+W,padT);ctx.stroke();
+  // #5: rechte Achse in PROZENT des Tagesbedarfs — sie zeigte bisher exakt
+  // dieselben Liter-Werte wie die linke Achse (eine Dublette). Die Skala reicht
+  // bis Tagesbedarf + Spitzendeckung, damit die parallele Mindest-Ladelinie
+  // vollstaendig im Bild bleibt statt am oberen Rand abgeschnitten zu werden.
+  var verbMax=verbTot+(pk>0?pk:0);
+  function YV(v){return padT+H-(v/verbMax)*H;}
   ctx.font='10px DM Sans, sans-serif';ctx.fillStyle='#d97706';ctx.textAlign='left';
   for(var gr=0;gr<=4;gr++){
-    var vv=verbTot*gr/4;
-    ctx.fillText(Math.round(vv).toLocaleString('de-CH')+' l',padL+W+5,padT+H-(gr/4)*H+3);
+    var vv=verbMax*gr/4;
+    ctx.fillText(Math.round(vv/verbTot*100)+' %',padL+W+5,padT+H-(gr/4)*H+3);
   }
   // Verbrauchs-Summenlinie (kumuliert, eigene Skala 0 … Tagesverbrauch)
   ctx.strokeStyle='#d97706';ctx.lineWidth=1.8;ctx.setLineDash([5,3]);
   ctx.beginPath();
   for(var tv=0;tv<=24;tv++){
-    var xv=X(tv),yv2=padT+H-(verbCum[tv]/verbTot)*H;
+    var xv=X(tv),yv2=YV(verbCum[tv]);
     if(tv===0)ctx.moveTo(xv,yv2);else ctx.lineTo(xv,yv2);
   }
   ctx.stroke();ctx.setLineDash([]);
   ctx.fillStyle='#d97706';ctx.textAlign='right';
   ctx.fillText('Σ Verbrauch '+Math.round(vs).toLocaleString('de-CH')+' l',padL+W-4,padT+12);
+  // #5: Spitzendeckung PARALLEL zur Verbrauchskurve. «Σ Verbrauch + Spitzen-
+  // deckung» ist die Mindest-Ladelinie, ueber der der Waermeerzeuger jederzeit
+  // bleiben muss — die fruehere waagrechte Linie sagte nur, WIE VIEL
+  // zurueckzuhalten ist, nicht WANN.
+  if(pk>0){
+    ctx.strokeStyle='#dc2626';ctx.lineWidth=2.4;
+    ctx.beginPath();
+    for(var tp=0;tp<=24;tp++){
+      var xp=X(tp),ypp=YV(verbCum[tp]+pk);
+      if(tp===0)ctx.moveTo(xp,ypp);else ctx.lineTo(xp,ypp);
+    }
+    ctx.stroke();ctx.lineWidth=1;
+    ctx.fillStyle='#dc2626';ctx.textAlign='left';
+    ctx.fillText('+ Spitzendeckung '+Math.round(pk).toLocaleString('de-CH')+' l',X(0)+4,YV(pk)-6);
+  }
   // Speicherinhalt-Verlauf (Startfüllung 00:00 → Stundenwerte)
   ctx.strokeStyle='#1d4ed8';ctx.lineWidth=2.2;
   ctx.beginPath();ctx.moveTo(X(0),Y(so.start));
