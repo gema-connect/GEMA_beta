@@ -16,6 +16,13 @@
  *   #14 kWh/d je Zeile in der Farbe ihrer Leitungsart (Kanon 2.2)
  *   #17 ø-Auswahl folgt dem Material (PEX 12/16/20/25/32 · CNS 15…108),
  *       gespeicherter ø ausserhalb der Reihe bleibt als «(bisherig)» waehlbar
+
+ *
+ * Etappe 4 — Tab ① Nutzwarmwasserbedarf (reine Darstellung):
+ *   #26 Total-Spalte [l/d à 60°C] je Nutzungseinheit fett
+ *   #27 die drei Ergebniswerte in 1.3 gleich gross (Q'W verliert .big, behaelt die Farbe)
+ *   #28 Label Kaltwasser gruen · Warmwasser rot
+ *   #29 «⬇ In Büro-Zeile übernehmen» rechtsbuendig wie der Knopf in 1.1
  *
  * Ausfuehren:  CHROME=<chromium> node scripts/feedback_20260905_warmwasser_test.mjs
  */
@@ -305,6 +312,67 @@ try {
   const faktor = await page.evaluate(() => ({ f12: wwOeFaktor(12), f15: wwOeFaktor(15), f16: wwOeFaktor(16), f18: wwOeFaktor(18) }));
   ok(faktor.f12 === faktor.f15, '#17: PEX 12 nimmt den naechstgroesseren Faktor (15) — kein erfundener Zwischenwert', faktor);
   ok(faktor.f16 === faktor.f18, '#17: PEX 16 unveraendert auf dem 18er-Faktor (Bestandsverhalten)', faktor);
+
+  /* ── Etappe 4 · Tab ① Nutzwarmwasserbedarf (#26, #27, #28, #29) ── */
+  console.log('\n── Etappe 4 · Tab ① Nutzwarmwasserbedarf ──');
+
+  await page.evaluate(() => { const e = document.querySelector('[data-tab="wt1"]'); if (e) e.click(); });
+  await page.waitForTimeout(250);
+
+  // #26 — die Total-Werte je Nutzungseinheit sind fett
+  const tot = await page.evaluate(() => {
+    const z = [...document.querySelectorAll('#wwGrobBody tr[data-kind="grob"] td[data-c="tot"]')];
+    return z.map(t => ({ w: getComputedStyle(t).fontWeight, txt: t.textContent.trim() }));
+  });
+  ok(tot.length >= 1, '#26: die Bedarfstabelle 1.3 hat Nutzungseinheiten-Zeilen', tot.length);
+  ok(tot.length > 0 && tot.every(t => parseInt(t.w, 10) >= 700),
+    '#26: jeder Total-Wert [l/d à 60°C] ist fett', tot.map(t => t.w).join(','));
+  ok(tot.length > 0 && tot.every(t => t.txt !== ''),
+    '#26: die Total-Spalte traegt weiterhin ihren gerechneten Wert (Rechenkette unberuehrt)', tot.map(t => t.txt).join(','));
+
+  // #27 — die drei Ergebniswerte in 1.3 sind gleich gross, die Akzentfarbe bleibt
+  const erg = await page.evaluate(() => {
+    const g = id => { const e = document.getElementById(id); return e ? { fs: getComputedStyle(e).fontSize, col: getComputedStyle(e).color, cls: e.className } : null; };
+    // Referenz: ein Wert, der unveraendert .big und damit var(--accent) traegt.
+    const ref = document.getElementById('ww_out_wrgRed');
+    return { vwu: g('ww_out_grobTotal2'), qw: g('ww_out_qw'),
+             akzent: ref ? getComputedStyle(ref).color : null };
+  });
+  ok(erg.vwu && erg.qw, '#27: beide Ergebniswerte in 1.3 vorhanden', erg);
+  ok(erg.vwu && erg.qw && erg.vwu.fs === erg.qw.fs,
+    '#27: V\'W,u und Q\'W haben dieselbe Schriftgroesse', erg.vwu && (erg.vwu.fs + ' vs ' + erg.qw.fs));
+  ok(erg.qw && !/\bbig\b/.test(erg.qw.cls), '#27: Q\'W traegt kein .big mehr', erg.qw && erg.qw.cls);
+  ok(erg.qw && erg.akzent && erg.qw.col === erg.akzent,
+    '#27: Q\'W behaelt die Akzentfarbe (nur die Groesse war das Problem)',
+    erg.qw && (erg.qw.col + ' vs Akzent ' + erg.akzent));
+
+  // #28 — Kaltwasser gruen, Warmwasser rot
+  const temp = await page.evaluate(() => {
+    const lbl = id => { const i = document.getElementById(id); const l = i && i.closest('.fg') && i.closest('.fg').querySelector('.fg-lbl'); return l ? getComputedStyle(l).color : null; };
+    return { kw: lbl('ww_tKw'), ww: lbl('ww_tWw') };
+  });
+  ok(temp.kw === 'rgb(22, 163, 74)', '#28: Label Kaltwasser-Temperatur ist gruen (#16a34a)', temp.kw);
+  ok(temp.ww === 'rgb(220, 38, 38)', '#28: Label WW-Vorlauftemperatur ist rot (#dc2626)', temp.ww);
+
+  // #29 — der Buero-Uebernehmen-Knopf steht rechts wie sein Pendant in 1.1
+  const btn = await page.evaluate(() => {
+    const b = [...document.querySelectorAll('button.ww-add')].find(x => /In Büro-Zeile/.test(x.textContent));
+    const ref = [...document.querySelectorAll('button.ww-add')].find(x => /Als Anzahl übernehmen/.test(x.textContent));
+    if (!b || !ref) return null;
+    const rb = b.getBoundingClientRect(), pb = b.parentElement.getBoundingClientRect();
+    const rr = ref.getBoundingClientRect(), pr = ref.parentElement.getBoundingClientRect();
+    return {
+      justify: getComputedStyle(b.parentElement).justifyContent,
+      abstandRechts: Math.round(pb.right - rb.right),
+      refAbstandRechts: Math.round(pr.right - rr.right),
+      linksBuendig: Math.round(rb.left - pb.left) < 4
+    };
+  });
+  ok(btn !== null, '#29: beide Uebernehmen-Knoepfe vorhanden', btn);
+  ok(btn && btn.justify === 'flex-end', '#29: der Knopf sitzt in einem rechtsbuendigen Wrapper', btn && btn.justify);
+  ok(btn && !btn.linksBuendig, '#29: er klebt nicht mehr am linken Rand', btn);
+  ok(btn && Math.abs(btn.abstandRechts - btn.refAbstandRechts) <= 2,
+    '#29: gleicher rechter Abstand wie der Knopf in 1.1 («dito oben bei Wohnungen»)', btn);
 
   ok(errs.length === 0, 'Keine JS-Fehler auf der Seite', errs.slice(0, 3));
 } finally {
