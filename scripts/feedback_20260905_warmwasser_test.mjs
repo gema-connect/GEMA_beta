@@ -7,6 +7,11 @@
  *        WE mit externem Tauscher ohne Misch- und Kaltzone 1.0)
  *   #3  Misch-/Reserve-Prozent im Speicherschema muss zum gewaehlten fsto passen
  *
+ * Etappe 2 — Tab ③ Feinplanung, 3.4 Ausstosswaermeverluste:
+ *   #10 Ø-Personenbelegung + Verlust je Entnahme + Verlust je Nutzungseinheit
+ *   #11 Zeit-Select schneidet «Standard (10 s)» nicht mehr ab
+ *   #12 Beschriftung + Hinweis nebeneinander, kleines Auswahlfeld, Schnellwahl 10/15 s
+ *
  * Ausfuehren:  CHROME=<chromium> node scripts/feedback_20260905_warmwasser_test.mjs
  */
 import { readFileSync } from 'node:fs';
@@ -134,6 +139,94 @@ try {
   // die Zonen IM Behaelter bleiben auf das Total bezogen (Summe 100 %)
   ok(!/Liter · \+\d+ %.*Liter · \+\d+ %/.test(schema.txt),
     '#3: nur die Misch-Zone traegt das «+» (Spitze/Steuer bleiben auf das Total bezogen)');
+
+  // ── Etappe 2 — Tab ③ Feinplanung, 3.4 Ausstosswaermeverluste ───────────
+  await page.evaluate(() => {
+    wwState.whg = [{ whg: '5', anf: '65' }, { whg: '5', anf: '85' }, { whg: '3', anf: '105' }];
+    wwRenderTables(); wwRecalc();
+  });
+  await page.evaluate(() => { const e = document.querySelector('[data-tab="wt3"]'); if (e) e.click(); });
+  await page.waitForTimeout(300);
+
+  // #10 — drei zusaetzliche Spalten in der Wohnungen-Tabelle
+  const sp = await page.evaluate(() => {
+    const tb = document.getElementById('wwAusstossWohnBody');
+    const tab = tb ? tb.closest('table') : null;
+    const kopf = tab ? [...tab.querySelectorAll('thead th')].map(e => e.textContent.trim()) : [];
+    const z1 = tb ? [...tb.querySelectorAll('tr')][0] : null;
+    const zellen = z1 ? [...z1.children].map(e => e.textContent.trim()) : [];
+    const tot = tb ? [...tb.querySelectorAll('tr')].pop() : null;
+    return { kopf, zellen, totN: tot ? tot.children.length : 0 };
+  });
+  ok(sp.kopf.length === 8, '#10: Wohnungen-Tabelle hat 8 Spalten', sp.kopf);
+  ok(sp.kopf[1] === 'Ø Personenbelegung',
+    '#10: Spalte «Ø Personenbelegung» steht zwischen Wohnungstyp und Anz. Whg', sp.kopf[1]);
+  ok(sp.kopf[5] === 'Wärmeverluste pro Entnahme',
+    '#10: Spalte «Wärmeverluste pro Entnahme» nach «Zeit [s]»', sp.kopf[5]);
+  ok(sp.kopf[6] === 'Wärmeverluste pro Nutzungseinheit',
+    '#10: Spalte «Wärmeverluste pro Nutzungseinheit» direkt vor kWh/d', sp.kopf[6]);
+  ok(sp.totN === 8, '#10: Total-Fusszeile hat dieselbe Spaltenzahl', sp.totN);
+  const bel = parseFloat(String(sp.zellen[1]).replace(',', '.'));
+  ok(bel > 1 && bel < 6, '#10: Ø-Belegung ist ein plausibler Wert', sp.zellen[1]);
+  const perE = parseFloat(String(sp.zellen[5]).replace(',', '.'));
+  const perNE = parseFloat(String(sp.zellen[6]).replace(',', '.'));
+  const entn = parseFloat(String(sp.zellen[3]).replace(',', '.'));
+  ok(perE > 0 && perE < 1, '#10: Verlust je Entnahme ist ein kWh-Wert < 1', sp.zellen[5]);
+  ok(Math.abs(perNE - entn * perE) < 0.02,
+    '#10: Verlust je Nutzungseinheit = Entnahmen × Verlust je Entnahme', [entn, perE, perNE]);
+  const nw = parseFloat(String(sp.zellen[2]).replace(',', '.'));
+  const tag = parseFloat(String(sp.zellen[7]).replace(',', '.'));
+  ok(Math.abs(tag - perNE * nw) < 0.05,
+    '#10: kWh/d bleibt Verlust je Nutzungseinheit × Anzahl (Rechenkette unveraendert)', [perNE, nw, tag]);
+
+  // #11 — das Zeit-Select wird nicht mehr abgeschnitten
+  const zt = await page.evaluate(() => {
+    const s = document.querySelector('#wwAusstossWohnBody select.ww-zeit');
+    if (!s) return null;
+    const cs = getComputedStyle(s);
+    return { w: s.getBoundingClientRect().width, over: s.scrollWidth - s.clientWidth,
+             font: cs.fontSize, txt: s.options[0].textContent };
+  });
+  ok(!!zt && zt.over === 0, '#11: Zeit-Select schneidet nichts ab (kein Overflow)', zt);
+  ok(!!zt && zt.font === '16px',
+    '#11: gemessen gegen die global erzwungenen 16px, nicht gegen die deklarierten 12.5px', zt && zt.font);
+  ok(!!zt && zt.w >= 118, '#11: Breite traegt «Standard (10 s)»', zt && zt.w);
+
+  // #12 — Beschriftung + Hinweis nebeneinander, Auswahlfeld klein, Schnellwahl
+  const kf = await page.evaluate(() => {
+    const sel = document.getElementById('ww_zeitWohn');
+    const fg = sel ? sel.closest('.fg') : null;
+    const lbl = fg ? fg.querySelector('.fg-lbl') : null;
+    const chips = [...document.querySelectorAll('.ww-zeitwahl .ww-quick')];
+    return {
+      lblRow: !!(lbl && lbl.classList.contains('fg-lbl-row')),
+      lblH: lbl ? Math.round(lbl.getBoundingClientRect().height) : 0,
+      lblW: lbl ? Math.round(lbl.getBoundingClientRect().width) : 0,
+      selW: sel ? Math.round(sel.getBoundingClientRect().width) : 0,
+      selKurz: !!(sel && sel.classList.contains('ww-sel-kurz')),
+      chips: chips.map(c => c.getAttribute('data-sec') + ':' + (c.classList.contains('active') ? 'a' : '-')),
+      val: sel ? sel.value : null
+    };
+  });
+  ok(kf.lblRow && kf.chips.length === 2, '#12: Schnellwahl 10 s / 15 s neben dem Auswahlfeld', kf.chips);
+  ok(kf.lblH > 0 && kf.lblH <= 26,
+    '#12: Beschriftung + Hinweis auf EINER Zeile (nicht mehr Wort fuer Wort umgebrochen)', kf.lblH);
+  ok(kf.lblW > 400, '#12: die Beschriftungs-Spalte ist nicht mehr auf ~150px gequetscht', kf.lblW);
+  ok(kf.selKurz && kf.selW < 260,
+    '#12: Auswahlfeld auf Inhaltsbreite (.ww-sel-kurz statt .g-sel{width:100%})', kf.selW);
+  ok(kf.chips.join(',') === '10:a,15:-', '#12: die aktive Marke folgt dem Auswahlwert', kf.chips);
+
+  await page.evaluate(() => { const b = document.querySelector('.ww-zeitwahl .ww-quick[data-sec="15"]'); if (b) b.click(); });
+  await page.waitForTimeout(250);
+  const nach2 = await page.evaluate(() => ({
+    val: (document.getElementById('ww_zeitWohn') || {}).value,
+    chips: [...document.querySelectorAll('.ww-zeitwahl .ww-quick')].map(c => c.getAttribute('data-sec') + ':' + (c.classList.contains('active') ? 'a' : '-')),
+    std: (document.querySelector('#wwAusstossWohnBody select.ww-zeit') || { options: [{}] }).options[0].textContent
+  }));
+  ok(nach2.val === '15', '#12: Klick auf «15 s» setzt den Wert', nach2.val);
+  ok(nach2.chips.join(',') === '10:-,15:a', '#12: die aktive Marke wandert mit', nach2.chips);
+  ok(/Standard \(15 s\)/.test(nach2.std),
+    '#12: die Zeilen uebernehmen den neuen Standard (change wurde gefeuert)', nach2.std);
 
   ok(errs.length === 0, 'Keine JS-Fehler auf der Seite', errs.slice(0, 3));
 } finally {
