@@ -24,6 +24,12 @@
  *   #28 Label Kaltwasser gruen · Warmwasser rot
  *   #29 «⬇ In Büro-Zeile übernehmen» rechtsbuendig wie der Knopf in 1.1
  *
+ * Etappe 5 — Tab ③ Feinplanung + Tab ④ (Beschriftung/Reihenfolge):
+ *   #6  Titel 4.2 ohne Norm-Suffix («Speicherauslegung», nicht «… (SIA 385/2)»)
+ *   #16 Tabelle 3.3: Laenge VOR Material (Leitung | Laenge | Material | Aussen-ø | kWh/d)
+ *   #20 «Heizlast frei gewaehlt» steht UNTER den Ergebniszeilen ueber die volle Breite
+ *   #21 «⇩ Angaben Wohnungen aus Grobauslegung» steht VOR der Tabelle 3.2
+ *
  * Ausfuehren:  CHROME=<chromium> node scripts/feedback_20260905_warmwasser_test.mjs
  */
 import { readFileSync } from 'node:fs';
@@ -67,6 +73,21 @@ ok(/Math\.round\(v\*100\)\/100/.test(WW),                '#8: wwVfSet rundet auf
 ok(!/Math\.round\(v\*1000\)\/1000/.test(WW),             '#8: keine 3-Stellen-Rundung mehr');
 ok(/setTxt\('ww_vfGrob'[^)]*wwFmt\(1\+res\.vz\/100,2\)/.test(WW),   '#8: Chip Grobauslegung mit 2 NK');
 ok(/setTxt\('ww_vfFein'[^)]*wwFmt\(1\+res\.vzFein\/100,2\)/.test(WW), '#8: Chip Feinplanung mit 2 NK');
+
+// #6 — der Norm-Zusatz ist aus dem Titel raus (die Norm steht im Hero)
+ok(/<h2>4\.2 Speicherauslegung<\/h2>/.test(WW),
+  '#6: Titel 4.2 heisst nur noch «Speicherauslegung»');
+ok(!/4\.2 Speicherauslegung \(SIA 385\/2\)/.test(WW),
+  '#6: der Klammer-Zusatz «(SIA 385/2)» ist entfernt');
+
+// #16 — Kopfzeile von 3.3: Laenge steht VOR Material
+{
+  const kopf = (WW.match(/<thead><tr><th>Leitung<\/th>[\s\S]*?<\/tr><\/thead>/) || [''])[0];
+  const iL = kopf.indexOf('Länge'), iM = kopf.indexOf('Material'), iO = kopf.indexOf('Aussen-ø');
+  ok(iL > 0 && iM > 0 && iO > 0, '#16: Kopfzeile 3.3 gefunden', kopf.slice(0, 120));
+  ok(iL < iM, '#16: Kopfzeile — Länge steht vor Material', { iL, iM });
+  ok(iM < iO, '#16: Kopfzeile — Material steht vor Aussen-ø', { iM, iO });
+}
 
 // #3 — Schema kennt den fsto und rechnet die Misch-Zone gegen die Bereitschaft
 ok(/fsto:wwNum\('ww_fsto'\)/.test(WW),        '#3: fsto wandert in den _wwSpSchemaDraw-Payload');
@@ -315,6 +336,83 @@ try {
 
   /* ── Etappe 4 · Tab ① Nutzwarmwasserbedarf (#26, #27, #28, #29) ── */
   console.log('\n── Etappe 4 · Tab ① Nutzwarmwasserbedarf ──');
+
+  // #16 — GERENDERTE Spaltenreihenfolge in 3.3 (jede der vier Zeilen)
+  const sp16 = await page.evaluate(() => {
+    const tab = [...document.querySelectorAll('table.ww')]
+      .find(t => /Totaler Leitungsverlust/.test(t.textContent));
+    if (!tab) return null;
+    const kopf = [...tab.querySelectorAll('thead th')].map(t => t.textContent.trim());
+    const rows = [...tab.querySelectorAll('tbody tr')].filter(r => !r.classList.contains('ww-sumrow'));
+    const art = el => {
+      const id = el.id || (el.querySelector('[id]') || {}).id || '';
+      if (/^ww_l/.test(id)) return 'laenge';
+      if (/^ww_mat/.test(id)) return 'material';
+      if (/^ww_oe/.test(id)) return 'oe';
+      if (/^ww_out_q/.test(id)) return 'kwh';
+      return 'text';
+    };
+    const sum = tab.querySelector('tbody tr.ww-sumrow td');
+    return {
+      kopf,
+      zeilen: rows.map(r => [...r.children].map(art).join('|')),
+      colspan: sum ? sum.getAttribute('colspan') : null
+    };
+  });
+  ok(sp16 !== null, '#16: Tabelle 3.3 im DOM gefunden', sp16);
+  ok(sp16 && sp16.kopf.length === 5 && /Länge/.test(sp16.kopf[1]) && /Material/.test(sp16.kopf[2]) && /Aussen/.test(sp16.kopf[3]),
+    '#16: gerenderte Kopfzeile = Leitung | Länge | Material | Aussen-ø | kWh/d', sp16 && sp16.kopf);
+  ok(sp16 && sp16.zeilen.length === 4, '#16: vier Leitungs-Zeilen', sp16 && sp16.zeilen.length);
+  ok(sp16 && sp16.zeilen.every(z => z === 'text|laenge|material|oe|kwh'),
+    '#16: JEDE Zeile traegt die Zellen in derselben Reihenfolge wie die Kopfzeile', sp16 && sp16.zeilen);
+  ok(sp16 && sp16.colspan === '4', '#16: Summenzeile spannt weiterhin ueber vier Spalten', sp16 && sp16.colspan);
+
+  // #20 — das freie Heizlast-Feld steht UNTER den Ergebniszeilen, ueber die volle Breite
+  const hz = await page.evaluate(() => {
+    const inp = document.getElementById('ww_heizFrei');
+    const fg = inp && inp.closest('.fg');
+    const erg = document.getElementById('ww_out_heizlast');
+    const zeile = erg && erg.closest('.g-result-row');
+    const grid = document.querySelector('.g-card-bd > .g-main-grid, .g-main-grid');
+    if (!fg || !zeile) return null;
+    const rf = fg.getBoundingClientRect(), rz = zeile.getBoundingClientRect();
+    // Referenz: das Zweispalten-Raster darueber nimmt die volle Inhaltsbreite ein
+    // (gegen die Karten-Aussenbreite zu messen waere falsch — sie traegt Padding)
+    const ref = fg.previousElementSibling && fg.previousElementSibling.classList.contains('g-main-grid')
+      ? fg.previousElementSibling
+      : [...(fg.closest('.g-card-bd') || document).querySelectorAll('.g-main-grid')].pop();
+    const rr = ref ? ref.getBoundingClientRect() : null;
+    return {
+      unterhalb: Math.round(rf.top - rz.bottom),
+      imGrid: !!(grid && grid.contains(fg)),
+      breiteFeld: Math.round(rf.width),
+      breiteRef: rr ? Math.round(rr.width) : null
+    };
+  });
+  ok(hz !== null, '#20: Feld und Ergebniszeile vorhanden', hz);
+  ok(hz && hz.unterhalb > 0, '#20: das Feld steht UNTER der Zeile «Massgebende Heizlast»', hz && hz.unterhalb);
+  ok(hz && hz.imGrid === false, '#20: es sitzt nicht mehr in der Spalte des Zweispalten-Rasters', hz);
+  ok(hz && hz.breiteRef && Math.abs(hz.breiteFeld - hz.breiteRef) <= 2,
+    '#20: es nimmt die volle Breite ein (gleich breit wie das Raster darueber)', hz);
+
+  // #21 — der Uebernahme-Knopf steht VOR der Tabelle 3.2
+  const ub = await page.evaluate(() => {
+    const b = [...document.querySelectorAll('button.ww-add')]
+      .find(x => /aus Grobauslegung/.test(x.textContent));
+    const tb = document.getElementById('wwWhgBody');
+    const tabelle = tb && tb.closest('table');
+    if (!b || !tabelle) return null;
+    const rb = b.getBoundingClientRect(), rt = tabelle.getBoundingClientRect();
+    return {
+      abstand: Math.round(rt.top - rb.bottom),
+      vorher: (b.compareDocumentPosition(tabelle) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+      justify: getComputedStyle(b.parentElement).justifyContent
+    };
+  });
+  ok(ub !== null, '#21: Knopf und Wohnungs-Tabelle vorhanden', ub);
+  ok(ub && ub.vorher, '#21: der Knopf steht im Markup VOR der Tabelle 3.2', ub);
+  ok(ub && ub.abstand >= 0, '#21: er liegt geometrisch oberhalb der Tabelle', ub && ub.abstand);
+  ok(ub && ub.justify === 'flex-end', '#21: er bleibt rechtsbuendig', ub && ub.justify);
 
   await page.evaluate(() => { const e = document.querySelector('[data-tab="wt1"]'); if (e) e.click(); });
   await page.waitForTimeout(250);
