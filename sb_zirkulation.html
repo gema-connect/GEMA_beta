@@ -565,12 +565,16 @@ table.zk{border-collapse:collapse;width:100%;min-width:720px;font-size:12px}
   letter-spacing:.3px;padding:3px 8px;border-top:1px solid var(--border);text-align:left}
 .zk tr.zk-head.open>td{border-bottom:none}
 .zk tr.zk-head .zk-nr{cursor:pointer}
-.zk .zk-chips{white-space:normal;padding:4px 6px}
-.zk-chip{display:inline-flex;align-items:baseline;gap:4px;margin:2px 4px 2px 0;padding:2px 8px;border-radius:999px;background:var(--surface2);border:1px solid var(--border);font-size:11px;color:var(--muted);white-space:nowrap}
-.zk-chip b{font-size:12px;color:var(--text);font-variant-numeric:tabular-nums}
-.zk-chip.bad{background:#fef2f2;border-color:#fecaca;color:#b91c1c}
-.zk-chip.bad b{color:#b91c1c}
-.zk-chip.mut{font-style:italic}
+/* Feedback 05.09.2026 (#2): die Auswahlfelder «angeschlossene Teilstrecken»
+   (TS 1 / TS 2), Bauart und Einbauort stehen in der KOPFZEILE der Teilstrecke
+   (rot markierte Felder «nach oben»), die Rechenwerte im Aufklapp-Fenster
+   («Werte nach unten»). Die frühere Chip-Spalte ist entfallen. Die Zelle
+   heisst weiterhin .zk-anschl, ist in der Kopfzeile aber eine normale Zelle
+   (kein umrandeter Block — die Box-Optik galt dem Detail-Block). */
+.zk td.zk-anschl{border:none;border-bottom:1px solid var(--border);border-radius:0;padding:3px 6px;background:transparent;white-space:nowrap}
+.zk td.zk-anschl select.zk-ts{width:52px;display:inline-block;vertical-align:middle}
+.zk .zk-tslbl{display:inline-block;font-size:9.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin:0 3px 0 0;vertical-align:middle}
+.zk .zk-tslbl+select+.zk-tslbl{margin-left:8px}
 .zk tr.zk-det>td{background:var(--surface2);padding:8px 10px 12px;white-space:normal}
 /* Teilstrecken-Gruppierung (Feedback 06.08.2026: «welcher Teil gehört wo
    hin») — Zebra je TS + offene TS als klar umrandeter Block mit Akzentkante. */
@@ -580,8 +584,10 @@ table.zk{border-collapse:collapse;width:100%;min-width:720px;font-size:12px}
 .zk tbody tr.zk-head.open>td:first-child,.zk tbody tr.zk-det>td:first-child{box-shadow:inset 3px 0 0 var(--accent,#2563eb)}
 .zk tbody tr.zk-head.open:hover td{background:#eef4fb}
 .zk tbody tr.zk-det:hover td{background:#f6f9fe}
-/* Detail in ZWEI Zeilen (Feedback 06.08.2026): Zeile 1 = angeschlossene TS +
-   Bauart/Einbauort/Werkstoff + W/m·Q_TS·ΣQ, Zeile 2 = Dämmungen + Rest. */
+/* Detail-Zeilen (Feedback 06.08.2026, Aufteilung seit Feedback 05.09.2026 #2):
+   Zeile 1 = Werkstoff/Fabrikat + Dämmungen + W/m·Q_TS·ΣQ, Zeile 2 = die übrigen
+   Rechenwerte. Angeschlossene TS, Bauart und Einbauort stehen NICHT mehr hier,
+   sondern in der Kopfzeile tr.zk-head (siehe .zk-anschl oben). */
 .zk-detrow{display:flex;flex-wrap:wrap;gap:7px 10px;align-items:flex-end;max-width:100%}
 .zk-detrow>label{min-width:0}
 .zk-detrow select,.zk-detrow input{max-width:100%}
@@ -589,10 +595,6 @@ table.zk{border-collapse:collapse;width:100%;min-width:720px;font-size:12px}
 .zk-detrow label{display:flex;flex-direction:column;gap:3px}
 .zk-detrow label>span{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px}
 .zk-detrow select,.zk-detrow input{padding:5px 7px;border:1.5px solid var(--border2);border-radius:7px;font-size:12.5px;font-family:inherit;background:#fff}
-.zk-anschl{border:1.5px solid var(--border2);border-radius:9px;padding:5px 8px 7px;background:#fff}
-.zk-grptit{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:4px}
-.zk-anschl-in{display:flex;gap:8px}
-.zk-anschl-in label>span{text-transform:none;letter-spacing:0}
 /* Feedback 06.08.2026 «Felder verkleinern, so dass seitlich alles ohne
    Scroll-Funktion einsehbar ist»: die Wert-Kacheln dürfen bis auf 72 px
    schrumpfen und die Detailzeile bricht um, statt die Tabelle zu sprengen. */
@@ -739,6 +741,49 @@ table.zks{border-collapse:collapse;width:100%;font-size:12.5px}
         </select>
       </div>
 
+    </div>
+  </div>
+
+  <!-- ── TEILSTRECKEN ── -->
+  <div class="g-card" id="zkTsCard">
+    <div class="g-card-hd"><h2>Teilstrecken Zirkulationsleitung</h2><span style="font-size:11px;color:var(--muted)">Bauart: konventionell = VL + RL getrennt · Rohr an Rohr</span></div>
+    <div class="g-card-bd">
+      <div class="zk-wrap">
+        <table class="zk" id="zkTable">
+          <thead><tr>
+            <th style="width:26px"></th>
+            <th title="Teilstrecken-Nummer">TS</th>
+            <th title="Länge der Teilstrecke">l [m]</th>
+            <th title="Aussendurchmesser Vorlauf (Dämm-Auslegung)">ø VL</th>
+            <th title="Durchmesser Rücklauf (Zirkulationsleitung)">ø RL</th>
+            <th title="angeschlossene Teilstrecken: TS 1 = Fortsetzung des Strangs, TS 2 = Abgang">angeschlossene Teilstrecken</th>
+            <th title="Bauart: konventionell (VL + RL getrennt) oder Rohr an Rohr">Bauart</th>
+            <th title="Einbauort — bestimmt die Umgebungstemperatur">Einbauort</th>
+            <th style="width:34px"></th>
+          </tr></thead>
+          <tbody id="zkBody"></tbody>
+        </table>
+      </div>
+      <button class="zk-add" onclick="zkAddRow()">+ Teilstrecke hinzufügen</button>
+      <textarea id="zk_rows" style="display:none"></textarea>
+      <div class="frml-block">
+        <div class="frml-row"><span class="frml-sym">U</span><span class="frml-eq">=</span><span class="frml-expr">2π / [ ln((d/2+s)/(d/2))/λ + 1/(8·(d/2+s)) ] [W/(m·K)] · d = Aussen-ø, s = Dämmstärke (d/2+s in m), λ der Dämmung</span></div>
+        <div class="frml-row"><span class="frml-sym">W/m</span><span class="frml-eq">=</span><span class="frml-expr">(U<sub>VL</sub> + U<sub>RL</sub>) · 1000/24 [W/m] (Art kon.) · Art RaR: Tabellenwert nach kombiniertem ø (VL+RL)</span></div>
+        <div class="frml-row"><span class="frml-sym">Q<sub>TS</sub>, ΣQ</span><span class="frml-eq">=</span><span class="frml-expr">Q<sub>TS</sub> = l · (W/m) [W] · ΣQ = Q<sub>TS</sub> + ΣQ aller angeschlossenen TS [W]</span></div>
+        <div class="frml-row"><span class="frml-sym">T<sub>RL</sub></span><span class="frml-eq">=</span><span class="frml-expr">TS 1: T<sub>WW</sub> − ΔT<sub>zul</sub> · Folge-TS: T<sub>RL</sub> + (Q<sub>TS</sub>/ΣQ)·ΔT<sub>Rest</sub> der vorangehenden TS [°C]</span></div>
+        <div class="frml-row"><span class="frml-sym">m</span><span class="frml-eq">=</span><span class="frml-expr">ΣQ / (1.163·ΔT<sub>Rest</sub>) [kg/h] · ΔT<sub>Rest</sub> = T<sub>max,Netz</sub> − T<sub>RL</sub> (TS 1: ΔT<sub>zul</sub>)</span></div>
+        <div class="frml-row"><span class="frml-sym">v, R</span><span class="frml-eq">=</span><span class="frml-expr">Rohrtabelle je Werkstoff + DN RL (nächstgrössere Zeile) bei V̇ = m/3600 [l/s] · R·l = R · l [mbar]</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Feedback 05.09.2026 (#3 «nach oben verschieben»): die Teilstrecken stehen
+       DIREKT nach den Grundparametern (Eingabe → Berechnung), die Druckverlust-/
+       Pumpen-Angaben folgen als eigene Karte — sie beziehen sich auf das
+       erfasste Netz (Regulierventil je Strang, Zuschlag, gewählte Pumpe). -->
+  <div class="g-card" id="zkGrund2Card">
+    <div class="g-card-hd zk-foldhd" onclick="zkFold('zkGrund2')" title="Ein-/ausklappen"><h2><span class="fold-cx" id="cx_zkGrund2">▾</span> Druckverluste &amp; Pumpe</h2><span style="font-size:11px;color:var(--muted)">Regulierventil je Strang · Zuschlag Einzelwiderstände · gewählte Pumpe</span></div>
+    <div class="g-card-bd" id="bd_zkGrund2">
       <!-- Regulierventil-Auslegung ist eine eigene Mappe (Feedback 06.08.2026):
            hier nur die oben wählbare Abzweigung dorthin — Auswahl + Kennlinie
            + Betriebspunkte leben in der Karte «📈 Regulierventil». -->
@@ -788,37 +833,6 @@ table.zks{border-collapse:collapse;width:100%;font-size:12.5px}
         </div>
         <div class="warn-box" id="zk_msg" style="display:none"></div>
       </div>
-    </div>
-  </div>
-</div>
-
-<!-- ── TEILSTRECKEN ── -->
-<div class="g-card" style="margin-top:14px">
-  <div class="g-card-hd"><h2>Teilstrecken Zirkulationsleitung</h2><span style="font-size:11px;color:var(--muted)">Bauart: konventionell = VL + RL getrennt · Rohr an Rohr</span></div>
-  <div class="g-card-bd">
-    <div class="zk-wrap">
-      <table class="zk" id="zkTable">
-        <thead><tr>
-          <th style="width:26px"></th>
-          <th title="Teilstrecken-Nummer">TS</th>
-          <th title="Länge der Teilstrecke">l [m]</th>
-          <th title="Aussendurchmesser Vorlauf (Dämm-Auslegung)">ø VL</th>
-          <th title="Durchmesser Rücklauf (Zirkulationsleitung)">ø RL</th>
-          <th title="Wichtigste Werte — Details im aufgeklappten Zustand">Werte</th>
-          <th style="width:34px"></th>
-        </tr></thead>
-        <tbody id="zkBody"></tbody>
-      </table>
-    </div>
-    <button class="zk-add" onclick="zkAddRow()">+ Teilstrecke hinzufügen</button>
-    <textarea id="zk_rows" style="display:none"></textarea>
-    <div class="frml-block">
-      <div class="frml-row"><span class="frml-sym">U</span><span class="frml-eq">=</span><span class="frml-expr">2π / [ ln((d/2+s)/(d/2))/λ + 1/(8·(d/2+s)) ] [W/(m·K)] · d = Aussen-ø, s = Dämmstärke (d/2+s in m), λ der Dämmung</span></div>
-      <div class="frml-row"><span class="frml-sym">W/m</span><span class="frml-eq">=</span><span class="frml-expr">(U<sub>VL</sub> + U<sub>RL</sub>) · 1000/24 [W/m] (Art kon.) · Art RaR: Tabellenwert nach kombiniertem ø (VL+RL)</span></div>
-      <div class="frml-row"><span class="frml-sym">Q<sub>TS</sub>, ΣQ</span><span class="frml-eq">=</span><span class="frml-expr">Q<sub>TS</sub> = l · (W/m) [W] · ΣQ = Q<sub>TS</sub> + ΣQ aller angeschlossenen TS [W]</span></div>
-      <div class="frml-row"><span class="frml-sym">T<sub>RL</sub></span><span class="frml-eq">=</span><span class="frml-expr">TS 1: T<sub>WW</sub> − ΔT<sub>zul</sub> · Folge-TS: T<sub>RL</sub> + (Q<sub>TS</sub>/ΣQ)·ΔT<sub>Rest</sub> der vorangehenden TS [°C]</span></div>
-      <div class="frml-row"><span class="frml-sym">m</span><span class="frml-eq">=</span><span class="frml-expr">ΣQ / (1.163·ΔT<sub>Rest</sub>) [kg/h] · ΔT<sub>Rest</sub> = T<sub>max,Netz</sub> − T<sub>RL</sub> (TS 1: ΔT<sub>zul</sub>)</span></div>
-      <div class="frml-row"><span class="frml-sym">v, R</span><span class="frml-eq">=</span><span class="frml-expr">Rohrtabelle je Werkstoff + DN RL (nächstgrössere Zeile) bei V̇ = m/3600 [l/s] · R·l = R · l [mbar]</span></div>
     </div>
   </div>
 </div>
@@ -2194,36 +2208,41 @@ function zkRenderTable(){
     /* Feedback 06.08.2026 «Pro Teilstrecke darstellen»: die Spaltenbeschriftung
        wiederholt sich vor jeder Teilstrecke — bei aufgeklappten Zeilen ist die
        Kopfzeile der Tabelle sonst längst aus dem Bild gescrollt. */
-    var h='<tr class="zk-sub'+grp+'"><th></th><th>TS</th><th>l [m]</th><th>ø VL</th><th>ø RL</th><th>Werte</th><th></th></tr>';
+    /* Feedback 05.09.2026 (#2): die AUSWAHLFELDER (angeschlossene Teilstrecken,
+       Bauart, Einbauort) stehen in der KOPFZEILE — sie beschreiben, WIE die
+       Teilstrecke im Netz hängt, und müssen ohne Aufklappen sichtbar sein;
+       die RECHENWERTE (früher Chips in der Kopfzeile) stehen im Aufklapp-
+       Fenster. Kopf- UND Detailzeile tragen data-i — der #zkBody-Listener
+       findet die Selects damit unverändert über tr.dataset.i. */
+    var h='<tr class="zk-sub'+grp+'"><th></th><th>TS</th><th>l [m]</th><th>ø VL</th><th>ø RL</th><th>angeschlossene Teilstrecken</th><th>Bauart</th><th>Einbauort</th><th></th></tr>';
     h+='<tr data-i="'+i+'" class="zk-head'+grp+(offen?' open':'')+'">'
       +'<td class="zk-cx" onclick="zkToggleRow('+i+')" title="Teilstrecke auf-/zuklappen"><i>'+(offen?'▾':'▸')+'</i></td>'
       +'<td class="zk-nr" onclick="zkToggleRow('+i+')">'+r.nr+'</td>'
       +'<td><input class="zk-num" type="text" inputmode="decimal" value="'+zkEsc(r.len)+'" data-k="len" placeholder="0"/></td>'
       +'<td><select class="zk-dn" data-k="ovl">'+ovlOpts+'</select></td>'
       +'<td><select class="zk-dn" data-k="dn">'+dnOpts+'</select></td>'
-      +'<td class="zk-chips" data-c="chips"></td>'
+      +'<td class="zk-anschl" title="angeschlossene Teilstrecken: TS 1 = Fortsetzung des Strangs, TS 2 = Abgang (Netzschema)">'
+        +'<span class="zk-tslbl">TS 1</span><select class="zk-ts" data-k="e" title="angeschlossene Teilstrecke 1 (Fortsetzung)">'+tsOpts(r.e)+'</select>'
+        +'<span class="zk-tslbl">TS 2</span><select class="zk-ts" data-k="f" title="angeschlossene Teilstrecke 2 (Abgang)">'+tsOpts(r.f)+'</select>'
+      +'</td>'
+      +'<td><select class="zk-art" data-k="art" title="Bauart"><option value="kon"'+(r.art==='kon'?' selected':'')+'>konventionell</option><option value="rar"'+(r.art==='rar'?' selected':'')+'>Rohr an Rohr</option></select></td>'
+      +'<td><select class="zk-ort" data-k="ort" title="Einbauort">'+ortOpts+'</select></td>'
       +'<td><button class="zk-del" title="Teilstrecke löschen" onclick="zkDelRow('+i+')">✕</button></td>'
       +'</tr>';
     if(!offen) return h;
-    /* Detailzeile (Feedback 06.08.2026): Zeile 1 = angeschlossene Teilstrecken
-       (mit eigenem Titel) · Bauart ausgeschrieben · Einbauort · Werkstoff +
-       die Leistungs-Werte W/m, Q_TS, ΣQ. Zeile 2 = Dämmungen + die übrigen
-       Rechenwerte. Ein Wert-Kachel-Set bleibt bei 8 Kacheln (Drift-Guard). */
+    /* Detailzeile (Feedback 05.09.2026 #2 «Werte nach unten»): Zeile 1 =
+       Werkstoff/Fabrikat + Dämmungen + die Leistungs-Werte W/m, Q_TS, ΣQ,
+       Zeile 2 = die übrigen Rechenwerte (T_RL, m, v, R, R·l). Ein Wert-Kachel-
+       Set bleibt bei 8 Kacheln (Drift-Guard feedback_20260728_1). */
     var tile=function(x){var p=x.split('|');return '<div class="zk-val"><span class="l">'+p[1]+'</span><span class="v" data-c="'+p[0]+'">–</span></div>';};
-    h+='<tr class="zk-det'+grp+'" data-i="'+i+'"><td></td><td colspan="6">'
+    h+='<tr class="zk-det'+grp+'" data-i="'+i+'"><td></td><td colspan="8">'
       +'<div class="zk-detrow">'
-      +'<div class="zk-anschl"><div class="zk-grptit">angeschlossene Teilstrecken</div><div class="zk-anschl-in">'
-        +'<label><span>TS 1</span><select class="zk-ts" data-k="e">'+tsOpts(r.e)+'</select></label>'
-        +'<label><span>TS 2</span><select class="zk-ts" data-k="f">'+tsOpts(r.f)+'</select></label>'
-      +'</div></div>'
-      +'<label><span>Bauart</span><select class="zk-art" data-k="art"><option value="kon"'+(r.art==='kon'?' selected':'')+'>konventionell</option><option value="rar"'+(r.art==='rar'?' selected':'')+'>Rohr an Rohr</option></select></label>'
-      +'<label><span>Einbauort</span><select class="zk-ort" data-k="ort">'+ortOpts+'</select></label>'
       +'<label><span>Werkstoff'+(akt.length>=2?' / Fabrikat':'')+'</span>'+matSel+'</label>'
+      +'<label><span>Dämmung VL [mm]</span><select class="zk-opt" data-k="dvl" data-daemm="vl">'+zkDaemmOpts(r.dvl)+'</select></label>'
+      +'<label><span>Dämmung RL [mm]</span><select class="zk-opt" data-k="'+(r.art==='rar'?'drar':'drl')+'" data-daemm="rl">'+zkDaemmOpts(r.art==='rar'?r.drar:r.drl)+'</select></label>'
       +'<div class="zk-vals zk-vals-r1">'+['bg|W/m','D|Q<sub>TS</sub> [W]','G|ΣQ [W]'].map(tile).join('')+'</div>'
       +'</div>'
       +'<div class="zk-detrow">'
-      +'<label><span>Dämmung VL [mm]</span><select class="zk-opt" data-k="dvl" data-daemm="vl">'+zkDaemmOpts(r.dvl)+'</select></label>'
-      +'<label><span>Dämmung RL [mm]</span><select class="zk-opt" data-k="'+(r.art==='rar'?'drar':'drl')+'" data-daemm="rl">'+zkDaemmOpts(r.art==='rar'?r.drar:r.drl)+'</select></label>'
       +'<div class="zk-vals zk-vals-r2">'+['H|T<sub>RL</sub> [°C]','J|m [kg/h]','v|v [m/s]','R|R [mbar/m]','Q|R·l [mbar]'].map(tile).join('')+'</div>'
       +'</div></td></tr>';
     return h;
@@ -2241,18 +2260,8 @@ function zkRenderCalc(res){
     set('v',o.pipeErr?o.pipeErr:zkFmt(o.v,2),!!o.pipeErr||(o.v||0)>1.0);
     set('R',o.pipeErr?'–':zkFmt(o.R,1));
     set('Q',o.Q!=null?zkFmt(o.Q,1):'–');
-    /* Kopfzeile: die wichtigsten Werte als Chips (zugeklappt lesbar) */
-    var chips=tr.querySelector('[data-c="chips"]');
-    if(chips){
-      var vWarn=!!o.pipeErr||(o.v||0)>1.0;
-      chips.innerHTML = (o.G!=null||o.H!=null)
-        ? '<span class="zk-chip">ΣQ <b>'+zkFmt(o.G,0)+'</b> W</span>'
-          +'<span class="zk-chip">T<sub>RL</sub> <b>'+(o.H!=null?zkFmt(o.H,1):'–')+'</b> °C</span>'
-          +'<span class="zk-chip">m <b>'+zkFmt(o.J,1)+'</b> kg/h</span>'
-          +'<span class="zk-chip'+(vWarn?' bad':'')+'">v <b>'+(o.pipeErr?o.pipeErr:zkFmt(o.v,2))+'</b>'+(o.pipeErr?'':' m/s')+'</span>'
-          +'<span class="zk-chip">R·l <b>'+(o.Q!=null?zkFmt(o.Q,1):'–')+'</b> mbar</span>'
-        : '<span class="zk-chip mut">Länge erfassen …</span>';
-    }
+    /* Kopfzeile: KEINE Wert-Chips mehr (Feedback 05.09.2026 #2) — die Werte
+       stehen im Aufklapp-Fenster, die Kopfzeile trägt die Auswahlfelder. */
     // Auto-Dämmstärken in der «auto»-Option ausweisen
     var dvlSel=tr.querySelector('[data-daemm="vl"]');
     if(dvlSel && !dvlSel.value){ var oa=dvlSel.options[0]; if(oa) oa.textContent='auto'+(o.sVLa!=null?' ('+o.sVLa+' mm)':''); }
@@ -2376,6 +2385,32 @@ function zkDelRow(i){
     zkRenderTable();zkPersist();zkRecalc();
   });
 }
+/* Feedback 05.09.2026 (#2, Fokus-Regel — KRITISCH): Bauart, Werkstoff und
+   Fabrikat wechseln die Optionslisten ANDERER Selects derselben Zeile (die
+   RL-Dämmung folgt der Bauart: drl ⇄ drar; ø VL / DN RL folgen dem Fabrikat
+   bzw. Werkstoff). Früher lief dafür zkRenderTable() — das leert #zkBody
+   komplett, und weil native Selects bei JEDEM Pfeiltasten-Schritt input UND
+   change feuern, war der Fokus nach dem ersten Schritt weg (dieselbe Falle
+   wie paintCells in sb_lu_tabelle). Jetzt werden nur die betroffenen Selects
+   der Zeile nachgezeichnet, das aktive Feld bleibt unangetastet; Kopf- und
+   Detailzeile tragen dieselbe data-i. zkRenderTable() läuft nur noch beim
+   Hinzufügen/Löschen/Auf-/Zuklappen und beim Fabrikat-Wechsel oben. */
+function zkPaintRowSelects(tr, r, k){
+  var i=tr.dataset.i;
+  var head=tr.classList.contains('zk-head')?tr:document.querySelector('#zkBody tr.zk-head[data-i="'+i+'"]');
+  var det =tr.classList.contains('zk-det') ?tr:document.querySelector('#zkBody tr.zk-det[data-i="'+i+'"]');
+  var optList=function(list,cur){return list.map(function(d){return '<option value="'+d+'"'+(String(cur)===String(d)?' selected':'')+'>'+d+'</option>';}).join('');};
+  if(k==='art'&&det){
+    var rl=det.querySelector('[data-daemm="rl"]');
+    if(rl){ var rar=r.art==='rar'; rl.dataset.k=rar?'drar':'drl'; rl.innerHTML=zkDaemmOpts(rar?r.drar:r.drl); }
+  }
+  if((k==='mat'||k==='fabsel')&&head){
+    var rf=zkRowFab(r);
+    var ovlSel=head.querySelector('select[data-k="ovl"]'), dnSel=head.querySelector('select[data-k="dn"]');
+    if(ovlSel) ovlSel.innerHTML=optList(zkOvlListe(rf),r.ovl);
+    if(dnSel)  dnSel.innerHTML =optList(zkDnListe(r.mat,rf),r.dn);
+  }
+}
 document.getElementById('zkBody').addEventListener('input',function(e){
   var tr=e.target.closest('tr');if(!tr)return;
   var r=zkRows[parseInt(tr.dataset.i,10)];var k=e.target.dataset.k;
@@ -2384,10 +2419,13 @@ document.getElementById('zkBody').addEventListener('input',function(e){
     // Werkstoff über das Fabrikat der Zeile (2-Fabrikate-Modus)
     var f=zkFabById(e.target.value);
     if(f&&f.mat){ r.fabId=f.id; r.mat=f.mat; zkClampRowDims(r,f); }
-    zkRenderTable();
+    zkPaintRowSelects(tr,r,'fabsel');
   } else {
     r[k]=e.target.value;
-    if(k==='mat'||k==='art'){zkRenderTable();}
+    /* Werkstoff ohne Fabrikat: ø/DN auf die Tabelle des neuen Werkstoffs klemmen
+       (nächstliegender Wert, nie ein DN, den die Rohrtabelle nicht kennt). */
+    if(k==='mat'){ zkClampRowDims(r,null); }
+    if(k==='mat'||k==='art'){ zkPaintRowSelects(tr,r,k); }
   }
   zkPersist();zkRecalc();
 });
@@ -2418,7 +2456,7 @@ document.addEventListener('DOMContentLoaded',function(){
 });
 /* ── Karten ein-/ausklappen (Feedback 28.07.2026) — Zustand pro Gerät ── */
 var ZK_FOLD_KEY='gema_zk_fold_v1';
-var ZK_FOLD_DEFAULT={ zkGrund:true, zkUmgeb:true, zkSchemaC:true, zkVentilC:true, zkRvC:true, zkHilfe:false };   // true = offen
+var ZK_FOLD_DEFAULT={ zkGrund:true, zkGrund2:true, zkUmgeb:true, zkSchemaC:true, zkVentilC:true, zkRvC:true, zkHilfe:false };   // true = offen (zkGrund2 = Karte «Druckverluste & Pumpe», Feedback 05.09.2026)
 function zkFoldState(){
   var st={}; Object.keys(ZK_FOLD_DEFAULT).forEach(function(k){ st[k]=ZK_FOLD_DEFAULT[k]; });
   try{ var r=JSON.parse(localStorage.getItem(ZK_FOLD_KEY)||'{}');
@@ -2615,29 +2653,65 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('zirk
       kids[r.nr]=[r.e,r.f].map(function(c){return parseInt(c,10);}).filter(function(c){return c&&byNr[c];});
       kids[r.nr].forEach(function(c){parentOf[c]=r.nr;});
     });
-    // DFS ab Root: Tiefe, Reihenfolge, y über Leaf-Slots (innere Knoten mittig über den Kindern)
-    var depth={},posY={},order=[],seen={},leafSlots=0,maxDepth=0;
-    (function walk(nr,dp){
+    /* DFS ab Root — Feedback 05.09.2026 #1 «Abgänge nach Zuordnung der Teilstrecken
+       logisch verteilen»: Die Tabelle sagt es bereits (Tooltip der Spalte
+       «angeschlossene Teilstrecken»): TS 1 = FORTSETZUNG des Strangs, TS 2 =
+       ABGANG. Genau so wird jetzt auch gezeichnet — die Fortsetzung steigt in
+       DERSELBEN Spalte weiter (eine durchgehende Steigleitung), nur der Abgang
+       bekommt eine eigene Spalte. Früher sass ein innerer Knoten mittig ÜBER
+       seinen Kindern (Mittelwert der Leaf-Slots); dadurch liefen die waagrechten
+       Verbinder nach BEIDEN Seiten und kreuzten quer durchs Bild.
+       «vom Wassererwärmer nach links … einen Abgang»: ein Abgang, der direkt am
+       Root hängt und selbst keine Kinder hat, bekommt Slot -1 und wird damit
+       LINKS der Steigleitung gezeichnet (zwischen RV und Pumpe); slotMin
+       normalisiert danach auf 0. */
+    var depth={},posY={},order=[],seen={},maxDepth=0,slotNext=0;
+    (function walk(nr,dp,slot){
       if(seen[nr])return;
-      seen[nr]=1;depth[nr]=dp;maxDepth=Math.max(maxDepth,dp);order.push(nr);
+      seen[nr]=1;depth[nr]=dp;maxDepth=Math.max(maxDepth,dp);order.push(nr);posY[nr]=slot;
       var ks=kids[nr]||[];
-      if(!ks.length){posY[nr]=leafSlots++;return;}
-      ks.forEach(function(c){walk(c,dp+1);});
-      var ys=ks.filter(function(c){return posY[c]!=null;}).map(function(c){return posY[c];});
-      posY[nr]=ys.length?ys.reduce(function(a,b){return a+b;},0)/ys.length:leafSlots++;
-    })(res.root,0);
+      ks.forEach(function(c,idx){
+        if(seen[c])return;
+        if(idx===0){walk(c,dp+1,slot);return;}            // Fortsetzung: gleiche Spalte
+        var links=(nr===res.root)&&!(kids[c]||[]).length;  // Abgang am Erwärmer → nach links
+        walk(c,dp+1,links?-1:++slotNext);
+      });
+    })(res.root,0,0);
     var unreach=rows.filter(function(r){return !seen[r.nr];}).map(function(r){return r.nr;});
-    // Geometrie — GEDREHT (Feedback 06.08.2026: «Darstellung drehen, von
-    // unten nach oben»): Erwärmer + RV + Pumpe unten, die Leitungen steigen
-    // wie Steigzonen nach oben; jede End-TS endet oben mit Drosselventil +
-    // Strang-Chip. Slots = ehemalige Leaf-Zeilen, jetzt Spalten.
-    var topPad=150, levH=70;
+    var slotMin=0;order.forEach(function(nr){slotMin=Math.min(slotMin,posY[nr]);});
+    var leafSlots=slotNext-slotMin+1;
+    /* Geometrie — GEDREHT (Feedback 06.08.2026: «Darstellung drehen, von
+       unten nach oben»): Erwärmer + RV + Pumpe unten, die Leitungen steigen
+       wie Steigzonen nach oben; jede End-TS endet oben mit Drosselventil +
+       Strang-Chip.
+       Feedback 05.09.2026 #1 «Wenn Länge unterschiedlich soll dies ersichtlich
+       sein»: die Höhe einer Teilstrecke ist NICHT mehr ein fixes Raster
+       (früher levH=70 pro Ebene), sondern folgt ihrer LÄNGE. LEN_MIN hält auch
+       eine sehr kurze TS sicht- und beschriftbar, LEN_MAX deckelt die längste;
+       gleich lange Teilstrecken sehen damit weiterhin gleich aus. Bei sehr
+       tiefen Netzen staucht `komp` ALLE Längen gleichmässig — die relativen
+       Unterschiede bleiben dadurch erhalten. */
+    var LEN_MIN=38, LEN_MAX=96, PX_MAX=560;
+    var lenMax=0;order.forEach(function(nr){var l=parseFloat(byNr[nr].len)||0;if(l>lenMax)lenMax=l;});
+    function lenPx0(nr){
+      var l=parseFloat(byNr[nr].len)||0;
+      if(!(lenMax>0))return LEN_MIN;
+      return LEN_MIN+Math.max(0,Math.min(1,l/lenMax))*(LEN_MAX-LEN_MIN);
+    }
+    var depthPx0={};
+    order.forEach(function(nr){
+      depthPx0[nr]=(nr===res.root?0:depthPx0[parentOf[nr]])+lenPx0(nr);
+    });
+    var maxPx0=0;order.forEach(function(nr){if(depthPx0[nr]>maxPx0)maxPx0=depthPx0[nr];});
+    var komp=maxPx0>PX_MAX?PX_MAX/maxPx0:1;
+    var depthPx={};order.forEach(function(nr){depthPx[nr]=depthPx0[nr]*komp;});
+    var topPad=150;
     var x0=190, colW=180;
-    var yBase=topPad+(maxDepth+1)*levH;
+    var yBase=topPad+maxPx0*komp;
     var Hgt=Math.max(330,yBase+80);
     var W=Math.max(760,x0+leafSlots*colW+40);
-    function X(nr){return x0+posY[nr]*colW;}
-    function Y(nr){return yBase-(depth[nr]+1)*levH;}
+    function X(nr){return x0+(posY[nr]-slotMin)*colW;}
+    function Y(nr){return yBase-depthPx[nr];}
     // Temperatur-Spanne für die Farbskala
     var tmin=null,tmax=null;
     order.forEach(function(nr){
@@ -2715,8 +2789,19 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('zirk
       // Fliessrichtungs-Pfeil Richtung Pumpe (Zirkulation fliesst abwärts zum Erwärmer)
       var ay=(y1+y2)/2;
       s+='<path d="M'+(x2-4)+' '+(ay-4)+' L'+x2+' '+(ay+4)+' L'+(x2+4)+' '+(ay-4)+'" fill="none" stroke="#ffffff" stroke-width="1.6"/>';
+      /* T-Stück sichtbar machen (Feedback 05.09.2026 #1 «Darstellung optimieren
+         und Styl ändern»): ein gefüllter Punkt sitzt dort, wo sich der Strang
+         wirklich teilt — also nur bei einem Elternknoten mit mehr als einem
+         Kind; eine blosse Fortsetzung ist kein Abzweig. Zwei Kinder zeichnen
+         denselben Punkt zweimal an dieselbe Stelle (deckungsgleich, harmlos). */
+      if(nr!==res.root&&(kids[parentOf[nr]]||[]).length>1)
+        s+='<circle cx="'+x1+'" cy="'+y1.toFixed(1)+'" r="4.6" fill="#0f172a"/>';
       // TS-Label (klickbar → Tabellenzeile) — rechts neben der Steigleitung
-      var lbl='TS '+nr+' · DN '+r.dn+(o.pipeErr?' ⚠':'');
+      /* Feedback 05.09.2026 #1 «Wenn Länge unterschiedlich soll dies ersichtlich
+         sein»: die Länge steht jetzt AM Label — die Höhe der Leitung zeigt sie,
+         die Zahl belegt sie. Der Präfix «TS n · DN x» bleibt unverändert
+         (berechnungs_schema_test sucht ihn per indexOf). */
+      var lbl='TS '+nr+' · DN '+r.dn+' · '+fmt(parseFloat(r.len)||0,1)+' m'+(o.pipeErr?' ⚠':'');
       s+='<g data-zkziel="ts|'+nr+'" style="cursor:pointer">'
         +'<rect x="'+(x2+7)+'" y="'+(ay+6)+'" width="'+(Math.round(lbl.length*5.6)+10)+'" height="15" rx="4" fill="#ffffff" opacity="0.82"/>'
         +'<text x="'+(x2+12)+'" y="'+(ay+17)+'" font-size="9.5" font-weight="700" fill="'+(o.pipeErr?'#dc2626':'#475569')+'">'+esc(lbl)+'</text></g>';
@@ -2725,10 +2810,17 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('zirk
       if(st){
         /* Regulierventil NACH der Volumenstromtrennung (Feedback 06.08.2026):
            direkt über dem Abzweig aus der Sammelleitung, nicht am Strang-Ende —
-           dort sitzt es auch in der Anlage. */
-        var yVent=Math.min(y1-24,(y1+y2)/2+18);
+           dort sitzt es auch in der Anlage.
+           Feedback 05.09.2026 #1 «Die Regelventile immer gleich nach dem T-Stück
+           darstellen»: das Symbol sass bisher auf halber Strangöhe; es sitzt
+           jetzt unmittelbar ÜBER dem Abzweigpunkt (y1). Das Symbol ragt durch
+           rotate(-90) um 24 px nach OBEN — die Klemme hält es auf der Leitung,
+           auch wenn die Teilstrecke sehr kurz gezeichnet ist. Die Beschriftung
+           steht LINKS der Steigleitung, das TS-Label rechts: so überlagern sie
+           sich auch bei kurzen Strängen nie. */
+        var yVent=Math.min(y1-2,Math.max(y2+26,y1-6));
         s+='<g transform="translate('+x2+','+yVent.toFixed(1)+') rotate(-90)"><path d="M0 -7 L12 0 L0 7 Z M24 -7 L12 0 L24 7 Z" fill="'+col+'"/></g>';
-        s+='<text x="'+(x2+16)+'" y="'+(yVent-11).toFixed(1)+'" font-size="8.5" font-weight="700" fill="#64748b">Reg.-Ventil</text>';
+        s+='<text x="'+(x2-10)+'" y="'+(yVent-9).toFixed(1)+'" text-anchor="end" font-size="8.5" font-weight="700" fill="#64748b">Reg.-Ventil</text>';
         var isMax=maxS&&maxS.name===st.name;
         var badKv=st.kv==null&&st.dpDr<0;
         var chipTxt='Strang '+st.name+(isMax?' ★':'')+' · '+(badKv?'Drossel —':'KV '+fmt(st.kv,0)+' l/h');

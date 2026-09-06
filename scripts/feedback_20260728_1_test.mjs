@@ -260,7 +260,13 @@ console.log('■ Zirkulationsberechnung');
   await page.evaluate(() => { zkRows[0].len = 50; zkPersist(); zkRenderTable(); zkRecalc(); });
   await page.waitForTimeout(200);
   ok(await page.locator('#zkBody tr.zk-det').count() === 0, 'Teilstrecke startet zugeklappt');
-  ok(await page.locator('#zkBody .zk-chip').count() >= 4, 'Kopfzeile zeigt die wichtigsten Werte als Chips');
+  // Feedback 05.09.2026 #2 uebersteuert die Chips bewusst: die WERTE stehen jetzt
+  // in der Aufklapp-Zeile, die AUSWAHLFELDER in der Kopfzeile (Check invertiert).
+  ok(await page.locator('#zkBody .zk-chip').count() === 0, 'keine Wert-Chips mehr in der Kopfzeile (Feedback 05.09.2026)');
+  ok(await page.locator('#zkBody tr.zk-head td.zk-anschl select.zk-ts').count() >= 2
+    && await page.locator('#zkBody tr.zk-head select[data-k="art"]').count() >= 1
+    && await page.locator('#zkBody tr.zk-head select[data-k="ort"]').count() >= 1,
+    'Kopfzeile traegt die Auswahlfelder (angeschlossene TS + Bauart + Einbauort)');
   await page.evaluate(() => zkToggleRow(0));
   await page.waitForTimeout(200);
   ok(await page.locator('#zkBody tr.zk-det').count() === 1, 'Teilstrecke aufklappbar');

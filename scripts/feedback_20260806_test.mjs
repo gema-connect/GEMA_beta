@@ -57,8 +57,17 @@ ok(/class="zk-anschl"/.test(zk) && /angeschlossene Teilstrecken/.test(zk),
   '#4: Detail-Block «angeschlossene Teilstrecken» mit eigenem Titel');
 ok(/<option value="kon"[^>]*>konventionell<\/option>/.test(zk) && />Rohr an Rohr<\/option>/.test(zk),
   '#4: Bauart ausgeschrieben (konventionell / Rohr an Rohr)');
-ok(/yBase-\(depth\[nr\]\+1\)\*levH/.test(zk),
-  '#5: Schema-Y wächst nach OBEN (yBase − Tiefe·levH — von unten nach oben)');
+/* Guard-Nachzug 05.09.2026 (Kanon «bewusst übersteuertes Feedback wird
+   invertiert/nachgezogen, nicht gelöscht»): Feedback 06.08.2026 #5 verlangte
+   «von unten nach oben» — das gilt unverändert. Die damals geprüfte FORMEL
+   `yBase-(depth[nr]+1)*levH` gibt es aber nicht mehr: Feedback 05.09.2026 #1
+   («Wenn Länge unterschiedlich soll dies ersichtlich sein») hat das feste
+   Ebenen-Raster durch eine LÄNGEN-proportionale Höhe ersetzt. Geprüft wird
+   darum die Absicht statt des Wortlauts — dass Y von yBase aus nach oben
+   abgetragen wird. Die eigentliche Zusicherung von #5 ist ohnehin die
+   GEOMETRISCHE Messung weiter unten (TS 3 über TS 1, RV zuunterst). */
+ok(/function Y\(nr\)\{return yBase-depthPx\[nr\];\}/.test(zk),
+  '#5: Schema-Y wächst nach OBEN (yBase − Länge — von unten nach oben)');
 
 console.log('■ A: Statik — Osmose');
 ok(/addConsumerRow\("Verbraucher 1"/.test(os) && !/addConsumerRow\("Verbraucher 2"/.test(os),
@@ -169,18 +178,25 @@ console.log('■ B: Browser — Zirkulation (RV-Karte, Detail, Schema, 2 Fabrika
   // #4: Detailzeile — «angeschlossene Teilstrecken» + Bauart ausgeschrieben
   await page.evaluate(() => zkToggleRow(1));
   await page.waitForTimeout(200);
+  // Feedback 05.09.2026 #2: die Auswahlfelder sind aus der Detailzeile in die
+  // Kopfzeile gewandert. Die Absicht des 06.08-Feedbacks (Beschriftung + aus-
+  // geschriebene Optionen) gilt unveraendert — nur der Ort hat gewechselt.
   const det = await page.evaluate(() => {
-    const d = document.querySelector('.zk-detrow');
-    const anschl = d ? d.querySelector('.zk-anschl') : null;
-    const art = d ? d.querySelector('select[data-k="art"]') : null;
+    const h = document.querySelector('#zkBody tr.zk-head');
+    const anschl = h ? h.querySelector('td.zk-anschl') : null;
+    const art = h ? h.querySelector('select[data-k="art"]') : null;
+    const kopf = [...document.querySelectorAll('#zkBody tr.zk-sub th')].map(t => t.textContent.trim());
     return {
-      da: !!d, anschl: !!anschl,
-      titel: anschl ? (anschl.querySelector('.zk-grptit') || {}).textContent : '',
+      da: !!h, anschl: !!anschl,
+      labels: anschl ? [...anschl.querySelectorAll('.zk-tslbl')].map(x => x.textContent.trim()) : [],
+      selects: anschl ? anschl.querySelectorAll('select.zk-ts').length : 0,
+      spalte: kopf.indexOf('angeschlossene Teilstrecken') >= 0,
       artOpts: art ? [...art.options].map(o => o.textContent) : []
     };
   });
-  ok(det.da && det.anschl && det.titel === 'angeschlossene Teilstrecken',
-    '#4: roter Punkt — Titel «angeschlossene Teilstrecken» über den Feldern', det.titel);
+  ok(det.da && det.anschl && det.selects === 2 && det.labels.join('/') === 'TS 1/TS 2' && det.spalte,
+    '#4: roter Punkt — Spalte «angeschlossene Teilstrecken» mit TS 1 / TS 2 beschriftet',
+    det.labels.join('/') + ' | Spalte:' + det.spalte);
   ok(det.artOpts.indexOf('konventionell') >= 0 && det.artOpts.indexOf('Rohr an Rohr') >= 0,
     '#4: grüner Punkt — Bauart-Optionen ausgeschrieben', det.artOpts);
 
