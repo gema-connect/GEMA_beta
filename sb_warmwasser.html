@@ -3528,7 +3528,16 @@ function wwSoDraw(res){
   // dieselben Liter-Werte wie die linke Achse (eine Dublette). Die Skala reicht
   // bis Tagesbedarf + Spitzendeckung, damit die parallele Mindest-Ladelinie
   // vollstaendig im Bild bleibt statt am oberen Rand abgeschnitten zu werden.
-  var verbMax=verbTot+(pk>0?pk:0);
+  // #4 (Feedback 05.09.2026): kumulierte LADUNG auf DERSELBEN Skala wie die
+  // Verbrauchs-Summenlinie — waagrecht solange nicht geladen wird, steil in den
+  // markierten Ladestunden. Der senkrechte Abstand zwischen beiden Kurven IST
+  // die Aenderung des Speicherinhalts seit 00:00; im eingeschwungenen Tag enden
+  // sie beim selben Wert (Summe Ladung = Summe Verbrauch).
+  var ladCum=[0],ls=0;
+  so.rows.forEach(function(r){ls+=r.prod;ladCum.push(ls);});
+  // Die Skala fasst BEIDE Kurven — eine ueberreichlich markierte Ladung wird
+  // nie stillschweigend am oberen Rand abgeschnitten.
+  var verbMax=Math.max(verbTot+(pk>0?pk:0),ls);
   function YV(v){return padT+H-(v/verbMax)*H;}
   ctx.font='10px DM Sans, sans-serif';ctx.fillStyle='#d97706';ctx.textAlign='left';
   for(var gr=0;gr<=4;gr++){
@@ -3545,6 +3554,18 @@ function wwSoDraw(res){
   ctx.stroke();ctx.setLineDash([]);
   ctx.fillStyle='#d97706';ctx.textAlign='right';
   ctx.fillText('Σ Verbrauch '+Math.round(vs).toLocaleString('de-CH')+' l',padL+W-4,padT+12);
+  // #4: Ladelinie entlang der Verbrauchskurve (gleiche Skala, gleiche Zeitachse)
+  if(ls>0){
+    ctx.strokeStyle='#1d4ed8';ctx.lineWidth=2.4;
+    ctx.beginPath();
+    for(var tl=0;tl<=24;tl++){
+      var xl=X(tl),yl=YV(ladCum[tl]);
+      if(tl===0)ctx.moveTo(xl,yl);else ctx.lineTo(xl,yl);
+    }
+    ctx.stroke();ctx.lineWidth=1;
+    ctx.fillStyle='#1d4ed8';ctx.textAlign='right';
+    ctx.fillText('Σ Ladung '+Math.round(ls).toLocaleString('de-CH')+' l',padL+W-4,padT+26);
+  }
   // #5: Spitzendeckung PARALLEL zur Verbrauchskurve. «Σ Verbrauch + Spitzen-
   // deckung» ist die Mindest-Ladelinie, ueber der der Waermeerzeuger jederzeit
   // bleiben muss — die fruehere waagrechte Linie sagte nur, WIE VIEL
@@ -4126,7 +4147,19 @@ document.addEventListener('DOMContentLoaded',function(){
         s+='<rect data-wwsp="zrOv" x="'+(vx[vi]+2)+'" y="'+(Y0+H_TANK)+'" width="'+(TW-4)+'" height="0" fill="#bfdbfe" opacity="0" style="pointer-events:none"/>';
       });
       var zbx=W-260;
+      // #2 (Feedback 05.09.2026): Marker auf Fuellhoehe — seine FARBE folgt dem
+      // Verhalten (gruen = es wird geladen, rot = es wird entnommen).
+      vessels.forEach(function(t,vi){
+        s+='<rect data-wwsp="zrMark" x="'+(vx[vi]+2)+'" y="'+(Y0+H_TANK)+'" width="'+(TW-4)+'" height="3" fill="#16a34a" opacity="0" style="pointer-events:none"/>';
+      });
       s+='<g data-wwsp="zrBtn" onclick="wwSpZrToggle()" style="cursor:pointer"><rect x="'+zbx+'" y="14" width="106" height="24" rx="12" fill="#eff6ff" stroke="#2563eb" stroke-width="1.4"/>'+txt(zbx+53,30,'▶ Zeitraffer',{fs:10.5,fw:800,col:'#1d4ed8',anchor:'middle'})+'</g>';
+      // #2: Tempo 1x / 2x / 5x — 1x ist das bisherige Tempo (Bestandsschutz).
+      [1,2,5].forEach(function(sp,si){
+        var bx=zbx+si*36;
+        s+='<g data-wwsp="zrSp" data-sp="'+sp+'" onclick="wwSpZrTempo('+sp+')" style="cursor:pointer">'
+          +'<rect x="'+bx+'" y="42" width="33" height="19" rx="9" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"/>'
+          +txt(bx+16.5,55,sp+'\u00d7',{fs:10,fw:800,col:'#64748b',anchor:'middle'})+'</g>';
+      });
       s+=txt(zbx+118,30,'',{fs:12,fw:800,col:'#0f172a'});
       s=s.replace(/<text([^>]*)font-family="DM Sans, sans-serif">\s*<\/text>$/,'<text$1font-family="DM Sans, sans-serif" data-wwsp="zrClock"></text>');
       s+='<text data-wwsp="zrChip" x="'+(zbx+118)+'" y="46" font-size="10" font-weight="700" fill="#64748b" font-family="DM Sans, sans-serif"></text>';
@@ -4138,7 +4171,7 @@ document.addEventListener('DOMContentLoaded',function(){
 
   // ── Zeitraffer-Steuerung (Singleton-Timer; überlebt Re-Renders, weil jeder
   //    Tick die Elemente frisch aus dem DOM holt) ──
-  var ZR={timer:0,t:0,on:false};
+  var ZR={timer:0,t:0,on:false,sp:1};
   function zrData(){
     try{return (window._wwSimHooks&&typeof window._wwSimHooks.data==='function')?window._wwSimHooks.data():null;}catch(e){return null;}
   }
@@ -4147,7 +4180,7 @@ document.addEventListener('DOMContentLoaded',function(){
     if(ZR.timer){clearInterval(ZR.timer);ZR.timer=0;}
     var wrap=document.getElementById('wwSpSchemaWrap');
     if(!wrap)return;
-    wrap.querySelectorAll('[data-wwsp="zrOv"]').forEach(function(el){el.setAttribute('opacity','0');});
+    wrap.querySelectorAll('[data-wwsp="zrOv"],[data-wwsp="zrMark"]').forEach(function(el){el.setAttribute('opacity','0');});
     var btn=wrap.querySelector('[data-wwsp="zrBtn"] text');
     if(btn)btn.textContent='▶ Zeitraffer';
     var ck=wrap.querySelector('[data-wwsp="zrClock"]');if(ck)ck.textContent='';
@@ -4157,7 +4190,7 @@ document.addEventListener('DOMContentLoaded',function(){
     var wrap=document.getElementById('wwSpSchemaWrap');
     var D=zrData();
     if(!wrap||!D||!ZR.on){zrStop();return;}
-    ZR.t+=0.22;                                    // 24 h in ~10 s
+    ZR.t+=0.22*(ZR.sp||1);                         // 24 h in ~10 s bei 1×
     if(ZR.t>=24){zrStop();return;}
     var A=D.A,sim=D.sim;
     var k=Math.max(0,Math.min(A.n-1,Math.floor(ZR.t/A.dt)));
@@ -4182,7 +4215,42 @@ document.addEventListener('DOMContentLoaded',function(){
       ov.setAttribute('height',((1-f)*300).toFixed(1));
       ov.setAttribute('opacity','0.78');
     });
+    // #2: der Marker auf der Fuellhoehe traegt die FARBE des Verhaltens — die
+    // Richtung kommt aus der Simulation selbst (Inhalt steigt = es wird geladen,
+    // Inhalt faellt = es wird entnommen), nichts wird dazuerfunden.
+    var mk=wrap.querySelectorAll('[data-wwsp="zrMark"]');
+    if(mk.length){
+      var sArr=sim.s||[],vor=sArr[Math.min(k,sArr.length-1)]||0;
+      var dPct=inhalt-vor, lad=dPct>1e-9, ent=dPct<-1e-9;
+      var col=lad?'#16a34a':(ent?'#dc2626':'#94a3b8');
+      var nM=mk.length;
+      mk.forEach(function(el,vi){
+        var von=vi/nM,bis=(vi+1)/nM;
+        var f2=Math.max(0,Math.min(1,(frac-von)/(bis-von)));
+        el.setAttribute('y',(96+f2*300-1.5).toFixed(1));
+        el.setAttribute('fill',col);
+        el.setAttribute('opacity',(f2>0&&f2<1)?'1':'0');
+      });
+      if(ch){
+        var lh=(A.dt>0?Math.abs(dPct)/A.dt:0)/100*(D.P.bedarf||0);
+        if(lad)ch.textContent+='  \u2191 Ladung '+Math.round(lh).toLocaleString('de-CH')+' l/h';
+        else if(ent)ch.textContent+='  \u2193 Entnahme '+Math.round(lh).toLocaleString('de-CH')+' l/h';
+      }
+    }
   }
+  function zrSpPaint(){
+    var wrap=document.getElementById('wwSpSchemaWrap');if(!wrap)return;
+    wrap.querySelectorAll('[data-wwsp="zrSp"]').forEach(function(g){
+      var akt=+g.getAttribute('data-sp')===(ZR.sp||1);
+      var r=g.querySelector('rect'),t=g.querySelector('text');
+      if(r){r.setAttribute('fill',akt?'#dbeafe':'#f8fafc');r.setAttribute('stroke',akt?'#2563eb':'#cbd5e1');}
+      if(t)t.setAttribute('fill',akt?'#1d4ed8':'#64748b');
+    });
+  }
+  window.wwSpZrTempo=function(sp){
+    ZR.sp=(sp===2||sp===5)?sp:1;
+    zrSpPaint();
+  };
   window.wwSpZrToggle=function(){
     if(ZR.on){zrStop();return;}
     var D=zrData();
@@ -4190,7 +4258,7 @@ document.addEventListener('DOMContentLoaded',function(){
       try{GemaDialog.alert({title:'Zeitraffer',message:'Der Zeitraffer folgt der Tagessimulation — zuerst Tagesbedarf (Tab ③) und Ladeleistung erfassen.'});}catch(e){}
       return;
     }
-    ZR.on=true;ZR.t=0;
+    ZR.on=true;ZR.t=0;zrSpPaint();
     ZR.timer=setInterval(zrTick,90);
     zrTick();
   };

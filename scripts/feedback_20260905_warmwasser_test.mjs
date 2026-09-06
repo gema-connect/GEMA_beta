@@ -259,10 +259,13 @@ ok(/l Bereitschaft'/.test(WW),                '#3: Unterzeile nennt die Bezugsgr
 // #5 — Ladestunden-Diagramm (Tab ④)
 {
   const i = WW.indexOf('function wwSoDraw(');
-  const blk = WW.slice(i, i + 6000);
+  const blk = WW.slice(i, i + 9000);
   ok(i > 0, '#5: wwSoDraw gefunden');
-  ok(/var verbMax=verbTot\+\(pk>0\?pk:0\);/.test(blk),
-    '#5: die Skala reicht bis Tagesbedarf + Spitzendeckung (nichts wird abgeschnitten)');
+  // Nachzug Feedback 05.09.2026 #4: die Skala fasst seither BEIDE Kurven
+  // (Verbrauch + kumulierte Ladung) — geprueft wird die ABSICHT, nicht der
+  // wortwoertliche Ausdruck, damit #4 die Zusicherung von #5 nicht bricht.
+  ok(/var verbMax=[^;]*verbTot\+\(pk>0\?pk:0\)/.test(blk),
+    '#5: die Skala reicht mindestens bis Tagesbedarf + Spitzendeckung (nichts wird abgeschnitten)');
   ok(/function YV\(v\)\{return padT\+H-\(v\/verbMax\)\*H;\}/.test(blk),
     '#5: eigene Verbrauchs-Skala YV()');
   ok(/for\(var tp=0;tp<=24;tp\+\+\)/.test(blk) && /YV\(verbCum\[tp\]\+pk\)/.test(blk),
@@ -280,6 +283,52 @@ ok(/l Bereitschaft'/.test(WW),                '#3: Unterzeile nennt die Bezugsgr
   ok(/ctx\.fillText\(\('0'\+\(t3%24\)\)\.slice\(-2\),x,padT\+H\+15\);/.test(blk),
     '#5: X-Achse stuendlich «00 / 01 / 02 …»');
   ok(!/':00'/.test(blk), '#5: keine «hh:00»-Beschriftung mehr');
+}
+
+// ── Etappe 10 · statisch ────────────────────────────────────────────────────
+// #4 — kumulierte Ladung im Ladestunden-Diagramm (Tab ④)
+{
+  const i = WW.indexOf('function wwSoDraw(');
+  const blk = WW.slice(i, i + 9000);
+  ok(/var ladCum=\[0\],ls=0;/.test(blk) && /so\.rows\.forEach\(function\(r\)\{ls\+=r\.prod;ladCum\.push\(ls\);\}\);/.test(blk),
+    '#4: die Ladung wird kumuliert (ladCum aus r.prod)');
+  ok(/var verbMax=Math\.max\(verbTot\+\(pk>0\?pk:0\),ls\);/.test(blk),
+    '#4: die Skala fasst BEIDE Kurven — eine reichliche Ladung wird nie stillschweigend abgeschnitten');
+  ok(/ctx\.strokeStyle='#1d4ed8';/.test(blk) && /YV\(ladCum\[tl\]\)/.test(blk),
+    '#4: die Ladelinie laeuft auf DERSELBEN YV()-Skala wie der Verbrauch');
+  ok(/'Σ Ladung '/.test(blk), '#4: die Ladelinie ist als «Σ Ladung» beschriftet');
+  ok(/if\(ls>0\)\{/.test(blk),
+    '#4: ohne markierte Ladestunde wird keine leere Linie gezeichnet');
+}
+
+// #2 — Zeitraffer im Speicherschema (Karte 4.4)
+{
+  const i = WW.indexOf('window._wwSpSchemaDraw=function(d){');
+  const blk = WW.slice(i, i + 30000);
+  ok(/data-wwsp="zrMark"/.test(blk),
+    '#2: eigener Fuellhoehen-Marker (nicht die Zonen-Rects umgefaerbt)');
+  ok(!/fill="#bfdbfe"[^>]*data-wwsp="zrMark"/.test(blk),
+    '#2: der Marker traegt NICHT die Overlay-Farbe #bfdbfe');
+  // Die drei Knoepfe entstehen aus EINER Schleife — im Quelltext steht das
+  // Attribut darum nur einmal; die Dreizahl prueft der Browser-Teil.
+  ok(/\[1,2,5\]\.forEach\(function\(sp,si\)\{/.test(blk),
+    '#2: Tempo-Stufen 1× / 2× / 5×');
+  ok(/onclick="wwSpZrTempo\('\+sp\+'\)"/.test(blk),
+    '#2: die Knoepfe rufen wwSpZrTempo(sp)');
+  ok(/var ZR=\{timer:0,t:0,on:false,sp:1\};/.test(WW),
+    '#2: Tempo im Zustand, Standard 1× (Bestandsschutz)');
+  ok(/ZR\.t\+=0\.22\*\(ZR\.sp\|\|1\);/.test(WW),
+    '#2: das Tempo skaliert den Fortschritt, nicht die Bildrate');
+  ok(/window\.wwSpZrTempo=function\(sp\)\{/.test(WW),
+    '#2: wwSpZrTempo ist window-exponiert (Inline-onclick, Cross-Block-Regel)');
+  ok(/'\[data-wwsp="zrOv"\],\[data-wwsp="zrMark"\]'/.test(WW),
+    '#2: zrStop raeumt den Marker mit ab');
+  ok(/var dPct=inhalt-vor, lad=dPct>1e-9, ent=dPct<-1e-9;/.test(WW),
+    '#2: Laden/Entnehmen kommt aus der Simulation (Vorzeichen von inhalt−vor), nichts wird geraten');
+  ok(/'#16a34a':\(ent\?'#dc2626':'#94a3b8'\)/.test(WW),
+    '#2: gruen = Ladung, rot = Entnahme, grau = Ruhe');
+  ok(/\\u2191 Ladung /.test(WW) && /\\u2193 Entnahme /.test(WW),
+    '#2: der Chip nennt die aktuelle Ladung/Entnahme in l/h');
 }
 
 // ─────────────────────────────────────────────────────────────── Browser
@@ -1109,6 +1158,73 @@ try {
       '#5: beide Prozent-Achsen beginnen bei 0 %');
   }
   ok(e5.lit.length >= 5, '#5: die linke Achse fuehrt weiterhin die Liter-Werte', e5.lit.slice(0, 3));
+
+  sec('E · Etappe 10 — #2 / #4');
+
+  // #4 — die Ladelinie laeuft auf derselben Skala wie der Verbrauch
+  const e4 = await page.evaluate(async () => {
+    const e = document.querySelector('[data-tab="wt4"]'); if (e) e.click();
+    await new Promise(r => setTimeout(r, 120));
+    if (!wwState.so || !Array.isArray(wwState.so.h)) wwState.so = { h: [] };
+    wwState.so.h = []; [4, 5, 22].forEach(h => { wwState.so.h[h] = true; });
+    const cv = document.getElementById('wwSoCanvas');
+    const ctx = cv.getContext('2d');
+    const log = { texts: [], paths: [] };
+    let pts = [];
+    const oMove = ctx.moveTo.bind(ctx), oLine = ctx.lineTo.bind(ctx);
+    const oStroke = ctx.stroke.bind(ctx), oText = ctx.fillText.bind(ctx);
+    ctx.moveTo = function (x, y) { pts = [[x, y]]; return oMove(x, y); };
+    ctx.lineTo = function (x, y) { pts.push([x, y]); return oLine(x, y); };
+    ctx.stroke = function () { log.paths.push({ st: String(ctx.strokeStyle), pts: pts.slice() }); return oStroke(); };
+    ctx.fillText = function (t, x, y) { log.texts.push({ t: String(t), x: Math.round(x), y: Math.round(y) }); return oText(t, x, y); };
+    wwRecalc();
+    await new Promise(r => setTimeout(r, 200));
+    ctx.moveTo = oMove; ctx.lineTo = oLine; ctx.stroke = oStroke; ctx.fillText = oText;
+    const lang = log.paths.filter(p => p.pts.length === 25);
+    const rot  = lang.find(p => p.st === '#dc2626');   // Verbrauch
+    const blau = lang.find(p => p.st === '#1d4ed8');   // Ladung
+    return {
+      hatBlau: !!blau,
+      // gleiche Zeitachse: X-Werte deckungsgleich mit der Verbrauchskurve
+      xGleich: !!(rot && blau) && rot.pts.every((_, i) => Math.abs(rot.pts[i][0] - blau.pts[i][0]) < 0.01),
+      // steigt monoton (kumuliert) und ist zwischen den Ladestunden waagrecht
+      monoton: !!blau && blau.pts.every((p, i) => i === 0 || p[1] <= blau.pts[i - 1][1] + 0.01),
+      flach:   !!blau && Math.abs(blau.pts[10][1] - blau.pts[9][1]) < 0.01,
+      steil:   !!blau && (blau.pts[4][1] - blau.pts[5][1]) > 1,
+      label:   log.texts.some(t => /^Σ Ladung /.test(t.t))
+    };
+  });
+  ok(e4.hatBlau, '#4: die kumulierte Ladung wird als eigene Kurve gezeichnet');
+  ok(e4.xGleich, '#4: sie laeuft auf derselben Zeitachse wie die Verbrauchskurve');
+  ok(e4.monoton, '#4: sie faellt nie (kumulierte Ladung)');
+  ok(e4.flach,   '#4: waagrecht in einer Stunde OHNE Ladung');
+  ok(e4.steil,   '#4: steil in einer markierten Ladestunde');
+  ok(e4.label,   '#4: als «Σ Ladung … l» beschriftet');
+
+  // #2 — Tempo-Knoepfe + Fuellhoehen-Marker im Speicherschema
+  const e2 = await page.evaluate(async () => {
+    const e = document.querySelector('[data-tab="wt4"]'); if (e) e.click();
+    await new Promise(r => setTimeout(r, 150));
+    const wrap = document.getElementById('wwSpSchemaWrap');
+    const sp   = wrap ? [...wrap.querySelectorAll('[data-wwsp="zrSp"]')] : [];
+    const lab  = sp.map(g => (g.querySelector('text') || {}).textContent || '');
+    const aktiv = () => sp.map(g => (g.querySelector('rect') || {}).getAttribute
+      ? g.querySelector('rect').getAttribute('stroke') : '');
+    const vorher = aktiv();
+    if (typeof wwSpZrTempo === 'function') wwSpZrTempo(5);
+    const nachher = aktiv();
+    return {
+      n: sp.length, lab,
+      marker: wrap ? wrap.querySelectorAll('[data-wwsp="zrMark"]').length : 0,
+      vorher, nachher,
+      hatTempo: typeof wwSpZrTempo === 'function'
+    };
+  });
+  ok(e2.n === 3, '#2: drei Tempo-Knoepfe im Speicherschema', e2.n);
+  ok(e2.lab.join('|') === '1×|2×|5×', '#2: beschriftet 1× / 2× / 5×', e2.lab);
+  ok(e2.marker >= 1, '#2: Fuellhoehen-Marker vorhanden', e2.marker);
+  ok(e2.hatTempo && e2.vorher.join() !== e2.nachher.join(),
+    '#2: die Tempo-Wahl faerbt den aktiven Knopf um', { vorher: e2.vorher, nachher: e2.nachher });
 
   ok(errs.length === 0, 'Keine JS-Fehler auf der Seite', errs.slice(0, 3));
 } finally {
