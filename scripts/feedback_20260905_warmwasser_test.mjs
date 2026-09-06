@@ -7,12 +7,12 @@
  *        WE mit externem Tauscher ohne Misch- und Kaltzone 1.0)
  *   #3  Misch-/Reserve-Prozent im Speicherschema muss zum gewaehlten fsto passen
  *
- * Etappe 2 — Tab ③ Feinplanung, 3.4 Ausstosswaermeverluste:
+ * Etappe 2 — Tab ③ Feinplanung, 3.5 Ausstosswaermeverluste (bis 05.09.2026 «3.4»):
  *   #10 Ø-Personenbelegung + Verlust je Entnahme + Verlust je Nutzungseinheit
  *   #11 Zeit-Select schneidet «Standard (10 s)» nicht mehr ab
  *   #12 Beschriftung + Hinweis nebeneinander, kleines Auswahlfeld, Schnellwahl 10/15 s
  *
- * Etappe 3 — Tab ③ Feinplanung, 3.3 Warmgehaltene Leitungen:
+ * Etappe 3 — Tab ③ Feinplanung, 3.4 Warmgehaltene Leitungen (bis 05.09.2026 «3.3»):
  *   #14 kWh/d je Zeile in der Farbe ihrer Leitungsart (Kanon 2.2)
  *   #17 ø-Auswahl folgt dem Material (PEX 12/16/20/25/32 · CNS 15…108),
  *       gespeicherter ø ausserhalb der Reihe bleibt als «(bisherig)» waehlbar
@@ -26,7 +26,7 @@
  *
  * Etappe 5 — Tab ③ Feinplanung + Tab ④ (Beschriftung/Reihenfolge):
  *   #6  Titel 4.2 ohne Norm-Suffix («Speicherauslegung», nicht «… (SIA 385/2)»)
- *   #16 Tabelle 3.3: Laenge VOR Material (Leitung | Laenge | Material | Aussen-ø | kWh/d)
+ *   #16 Tabelle 3.4: Laenge VOR Material (Leitung | Laenge | Material | Aussen-ø | kWh/d)
  *   #20 «Heizlast frei gewaehlt» steht UNTER den Ergebniszeilen ueber die volle Breite
  *   #21 «⇩ Angaben Wohnungen aus Grobauslegung» steht VOR der Tabelle 3.2
  *
@@ -35,7 +35,7 @@
  *       fluchten dadurch mit den Verlust-Werten darunter (Kanon Feedback 19.08.2026 #5)
  *   #25 Ergebnis 1.4 zeigt eine Kachel je NUTZUNGSEINHEIT statt einer Sammelzahl je Einheit
  *
- * Etappe 7 — Tab ③ Feinplanung, 3.3 Warmgehaltene Leitungen:
+ * Etappe 7 — Tab ③ Feinplanung, 3.4 Warmgehaltene Leitungen:
  *   #13 Staerke des Warmhaltebands waehlbar (Domotec 6 · Raychem 7 · Systec Therm AG 7.5 mm);
  *       der Zuschlag laeuft ueber DIESELBE wwRarTab-Treppe wie Rohr-an-Rohr
  *   #18 Temperaturen je Warmhaltetyp (konv · RaR · WHB) statt EINEM Paar fuer alle;
@@ -44,13 +44,26 @@
  * Etappe 8 — Tab ③ Feinplanung (3.1 / 3.3 / 3.4):
  *   #9  Entnahmen je NE mit Vorschlag 2 (auto-Chip) + Rechenweg-Spalte
  *       perE x entn x n — die Doppelzaehlung wird dadurch sichtbar
- *   #15 beide Uebernahme-Knoepfe stehen VOR der Tabelle 3.3;
+ *   #15 beide Uebernahme-Knoepfe stehen VOR der Tabelle 3.4;
  *       «⇩ Laengen aus Grobauslegung (2.2)» legt die EINE konventionelle Laenge
  *       GANZ in den Vorlauf und sagt es im Dialog (GEMA raet die VL/RL-Teilung nicht)
  *   #23 sichtbare Beschriftung ueber den drei Auswahlfeldern der Feinplanung
  *       («Nutzungseinheit» / «Hinweis» / «Stundenspitze») +
  *       «⇩ Als Nutzungseinheiten uebernehmen» in der Grob-Echo-Box;
  *       zugeordnet wird ueber den NORMWERT (Ø l/d), nicht ueber den Namen
+ *
+ * Etappe 11 — Tab ③ Feinplanung, NEUE Karte 3.3 «Speicherwaermeverluste»:
+ *   #19 «Speicherwaermeverlust Abschnitt fehlt komplett. Gib ihm dies nochmals
+ *       von meinem Excel rein.» + #7 «Dieser Abschnitt muss vorne bei der Fein-
+ *       planung zur Speicherverlustberechnung bereits vorkommen.»
+ *       Die Rechnung lag laengst in der Engine (res.ctrl1/cont1/vsto1/qStoF =
+ *       Excel Z109/Z113/Z119/Z133) und speiste qGenOut + Verlustzahl + Kuchen-
+ *       diagramm — sie war aber NIRGENDS ausgewiesen. Aufbau 1:1 nach der Kunden-
+ *       Excel «Feinplanung»: Kapitel 1.1 Speichervolumen + 1.2 Speicherverluste.
+ *       Die vier Eingaben (Verlustfaktor, Ladezyklen, fsto, Stutzen) sind aus 4.1
+ *       VERSCHOBEN, nicht gespiegelt — zwei Felder fuer denselben Wert waeren zwei
+ *       Wahrheiten; 4.1 traegt stattdessen einen Verweis. Folge: die Kapitel der
+ *       Feinplanung sind auf 3.4 / 3.5 / 3.6 nachnummeriert.
  *
  * Etappe 9 — Diagramme (Tab ③ Summenlinien / Tab ④ Ladestunden):
  *   #22 Summenlinien-Karte: JEDE Stunde als «00 / 01 / 02 …», Legende untereinander,
@@ -157,12 +170,16 @@ ok(/l Bereitschaft'/.test(WW),                '#3: Unterzeile nennt die Bezugsgr
 
 // #15 — beide Uebernahmen stehen VOR der Tabelle (Muster 3.2, Feedback #21)
 {
-  const i33  = WW.indexOf('3.3 Warmgehaltene Leitungen');
+  // Guard-Nachzug (Kanon «neues Feedback uebersteuert altes»): Feedback 05.09.2026 #19/#7 hat
+  // die neue Karte «3.3 Speicherwaermeverluste» in die Feinplanung eingeschoben — die warm-
+  // gehaltenen Leitungen heissen seither 3.4. Geprueft wird unveraendert die ABSICHT von #15
+  // (beide Uebernahme-Knoepfe stehen VOR der Tabelle), nur der Anker folgt der Nummerierung.
+  const i33  = WW.indexOf('3.4 Warmgehaltene Leitungen');
   const blk  = WW.slice(i33, i33 + 4200);
   const iGr  = blk.indexOf('wwLeitAusGrob()');
   const iZk  = blk.indexOf('wwZirkUebernehmen()');
   const iTab = blk.indexOf('<table');
-  ok(i33 > 0 && iGr > 0 && iZk > 0 && iTab > 0, '#15: Karte 3.3 mit beiden Knoepfen gefunden',
+  ok(i33 > 0 && iGr > 0 && iZk > 0 && iTab > 0, '#15: Karte 3.4 mit beiden Knoepfen gefunden',
     { i33, iGr, iZk, iTab });
   ok(iGr < iTab, '#15: «⇩ Längen aus Grobauslegung» steht VOR der Tabelle', { iGr, iTab });
   ok(iZk < iTab, '#15: «⇩ aus Zirkulationsberechnung» steht VOR der Tabelle', { iZk, iTab });
@@ -331,6 +348,85 @@ ok(/l Bereitschaft'/.test(WW),                '#3: Unterzeile nennt die Bezugsgr
     '#2: der Chip nennt die aktuelle Ladung/Entnahme in l/h');
 }
 
+// ── Etappe 11 · statisch ────────────────────────────────────────────────────
+// #19 + #7 — Karte «3.3 Speicherwaermeverluste» in der Feinplanung
+{
+  const i33 = WW.indexOf("3.3 Speicherwärmeverluste [Q'W,sto,Is]");
+  ok(i33 > 0, '#19: Karte «3.3 Speicherwärmeverluste» existiert in der Feinplanung', i33);
+
+  // Die Karte steht in Tab ③ (zwischen 3.2 Wohnungen und 3.4 Leitungen) — genau der
+  // orange markierte Streifen aus dem Screenshot zu #19.
+  const i32 = WW.indexOf('3.2 Wohnungen');
+  const i34 = WW.indexOf('3.4 Warmgehaltene Leitungen');
+  // Fenster bis zur NAECHSTEN Karte statt einer geratenen Zeichenzahl — ein fixes
+  // slice(i33, i33 + N) schneidet still ab, sobald die Karte waechst (die Falle aus
+  // dem wwSoDraw-Block weiter oben: dort fielen sechs Zusicherungen stumm aus).
+  const karte = (i33 > 0 && i34 > i33) ? WW.slice(i33, i34) : '';
+  ok(i32 > 0 && i32 < i33 && i33 < i34,
+    '#7: die Karte steht in der Feinplanung zwischen 3.2 und 3.4 (nicht mehr nur in Tab ④)',
+    { i32, i33, i34 });
+
+  // Kapitel-Nachnummerierung (fortlaufend 1.1 … 6.x, Kanon Feedback 15.08.2026 #20/#32)
+  ok(/3\.4 Warmgehaltene Leitungen/.test(WW) && !/3\.3 Warmgehaltene Leitungen/.test(WW),
+    '#19: warmgehaltene Leitungen nachnummeriert auf 3.4');
+  ok(/3\.5 Ausstosswärmeverluste/.test(WW) && !/3\.4 Ausstosswärmeverluste/.test(WW),
+    '#19: Ausstosswärmeverluste nachnummeriert auf 3.5');
+  ok(/3\.6 Verlustzahl Feinplanung/.test(WW) && !/3\.5 Verlustzahl Feinplanung/.test(WW),
+    '#19: Verlustzahl Feinplanung nachnummeriert auf 3.6');
+  ok(/In 3\.4 sind bereits Längen erfasst/.test(WW),
+    '#19: auch der SICHTBARE Dialogtext nennt die neue Nummer (kein toter Verweis)');
+
+  // Die vier Eingaben sind VERSCHOBEN, nicht gespiegelt — je genau EIN Vorkommen im
+  // ganzen Dokument, und alle vier liegen IN der neuen Karte.
+  for (const id of ['ww_verlustfaktor', 'ww_ladezyklen', 'ww_fsto', 'ww_stutzenF']) {
+    const n = (WW.match(new RegExp('id="' + id + '"', 'g')) || []).length;
+    ok(n === 1, '#7: ' + id + ' existiert genau EINMAL (verschoben, nicht gespiegelt)', n);
+    ok(karte.indexOf('id="' + id + '"') > 0, '#7: ' + id + ' liegt in der Karte 3.3');
+  }
+  ok(karte.indexOf('id="wwFstoTiles"') > 0, '#7: die fsto-Bauart-Kacheln sind mitgewandert');
+  ok(karte.indexOf("wwVfSet('grob')") > 0 && karte.indexOf("wwVfSet('fein')") > 0,
+    '#7: beide Verlustfaktor-Uebernahmen sind mitgewandert');
+
+  // 4.1 verliert die Eingaben, bekommt aber einen VERWEIS (nichts verschwindet stillschweigend)
+  const i41 = WW.indexOf('4.1 Ladeverhalten');
+  const k41 = i41 > 0 ? WW.slice(i41, i41 + 6000) : '';
+  ok(i41 > 0 && /3\.3 Speicherwärmeverluste<\/b>/.test(k41),
+    '#7: Karte 4.1 verweist auf 3.3 statt die Felder ersatzlos zu verlieren');
+  ok(k41.indexOf('id="ww_leistung"') > 0 && k41.indexOf('id="ww_ladungen"') > 0,
+    '#7: die 4.1-eigenen Felder (Erzeugerleistung / Heizungsunterbrechung) bleiben dort');
+
+  // Engine: die Summe Z133 ist in Z129 + Z131 aufgeteilt — WERTGLEICH zu vorher
+  ok(/res\.qStoGrund=res\.vsto1>0\?\(0\.11\*Math\.sqrt\(res\.vsto1\+0\.1\*\(stutzenF-2\)\)\):0;/.test(WW),
+    '#19: Grundverlust getrennt (Excel Z129)');
+  ok(/res\.qStoStutzen=stutzenF>2\?\(stutzenF-2\)\*0\.1:0;/.test(WW),
+    '#19: Stutzenverluste getrennt (Excel Z131)');
+  ok(/res\.qStoF=res\.qStoGrund\+res\.qStoStutzen;/.test(WW),
+    '#19: die Summe bleibt Z133 = Z129 + Z131 (wertgleich zur bisherigen Rechnung)');
+  ok(/res\.qGenOut=res\.qem\+res\.qhl\+feinKwh\+res\.qStoF;/.test(WW),
+    '#19: qStoF speist unveraendert qGenOut (Excel Z203) — kein zweiter Rechenpfad');
+
+  // Der Stutzen-Term steckt in der Kunden-Excel SOWOHL unter der Wurzel ALS AUCH als
+  // eigener Summand. Bewusst 1:1 uebernommen — das ist die Rechnung des Kunden.
+  ok(/Der Stutzen-Term steckt in der/.test(WW) && /SOWOHL unter der Wurzel ALS AUCH als/.test(WW),
+    '#19: der doppelte Stutzen-Term ist als bewusste Excel-Treue dokumentiert');
+
+  // Alle neun Ergebnis-Zeilen sind verdrahtet (Markup + setTxt)
+  for (const id of ['ww_out_feinTotal3','ww_out_vwd1','ww_out_pk3','ww_out_ctrl1',
+                    'ww_out_cont1','ww_out_vsto1','ww_out_qStoGrund','ww_out_qStoStutzen','ww_out_qStoF']) {
+    ok(karte.indexOf('id="' + id + '"') > 0, '#19: Ergebnis-Zeile ' + id + ' im Markup');
+    ok(WW.indexOf("setTxt('" + id + "'") > 0, '#19: ' + id + ' wird von wwRenderCalc befuellt');
+  }
+  ok(/setTxt\('ww_out_qStoStutzen',wwFmt\(res\.qStoStutzen,2\)\+' kWh\/d'\);/.test(WW),
+    '#19: der Stutzenverlust wird IMMER beziffert — 0.00 kWh/d ist eine echte Aussage (ncp ≤ 2)');
+
+  // Zwei Unterkapitel nach der Excel-Gliederung
+  ok(/class="ww-secsub">Speichervolumen <span>Excel 1\.1<\/span>/.test(karte),
+    '#19: Unterkapitel «Speichervolumen» (Excel 1.1)');
+  ok(/class="ww-secsub">Speicherverluste <span>Excel 1\.2<\/span>/.test(karte),
+    '#19: Unterkapitel «Speicherverluste» (Excel 1.2)');
+  ok(/\.ww-secsub\{/.test(WW), '#19: CSS fuer die Unterkapitel-Zeile vorhanden');
+}
+
 // ─────────────────────────────────────────────────────────────── Browser
 sec('B · Browser');
 const srv = await startServer();
@@ -400,7 +496,7 @@ try {
   ok(!/Liter · \+\d+ %.*Liter · \+\d+ %/.test(schema.txt),
     '#3: nur die Misch-Zone traegt das «+» (Spitze/Steuer bleiben auf das Total bezogen)');
 
-  // ── Etappe 2 — Tab ③ Feinplanung, 3.4 Ausstosswaermeverluste ───────────
+  // ── Etappe 2 — Tab ③ Feinplanung, 3.5 Ausstosswaermeverluste ───────────
   await page.evaluate(() => {
     wwState.whg = [{ whg: '5', anf: '65' }, { whg: '5', anf: '85' }, { whg: '3', anf: '105' }];
     wwRenderTables(); wwRecalc();
@@ -488,8 +584,8 @@ try {
   ok(/Standard \(15 s\)/.test(nach2.std),
     '#12: die Zeilen uebernehmen den neuen Standard (change wurde gefeuert)', nach2.std);
 
-  /* ── Etappe 3 · 3.3 Warmgehaltene Leitungen (#14, #17) ── */
-  console.log('\n── Etappe 3 · 3.3 Warmgehaltene Leitungen ──');
+  /* ── Etappe 3 · 3.4 Warmgehaltene Leitungen (#14, #17) ── */
+  console.log('\n── Etappe 3 · 3.4 Warmgehaltene Leitungen ──');
 
   // #14 — die kWh/d tragen die Farbe ihrer Leitungsart (exakt die Farbpunkt-Toene aus 2.2)
   const farb = await page.evaluate(() => {
@@ -586,7 +682,7 @@ try {
       colspan: sum ? sum.getAttribute('colspan') : null
     };
   });
-  ok(sp16 !== null, '#16: Tabelle 3.3 im DOM gefunden', sp16);
+  ok(sp16 !== null, '#16: Tabelle 3.4 im DOM gefunden', sp16);
   ok(sp16 && sp16.kopf.length === 5 && /Länge/.test(sp16.kopf[1]) && /Material/.test(sp16.kopf[2]) && /Aussen/.test(sp16.kopf[3]),
     '#16: gerenderte Kopfzeile = Leitung | Länge | Material | Aussen-ø | kWh/d', sp16 && sp16.kopf);
   ok(sp16 && sp16.zeilen.length === 4, '#16: vier Leitungs-Zeilen', sp16 && sp16.zeilen.length);
@@ -1225,6 +1321,139 @@ try {
   ok(e2.marker >= 1, '#2: Fuellhoehen-Marker vorhanden', e2.marker);
   ok(e2.hatTempo && e2.vorher.join() !== e2.nachher.join(),
     '#2: die Tempo-Wahl faerbt den aktiven Knopf um', { vorher: e2.vorher, nachher: e2.nachher });
+
+  sec('F · Etappe 11 — #19 / #7');
+
+  // Die neue Karte 3.3 rechnet die Excel-Kette 1.1 (Speichervolumen) + 1.2 (Speicherverluste)
+  // SICHTBAR. Geprueft wird beides: dass die vier Eingaben wirklich VERSCHOBEN sind (genau ein
+  // Satz Felder, in Tab ③, Tab ④ traegt nur den Verweis) und dass die neun Ergebnis-Zeilen die
+  // Kette Zug um Zug ausweisen. Die Erwartungswerte rechnet der Test SELBST — nicht aus der
+  // Engine gelesen, sonst pruefte er nur, dass sich die Engine mit sich selbst einig ist.
+  const e19 = await page.evaluate(async () => {
+    const e = document.querySelector('[data-tab="wt3"]'); if (e) e.click();
+    wwState.fein = [{ ne: 3, n: '50', profil: 'wohnbau' }];
+    wwRenderTables();
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+    set('ww_verlustfaktor', '1.5');
+    set('ww_ladezyklen', '3');
+    set('ww_fsto', '1.25');
+    set('ww_stutzenF', '5');
+    wwRecalc();
+    await new Promise(r => setTimeout(r, 250));
+    const txt = id => ((document.getElementById(id) || {}).textContent || '').trim();
+    const num = id => {
+      const s = txt(id).replace(/[’'\s]/g, '').replace(/[^\d.,-]/g, '').replace(',', '.');
+      const v = parseFloat(s); return isFinite(v) ? v : null;
+    };
+    const totalEl = document.getElementById('ww_out_qStoF');
+    const karte   = totalEl ? totalEl.closest('.g-card') : null;
+    const wt3 = document.getElementById('wt3'), wt4 = document.getElementById('wt4');
+    const ids = ['ww_verlustfaktor', 'ww_ladezyklen', 'ww_fsto', 'ww_stutzenF'];
+    const r = wwCalc();
+    return {
+      imTab3: !!(karte && wt3 && wt3.contains(karte)),
+      hoehe:  karte ? Math.round(karte.getBoundingClientRect().height) : 0,
+      titel:  karte ? ((karte.querySelector('h2') || {}).textContent || '').trim() : '',
+      inKarte: ids.filter(id => { const el = document.getElementById(id); return !!(el && karte && karte.contains(el)); }),
+      inTab4:  ids.filter(id => { const el = document.getElementById(id); return !!(el && wt4 && wt4.contains(el)); }),
+      tiles:  karte ? karte.querySelectorAll('#wwFstoTiles .ww-fsto-tile').length : 0,
+      subs:   karte ? [...karte.querySelectorAll('.ww-secsub')].map(x => x.textContent.replace(/\s+/g, ' ').trim()) : [],
+      verweis: !!(wt4 && wt4.textContent.indexOf('3.3 Speicherwärmeverluste') >= 0),
+      t: {
+        feinTotal3: txt('ww_out_feinTotal3'), vwd1: txt('ww_out_vwd1'), pk3: txt('ww_out_pk3'),
+        ctrl1: txt('ww_out_ctrl1'), cont1: txt('ww_out_cont1'), vsto1: txt('ww_out_vsto1'),
+        g: txt('ww_out_qStoGrund'), st: txt('ww_out_qStoStutzen'), f: txt('ww_out_qStoF')
+      },
+      n: {
+        feinTotal3: num('ww_out_feinTotal3'), vwd1: num('ww_out_vwd1'), pk3: num('ww_out_pk3'),
+        ctrl1: num('ww_out_ctrl1'), cont1: num('ww_out_cont1'), vsto1: num('ww_out_vsto1'),
+        g: num('ww_out_qStoGrund'), st: num('ww_out_qStoStutzen'), f: num('ww_out_qStoF')
+      },
+      res: { feinTotal: r.feinTotal, spitze: r.spitze, vwd1: r.vwd1, ctrl1: r.ctrl1,
+             cont1: r.cont1, vsto1: r.vsto1, g: r.qStoGrund, st: r.qStoStutzen,
+             f: r.qStoF, qGenOut: r.qGenOut }
+    };
+  });
+
+  ok(e19.imTab3 && e19.hoehe > 100,
+    '#7: die Karte «Speicherwärmeverluste» steht SICHTBAR in Tab ③ Feinplanung',
+    { imTab3: e19.imTab3, hoehe: e19.hoehe });
+  // gema_sektion.js zieht die fuehrende Nummer in einen eigenen .gsek-nr-Chip — zur
+  // Laufzeit liest h2.textContent darum «3.3Speicherwärmeverluste» OHNE Leerzeichen.
+  // Darum getrennt auf Nummer UND Titel pruefen, nie auf den exakten String.
+  ok(/3\.3/.test(e19.titel) && e19.titel.indexOf('Speicherwärmeverluste') >= 0,
+    '#19: Kartentitel traegt Kapitelnummer 3.3 und den Titel «Speicherwärmeverluste»',
+    e19.titel);
+  ok(e19.inKarte.length === 4 && e19.inTab4.length === 0,
+    '#7: alle vier Eingaben liegen in 3.3 — Tab ④ hat KEINEN zweiten Satz (verschoben, nicht gespiegelt)',
+    { inKarte: e19.inKarte, inTab4: e19.inTab4 });
+  ok(e19.tiles === 3, '#7: die drei Bauart-Kacheln sind mit dem fsto-Feld gewandert', e19.tiles);
+  ok(e19.verweis, '#7: Karte 4.1 verweist auf 3.3, statt die Felder zu doppeln');
+  ok(e19.subs.length === 2 && /Speichervolumen/.test(e19.subs[0]) && /Excel 1\.1/.test(e19.subs[0])
+     && /Speicherverluste/.test(e19.subs[1]) && /Excel 1\.2/.test(e19.subs[1]),
+    '#19: zwei Unterabschnitte mit Excel-Herkunft (1.1 Speichervolumen / 1.2 Speicherverluste)', e19.subs);
+
+  {
+    const n = e19.n, t = e19.t, res = e19.res;
+    const leer = Object.keys(t).filter(k => t[k] === '–' || t[k] === '');
+    ok(leer.length === 0, '#19: alle neun Ergebnis-Zeilen zeigen einen Wert', { leer, t });
+
+    // Kette Excel 1.1 — der Test rechnet selbst nach (Eingaben oben: 1.5 / 3 / 1.25 / 5)
+    const eVwd  = res.feinTotal * 1.5;                       // Z94
+    const eCtrl = eVwd / 3;                                  // Z109
+    const eCont = res.spitze + eCtrl;                        // Z113
+    const eVsto = eCont * 1.25;                              // Z119
+    const eG    = 0.11 * Math.sqrt(eVsto + 0.1 * (5 - 2));   // Z129
+    const eSt   = (5 - 2) * 0.1;                             // Z131
+    const eF    = eG + eSt;                                  // Z133
+    const nah = (a, b, tol) => a != null && Math.abs(a - b) <= tol;
+
+    ok(nah(n.feinTotal3, res.feinTotal, 1), '#19: Tagesbedarf aus der Feinplanung ausgewiesen',
+      { zeile: t.feinTotal3, res: res.feinTotal });
+    ok(nah(n.vwd1, eVwd, 1),
+      '#19: V\'W,d = Tagesbedarf · Verlustfaktor (Excel Z94)', { zeile: t.vwd1, erwartet: eVwd });
+    ok(nah(n.pk3, res.spitze, 1), '#19: Spitzendeckungsvolumen ausgewiesen (AE82)',
+      { zeile: t.pk3, res: res.spitze });
+    ok(nah(n.ctrl1, eCtrl, 1),
+      '#19: Steuervolumen = V\'W,d / nZ (Excel Z109)', { zeile: t.ctrl1, erwartet: eCtrl });
+    ok(nah(n.cont1, eCont, 1),
+      '#19: Bereitschaftsvolumen = Spitzendeckung + Steuervolumen (Excel Z113)',
+      { zeile: t.cont1, erwartet: eCont });
+    ok(nah(n.vsto1, eVsto, 1),
+      '#19: Speichervolumen = Bereitschaftsvolumen · fsto (Excel Z119)',
+      { zeile: t.vsto1, erwartet: eVsto });
+    ok(nah(n.g, eG, 0.01),
+      '#19: Grundverlust 0.11·√(VW,sto + 0.1·(ncp−2)) (Excel Z129)', { zeile: t.g, erwartet: eG });
+    ok(nah(n.st, eSt, 0.01),
+      '#19: Stutzenverluste (ncp−2)·0.1 kWh/d (Excel Z131)', { zeile: t.st, erwartet: eSt });
+    ok(nah(n.f, eF, 0.01) && nah(n.g + n.st, n.f, 0.011),
+      '#19: Total = Grundverlust + Stutzenverluste (Excel Z133 = Z129 + Z131)',
+      { g: n.g, st: n.st, f: n.f, erwartet: eF });
+    ok(nah(res.f, eF, 0.001),
+      '#19: die Anzeige gibt die Engine-Wahrheit wieder (kein zweiter Rechenweg)',
+      { engine: res.f, erwartet: eF });
+    ok(res.qGenOut > res.f,
+      '#19: der Speicherverlust speist unveraendert Q\'W,gen,out (Excel Z203)',
+      { qGenOut: res.qGenOut, qStoF: res.f });
+    ok(/ l\/d$/.test(t.feinTotal3) && / l\/d$/.test(t.vwd1) && / l$/.test(t.vsto1)
+       && / kWh\/d$/.test(t.f),
+      '#19: Einheiten an den Zeilen (l/d bei Tagesmengen, l bei Volumen, kWh/d beim Verlust)', t);
+  }
+
+  // ncp ≤ 2 ⇒ kein Zuschlag: 0.00 kWh/d ist eine ECHTE Aussage und muss beziffert dastehen
+  const e19b = await page.evaluate(async () => {
+    const el = document.getElementById('ww_stutzenF'); if (el) el.value = '2';
+    wwRecalc();
+    await new Promise(r => setTimeout(r, 200));
+    const txt = id => ((document.getElementById(id) || {}).textContent || '').trim();
+    const r = wwCalc();
+    return { st: txt('ww_out_qStoStutzen'), g: txt('ww_out_qStoGrund'),
+             nSt: r.qStoStutzen, nF: r.qStoF, nG: r.qStoGrund };
+  });
+  ok(/^0[.,]00 kWh\/d$/.test(e19b.st),
+    '#19: bei ncp ≤ 2 steht 0.00 kWh/d — nicht «–» (der Wert ist bekannt, nicht fehlend)', e19b.st);
+  ok(e19b.nSt === 0 && Math.abs(e19b.nF - e19b.nG) < 1e-9,
+    '#19: ohne Zuschlag ist das Total exakt der Grundverlust', e19b);
 
   ok(errs.length === 0, 'Keine JS-Fehler auf der Seite', errs.slice(0, 3));
 } finally {
