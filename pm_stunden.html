@@ -900,15 +900,37 @@ function stdFerienSaldoDetail(o){
     vorholSaldoH:vh,vorholTage:ts>0?vh/ts:0};
 }
 // Jahres-Salden eines Users: Töpfe A/B, Vorhol-Konto, Ferien.
-// opts = {auszahlungH, eintritt, austritt, ferienTageJahr}
+// opts = {auszahlungH, eintritt, austritt, ferienTageJahr, uebertrag}
+//
+// `uebertrag` = {datum, ferienH, ueberzeitH} — der Stand von Ferienguthaben und
+// Überzeit auf einen Stichtag. Ohne ihn beginnt jedes Jahr bei null, und ein
+// Restguthaben vom 31.12. wäre am 1.1. verschwunden.
+//
+// KRITISCH — das Ferienguthaben des Übertrags ENTHÄLT BEREITS den Anspruch der
+// neuen Periode (im Altsystem der Knopf «Ferienguthaben berechnen», in GEMA das
+// Feld «Anspruch neue Periode»). Es darf deshalb NICHT zusätzlich mit dem
+// Jahresanspruch aufgerechnet werden — sonst bekäme jede Person ihre Ferien
+// doppelt. Am Bestand nachgerechnet: 68.50 h Rest per 31.10.2025 + 200 h neuer
+// Anspruch − 19.75 h bezogen = 248.75 h per 01.01.2026, genau der gebuchte Wert.
 function stdJahresAuswertung(tage,jahr,p,opts){
   opts=opts||{};
   var ts=p.wochenSoll/5;               // Basis-Tagessoll (Konto-Bezüge)
+  var ub=opts.uebertrag||null;
+  // Nur ein Stichtag IM ausgewerteten Jahr zählt — ein älterer Übertrag gehört
+  // zu einem anderen Jahr und wird hier nicht stillschweigend weitergezogen.
+  var ubDatum=(ub&&/^\d{4}-\d{2}-\d{2}/.test(String(ub.datum||'')))?String(ub.datum).slice(0,10):'';
+  if(ubDatum.slice(0,4)!==String(jahr))ubDatum='';
+  // Überzeit ab dem Stichtag nur in GANZEN Wochen: stdWochenAktivTage rechnet
+  // das Soll aus dem Kalender und nicht aus den vorhandenen Tagen — eine
+  // angebrochene Woche zählte sonst gegen ein volles Wochensoll.
+  var ubWoche=ubDatum?stdWochenStart(ubDatum):'';
   var wochen={},ferien=0,krank=0,kompH=0,brueckH=0,absTage={};
   (tage||[]).forEach(function(t){
     if(String(t.datum).slice(0,4)!==String(jahr))return;
-    var ws=stdWochenStart(t.datum);(wochen[ws]=wochen[ws]||[]).push(t);
-    if(t.absenz){
+    var d=String(t.datum).slice(0,10);
+    var ws=stdWochenStart(d);
+    if(!ubWoche||ws>=ubWoche)(wochen[ws]=wochen[ws]||[]).push(t);
+    if(t.absenz&&(!ubDatum||d>=ubDatum)){
       var a=stdAbsenzAnteil(t);
       absTage[t.absenz.typ]=(absTage[t.absenz.typ]||0)+a;
       var absH=parseFloat(t.absenz.stunden); // stunden-basierte Absenz (Auto-Kompensation) übersteuert anteil×Tagessoll
@@ -924,12 +946,28 @@ function stdJahresAuswertung(tage,jahr,p,opts){
     ist+=wa.ist;soll+=wa.soll;topfA+=wa.topfA;topfB+=wa.topfB;vorhol+=wa.vorholWoche;
   });
   var ausbezahlt=parseFloat(opts.auszahlungH)||0;
-  var anspruch=stdFerienAnspruch(parseFloat(opts.ferienTageJahr)||p.ferienTage,jahr,opts.eintritt,opts.austritt);
-  return {ist:ist,soll:soll,saldo:ist-soll,
+  // Das Guthaben steht in STUNDEN (so führt es der GAV und so kam es aus dem
+  // Altsystem), GEMA rechnet Ferien in TAGEN — umgerechnet über das Tagessoll
+  // des Mitarbeiters, also inklusive Pensum. Bewusst `ts` (wochenSoll/5) und
+  // NICHT stdTagSollH: die Vorholzeit erhöht das Arbeitssoll, nicht den Wert
+  // eines Ferientages — sie als Teiler zu nehmen kürzte das Guthaben.
+  var tagSoll=ts;
+  var ubFerienH=(ubDatum&&ub.ferienH!=null&&isFinite(parseFloat(ub.ferienH)))?parseFloat(ub.ferienH):null;
+  var ubUeberzeitH=(ubDatum&&ub.ueberzeitH!=null&&isFinite(parseFloat(ub.ueberzeitH)))?parseFloat(ub.ueberzeitH):0;
+  var ausUebertrag=(ubFerienH!=null&&tagSoll>0);
+  var anspruch=ausUebertrag?(ubFerienH/tagSoll)
+    :stdFerienAnspruch(parseFloat(opts.ferienTageJahr)||p.ferienTage,jahr,opts.eintritt,opts.austritt);
+  return {ist:ist,soll:soll,saldo:ubUeberzeitH+(ist-soll),
+    saldoJahr:ist-soll,
     topfA:topfA,topfB:topfB,kompensiertH:kompH,topfASaldo:topfA-kompH,
     ausbezahltH:ausbezahlt,topfBOffen:topfB-ausbezahlt,
     vorholEarned:vorhol,brueckentagH:brueckH,vorholSaldo:vorhol-brueckH,
     ferienAnspruch:anspruch,ferienBezogen:ferien,ferienSaldo:anspruch-ferien,
+    ferienAusUebertrag:ausUebertrag,
+    uebertragDatum:ubDatum,uebertragFerienH:ubFerienH,uebertragUeberzeitH:ubUeberzeitH,
+    // Ist der Stichtag kein Montag, beginnt die Überzeit-Zählung erst mit der
+    // Folgewoche. Das wird ausgewiesen statt kaschiert.
+    uebertragWocheAb:(ubWoche&&ubWoche!==ubDatum)?ubWoche:'',
     krankTage:krank,absTage:absTage};
 }
 function stdFmtH(h){return (Math.round(h*100)/100).toFixed(2);}
@@ -1106,6 +1144,29 @@ function stAuszahlungH(userId,jahr){
   var s=0;stAuszahlungen(userId,jahr).forEach(function(a){s+=parseFloat(a.stunden)||0;});
   return s;
 }
+// Ferien-/Überzeitüberträge (typ:'uebertrag') — liegen im selben Pool wie die
+// Tagesrapporte, getrennt über t.typ. Jeder Datensatz ist ein SALDO auf seinen
+// Stichtag, kein Zuwachs: für ein Jahr gilt der NEUESTE Stichtag dieses Jahres,
+// nie eine Summe über mehrere.
+function stUebertraege(userId){
+  var u=stUser();
+  return poolRead().filter(function(t){
+    return t.typ==='uebertrag'&&u&&t.orgId===u.orgId&&t.userId===userId;
+  }).sort(function(a,b){return String(a.datum||'')<String(b.datum||'')?1:-1;});
+}
+function stUebertrag(userId,jahr){
+  return stUebertraege(userId).find(function(t){
+    return String(t.datum||'').slice(0,4)===String(jahr);
+  })||null;
+}
+// Der letzte Übertrag VOR dem Jahr — nur für den Hinweis «für dieses Jahr fehlt
+// einer». Er wird bewusst nicht angerechnet: welche Ferien seither bezogen
+// wurden, weiss nur die Fortschreibung, und die ist ein eigener Vorgang.
+function stUebertragDavor(userId,jahr){
+  return stUebertraege(userId).find(function(t){
+    return String(t.datum||'').slice(0,4)<String(jahr);
+  })||null;
+}
 // Mitarbeiter-Stammdaten (Eintritt/Austritt/Ferienanspruch) aus org.settings.stunden.mitarbeiter
 function stMitarbeiterInfo(userId){
   var p=stParams();
@@ -1127,8 +1188,15 @@ function stFerienDetail(userId,jahr){
   var p=stParamsFor(userId);
   var mi=stMitarbeiterInfo(userId);
   var tage=orgTage().filter(function(t){return t.userId===userId&&String(t.datum).slice(0,4)===String(jahr);});
+  var ub=stUebertrag(userId,jahr);
+  // Zählfenster: gibt es einen Übertrag, gilt sein Guthaben AB dem Stichtag —
+  // dann dürfen auch nur die Ferien ab diesem Tag dagegen gerechnet werden.
+  // Ohne diese Klammer belastete ein Bezug aus dem Januar ein Guthaben, das
+  // erst ab Oktober gilt.
+  var ubAb=(ub&&/^\d{4}-\d{2}-\d{2}/.test(String(ub.datum||'')))?String(ub.datum).slice(0,10):'';
   var bezogen=0,gebucht=[];
   tage.forEach(function(t){
+    if(ubAb&&String(t.datum).slice(0,10)<ubAb)return;
     if(t.absenz&&t.absenz.typ==='ferien'){bezogen+=stdAbsenzAnteil(t);gebucht.push(t.datum);}
   });
   var beantragt=0;
@@ -1140,10 +1208,17 @@ function stFerienDetail(userId,jahr){
     }).length;
   });
   var bf=stdBetriebsferienTage(p.betriebsferien,jahr,p.feiertage,gebucht,mi.eintritt,mi.austritt);
-  var anspruch=stdFerienAnspruch(mi.ferienTage!=null?mi.ferienTage:p.ferienTage,jahr,mi.eintritt,mi.austritt);
-  var j=stdJahresAuswertung(tage,jahr,p,{});
-  return stdFerienSaldoDetail({anspruch:anspruch,bezogen:bezogen,beantragt:beantragt,bfReserve:bf,
+  var j=stdJahresAuswertung(tage,jahr,p,{uebertrag:ub});
+  // Liegt ein Übertrag für dieses Jahr vor, ist SEIN Guthaben massgebend — es
+  // enthält den Anspruch der Periode bereits. Sonst der gerechnete Anspruch.
+  var anspruch=j.ferienAusUebertrag?j.ferienAnspruch
+    :stdFerienAnspruch(mi.ferienTage!=null?mi.ferienTage:p.ferienTage,jahr,mi.eintritt,mi.austritt);
+  var d=stdFerienSaldoDetail({anspruch:anspruch,bezogen:bezogen,beantragt:beantragt,bfReserve:bf,
     vorholSaldoH:j.vorholSaldo,tagesSollH:p.wochenSoll/5});
+  d.uebertrag=ub;
+  d.ausUebertrag=j.ferienAusUebertrag;
+  d.uebertragFehlt=(!ub&&!!stUebertragDavor(userId,jahr));
+  return d;
 }
 // Wer ist im Zeitraum eines Antrags ebenfalls abwesend? (andere Anträge + Ferien-Absenzen, pro User dedupliziert)
 function stFerienKonflikte(antrag){
@@ -2958,7 +3033,7 @@ var FA_TYPEN=['ferien','kompensation','militaer','schule','uek'];
 // Topf-A-Saldo eines Users im Jahr (für die Antrags-Vorschau/Freigabe bei Kompensation)
 function stTopfASaldo(userId,jahr){
   var tage=orgTage().filter(function(t){return t.userId===userId&&String(t.datum).slice(0,4)===String(jahr);});
-  return stdJahresAuswertung(tage,jahr,stParamsFor(userId),{}).topfASaldo;
+  return stdJahresAuswertung(tage,jahr,stParamsFor(userId),{uebertrag:stUebertrag(userId,jahr)}).topfASaldo;
 }
 function stFerienOpen(){
   var u=stUser();if(!u)return;
@@ -3745,20 +3820,30 @@ function stRenderJahresSalden(alle,jahr){
   imJahr.forEach(function(t){(users[t.userId]=users[t.userId]||{name:t.userName,tage:[]}).tage.push(t);});
   if(!Object.keys(users).length)return '';
   var canA=stCanApprove();
-  var h='<div class="card"><div class="card-hd"><h3>💰 Jahres-Salden '+jahr+'</h3><span class="sub">Töpfe kumuliert über alle Wochen · Ferien pro-rata nach Ein-/Austritt · Vorholzeit '+stdFmtH(p.vorholProWocheH)+' h/Woche (Vollzeit — skaliert mit dem Pensum)</span></div><div class="card-bd"><div class="t-wrap"><table class="t"><thead><tr>'
+  var h='<div class="card"><div class="card-hd"><h3>💰 Jahres-Salden '+jahr+'</h3><span class="sub">Töpfe kumuliert über alle Wochen · Ferien pro-rata nach Ein-/Austritt, bzw. ab Übertrag · Vorholzeit '+stdFmtH(p.vorholProWocheH)+' h/Woche (Vollzeit — skaliert mit dem Pensum)</span></div><div class="card-bd"><div class="t-wrap"><table class="t"><thead><tr>'
     +'<th>Mitarbeiter</th><th class="num">Topf A Saldo h</th><th class="num">Topf B offen h</th><th class="num">Ausbezahlt h</th><th class="num">Vorhol-Saldo h</th><th class="num">Ferien Anspruch</th><th class="num">bezogen</th><th class="num">verfügbar</th><th class="num">Krank/Unfall Tg</th>'+(canA?'<th></th>':'')+'</tr></thead><tbody>';
   Object.keys(users).forEach(function(uidk){
     var x=users[uidk];
     var mi=stMitarbeiterInfo(uidk);
     var pu=stParamsFor(uidk);
+    var ub=stUebertrag(uidk,jahr);
     var j=stdJahresAuswertung(x.tage,jahr,pu,{
       auszahlungH:stAuszahlungH(uidk,jahr),
-      eintritt:mi.eintritt,austritt:mi.austritt,ferienTageJahr:mi.ferienTage
+      eintritt:mi.eintritt,austritt:mi.austritt,ferienTageJahr:mi.ferienTage,
+      uebertrag:ub
     });
     var infoZeile=[];
     if(pu.pensumFaktor!==1)infoZeile.push('Pensum '+Math.round(pu.pensumFaktor*100)+' %');
     if(mi.eintritt)infoZeile.push('Eintritt '+dfmt(mi.eintritt));
     if(mi.austritt)infoZeile.push('Austritt '+dfmt(mi.austritt));
+    // Der Übertrag wird BEZIFFERT angezeigt, nicht bloss verrechnet — sonst
+    // liesse sich der Feriensaldo nicht nachvollziehen.
+    if(ub)infoZeile.push('Übertrag per '+dfmt(ub.datum)
+      +(j.uebertragFerienH!=null?' · Ferien '+stdFmtH(j.uebertragFerienH)+' h':'')
+      +(j.uebertragUeberzeitH?' · Überzeit '+(j.uebertragUeberzeitH>0?'+':'')+stdFmtH(j.uebertragUeberzeitH)+' h':''));
+    else if(stUebertragDavor(uidk,jahr))
+      infoZeile.push('<span style="color:var(--amber)">⚠ kein Übertrag für '+jahr
+        +' — Guthaben aus dem Vorjahr nicht angeschlossen</span>');
     h+='<tr><td><b>'+esc(x.name||'')+'</b>'+(infoZeile.length?'<div style="font-size:10px;color:var(--mut)">'+infoZeile.join(' · ')+'</div>':'')+'</td>'
       +'<td class="num">'+stdFmtH(j.topfASaldo)+'</td>'
       +'<td class="num"'+(j.topfBOffen>0.004?' style="color:var(--red);font-weight:800"':'')+'>'+stdFmtH(j.topfBOffen)+'</td>'
@@ -3770,11 +3855,15 @@ function stRenderJahresSalden(alle,jahr){
           +'<td class="num" style="font-weight:800;color:'+(fd.verfuegbar>=0?'var(--grn)':'var(--red)')+'" title="− offen beantragt '+stFmtT(fd.beantragt)+' Tg · − Betriebsferien-Reserve '+stFmtT(fd.bfReserve)+' Tg">'+stFmtT(fd.verfuegbar)+'</td>';
       })()
       +'<td class="num">'+j.krankTage.toFixed(1)+'</td>'
-      +(canA?'<td>'+(j.topfBOffen>0.004?'<button class="btn sm" onclick="stAuszahlung(\''+esc(uidk)+'\',\''+esc((x.name||'').replace(/'/g,''))+'\','+jahr+')">💰 Auszahlung</button>':'')+'</td>':'')
+      +(canA?'<td style="white-space:nowrap">'
+        +(j.topfBOffen>0.004?'<button class="btn sm" onclick="stAuszahlung(\''+esc(uidk)+'\',\''+esc((x.name||'').replace(/'/g,''))+'\','+jahr+')">💰 Auszahlung</button> ':'')
+        +(stUebertrag(uidk,jahr+1)?'':'<button class="btn sm" title="Ferienrest und Überzeit auf den 01.01.'+(jahr+1)+' fortschreiben" onclick="stUebertragErfassen(\''+esc(uidk)+'\',\''+esc((x.name||'').replace(/'/g,''))+'\','+jahr+')">🧮 Übertrag '+(jahr+1)+'</button>')
+        +'</td>':'')
       +'</tr>';
   });
   h+='</tbody></table></div>'
-    +'<div class="gavnote" style="margin-top:10px">Topf A = Mehrstunden über (Soll + Vorholzeit) bis '+stdFmtH(p.topfGrenzeH)+' h/Woche bei Vollzeit — die Grenze skaliert mit dem Pensum (individueller Override in den ⚙️-Stammdaten möglich); Bezug via Absenz «Kompensation». Topf B = darüber, auszahlungspflichtig (Erinnerung an Vorgesetzte bei Überschreitung). Vorhol-Konto wird durch Absenz «Brückentag» belastet. Bei reduziertem Pensum skalieren Soll, Vorholzeit und Tageswerte automatisch; Ferientage bleiben in Tagen (Tageswert = reduziertes Tagessoll).</div>'
+    +'<div class="gavnote" style="margin-top:10px">Topf A = Mehrstunden über (Soll + Vorholzeit) bis '+stdFmtH(p.topfGrenzeH)+' h/Woche bei Vollzeit — die Grenze skaliert mit dem Pensum (individueller Override in den ⚙️-Stammdaten möglich); Bezug via Absenz «Kompensation». Topf B = darüber, auszahlungspflichtig (Erinnerung an Vorgesetzte bei Überschreitung). Vorhol-Konto wird durch Absenz «Brückentag» belastet. Bei reduziertem Pensum skalieren Soll, Vorholzeit und Tageswerte automatisch; Ferientage bleiben in Tagen (Tageswert = reduziertes Tagessoll). '
+    +'<b>Übertrag:</b> liegt für das Jahr ein Ferien-/Überzeitübertrag vor, gilt DESSEN Guthaben ab dem Stichtag — es enthält den Anspruch der Periode bereits und wird deshalb nicht zusätzlich aufgerechnet. Ohne Übertrag rechnet GEMA den Jahresanspruch pro rata; ein Restguthaben aus dem Vorjahr fliesst dann nicht ein und wird oben als Hinweis ausgewiesen.</div>'
     +'</div></div>';
   return h;
 }
@@ -3801,9 +3890,66 @@ function stAuszahlung(userId,name,jahr){
     toast('💰 Auszahlung erfasst');stRender();
   });
 }
+/* Jahresübertrag fortschreiben — das Gegenstück zur Übertragsmaske des
+   Altsystems. Es rechnet den Restbestand des laufenden Jahres und legt ihn
+   zusammen mit dem Anspruch der neuen Periode als Startguthaben auf den
+   1. Januar des Folgejahres.
+
+   Ohne diesen Schritt beginnt jedes Jahr wieder bei null: GEMA rechnet die
+   Jahresbilanz aus den Tagesrapporten, ein Rest vom 31.12. wäre am 1.1. weg. */
+function stUebertragErfassen(userId,name,jahr){
+  if(!stCanApprove())return;
+  var ziel=jahr+1;
+  if(stUebertrag(userId,ziel)){toast('Für '+ziel+' besteht bereits ein Übertrag');return;}
+  var pu=stParamsFor(userId);
+  var mi=stMitarbeiterInfo(userId);
+  var ts=pu.wochenSoll/5;
+  var fd=stFerienDetail(userId,jahr);
+  var tage=orgTage().filter(function(t){return t.userId===userId&&String(t.datum).slice(0,4)===String(jahr);});
+  var j=stdJahresAuswertung(tage,jahr,pu,{auszahlungH:stAuszahlungH(userId,jahr),
+    eintritt:mi.eintritt,austritt:mi.austritt,ferienTageJahr:mi.ferienTage,
+    uebertrag:stUebertrag(userId,jahr)});
+  // Rest in STUNDEN — so führt es der GAV und so kam es aus dem Altsystem.
+  // `verfuegbar` ist bereits um offene Anträge und Betriebsferien bereinigt;
+  // für den Übertrag zählt der reine Rest (Anspruch − bezogen).
+  var restH=(fd.anspruch-fd.bezogen)*ts;
+  var neuerAnspruchH=(mi.ferienTage!=null?mi.ferienTage:pu.ferienTage)*ts;
+  var ueberzeitH=j.saldo;
+  GemaDialog.prompt({
+    title:'Ferien-/Überzeitübertrag auf 01.01.'+ziel,
+    // html:true → der Aufrufer escapt selbst (hier: esc(name), alles andere
+    // sind gerechnete Zahlen).
+    html:true,
+    message:'<b>'+esc(name)+'</b><br><br>'
+      +'Ferienrest am 31.12.'+jahr+': <b>'+stdFmtH(restH)+' h</b> '
+      +'('+stFmtT(fd.anspruch)+' Tg Anspruch − '+stFmtT(fd.bezogen)+' Tg bezogen, Tageswert '+stdFmtH(ts)+' h)<br>'
+      +'Überzeitsaldo: <b>'+(ueberzeitH>0?'+':'')+stdFmtH(ueberzeitH)+' h</b><br><br>'
+      +'Anspruch für '+ziel+' in Stunden — er wird zum Rest addiert und ergibt das Startguthaben:',
+    placeholder:'Stunden, z.B. '+stdFmtH(neuerAnspruchH),
+    defaultValue:stdFmtH(neuerAnspruchH)
+  }).then(function(v){
+    if(v===null)return;
+    var neu=parseFloat(String(v).replace(',','.'));
+    if(!isFinite(neu)||neu<0){toast('Ungültige Stundenzahl');return;}
+    var u=stUser();
+    var rec={id:uid(),typ:'uebertrag',orgId:u.orgId,userId:userId,userName:name,
+      datum:ziel+'-01-01',
+      ferienH:Math.round((restH+neu)*100)/100,
+      ueberzeitH:Math.round(ueberzeitH*100)/100,
+      ausbezahltH:0,zuschlagH:0,
+      bemerkung:'Übertrag aus '+jahr+': Rest '+stdFmtH(restH)+' h + Anspruch '+stdFmtH(neu)+' h',
+      von:u.name,vonUserId:u.id,erstelltAm:new Date().toISOString()};
+    poolSave(rec);
+    stNotify({eventKey:'stunden_uebertrag',empfaengerUserId:userId,modul:'stundenerfassung',typ:'info',
+      titel:'Ferienübertrag auf '+ziel,
+      text:'Startguthaben '+stdFmtH(rec.ferienH)+' h Ferien, Überzeit '+(rec.ueberzeitH>0?'+':'')+stdFmtH(rec.ueberzeitH)+' h.',
+      link:'pm_stunden.html'});
+    toast('🧮 Übertrag auf '+ziel+' erfasst');stRender();
+  });
+}
 function stdJahresAuswertungOffen(userId,jahr){
   var tage=orgTage().filter(function(t){return t.userId===userId&&String(t.datum).slice(0,4)===String(jahr);});
-  var j=stdJahresAuswertung(tage,jahr,stParamsFor(userId),{auszahlungH:stAuszahlungH(userId,jahr)});
+  var j=stdJahresAuswertung(tage,jahr,stParamsFor(userId),{auszahlungH:stAuszahlungH(userId,jahr),uebertrag:stUebertrag(userId,jahr)});
   return j.topfBOffen;
 }
 function stCsv(){
@@ -3820,7 +3966,7 @@ function stCsv(){
     var a=stdMonatsAuswertung(x.tage,jahr,monat,pu);
     var mi=stMitarbeiterInfo(uidk);
     var jt=alle.filter(function(t){return t.userId===uidk&&String(t.datum).slice(0,4)===String(jahr);});
-    var j=stdJahresAuswertung(jt,jahr,pu,{auszahlungH:stAuszahlungH(uidk,jahr),eintritt:mi.eintritt,austritt:mi.austritt,ferienTageJahr:mi.ferienTage});
+    var j=stdJahresAuswertung(jt,jahr,pu,{auszahlungH:stAuszahlungH(uidk,jahr),eintritt:mi.eintritt,austritt:mi.austritt,ferienTageJahr:mi.ferienTage,uebertrag:stUebertrag(uidk,jahr)});
     var fd=stFerienDetail(uidk,jahr);
     rows.push([x.name,Math.round(pu.pensumFaktor*100),_monat,stdFmtH(a.ist),stdFmtH(a.soll),stdFmtH(a.saldo),stdFmtH(a.ueberstunden),stdFmtH(a.topfA),stdFmtH(a.topfB),stdFmtH(a.samstag),stdFmtH(a.sonntag),stdFmtH(a.nacht),stdFmtH(a.zuschlagZeit),a.mittage,a.chfMittag.toFixed(2),Math.round(a.km*10)/10,a.chfKm.toFixed(2),stdFmtH(j.topfASaldo),stdFmtH(j.topfBOffen),stdFmtH(j.vorholSaldo),fd.anspruch.toFixed(1),fd.bezogen.toFixed(1),fd.verfuegbar.toFixed(1)].join(';'));
   });
@@ -3847,7 +3993,7 @@ function stPdf(userId){
   var a=stdMonatsAuswertung(tage,jahr,monat,pu);
   var mi=stMitarbeiterInfo(userId);
   var jTage=alle.filter(function(t){return t.userId===userId&&String(t.datum).slice(0,4)===String(jahr);});
-  var j=stdJahresAuswertung(jTage,jahr,pu,{auszahlungH:stAuszahlungH(userId,jahr),eintritt:mi.eintritt,austritt:mi.austritt,ferienTageJahr:mi.ferienTage});
+  var j=stdJahresAuswertung(jTage,jahr,pu,{auszahlungH:stAuszahlungH(userId,jahr),eintritt:mi.eintritt,austritt:mi.austritt,ferienTageJahr:mi.ferienTage,uebertrag:stUebertrag(userId,jahr)});
   var org=null;try{org=GemaAuth.getCurrentOrg();}catch(e){}
   var orgName=(org&&org.name)||'GEMA';
   var MON=['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];

@@ -1095,16 +1095,40 @@ darum als eigene Datensätze im Stunden-Pool ab (`typ:'uebertrag'`, neben den
 Auszahlungen, die dort schon so liegen), mit dem vollen Verlauf statt nur dem
 letzten Stand.
 
-Zwei Punkte bleiben bewusst offen und werden nicht geraten:
+**Wie GEMA damit rechnet.** `stdJahresAuswertung` nimmt den Übertrag als
+`opts.uebertrag` entgegen und verwendet für das Jahr seines Stichtags dessen
+Guthaben statt des gerechneten Jahresanspruchs. Das ist der springende Punkt:
 
-- **Der Ferienanspruch pro Jahr** steht im Altsystem nirgends (`arbeiter.ferien`
-  ist bei allen 46 Aktiven NULL) — er ergibt sich dort aus dem fortgeschriebenen
-  Guthaben. In GEMA ist er ein Stammdatum je Person
-  (`org.settings.stunden.mitarbeiter[…].ferienTage`, in **Tagen**) und muss
-  einmal gesetzt werden.
-- **Stichtage, die nicht der 1. Januar sind**, mischen im GEMA-Jahr zwei
-  Perioden. Der Import übernimmt sie mit ihrem Datum; die Jahresansicht zeigt
-  den Stichtag mit an, statt eine saubere Jahresbilanz vorzutäuschen.
+> Das Guthaben der Übertragsmaske **enthält den Anspruch der neuen Periode
+> bereits** (im Altsystem der Knopf «Ferienguthaben berechnen»). Wer den
+> Jahresanspruch zusätzlich addiert, gibt jeder Person die Ferien doppelt.
+
+Am Bestand nachgerechnet: 68.50 h Rest per 31.10.2025 + 200 h neuer Anspruch
+− 19.75 h bezogen = **248.75 h per 01.01.2026** — genau der gebuchte Wert.
+
+Umgerechnet wird über das Tagessoll des Mitarbeiters (`wochenSoll/5`, also
+inklusive Pensum, aber **ohne** Vorholzeit — die erhöht das Arbeitssoll, nicht
+den Wert eines Ferientages). 200 h bei 8 h/Tag = 25 Tage; bei 80 % Pensum sind
+es 160 h bei 6.4 h/Tag = ebenfalls 25 Tage.
+
+**Der Anspruch selbst ist in GEMA schon vollständig abgebildet** und muss nicht
+aus dem Altsystem kommen (dort steht er ohnehin nirgends — `arbeiter.ferien` ist
+bei allen 46 Aktiven NULL): `stdFerienAnspruch` rechnet ihn pro rata nach
+Eintritt und Austritt, `stdParamsFuerMitarbeiter` skaliert das Tagessoll auf das
+Pensum. Zu prüfen ist nur, ob das Wochensoll der Firma zum GAV-Wert passt, damit
+25 Tage tatsächlich 200 h ergeben.
+
+**Fortschreibung.** Damit das Guthaben auch nach der Migration nicht jedes Jahr
+verfällt, legt `stUebertragErfassen` in den Jahres-Salden den nächsten Übertrag
+an: Ferienrest + Anspruch der neuen Periode → Startguthaben auf den 1. Januar,
+Überzeitsaldo mit. Fehlt für ein Jahr ein Übertrag, obwohl ein älterer besteht,
+wird das in der Tabelle gemeldet statt still auf null gesetzt.
+
+Ein Punkt bleibt bewusst offen: **Stichtage, die nicht der 1. Januar sind**,
+mischen im GEMA-Jahr zwei Perioden. Der Import übernimmt sie mit ihrem Datum,
+die Ferien werden tagesgenau ab dem Stichtag gezählt, die Überzeit erst ab der
+Folgewoche (das Wochensoll kommt aus dem Kalender, eine angebrochene Woche
+zählte sonst voll) — beides wird ausgewiesen statt kaschiert.
 
 ---
 
