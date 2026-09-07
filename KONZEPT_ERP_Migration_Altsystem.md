@@ -433,21 +433,23 @@ Alt-DB → `SELECT` mit JOINs → eine flache Datei je Abschnitt → Import-Assi
 Ausgangslage waren 5 Abschnitte (Objekte, Adressen, Offerten, Aufträge,
 Rechnungen), alle nur als Kopfdaten. Heute:
 
-| Abschnitt | Ziel | Export |
-|---|---|---|
-| Objekte / Liegenschaften | `objekt:` | 8.1 |
-| Adressen / Kunden | Adressstamm | 8.2 |
-| Offerten · Aufträge · Rechnungen | `erpdok:` | 8.3 |
-| Positionen | LV am Beleg | 8.4 |
-| Zahlungen | `doc.zahlungen[]` | 8.5 |
-| Kreditoren | `erpkred:` | 8.6 |
-| Artikelstamm | `erpkat:` | 8.7 |
-| Zahlungsbedingungen | `org.settings.erp.zahlbed` | 8.8 |
-| Termine | `einsatz:` (pm_einsatzplan) | 8.9 |
-| Anlagen (Service) | `svanl:` (sv_service) | 8.10 |
-| Stunden | `std:` (pm_stunden) | 8.11 |
-| Bezugspersonen | `objekt.bezugspersonen[]` | 8.12 |
-| Ferien-/Überzeitüberträge | `std:` mit `typ:'uebertrag'` | 8.13 |
+| # | Abschnitt | Ziel | Export | Zeilen |
+|---|---|---|---|---|
+| 1 | Zahlungsbedingungen | `org.settings.erp.zahlbed` | 8.1 | ~20 |
+| 2 | Artikelstamm | `erpkat:` | 8.2 | 15 888 |
+| 3 | Objekte / Liegenschaften | `objekt:` | **8.0** | 4 173 |
+| 4 | Adressen / Kunden | Adressstamm | 8.7 | 6 627 |
+| 5 | Bezugspersonen | `objekt.bezugspersonen[]` | 8.12 | 12 992 |
+| 6 | Offerten | `erpdok:` | **8.0** | 6 321 |
+| 7 | Aufträge | `erpdok:` | **8.0** | 9 723 |
+| 8 | Rechnungen | `erpdok:` | **8.0** | 10 328 |
+| 9 | Positionen | LV am Beleg | 8.3 | 632 008 |
+| 10 | Zahlungen | `doc.zahlungen[]` | 8.5 | — (leer, siehe 8.8) |
+| 11 | Kreditoren | `erpkred:` | 8.6 | 12 310 |
+| 12 | Anlagen (Service) | `svanl:` (sv_service) | 8.10 | 406 |
+| 13 | Termine | `einsatz:` (pm_einsatzplan) | 8.9 | 6 739 |
+| 14 | Stunden | `std:` (pm_stunden) | 8.11 | 91 586 + mobil |
+| 15 | Ferien-/Überzeitüberträge | `std:` mit `typ:'uebertrag'` | 8.13 | ~300 |
 
 Offen bleiben nur bewusste Auslassungen (NPK-Katalog, Fibu-Schnittstelle,
 Post-Adressdatenbank) — siehe 6 und 7.
@@ -787,6 +789,105 @@ aber der Umweg kostet einen Durchgang.
 
 Reihenfolge einhalten (Abschnitt 5): Stammdaten → Adressen/Objekte → Belege →
 Positionen/Zahlungen → Kreditoren.
+
+### 8.0 Die vier Grundexporte
+
+Die Abfragen für Objekte, Offerten, Aufträge und Rechnungen — die Spaltennamen
+sind gegen `erkenneMapping` geprüft, alle Pflichtfelder werden erkannt. Der
+Adress-Export steht vollständig in 8.7.
+
+**Objekte** (4 173) — die Bezugspersonen kommen separat über 8.12:
+
+```sql
+SELECT o.id, o.strasse, o.strasse2, o.plz, o.ort, o.egid, o.egrid,
+       o.knummer, o.co_knummer, o.ei_knummer, o.korr_name,
+       o.objekt1, o.objekt2, o.objmemo AS notiz,
+       o.extref1 AS ref1, o.extref2 AS ref2,
+       TRIM(CONCAT(COALESCE(mad.vorname,''),' ',COALESCE(mad.name1,''))) AS monteur_name,
+       TRIM(CONCAT(COALESCE(sad.vorname,''),' ',COALESCE(sad.name1,''))) AS sachb_name
+FROM obj o
+LEFT JOIN arbeiter ma ON ma.id = o.monteur_id  LEFT JOIN adressen mad ON mad.id = ma.adr_id
+LEFT JOIN arbeiter sa ON sa.id = o.sachb_id    LEFT JOIN adressen sad ON sad.id = sa.adr_id;
+```
+
+**Offerten** (6 321):
+
+```sql
+SELECT o.id, o.offert_nr, o.datum, o.rdatum, o.betrmemo,
+       st.typ_text AS status_text, ty.typ_text AS offerttyp_text,
+       o.obetrag, o.mwstbetrag, o.tostunden,
+       o.knummer AS kundennummer, o.name1, o.korr_name, o.anschrift, o.banrede,
+       o.strasse, o.strasse2, o.plz, o.ort, o.egid, o.egrid,
+       o.zahlbedid, o.bemerkung, o.wohnung, o.wohn_standort,
+       o.extref2 AS ref2, ab.name1 AS abt_name,
+       TRIM(CONCAT(COALESCE(sad.vorname,''),' ',COALESCE(sad.name1,''))) AS sachb_name
+FROM offerten o
+LEFT JOIN offstatus st ON st.id = o.status
+LEFT JOIN offtyp    ty ON ty.id = o.offerttyp
+LEFT JOIN abt       ab ON ab.id = o.abt_id
+LEFT JOIN arbeiter  sa ON sa.id = o.sachb_id  LEFT JOIN adressen sad ON sad.id = sa.adr_id;
+```
+
+**Aufträge** (9 723) — inklusive Nachkalkulations-Schnappschuss (siehe 3.4):
+
+```sql
+SELECT r.id, r.rapport_nr, r.best_datum, r.betrifft, r.arbeit,
+       ast.typ_text AS astatus_text, rst.typ_text AS rstatus_text,
+       o.offert_nr, re.nr AS rechnung_nr, r.bemerkung,
+       r.name1, r.korr_name, r.anschrift, r.telefon,
+       r.strasse, r.strasse2, r.plz, r.ort, r.egid, r.egrid,
+       r.schlussel, r.schlu_tel, r.besteller, r.best_tel,
+       r.wohnung, r.wohn_standort, r.wohn_tel, ab.name1 AS abt_name,
+       TRIM(CONCAT(COALESCE(sad.vorname,''),' ',COALESCE(sad.name1,''))) AS sachb_name,
+       JSON_OBJECT('nkrnbh',r.nkrnbh,'nkrmat',r.nkrmat,'nkrfaktor',r.nkrfaktor,
+                   'nkbez',r.nkbez,'nkofftot',r.nkofftot,'nkoffmat',r.nkoffmat,
+                   'nkoffnbh',r.nkoffnbh,'nkoffph',r.nkoffph,'nkfaktor',r.nkfaktor,
+                   'nkgewp',r.nkgewp,'nkwstup',r.nkwstup,'nkwmatp',r.nkwmatp,
+                   'nkspesen',r.nkspesen) AS nachkalk
+FROM rapporte r
+LEFT JOIN arbstatus  ast ON ast.id = r.astatus
+LEFT JOIN rechstatus rst ON rst.id = r.rstatus
+LEFT JOIN offerten   o   ON o.id   = r.offerte_id
+LEFT JOIN rechnungen re  ON re.rapport_id = r.id
+LEFT JOIN abt        ab  ON ab.id  = r.abt_id
+LEFT JOIN arbeiter   sa  ON sa.id  = r.sachb_id  LEFT JOIN adressen sad ON sad.id = sa.adr_id;
+```
+
+> Der Join auf `rechnungen` kann einen Auftrag vervielfachen, wenn mehrere
+> Rechnungen daran hängen (Akonto + Schluss). Das ist gewollt — der Importer
+> erkennt den Auftrag an `rapport_nr` und ergänzt nur; wer es sauberer mag,
+> nimmt `re.nr` heraus und lässt die Verknüpfung über den Rechnungs-Export
+> laufen, der die Auftragsnummer ohnehin mitführt.
+
+**Rechnungen** (10 328) — ersetzt 8.8, die Fibu-Spalten sind hier schon drin:
+
+```sql
+SELECT r.id, r.nr, r.rapport_nr, r.datum, r.betrifft, r.arbeit,
+       ty.typ_text  AS typ_text,
+       ast.typ_text AS astatus_text,
+       ds.typ_text  AS debistatus_text,
+       r.rbetrag, r.mwstbetrag,
+       r.name1, r.korr_name, r.anschrift, r.adr_id,
+       r.strasse, r.strasse2, r.plz, r.ort, r.egid, r.egrid,
+       r.zahlbedid, r.ausgef, r.belegnr, r.opdebi, r.faelligdatum,
+       r.bemerkung, r.wohnung, r.besteller, r.wohn_standort,
+       r.post_info_date AS postinfodate, r.print_info AS printinfo,
+       r.kostenst_id AS kostenstid, r.extref1, r.extref2,
+       ab.name1 AS abt_name,
+       TRIM(CONCAT(COALESCE(sad.vorname,''),' ',COALESCE(sad.name1,''))) AS sachb_name
+FROM rechnungen r
+LEFT JOIN rechtyp     ty  ON ty.id  = r.typ
+LEFT JOIN rechastatus ast ON ast.id = r.astatus
+LEFT JOIN debistatus  ds  ON ds.id  = r.debistatus
+LEFT JOIN abt         ab  ON ab.id  = r.abt_id
+LEFT JOIN arbeiter    sa  ON sa.id  = r.sachb_id  LEFT JOIN adressen sad ON sad.id = sa.adr_id;
+```
+
+> **Die ESR-Referenz ist keine Spalte.** `rechnungen` führt nur `esr_bankid`
+> und `esr_price`; die 27-stellige Referenz baut das Altsystem beim Druck aus
+> Bank-ID und Belegnummer. GEMA erzeugt sie beim Nachdruck ebenso selbst
+> (Mod10). Wer eine bestehende Referenz erhalten will, muss sie im Export
+> zusammensetzen — der Importer prüft sie dann und übernimmt nur gültige.
 
 ### 8.1 Zahlungsbedingungen
 
@@ -1254,3 +1355,65 @@ Lohnkonto, Bankverbindung). Für die Migration gilt:
 - Auszüge nicht ins Repo (`.gitignore` deckt `erp_alt/`, `*.db`, `*.mdb` u.a. ab).
 - Bearbeitungsverzeichnis nach Art. 12 DSG nachführen, wenn die Daten in eine
   neue Umgebung wechseln.
+
+---
+
+## 10. Datenvolumen — was der Bestand in Supabase und im Browser bedeutet
+
+Ein Positions-Datensatz aus der echten Normalisierung gemessen: **300 Bytes**
+JSON (NPK-Nummer, Bezeichnung, Menge, Einheit, EP und `importKalk`). Daraus
+folgt der Rest.
+
+### Zeilen in `gema_data`
+
+GEMA legt **eine Row je Datensatz** an — Positionen und Zahlungen aber NICHT
+einzeln, sie liegen als Array im Beleg. Der Bestand ergibt darum:
+
+| Collection | Rows | Ø Grösse | Total |
+|---|---|---|---|
+| `erpdok:` (Offerten + Aufträge + Rechnungen) | 26 372 | s. u. | **~230 MB** |
+| `std:` (Tagesrapporte + Überträge) | ~50 000 | ~800 B | ~40 MB |
+| `erpkat:` (Artikel) | 15 888 | ~300 B | ~5 MB |
+| `erpkred:` | 12 310 | ~700 B | ~9 MB |
+| `erpkunde:` (Adressen) | 6 627 | ~800 B | ~5 MB |
+| `einsatz:` (Termine) | 6 739 | ~600 B | ~4 MB |
+| `objekt:` (inkl. Bezugspersonen) | 4 173 | ~2 KB | ~8 MB |
+| `svanl:` | 406 | ~800 B | <1 MB |
+| **Summe** | **~122 000** | | **~300 MB** |
+
+Die 632 008 Positionen verteilen sich auf rund 9 700 Belege — im Schnitt **65
+Positionen und damit ~20 KB pro Beleg**. Belege ohne Positionen bleiben bei
+~1.5 KB.
+
+Postgres komprimiert JSONB über 2 KB (TOAST), real dürften daraus 120–200 MB
+werden. Für die Wahl des Plans heisst das: **Free (500 MB) ist zu knapp, Pro
+(8 GB) reicht mit grossem Abstand.**
+
+### Der Haken liegt nicht bei Supabase, sondern im Browser
+
+`bindCollection` zieht eine Collection **vollständig** in den Cache, und
+`getCached()` liefert das ganze Array. Mit allen Positionen bedeutet das rund
+**230 MB `erpdok:` im Arbeitsspeicher des Browsers** — auf dem Desktop
+grenzwertig, auf einem iPhone nicht tragbar. Dazu kommt der Import selbst: er
+läuft im Browser und warnt ab 50 000 Zeilen; eine CSV mit 632 008
+Positionszeilen wäre rund 100 MB.
+
+Drei Konsequenzen, keine davon dramatisch:
+
+1. **Positionen in Jahresscheiben exportieren** (`WHERE YEAR(datum) = 2024` am
+   Beleg-Join), nicht als eine Datei.
+2. **Positionen nur für die jüngeren Jahre importieren.** Der Kopf-Import legt
+   je Beleg eine **Sammelposition mit dem Gesamtbetrag** an (`importSammel`) —
+   ältere Belege zeigen damit den richtigen Betrag und die richtige Adresse,
+   nur eben ohne Einzelzeilen. Für den Rückblick auf 2015 reicht das meist;
+   der Positions-Import lässt sich später jederzeit nachholen, weil er genau
+   diese Sammelposition ersetzt und ein echtes LV nie anfasst.
+3. **Option «Positionen aus der Offerte übernehmen» bewusst setzen.** Sie ist
+   im Assistenten standardmässig an und kopiert das LV der Offerte in den
+   Auftrag — das verdoppelt den Positionsbestand auf bis zu 460 MB. Für die
+   Migration einer Historie gehört sie ausgeschaltet; die Offerte trägt die
+   Positionen bereits und der Auftrag ist mit ihr verknüpft.
+
+Mit Punkt 2 und 3 landet der produktive Bestand bei realistisch **60–100 MB** —
+und die Historie bleibt vollständig, nur eben auf Belegebene statt auf
+Positionsebene.
