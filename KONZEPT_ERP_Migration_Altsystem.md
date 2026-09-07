@@ -30,6 +30,43 @@ werden auf ~38 Tabellen automatisch gesetzt. Jede Mutation wird zusätzlich in
 
 ---
 
+## 1a. Datenbestand (gemessen 2026-09-07)
+
+| Bereich | Umfang |
+|---|---|
+| Objekte | 4 173 |
+| Adressen / Kontaktpersonen | 6 627 Adressen · 12 992 `zuhand` · 54 116 `contact` · 7 972 `objadr` |
+| Offerten | 6 321 |
+| Aufträge (`rapporte`) | 9 723 |
+| Rechnungen | 10 328 |
+| **Belegpositionen** | **632 008** (`lvposition`) + **241 628** (`nlvposition`) |
+| Kreditoren | 12 310 · Zuteilungen 14 734 |
+| Eigener Artikelstamm | 15 888 (`abarticle`) |
+| Mitarbeiter / Abteilungen / Kostenstellen | 206 · 12 · 24 |
+| Stunden | 58 054 Wochenzeilen · 91 586 Tageszeilen |
+| Termine | 6 739 |
+| Service | 388 Anlagen · 35 Apparate · 406 Komponenten |
+| **Mandanten** | **1** — `company_id` ist durchgehend derselbe Wert |
+
+**Nicht genutzt** (0 Zeilen) — fällt komplett aus dem Migrationsumfang:
+`orders`, `orderposition`, `stock`, `stockdet`, `stockhistory`, `lieferschein`
+(kein Bestell- und Lagerwesen) · `task`, `taskset*` (keine Pendenzen) ·
+`holidays`, `vorholzeit`, `zeiterfassung`, `zuschlaege_stunden`, `timespan`
+(keine Zeitzuschläge/Stempelung) · `company`, `bank`, `customfields`,
+`property`, `options`, `dm` · sämtliche `new_*`-Tabellen und `post_obj`
+(die Post-Adressdatenbank ist leer — genutzt wird nur `plzort` mit 5 333 Zeilen).
+
+**Speicherfresser, die nicht migriert werden:**
+- `lvdata` — **7,4 GB** bei nur 46 569 Zeilen. Die Spalte `lv` ist ein
+  komprimierter LONGBLOB mit der serialisierten LV-Struktur, dazu die Spalte
+  `autosave`: ein grosser Teil der Zeilen sind Zwischenstände des Editors.
+  Da `lvposition` dieselben Positionen relational führt, brauchen wir den Blob nicht.
+- `filesver` — 389 MB Programm-Binärdateien (`progbin`), das ERP verteilt seine
+  eigenen Updates über die Datenbank.
+- `chaptermat` — 109 MB NPK-Materiallisten (Schicht B).
+
+---
+
 ## 2. Die drei Schichten der Datenbank
 
 Von den 199 Tabellen ist nur rund ein Drittel migrationsrelevant. Die Trennung:
@@ -199,10 +236,27 @@ Summe. `lvposition` enthält die echten Positionen:
 
 `lsva` = leistungsabhängige Schwerverkehrsabgabe (Schweiz), fliesst als Zuschlag ein.
 
-**Achtung, zwei Generationen**: parallel existiert `nlv` / `nlvposition` /
-`nlvprice` / `nlvcondition` / `nlvuserstructure` (neueres Modell, Preise
-normalisiert über `price_id`). Welche Generation produktiv ist, entscheiden die
-Zeilenzahlen — siehe Abschnitt 6.
+**Achtung, drei Generationen — und zwei davon sind aktiv.** Die Zählung zeigt:
+
+| Modell | Umfang | Bewertung |
+|---|---|---|
+| `lvdata` (LONGBLOB, komprimiert) | 46 569 Zeilen / 7,4 GB | älteste Form, proprietär serialisiert. **Nicht migrieren** — dieselben Positionen stehen relational in `lvposition`. |
+| `lvposition` | **632 008 Zeilen** | Hauptbestand, relational und direkt lesbar |
+| `nlv` / `nlvposition` / `nlvprice` | 6 687 Köpfe / **241 628 Positionen** / 178 009 Preise | neueres Modell, Preise normalisiert über `price_id` in `nlvprice` (`mat_price`, `mat_discount`, `mat_loss`, `mat_factor`, `labor_amount`, `labor_factor`, `labor_rate`) |
+
+Beide relationalen Modelle sind gefüllt, es gab also eine Umstellung im
+laufenden Betrieb. **Der Positions-Import muss beide lesen** und je Beleg
+entscheiden, welches Modell greift. Die Verteilung von `module_id` in
+`lvposition`:
+
+| `module_id` | Positionen |
+|---|---|
+| 2 | 425 424 |
+| 4 | 203 805 |
+| 18 | 2 779 |
+
+Welcher Wert für Offerte, Auftrag und Rechnung steht, klärt die erste Abfrage
+in Abschnitt 6.
 
 ### 3.7 Kreditoren — `kreditoren` (41) + `kredzut` (19) → `erpkred:`
 
@@ -230,8 +284,10 @@ erfasst** (`rapport_id`, `arb_id`, `datum`) → Regiematerial, gehört zu
 
 - `stunden` (22): Wochenzeile mit `t1`…`t7` je Wochentag, `arb_id`, `jhrwoche`,
   `rapp_id`, `arbtyp`, `absenz`, `zuschlag_id`
-- `nstunden` (12): tagesbasierte Variante mit `datum` + `stunden` — vermutlich
-  die Ablösung von `stunden`
+- `nstunden` (12): **kein Ersatz, sondern die Detailebene** — die Spalte
+  `stunden_id` verweist zurück auf `stunden`, dazu `datum` und `stunden`.
+  Die Zahlen bestätigen das: 58 054 Wochenzeilen zu 91 586 Tageszeilen.
+  Beide Tabellen werden gebraucht, `nstunden` liefert die Tagesauflösung.
 - `stdtot` (44): Wochentotal je Mitarbeiter mit Soll je Wochentag (`sollmo`…`sollso`),
   Tagessperren (`molocked`…), **Vorholzeit `vz_mo`…`vz_so`**, Boni `b_mo`…`b_so`,
   `comptypb`
@@ -302,37 +358,59 @@ vorherige:
 
 ---
 
-## 6. Offene Punkte — dafür braucht es die Zeilenzahlen
+## 6. Offene Punkte
 
-Die folgenden Fragen lassen sich aus der Struktur allein nicht beantworten.
-Sie klären sich mit einer einzigen Abfrage (keine Personendaten):
+### Beantwortet durch die Zählung vom 2026-09-07
 
-```sql
-SELECT TABLE_NAME, TABLE_ROWS, ROUND(DATA_LENGTH/1024/1024,1) AS MB
-FROM information_schema.TABLES
-WHERE TABLE_SCHEMA='dbof' ORDER BY DATA_LENGTH DESC;
-```
+| Frage | Antwort |
+|---|---|
+| `lvposition` oder `nlvposition`? | **Beide**, plus der Alt-Blob `lvdata`. Der Import muss `lvposition` (632 008) und `nlvposition` (241 628) lesen; `lvdata` bleibt draussen. |
+| `stunden` oder `nstunden`? | **Beide** — `nstunden` ist die Tagesebene unter `stunden` (`stunden_id`). |
+| Welche MwSt-Tabelle? | **`mwst`** (10 Sätze). `mwst_legacy` (15) ist historisch, `abamwst` ist leer. |
+| Mandantenfähigkeit? | **Ein Mandant.** Alle Belege tragen dieselbe `company_id` → eine `orgId` in GEMA. |
+| Bestell-/Lagerwesen? | **Nicht genutzt** (`orders`, `orderposition`, `stock*` alle leer) → aus dem Umfang gestrichen. |
 
-1. **`lvposition` oder `nlvposition`?** Beide Positionsmodelle existieren. Die
-   gefüllte Tabelle ist die produktive.
-2. **`stunden` (t1…t7) oder `nstunden` (datum)?** Gleiche Frage für die Zeiterfassung.
-3. **`mwst`, `mwst_legacy` oder `abamwst`?** Drei MwSt-Tabellen.
-4. **Werte von `module_id`** in `lvposition`, `contact`, `contactinfos`, `task`.
-   Diese Zahl unterscheidet Offerte/Auftrag/Rechnung und ist der Schlüssel zum
-   Positions-Import. Ermittelbar mit:
+### Noch zu klären
+
+1. **Werte von `module_id`.** In `lvposition` kommen 2 (425 424), 4 (203 805) und
+   18 (2 779) vor. Welcher Wert für Offerte, Auftrag und Rechnung steht, ist der
+   Schlüssel zum Positions-Import. Auflösbar über die Fremdschlüssel:
    ```sql
-   SELECT module_id, COUNT(*) FROM lvposition GROUP BY module_id;
+   SELECT module_id, COUNT(*) belege,
+     SUM(EXISTS(SELECT 1 FROM offerten   o WHERE o.id=t.item_id)) in_offerten,
+     SUM(EXISTS(SELECT 1 FROM rechnungen r WHERE r.id=t.item_id)) in_rechnungen,
+     SUM(EXISTS(SELECT 1 FROM rapporte   a WHERE a.id=t.item_id)) in_rapporte
+   FROM (SELECT DISTINCT module_id, item_id FROM lvposition) t GROUP BY module_id;
+   ```
+   Dieselbe Abfrage für `nlv` zeigt, welche Belege auf das neuere Modell umgestellt sind.
+2. **Werte von `postyp`** in `lvposition` — bestimmt die Abbildung auf die
+   GEMA-Positionsarten (`titel` / `text` / `frei` / `rabatt` / `zuschlag`):
+   ```sql
+   SELECT postyp, COUNT(*) FROM lvposition GROUP BY postyp ORDER BY 2 DESC;
+   ```
+3. **Datumsspanne des Bestands** — entscheidet, ob volle Historie oder Stichtag:
+   ```sql
+   SELECT 'offerten' t, MIN(datum) von, MAX(datum) bis FROM offerten
+   UNION ALL SELECT 'rechnungen', MIN(datum), MAX(datum) FROM rechnungen
+   UNION ALL SELECT 'rapporte', MIN(best_datum), MAX(best_datum) FROM rapporte;
+   ```
+4. **Inhalt von `companydata`** (8 152 Zeilen) — eine EAV-Tabelle
+   (`cmd_tablename` / `cmd_item_id` / `cmd_fieldname` / Wert), die beliebige
+   Zusatzfelder an beliebige Datensätze hängt. Was dort steckt, muss man wissen,
+   bevor man sie weglässt:
+   ```sql
+   SELECT cmd_tablename, cmd_fieldname, COUNT(*) FROM companydata
+   GROUP BY 1,2 ORDER BY 3 DESC LIMIT 30;
    ```
 5. **Format von `sigmonteur` / `sigcustomer`** (LONGTEXT) — Base64-PNG oder SVG?
    Entscheidet, ob die Unterschriften übernommen werden können.
-6. **`artikel.Calculation` und `chaptermat.matlist`** sind LONGBLOB. Vermutlich
-   ein serialisiertes Delphi-/Binärformat. Falls die Kalkulationsdetails
-   gebraucht werden, muss das Format geklärt werden — sonst weglassen.
+6. **`artikel.Calculation`** ist LONGBLOB, vermutlich serialisiertes Delphi-Format.
+   Falls die Kalkulationsdetails gebraucht werden, muss das Format geklärt
+   werden — sonst weglassen. `calcdata` (38 396 Zeilen) führt die Kalkulation
+   dagegen relational und ist die bessere Quelle.
 7. **Wird die Fibu-Anbindung** (Sesam / Abacus, erkennbar an `pk_abacdebi`,
    `abacbelegnr`, `sesamcode`) weitergeführt? Falls ja, müssen die
    Belegnummern-Felder mitwandern.
-8. **Mandantenfähigkeit**: `company_id` steckt auf vielen Tabellen. Gibt es mehr
-   als eine Firma im System? Das bestimmt die `orgId`-Zuordnung in GEMA.
 
 ---
 
