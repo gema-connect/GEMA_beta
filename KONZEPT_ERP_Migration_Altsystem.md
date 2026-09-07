@@ -34,6 +34,7 @@ werden auf ~38 Tabellen automatisch gesetzt. Jede Mutation wird zusätzlich in
 
 | Bereich | Umfang |
 |---|---|
+| **Historie** | **2015-03-27 bis heute — 11,5 Jahre** |
 | Objekte | 4 173 |
 | Adressen / Kontaktpersonen | 6 627 Adressen · 12 992 `zuhand` · 54 116 `contact` · 7 972 `objadr` |
 | Offerten | 6 321 |
@@ -372,45 +373,91 @@ vorherige:
 
 ### Noch zu klären
 
-1. **Werte von `module_id`.** In `lvposition` kommen 2 (425 424), 4 (203 805) und
-   18 (2 779) vor. Welcher Wert für Offerte, Auftrag und Rechnung steht, ist der
-   Schlüssel zum Positions-Import. Auflösbar über die Fremdschlüssel:
-   ```sql
-   SELECT module_id, COUNT(*) belege,
-     SUM(EXISTS(SELECT 1 FROM offerten   o WHERE o.id=t.item_id)) in_offerten,
-     SUM(EXISTS(SELECT 1 FROM rechnungen r WHERE r.id=t.item_id)) in_rechnungen,
-     SUM(EXISTS(SELECT 1 FROM rapporte   a WHERE a.id=t.item_id)) in_rapporte
-   FROM (SELECT DISTINCT module_id, item_id FROM lvposition) t GROUP BY module_id;
-   ```
-   Dieselbe Abfrage für `nlv` zeigt, welche Belege auf das neuere Modell umgestellt sind.
-2. **Werte von `postyp`** in `lvposition` — bestimmt die Abbildung auf die
-   GEMA-Positionsarten (`titel` / `text` / `frei` / `rabatt` / `zuschlag`):
-   ```sql
-   SELECT postyp, COUNT(*) FROM lvposition GROUP BY postyp ORDER BY 2 DESC;
-   ```
-3. **Datumsspanne des Bestands** — entscheidet, ob volle Historie oder Stichtag:
-   ```sql
-   SELECT 'offerten' t, MIN(datum) von, MAX(datum) bis FROM offerten
-   UNION ALL SELECT 'rechnungen', MIN(datum), MAX(datum) FROM rechnungen
-   UNION ALL SELECT 'rapporte', MIN(best_datum), MAX(best_datum) FROM rapporte;
-   ```
-4. **Inhalt von `companydata`** (8 152 Zeilen) — eine EAV-Tabelle
-   (`cmd_tablename` / `cmd_item_id` / `cmd_fieldname` / Wert), die beliebige
-   Zusatzfelder an beliebige Datensätze hängt. Was dort steckt, muss man wissen,
-   bevor man sie weglässt:
-   ```sql
-   SELECT cmd_tablename, cmd_fieldname, COUNT(*) FROM companydata
-   GROUP BY 1,2 ORDER BY 3 DESC LIMIT 30;
-   ```
-5. **Format von `sigmonteur` / `sigcustomer`** (LONGTEXT) — Base64-PNG oder SVG?
+1. **Werte von `module_id`** — noch offen. In `lvposition` kommen 2 (425 408
+   Positionen / 5 057 Belege), 4 (203 805 / 7 598) und 18 (2 779 / 32) vor,
+   in `nlv` dieselben drei Werte (2 914 / 3 773 / 28 Belege).
+
+   Der Versuch, sie über `EXISTS` gegen die Belegtabellen aufzulösen, **scheitert
+   an überlappenden ID-Räumen**: `offerten.id`, `rechnungen.id` und `rapporte.id`
+   zählen unabhängig ab 1, eine `item_id` trifft daher fast immer in allen drei
+   Tabellen. Die Trefferquoten (module 2 → 93 % Offerten; module 4 → 90 %
+   Rechnungen, aber nur 37 % Offerten) sind ein Indiz, kein Beweis.
+
+   Sauber auflösbar ist es über die **Belegsummen**: nur beim richtigen
+   Belegtyp stimmt `SUM(lvposition.total)` mit `obetrag` bzw. `rbetrag` überein.
+   Abfrage siehe unten.
+
+2. **Werte von `postyp`** — 16 verschiedene, Verteilung bekannt:
+   11 (289 901) · 20 (133 343) · 10 (70 998) · 21 (61 418) · 9 (48 259) ·
+   26 (8 801) · 12 (6 688) · 19 (3 556) · 16 (3 145) · 27 (1 836) ·
+   13 · 22 · 15 · 25 · 18 · 28. Die Bedeutung ergibt sich aus dem
+   Strukturmuster je Typ (hat Menge/Preis/Einheit? hat NPK-Bezug? hat Parent?),
+   nicht aus den Zahlen — Abfrage siehe unten. Ziel ist die Abbildung auf die
+   GEMA-Positionsarten `titel` / `text` / `frei` / `rabatt` / `zuschlag`.
+
+3. **`companydata` ist keine Zusatzfeld-Tabelle, sondern eine Overlay-Schicht.**
+   Die 8 152 Zeilen betreffen fast ausschliesslich Felder, die es als echte
+   Spalte bereits gibt: `adressen.pk_debi` (2 046), `adressen.zahlbedid` (1 652),
+   `adrkre.sesam_zahlart` (672), `adrkre.sesam_pk_nr` (667), `adrkre.bank_id`
+   (581), `adrkre.ekonto`/`akkonto`, `adrkre.igh_liefnr` (539), `adrkre.bkp_nr`
+   (139), `adressen.stdrabatt`/`stdskonto`.
+
+   Das ist der Mandanten-Mechanismus des Altsystems: pro `company_id` kann ein
+   Feld überschrieben werden. Bei **einem** Mandanten ist zu klären, ob die
+   Basisspalte oder der Overlay-Wert gilt — besonders bei `zahlbedid`
+   (Zahlungsfrist!) und den Konditionsfeldern. Abfrage siehe unten.
+
+   > Auch hier steht ein `adrkre.password`-Eintrag drin — beim Export ausschliessen.
+
+4. **Format von `sigmonteur` / `sigcustomer`** (LONGTEXT) — Base64-PNG oder SVG?
    Entscheidet, ob die Unterschriften übernommen werden können.
-6. **`artikel.Calculation`** ist LONGBLOB, vermutlich serialisiertes Delphi-Format.
+5. **`artikel.Calculation`** ist LONGBLOB, vermutlich serialisiertes Delphi-Format.
    Falls die Kalkulationsdetails gebraucht werden, muss das Format geklärt
    werden — sonst weglassen. `calcdata` (38 396 Zeilen) führt die Kalkulation
    dagegen relational und ist die bessere Quelle.
-7. **Wird die Fibu-Anbindung** (Sesam / Abacus, erkennbar an `pk_abacdebi`,
+6. **Wird die Fibu-Anbindung** (Sesam / Abacus, erkennbar an `pk_abacdebi`,
    `abacbelegnr`, `sesamcode`) weitergeführt? Falls ja, müssen die
-   Belegnummern-Felder mitwandern.
+   Belegnummern-Felder mitwandern. Der Umfang der Overlay-Tabelle
+   `companydata` deutet darauf hin, dass die Sesam-Anbindung aktiv genutzt wird.
+
+### Abfragen für die letzte Runde
+
+```sql
+-- 1) module_id definitiv: nur beim richtigen Belegtyp stimmen die Summen
+SELECT m.module_id, 'offerten' beleg, COUNT(*) treffer FROM (SELECT DISTINCT module_id FROM lvposition) m
+JOIN (SELECT module_id, item_id, SUM(total) s FROM lvposition GROUP BY 1,2) p ON p.module_id=m.module_id
+JOIN offerten o ON o.id=p.item_id
+WHERE ABS(p.s-o.obetrag)<1 OR ABS(p.s-(o.obetrag-o.mwstbetrag))<1 GROUP BY 1;
+
+SELECT m.module_id, 'rechnungen' beleg, COUNT(*) treffer FROM (SELECT DISTINCT module_id FROM lvposition) m
+JOIN (SELECT module_id, item_id, SUM(total) s FROM lvposition GROUP BY 1,2) p ON p.module_id=m.module_id
+JOIN rechnungen r ON r.id=p.item_id
+WHERE ABS(p.s-r.rbetrag)<1 OR ABS(p.s-(r.rbetrag-r.mwstbetrag))<1 GROUP BY 1;
+
+-- 2) ID-Bereiche als Gegenprobe
+SELECT module_id, MIN(item_id) mn, MAX(item_id) mx FROM lvposition GROUP BY module_id;
+SELECT 'offerten' t,MIN(id),MAX(id) FROM offerten UNION ALL
+SELECT 'rechnungen',MIN(id),MAX(id) FROM rechnungen UNION ALL
+SELECT 'rapporte',MIN(id),MAX(id) FROM rapporte UNION ALL
+SELECT 'lvmuster',MIN(id),MAX(id) FROM lvmuster UNION ALL
+SELECT 'services',MIN(id),MAX(id) FROM services;
+
+-- 3) postyp entschluesseln ueber das Strukturmuster (keine Inhalte)
+SELECT postyp, COUNT(*) n,
+  SUM(qty<>0) mit_menge, SUM(price<>0) mit_preis,
+  SUM(COALESCE(unit,'')<>'') mit_einheit, SUM(total<>0) mit_total,
+  SUM(COALESCE(SPos,'')<>'') mit_npk,
+  SUM(COALESCE(parent_pos_guid,'')='') ohne_parent,
+  ROUND(AVG(CHAR_LENGTH(text))) txt_len
+FROM lvposition GROUP BY postyp ORDER BY n DESC;
+
+-- 4) companydata: ueberschreibt der Overlay-Wert die Basisspalte?
+SELECT COUNT(*) gesamt,
+  SUM(COALESCE(c.cmd_string,'')=COALESCE(a.zahlbedid,'')) gleich,
+  SUM(COALESCE(c.cmd_string,'')<>COALESCE(a.zahlbedid,'')) abweichend
+FROM companydata c JOIN adressen a ON a.id=c.cmd_item_id
+WHERE c.cmd_tablename='adressen' AND c.cmd_fieldname='zahlbedid';
+```
 
 ---
 
