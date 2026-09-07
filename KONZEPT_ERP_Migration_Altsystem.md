@@ -511,7 +511,83 @@ Datenlandschaft des Altsystems.
 
 ---
 
-## 7. Datenschutz
+## 7. Was für eine saubere Übernahme noch fehlt
+
+### 7.1 Neue Importer-Sektionen
+
+`gema_erp_import.js` hat heute fünf Sektionen und holt bei den Belegen nur die
+Kopfdaten. Es fehlen:
+
+| Sektion | Quelle | Umfang | Bemerkung |
+|---|---|---|---|
+| **Stammdaten** | `paymentterm`, `mwst`, `kostenst`, `abt`, `arbeiter` | 265 Zeilen | Voraussetzung für alles Weitere |
+| **Positionen** | `lvposition` + `nlvposition`/`nlvprice` | 873 636 | beide Modelle lesen, an die Belege hängen |
+| **Zahlungen** | `rechnungen.zahlungsdatum` / `.zahlungsbetrag` | 10 328 | ersetzt den Stichtag-Behelf |
+| **Kreditoren** | `kreditoren` + `kredzut` | 27 044 | inkl. Freigabe-/Kontrollvermerke |
+| **Artikelstamm** | `abarticle` + `abchapter`/`absheet`/`abtitle`/`abline` | 15 888 | → `erpkat:` |
+| **Bezugspersonen** | `zuhand`, `objadr`, `contact` | ~75 000 | am Kunden und am Objekt |
+
+Später und optional: Stunden (`stunden`/`nstunden`/`stdtot`/`spesen`),
+Service (`services`/`apparate`/`komponenten`), Termine (`termin`).
+
+### 7.2 Felder, die in GEMA zu ergänzen sind
+
+Klein, aber ohne sie geht Information verloren:
+
+- **Position**: `verschnitt`, `zeit_faktor` — die übrige Kalkulation
+  (`leitfaden_zeit`, `ansatz`, `einkaufs_rabatt`, Materialquelle) hat in GEMA
+  bereits ihre Entsprechung.
+- **Position**: NPK-Herkunft (`SChapter`/`sbuchnr`/`SPos`) als Textfeld, damit
+  nachvollziehbar bleibt, woher eine Position stammt.
+- **Beleg und Kunde**: die Fibu-Schlüssel als Textfelder — `pk_debi`,
+  `pk_kredi`, `sesam_pk_nr`, `sesam_op_nr`, `abacbelegnr`, `kostenst_id`.
+- **Kunde**: `stdrabatt`, `stdskonto`, `eBillID`, `Rechnung_Email`.
+
+### 7.3 Zwei Punkte, die leicht vergessen gehen
+
+1. **Belegnummern fortführen.** GEMA muss oberhalb der höchsten bestehenden
+   Offert-, Auftrags- und Rechnungsnummer weiterzählen, sonst kollidieren neue
+   Belege mit importierten. Vor dem Import je Nummernkreis das Maximum
+   ermitteln und den Startwert setzen.
+
+2. **Anhänge liegen im Dateisystem, nicht in der Datenbank.** Zwölf Tabellen
+   führen eine Spalte `lkdir` (dazu `lkmobiledir`): `adressen`, `arbeiter`,
+   `kreditoren`, `obj`, `offerten`, `orders`, `rapporte`, `rechnungen`,
+   `services`, `spesen`, `stdtot`, `license`. Jeder Datensatz zeigt damit auf
+   einen Ordner auf einem Netzlaufwerk. Diese Dokumente — Pläne, Belege,
+   Korrespondenz — sind ein **eigener Migrationsstrang** (nach GemaStorage,
+   Bucket `gema-fotos`, Pfadmuster `<bereich>/<orgId>/…`) und in den Zahlen
+   dieser Analyse nirgends enthalten.
+
+### 7.4 Kleinigkeiten zu klären
+
+- Format von `sigmonteur` / `sigcustomer` (Base64-PNG oder SVG?)
+- Bedeutung der sieben seltenen `postyp`-Werte (1,1 % der Positionen)
+- Die `companydata`-Regel an drei Kunden im ERP-UI bestätigen
+
+### 7.5 Die eine echte Entscheidung: NPK-Katalog
+
+88 % der Positionen tragen einen NPK-Bezug — Offerten entstehen also aus dem
+Normpositionen-Katalog. GEMA hat die **Rechenlogik** dafür bereits
+(Kalkulationsmodelle je NPK-Kapitel, «Leitfadenzeit × Verkaufsansatz»,
+Materialquelle «aus dem NPK»), aber nicht den **Katalog zum Anklicken**.
+
+Das lizenzierte CRB/SSIV-Material darf nicht aus dem Altsystem mitwandern. Für
+neue Offerten aus dem Katalog braucht es eine eigene CRB-Lizenz und einen
+Import über **SIA 451** — das Format, das `pm_crbx` bereits liest.
+
+Ohne diesen Schritt funktioniert der **Rückblick vollständig** (alle
+importierten Belege inklusive Positionen, NPK-Nummern und Kalkulation), und
+neue Belege entstehen aus Vorlagen und dem eigenen Artikelstamm. Das ist
+arbeitsfähig, aber eine Umstellung.
+
+**Leitfrage für die Entscheidung:** Wie oft entsteht eine Offerte aus dem
+Katalog statt aus einer Vorlage? Ist das der Regelfall, gehört der
+Katalog-Import ins Migrationsprojekt. Ist es die Ausnahme, kann er warten.
+
+---
+
+## 8. Datenschutz
 
 Der produktive Bestand enthält Kundennamen, Adressen, Beträge sowie
 Personaldaten in `arbeiter` (AHV-Nummer, Geburtsdatum, Zivilstand, Kinderzahl,
