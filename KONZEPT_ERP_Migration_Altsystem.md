@@ -250,14 +250,50 @@ laufenden Betrieb. **Der Positions-Import muss beide lesen** und je Beleg
 entscheiden, welches Modell greift. Die Verteilung von `module_id` in
 `lvposition`:
 
-| `module_id` | Positionen |
-|---|---|
-| 2 | 425 424 |
-| 4 | 203 805 |
-| 18 | 2 779 |
+| `module_id` | Bedeutung | Positionen | Belege |
+|---|---|---|---|
+| **2** | **Offerte** | 425 408 | 5 057 |
+| **4** | **Rechnung** | 203 805 | 7 598 |
+| 18 | vermutlich `lvmuster` (LV-Vorlagen) | 2 779 | 32 |
 
-Welcher Wert für Offerte, Auftrag und Rechnung steht, klärt die erste Abfrage
-in Abschnitt 6.
+Nachgewiesen über die Belegsummen: `SUM(lvposition.total)` trifft bei
+`module_id=2` in **3 375** Fällen den Offertbetrag, aber nur in 3 Fällen einen
+Rechnungsbetrag; bei `module_id=4` sind es **6 343** Rechnungen gegen 3 Offerten.
+Eindeutiger geht es nicht. Dass die Quote nicht bei 100 % liegt, ist normal —
+Belegrabatte, Akonto-Abzüge und nachträgliche Änderungen verschieben die Summe.
+
+Für `module_id=18` liegen die `item_id` zwischen 11 und 79, was zum ID-Bereich
+von `lvmuster` (7…76, 18 Vorlagen) passt und nicht zu `services` (1…440).
+Nicht bewiesen, aber plausibel — und mit 32 Belegen ohnehin ohne Gewicht.
+
+> **Aufträge (`rapporte`) haben keine eigenen Positionen.** Es gibt keinen
+> `module_id`-Wert für sie. Der Auftrag ist im Altsystem ein Disponier- und
+> Ausführungsbeleg; die Positionen hängen an Offerte und Rechnung. Das deckt
+> sich mit dem Hinweis im heutigen Importer, der Auftrags-Export führe keine
+> Beträge.
+
+#### `postyp` → GEMA-Positionsart
+
+Die Bedeutung ergibt sich aus dem Strukturmuster (Menge/Preis/Einheit vorhanden?
+NPK-Bezug? Unterposition?):
+
+| `postyp` | Anzahl | Muster | GEMA `art` |
+|---|---|---|---|
+| 11 | 289 901 | Menge · Preis · Einheit · Total, 88 % mit NPK-Bezug | `frei` — die normale Leistungsposition |
+| 20 | 133 343 | kein Preis, kein Total, 99,9 % mit Parent, Ø 57 Zeichen | `text` — Beschreibungszeile zur Position |
+| 10 | 70 998 | kein Preis, 33 % ohne Parent, Ø 54 Zeichen | `titel` |
+| 21 | 61 418 | Menge · Preis · Einheit, 98 % NPK, praktisch immer mit Parent | `frei` — NPK-Untervariante |
+| 9 | 48 259 | kein Preis, **100 % NPK**, Ø 18 Zeichen | `titel` — NPK-Gliederungsebene |
+| 26 | 8 801 | Menge · Preis · Einheit · Total, **kein** NPK | `frei` — eigener Artikel |
+| 12 | 6 688 | Menge · Preis · Total, alle ohne Parent, Ø 9 Zeichen | `frei` |
+| 19 | 3 556 | kein Preis, kein NPK | `text` |
+| 16 · 15 · 13 · 22 · 25 | 7 075 zusammen | Menge · Preis · Total, kurze Texte | `frei` |
+| 27 | 1 836 | **keine Menge**, aber Preis · Einheit · Total, alle top-level, Ø 79 Zeichen | `zuschlag` bzw. Pauschale |
+| 18 · 28 | 133 | Randfälle | vor dem Import an Stichproben prüfen |
+
+Damit sind 99,8 % der 632 008 Positionen abgedeckt. Die fünf kleinen Typen
+(16/15/13/22/25) und die beiden Randfälle brauchen vor dem Import je eine
+Stichprobe von ein paar Zeilen — dort geht es um zusammen 1,1 % des Bestands.
 
 ### 3.7 Kreditoren — `kreditoren` (41) + `kredzut` (19) → `erpkred:`
 
@@ -373,91 +409,48 @@ vorherige:
 
 ### Noch zu klären
 
-1. **Werte von `module_id`** — noch offen. In `lvposition` kommen 2 (425 408
-   Positionen / 5 057 Belege), 4 (203 805 / 7 598) und 18 (2 779 / 32) vor,
-   in `nlv` dieselben drei Werte (2 914 / 3 773 / 28 Belege).
+1. **Richtung der `companydata`-Overlays.** Der Abgleich für
+   `adressen.zahlbedid` ist alarmierend: von 1 630 Paaren stimmen nur **167**
+   überein, **1 463 weichen ab**. Eine der beiden Quellen ist also falsch —
+   und wenn wir die Basisspalte exportieren, bekämen 1 463 Kunden die falsche
+   Zahlungsfrist. Zu klären, bevor irgendetwas exportiert wird:
 
-   Der Versuch, sie über `EXISTS` gegen die Belegtabellen aufzulösen, **scheitert
-   an überlappenden ID-Räumen**: `offerten.id`, `rechnungen.id` und `rapporte.id`
-   zählen unabhängig ab 1, eine `item_id` trifft daher fast immer in allen drei
-   Tabellen. Die Trefferquoten (module 2 → 93 % Offerten; module 4 → 90 %
-   Rechnungen, aber nur 37 % Offerten) sind ein Indiz, kein Beweis.
+   ```sql
+   SELECT SUM(COALESCE(a.zahlbedid,'')='')                       basis_leer,
+          SUM(COALESCE(c.cmd_string,'')='')                      overlay_leer,
+          SUM(COALESCE(a.zahlbedid,'')<>'' AND COALESCE(c.cmd_string,'')<>''
+              AND a.zahlbedid<>c.cmd_string)                     beide_gefuellt_verschieden
+   FROM companydata c JOIN adressen a ON a.id=c.cmd_item_id
+   WHERE c.cmd_tablename='adressen' AND c.cmd_fieldname='zahlbedid';
+   ```
 
-   Sauber auflösbar ist es über die **Belegsummen**: nur beim richtigen
-   Belegtyp stimmt `SUM(lvposition.total)` mit `obetrag` bzw. `rbetrag` überein.
-   Abfrage siehe unten.
+   Füllt der Overlay nur Lücken, ist die Sache harmlos. Widersprechen sich
+   beide bei gefüllten Werten, entscheidet ein Blick ins ERP-UI: zwei, drei
+   Kunden aufrufen und nachsehen, welcher Wert angezeigt wird. Dasselbe gilt
+   für `pk_debi`, `stdrabatt`, `stdskonto` und die `adrkre`-Konditionen.
 
-2. **Werte von `postyp`** — 16 verschiedene, Verteilung bekannt:
-   11 (289 901) · 20 (133 343) · 10 (70 998) · 21 (61 418) · 9 (48 259) ·
-   26 (8 801) · 12 (6 688) · 19 (3 556) · 16 (3 145) · 27 (1 836) ·
-   13 · 22 · 15 · 25 · 18 · 28. Die Bedeutung ergibt sich aus dem
-   Strukturmuster je Typ (hat Menge/Preis/Einheit? hat NPK-Bezug? hat Parent?),
-   nicht aus den Zahlen — Abfrage siehe unten. Ziel ist die Abbildung auf die
-   GEMA-Positionsarten `titel` / `text` / `frei` / `rabatt` / `zuschlag`.
+2. **Format von `sigmonteur` / `sigcustomer`** (LONGTEXT) — Base64-PNG oder SVG?
+   Entscheidet, ob die Unterschriften auf Offerten und Rapporten übernommen
+   werden können.
 
-3. **`companydata` ist keine Zusatzfeld-Tabelle, sondern eine Overlay-Schicht.**
-   Die 8 152 Zeilen betreffen fast ausschliesslich Felder, die es als echte
-   Spalte bereits gibt: `adressen.pk_debi` (2 046), `adressen.zahlbedid` (1 652),
-   `adrkre.sesam_zahlart` (672), `adrkre.sesam_pk_nr` (667), `adrkre.bank_id`
-   (581), `adrkre.ekonto`/`akkonto`, `adrkre.igh_liefnr` (539), `adrkre.bkp_nr`
-   (139), `adressen.stdrabatt`/`stdskonto`.
+3. **Stichproben für die seltenen `postyp`-Werte** 16, 15, 13, 22, 25, 18, 28
+   (zusammen 1,1 % der Positionen) — je fünf Zeilen genügen.
 
-   Das ist der Mandanten-Mechanismus des Altsystems: pro `company_id` kann ein
-   Feld überschrieben werden. Bei **einem** Mandanten ist zu klären, ob die
-   Basisspalte oder der Overlay-Wert gilt — besonders bei `zahlbedid`
-   (Zahlungsfrist!) und den Konditionsfeldern. Abfrage siehe unten.
+4. **`artikel.Calculation`** ist LONGBLOB, vermutlich serialisiertes
+   Delphi-Format. `calcdata` (38 396 Zeilen) führt die Kalkulation relational
+   und ist die bessere Quelle — der Blob wird voraussichtlich nicht gebraucht.
 
-   > Auch hier steht ein `adrkre.password`-Eintrag drin — beim Export ausschliessen.
+5. **Wird die Fibu-Anbindung weitergeführt?** Die Sesam-Felder
+   (`sesam_zahlart`, `sesam_pk_nr`, `sesam_op_nr`) sind breit gefüllt, die
+   Anbindung wird also aktiv genutzt. Bleibt sie bestehen, müssen Konten,
+   Kostenstellen und Belegnummern-Schlüssel mitwandern. **Kaufmännische
+   Entscheidung, kein technisches Detail** — und einer der grössten Hebel im
+   Migrationsumfang.
 
-4. **Format von `sigmonteur` / `sigcustomer`** (LONGTEXT) — Base64-PNG oder SVG?
-   Entscheidet, ob die Unterschriften übernommen werden können.
-5. **`artikel.Calculation`** ist LONGBLOB, vermutlich serialisiertes Delphi-Format.
-   Falls die Kalkulationsdetails gebraucht werden, muss das Format geklärt
-   werden — sonst weglassen. `calcdata` (38 396 Zeilen) führt die Kalkulation
-   dagegen relational und ist die bessere Quelle.
-6. **Wird die Fibu-Anbindung** (Sesam / Abacus, erkennbar an `pk_abacdebi`,
-   `abacbelegnr`, `sesamcode`) weitergeführt? Falls ja, müssen die
-   Belegnummern-Felder mitwandern. Der Umfang der Overlay-Tabelle
-   `companydata` deutet darauf hin, dass die Sesam-Anbindung aktiv genutzt wird.
-
-### Abfragen für die letzte Runde
-
-```sql
--- 1) module_id definitiv: nur beim richtigen Belegtyp stimmen die Summen
-SELECT m.module_id, 'offerten' beleg, COUNT(*) treffer FROM (SELECT DISTINCT module_id FROM lvposition) m
-JOIN (SELECT module_id, item_id, SUM(total) s FROM lvposition GROUP BY 1,2) p ON p.module_id=m.module_id
-JOIN offerten o ON o.id=p.item_id
-WHERE ABS(p.s-o.obetrag)<1 OR ABS(p.s-(o.obetrag-o.mwstbetrag))<1 GROUP BY 1;
-
-SELECT m.module_id, 'rechnungen' beleg, COUNT(*) treffer FROM (SELECT DISTINCT module_id FROM lvposition) m
-JOIN (SELECT module_id, item_id, SUM(total) s FROM lvposition GROUP BY 1,2) p ON p.module_id=m.module_id
-JOIN rechnungen r ON r.id=p.item_id
-WHERE ABS(p.s-r.rbetrag)<1 OR ABS(p.s-(r.rbetrag-r.mwstbetrag))<1 GROUP BY 1;
-
--- 2) ID-Bereiche als Gegenprobe
-SELECT module_id, MIN(item_id) mn, MAX(item_id) mx FROM lvposition GROUP BY module_id;
-SELECT 'offerten' t,MIN(id),MAX(id) FROM offerten UNION ALL
-SELECT 'rechnungen',MIN(id),MAX(id) FROM rechnungen UNION ALL
-SELECT 'rapporte',MIN(id),MAX(id) FROM rapporte UNION ALL
-SELECT 'lvmuster',MIN(id),MAX(id) FROM lvmuster UNION ALL
-SELECT 'services',MIN(id),MAX(id) FROM services;
-
--- 3) postyp entschluesseln ueber das Strukturmuster (keine Inhalte)
-SELECT postyp, COUNT(*) n,
-  SUM(qty<>0) mit_menge, SUM(price<>0) mit_preis,
-  SUM(COALESCE(unit,'')<>'') mit_einheit, SUM(total<>0) mit_total,
-  SUM(COALESCE(SPos,'')<>'') mit_npk,
-  SUM(COALESCE(parent_pos_guid,'')='') ohne_parent,
-  ROUND(AVG(CHAR_LENGTH(text))) txt_len
-FROM lvposition GROUP BY postyp ORDER BY n DESC;
-
--- 4) companydata: ueberschreibt der Overlay-Wert die Basisspalte?
-SELECT COUNT(*) gesamt,
-  SUM(COALESCE(c.cmd_string,'')=COALESCE(a.zahlbedid,'')) gleich,
-  SUM(COALESCE(c.cmd_string,'')<>COALESCE(a.zahlbedid,'')) abweichend
-FROM companydata c JOIN adressen a ON a.id=c.cmd_item_id
-WHERE c.cmd_tablename='adressen' AND c.cmd_fieldname='zahlbedid';
-```
+6. **Umfang der Historie.** Der Bestand reicht über 11,5 Jahre. Volle
+   Übernahme bedeutet 874 000 Positionen auf 26 000 Belegen; ein Stichtag
+   (etwa ab 2023) reduziert das erheblich, kostet aber die Nachkalkulation
+   über die Jahre.
 
 ---
 
