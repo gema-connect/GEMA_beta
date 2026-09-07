@@ -7052,6 +7052,12 @@ function erpMigRender(){
     +(st.adressenNeu?'<span class="mig-badge" style="background:var(--tint);color:var(--acc)">'+st.adressenNeu+' neue Adressen</span>':'')
     +(st.fehler?'<span class="mig-badge" style="background:var(--red-bg);color:var(--red)">'+st.fehler+' übersprungen</span>':'')
     +'</div>';
+  // Globale Hinweise des Plans (z.B. eine Datei, die für den Browser zu gross
+  // ist) — sie dürfen nicht stillschweigend verschwinden.
+  (plan.warnungen||[]).forEach(function(w){
+    h3+='<div style="background:var(--amber-bg);border:1px solid var(--amber-bd);color:var(--amber);'
+      +'border-radius:9px;padding:9px 11px;font-size:12.5px;margin-bottom:11px">⚠ '+esc(w)+'</div>';
+  });
   var zz=plan.zeilen.slice(0,200);
   h3+='<div class="mig-scroll"><table class="mig-tab"><thead><tr><th class="num">#</th><th>Aktion</th>'
     +(_mig.sekId==='objekte'
@@ -7062,6 +7068,16 @@ function erpMigRender(){
       ? '<th>Nr.</th><th>Datum</th><th>Betrifft</th><th>Kunde</th><th>Objekt</th><th>Status</th><th>Offerte</th><th>Rechnung</th><th>🔑</th><th>Sachb. / Abt.</th>'
       : _mig.sekId==='rechnungen'
       ? '<th>Nr.</th><th>Datum</th><th>Betrifft</th><th>Kunde</th><th>Auftrag</th><th>Art</th><th>Betrag</th><th>Status</th><th>Referenz</th><th>Sachb. / Abt.</th>'
+      : _mig.sekId==='positionen'
+      ? '<th>Beleg</th><th>Pos.</th><th>Art</th><th>Bezeichnung</th><th class="num">Menge</th><th>EH</th><th class="num">EP</th><th>NPK</th>'
+      : _mig.sekId==='zahlungen'
+      ? '<th>Rechnung</th><th>Datum</th><th class="num">Betrag</th><th>Bemerkung</th>'
+      : _mig.sekId==='kreditoren'
+      ? '<th>Lieferant</th><th>Rechnungs-Nr.</th><th>Datum</th><th>Fällig</th><th class="num">Betrag</th><th>Status</th><th>Auftrag</th>'
+      : _mig.sekId==='artikel'
+      ? '<th>Katalog</th><th>Art.-Nr.</th><th>Bezeichnung</th><th>EH</th><th class="num">Preis</th>'
+      : _mig.sekId==='zahlbed'
+      ? '<th>Kürzel</th><th>Bezeichnung</th><th class="num">Tage</th><th>Skonto</th>'
       : '<th>Kd-Nr.</th><th>Name</th><th>Adresse</th><th>Kontakt</th><th>Typ</th>')
     +'<th>Hinweis</th></tr></thead><tbody>';
   zz.forEach(function(z){
@@ -7112,6 +7128,36 @@ function erpMigRender(){
         +'<td>'+esc(rSt)+(t.statusErkannt?'':' <span style="color:var(--amber)">?</span>')+'</td>'
         +'<td style="font-size:11px">'+(t.esrRef?(t.esrOk?'✓ ESR':'<span style="color:var(--amber)">⚠ ungültig</span>'):'—')+'</td>'
         +'<td>'+esc([t.sachb,t.abteilung].filter(Boolean).join(' · ')||'—')+'</td>';
+    }else if(_mig.sekId==='positionen'){
+      var pArt={titel:'Titel',text:'Text',frei:'Position',rabatt:'Rabatt',zuschlag:'Zuschlag'}[t.art]||t.art;
+      var pTyp=t.belegTyp==='offerte'?'Offerte':t.belegTyp==='rechnung'?'Rechnung':(t.belegTypRoh||'—');
+      h3+='<td>'+esc(pTyp)+' <b>'+esc(t.belegNr||t.belegExtId||'—')+'</b></td>'
+        +'<td>'+esc(t.posNr||'—')+'</td>'
+        +'<td>'+esc(pArt)+(t.artErkannt?'':' <span style="color:var(--amber)">?</span>')+'</td>'
+        +'<td>'+esc((t.bez||'').slice(0,70))+'</td>'
+        +'<td class="num">'+(t.menge!=null?t.menge:'—')+'</td>'
+        +'<td>'+esc(t.einheit||'—')+'</td>'
+        +'<td class="num" style="white-space:nowrap">'+(t.ep!=null?t.ep.toFixed(2):'—')+'</td>'
+        +'<td style="font-size:11px">'+esc([t.npk&&t.npk.kapitel,t.npk&&t.npk.pos].filter(Boolean).join(' · ')||'—')+'</td>';
+    }else if(_mig.sekId==='zahlungen'){
+      h3+='<td><b>'+esc(t.belegNr||'—')+'</b></td><td>'+esc(t.datum||'—')+'</td>'
+        +'<td class="num" style="white-space:nowrap"><b>'+(t.betrag!=null?t.betrag.toFixed(2):'—')+'</b></td>'
+        +'<td>'+esc((t.bemerkung||'').slice(0,50)||'—')+'</td>';
+    }else if(_mig.sekId==='kreditoren'){
+      var kSt={offen:'Zur Freigabe',freigegeben:'Freigegeben',zurueckgewiesen:'Zurückgewiesen',bezahlt:'Bezahlt'}[t.status]||t.status;
+      h3+='<td><b>'+esc(t.lieferant||'—')+'</b></td><td>'+esc(t.rechnungsNr||'—')+'</td>'
+        +'<td>'+esc(t.datum||'—')+'</td><td>'+esc(t.faellig||'—')+'</td>'
+        +'<td class="num" style="white-space:nowrap"><b>'+(t.betrag!=null?t.betrag.toFixed(2):'—')+'</b></td>'
+        +'<td>'+esc(kSt)+(t.statusErkannt?'':' <span style="color:var(--amber)">?</span>')+'</td>'
+        +'<td>'+esc(t.auftragNr||'—')+'</td>';
+    }else if(_mig.sekId==='artikel'){
+      h3+='<td>'+esc(t.katalog||'—')+'</td><td>'+esc(t.artNr||'—')+'</td>'
+        +'<td>'+esc((t.bez||'').slice(0,70))+'</td><td>'+esc(t.einheit||'—')+'</td>'
+        +'<td class="num" style="white-space:nowrap">'+(t.ep!=null?t.ep.toFixed(2):'—')+'</td>';
+    }else if(_mig.sekId==='zahlbed'){
+      h3+='<td><b>'+esc(t.kuerzel||'—')+'</b></td><td>'+esc(t.label||'—')+'</td>'
+        +'<td class="num">'+(t.tage!=null?t.tage:'—')+'</td>'
+        +'<td>'+(t.skontoPct?esc(t.skontoPct+' % / '+(t.skontoTage||0)+' Tage'):'—')+'</td>';
     }else{
       h3+='<td>'+esc(t.nr||'—')+'</td><td>'+esc(t.firma||[t.name,t.vorname].filter(Boolean).join(' '))+'</td>'
         +'<td>'+esc([t.strasse,[t.plz,t.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '))+'</td>'
@@ -7232,8 +7278,13 @@ function erpMigStart(){
     if(rep.adressen)txt+=', <b>'+rep.adressen+'</b> Adressen erstellt';
     if(rep.objekteNeu)txt+=', <b>'+rep.objekteNeu+'</b> Objekte angelegt';
     if(rep.posUebernommen)txt+=', <b>'+rep.posUebernommen+'</b> × Positionen aus der Offerte übernommen';
-    if(rep.alsBezahlt)txt+=', <b>'+rep.alsBezahlt+'</b> als bezahlt übernommen (Stichtag)';
+    if(rep.alsBezahlt)txt+=', <b>'+rep.alsBezahlt+'</b> als bezahlt übernommen';
     if(rep.auftragBetrag)txt+=', <b>'+rep.auftragBetrag+'</b> leere Aufträge mit dem verrechneten Betrag ergänzt';
+    if(rep.posBelege)txt+=', <b>'+rep.posZeilen+'</b> Positionen auf <b>'+rep.posBelege+'</b> Belegen';
+    if(rep.zahlungen)txt+=', <b>'+rep.zahlungen+'</b> Zahlungen verbucht';
+    if(rep.artikel)txt+=', <b>'+rep.artikel+'</b> Artikel'+(rep.kataloge?' in '+rep.kataloge+' neuen Katalogen':'');
+    if(rep.belegFehlt)txt+='<br><span style="color:var(--amber)">'+rep.belegFehlt+' × der Beleg war nicht gefunden — bitte zuerst die Offerten und Rechnungen importieren.</span>';
+    if(rep.belegBesetzt)txt+='<br><span style="color:var(--amber)">'+rep.belegBesetzt+' Belege führen bereits Positionen und blieben unverändert.</span>';
     if(rep.offerteFehlt)txt+='<br><span style="color:var(--amber)">'+rep.offerteFehlt+' × die angegebene Offerte war nicht gefunden — bitte zuerst die Offerten importieren.</span>';
     if(rep.auftragFehlt)txt+='<br><span style="color:var(--amber)">'+rep.auftragFehlt+' × der angegebene Auftrag war nicht gefunden — bitte zuerst die Aufträge importieren.</span>';
     if(rep.uebersprungen)txt+=', '+rep.uebersprungen+' übersprungen';

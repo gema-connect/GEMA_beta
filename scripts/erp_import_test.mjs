@@ -160,9 +160,18 @@ t('Zeile ohne Adresse wird als Fehler markiert',
   I.pruefe(leer, 'objekte').some(h => h.typ === 'fehler'));
 
 console.log('\n═══ A6 — Abschnitte & Kopfzeile ═══');
-eq('5 Abschnitte registriert', I.SEKTIONEN.length, 5);
-eq('Alle 5 Abschnitte sind bereit',
-  I.SEKTIONEN.filter(x => x.bereit).map(x => x.id), ['objekte', 'adressen', 'offerten', 'auftraege', 'rechnungen']);
+// BEWUSST ÜBERSTEUERT: der Importer deckte anfangs nur die fünf Kopf-Abschnitte
+// ab und der Guard pinnte die Zahl 5. Mit Positionen, Zahlungen, Kreditoren,
+// Artikelstamm und Konditionen sind es zehn. Eine fixe Zahl würde jede weitere
+// Erweiterung blockieren — geprüft wird darum die ABSICHT: alle Abschnitte, die
+// es geben MUSS, sind da, und keiner ist ein leeres Gerüst.
+const KERN = ['objekte', 'adressen', 'offerten', 'auftraege', 'rechnungen'];
+const NACHGEZOGEN = ['positionen', 'zahlungen', 'kreditoren', 'artikel', 'zahlbed'];
+t('Alle Kopf-Abschnitte registriert',
+  KERN.every(id => I.SEKTIONEN.some(x => x.id === id)));
+t('Positionen, Zahlungen, Kreditoren, Artikel und Konditionen registriert',
+  NACHGEZOGEN.every(id => I.SEKTIONEN.some(x => x.id === id)));
+t('Kein Abschnitt doppelt', new Set(I.SEKTIONEN.map(x => x.id)).size === I.SEKTIONEN.length);
 eq('Kein Abschnitt wartet mehr auf einen Export',
   I.SEKTIONEN.filter(x => !x.bereit).map(x => x.id), []);
 t('Jeder bereite Abschnitt hat Felder',

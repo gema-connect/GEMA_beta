@@ -224,12 +224,95 @@ function addTage(iso,tage){
   d.setUTCDate(d.getUTCDate()+(parseInt(tage,10)||0));
   return d.toISOString().slice(0,10);
 }
+/* Kürzel → Tage, gefüllt vom Import der Zahlungsbedingungen (Sektion
+   «zahlbed»). Solange sie fehlen, bleibt es beim bisherigen Verhalten. */
+var _zahlbedTage={};
+function zahlbedTageSetzen(map){_zahlbedTage=map||{};}
 function fristTage(zahlbed,standard){
   var t=s(zahlbed);
   var m=/(\d+)\s*tag/i.exec(t);
   if(m)return parseInt(m[1],10);
+  // KRITISCH — die Kürzel sind Strings mit führender Null: «00» ist im
+  // Altsystem «60 Tage netto», nicht «leer». Der Vergleich läuft deshalb über
+  // den STRING; ein parseInt('00') ergäbe 0 und fiele still auf den Standard.
+  if(t&&_zahlbedTage[t]!=null)return _zahlbedTage[t];
   if(/^0*1$/.test(t))return 30;
   return standard;
+}
+
+/* Prozentwerte des Altsystems sind FLOAT und krumm gespeichert — 3 % steht als
+   2.9999999329447746, 4 % als 3.999999910593033. Ohne Rundung zeigte GEMA
+   «2.9999999 %». */
+function pct(v){
+  var n=parseBetrag(v);
+  return n==null?null:Math.round(n*100)/100;
+}
+
+/* `postyp` des Altsystems → GEMA-Positionsart.
+
+   Die Zuordnung ist am Bestand GEMESSEN, nicht geraten: je Typ wurde
+   ausgewertet, ob die Zeilen Menge, Preis, Einheit und NPK-Bezug tragen und ob
+   sie Unterpositionen sind (Herleitung in KONZEPT_ERP_Migration_Altsystem.md).
+
+     9 · 10          kein Preis, kurze Texte, oft oberste Ebene → Titel
+     19 · 20         kein Preis, praktisch immer mit Parent      → Text
+     27              Preis OHNE Menge, immer oberste Ebene       → Zuschlag
+     11 21 26 12 …   Menge + Preis + Einheit                     → Position
+
+   Unbekannte Typen werden NICHT geraten: dann entscheidet die Struktur der
+   Zeile, und die Vorschau meldet es (`erkannt:false`). */
+var POSTYP_ART={
+  '9':'titel','10':'titel','19':'text','20':'text','27':'zuschlag',
+  '11':'frei','12':'frei','13':'frei','15':'frei','16':'frei',
+  '21':'frei','22':'frei','25':'frei','26':'frei'
+};
+var POS_ART_TEXT=[
+  {re:/^(titel|title|kapitel|(ü|ue)berschrift)/i,   art:'titel'},
+  {re:/^(text|bemerk|hinweis|beschrieb)/i,          art:'text'},
+  {re:/^(rabatt|abzug|nachlass)/i,                  art:'rabatt'},
+  {re:/^(zuschlag|pauschal|regie)/i,                art:'zuschlag'},
+  {re:/^(frei|position|artikel|leistung|normal)/i,  art:'frei'}
+];
+function posArt(roh,zeile){
+  var t=s(roh);
+  if(POSTYP_ART[t])return {art:POSTYP_ART[t],erkannt:true};
+  var hit=POS_ART_TEXT.find(function(x){return x.re.test(t);});
+  if(hit)return {art:hit.art,erkannt:true};
+  var hatPreis=!!(zeile&&((zeile.ep!=null&&zeile.ep!==0)||(zeile.total!=null&&zeile.total!==0)));
+  var hatMenge=!!(zeile&&zeile.menge!=null&&zeile.menge!==0);
+  return {art:(hatPreis||hatMenge)?'frei':'text',erkannt:false};
+}
+
+/* Trägt der Beleg nur die beim Kopf-Import erzeugte Sammelposition?
+
+   Nur dann darf der Positions-Import sie ersetzen. Ein von Hand erfasstes oder
+   bereits vollständig importiertes Leistungsverzeichnis bleibt IMMER
+   unangetastet — sonst wüsste niemand mehr, welche Zahlen gelten.
+   Neu erzeugte Sammelpositionen tragen dafür ein Kennzeichen; Belege aus
+   früheren Importläufen werden über Beschriftung plus `importSumme` erkannt. */
+function istSammelposition(doc){
+  var p=(doc&&doc.positionen)||[];
+  if(p.length!==1)return false;
+  if(p[0]&&p[0].importSammel)return true;
+  return !!(doc&&doc.importSumme)&&/^(Ü|U)bernahme aus dem Altsystem/.test(s(p[0]&&p[0].bez));
+}
+
+/* Kreditoren-Status des Altsystems → GEMA
+   (offen | freigegeben | zurueckgewiesen | bezahlt).
+   REIHENFOLGE beachten: «zurückgewiesen» enthält kein Wort der anderen Regeln,
+   «bezahlt» muss aber vor «freigegeben» greifen — ein bezahlter Kreditor ist
+   immer auch freigegeben, der spätere Zustand gewinnt. */
+var KRED_STATUS=[
+  {re:/zur(ü|ue)ckgewiesen|abgelehnt|retour|storniert/i,     status:'zurueckgewiesen'},
+  {re:/bezahlt|beglichen|ausgeglichen|saldiert|vergütet/i,   status:'bezahlt'},
+  {re:/freigegeben|kontrolliert|gepr(ü|ue)ft|visiert|ok/i,   status:'freigegeben'},
+  {re:/offen|neu|erfasst|pendent|zur\s*freigabe|eingang/i,   status:'offen'}
+];
+function kreditorStatus(text){
+  var t=s(text);
+  if(!t)return {status:'offen',erkannt:false};
+  var hit=KRED_STATUS.find(function(x){return x.re.test(t);});
+  return hit?{status:hit.status,erkannt:true}:{status:'offen',erkannt:false};
 }
 
 function spalteZuIndex(ref){
@@ -512,7 +595,17 @@ var SEKTIONEN=[
     {id:'natel',    label:'Natel / Mobile', alias:['natel','mobile','handy','mobil']},
     {id:'email',    label:'E-Mail', alias:['email','mail','emailadresse']},
     {id:'wohnung',  label:'Wohnung', alias:['wohnung','stockwerk']},
-    {id:'bemerkungen',label:'Bemerkungen', alias:['bemerkung','bemerkungen','notiz','notizen']}
+    {id:'bemerkungen',label:'Bemerkungen', alias:['bemerkung','bemerkungen','notiz','notizen']},
+    // Konditionen und Fibu-Schlüssel: additive Felder am Adressdatensatz.
+    // `zahlbedId` liest pm_erp bereits (es setzt die Frist am neuen Beleg),
+    // die übrigen bleiben Vermerke für eine spätere Fibu-Anbindung.
+    {id:'zahlbedKuerzel',label:'Zahlungsbedingung (Kürzel)', hint:'«01», «02» … — wirkt erst, wenn die Konditionen importiert sind', alias:['zahlbedid','zahlungsbedingung','paymenttermid']},
+    {id:'stdRabatt', label:'Standard-Rabatt %', alias:['stdrabatt','kundenrabatt']},
+    {id:'stdSkonto', label:'Standard-Skonto %', alias:['stdskonto']},
+    {id:'pkDebi',    label:'Debitorenkonto (Fibu)', hint:'Schlüssel der Fibu-Anbindung — wandert als Vermerk mit', alias:['pkdebi','debitorenkonto','personenkonto']},
+    {id:'pkKredi',   label:'Kreditorenkonto (Fibu)', alias:['pkkredi','kreditorenkonto']},
+    {id:'eBillId',   label:'eBill-ID', alias:['ebillid','ebill']},
+    {id:'rechnungEmail',label:'E-Mail für Rechnungen', alias:['rechnungemail','rechnungsemail','invoiceemail']}
   ]
 },
 {
@@ -585,7 +678,10 @@ var SEKTIONEN=[
   info:'Rechnungs-Kopfdaten mit Beträgen, Rechnungsart (Schluss-/Akonto-/Teilrechnung), ESR-Referenz und der Verknüpfung zum Auftrag. Der Export führt KEINE Zahlungsinformation — die Rechnungen entstehen als «gestellt»; im letzten Schritt lässt sich ein Stichtag setzen, ab dem ältere Belege als bezahlt gelten.',
   felder:[
     {id:'extId',      label:'ID im Altsystem', hint:'Für den Wiederholungs-Import (keine Dubletten)', alias:['id','rechnungid','rechnungsid']},
-    {id:'nr',         label:'Rechnungs-Nr.', pflicht:true, alias:['rechnungnr','rechnungsnr','rechnungsnummer','belegnr','nr','nummer']},
+    // KRITISCH — «nr» steht VOR «belegnr»: im Altsystem ist `rechnungen.nr`
+    // die Rechnungsnummer und `rechnungen.belegnr` die Fibu-Belegnummer.
+    // Stünde «belegnr» früher, landete der Fibu-Beleg in der Rechnungsnummer.
+    {id:'nr',         label:'Rechnungs-Nr.', pflicht:true, alias:['rechnungnr','rechnungsnr','rechnungsnummer','nr','nummer','belegnr']},
     {id:'auftragNr',  label:'Auftrags-Nr.', hint:'Verknüpft die Rechnung mit dem bereits importierten Auftrag', alias:['rapportnr','auftragnr','auftragsnr','auftragsnummer']},
     {id:'datum',      label:'Rechnungsdatum', alias:['datum','rechnungsdatum','belegdatum']},
     {id:'titel',      label:'Betrifft / Betreff', alias:['betrifft','betreff','betrmemo','projekt','memo','titel']},
@@ -617,10 +713,130 @@ var SEKTIONEN=[
     {id:'ref2',       label:'Externe Referenz 2', alias:['extref2','ref2','referenz2']},
     {id:'besteller',  label:'Besteller', hint:'Wird als Bezugsperson am Objekt hinterlegt', alias:['besteller','auftraggeber']},
     {id:'wohnung',    label:'Wohnung', alias:['wohnung','stockwerk']},
-    {id:'wohnStandort',label:'Wohnung — Name / Standort', hint:'Wird als Bezugsperson «Bewohner» hinterlegt', alias:['wohnstandort','bewohner']}
+    {id:'wohnStandort',label:'Wohnung — Name / Standort', hint:'Wird als Bezugsperson «Bewohner» hinterlegt', alias:['wohnstandort','bewohner']},
+    // Fibu-Schlüssel: bleiben als Vermerk am Beleg, damit eine spätere
+    // Anbindung an die Buchhaltung die Zuordnung nicht neu herstellen muss.
+    // «belegnr» steht hier bewusst AUCH: `nr` ist früher deklariert und hat die
+    // Spalte `nr` im Exakt-Durchgang bereits vergeben, «belegnr» ist damit frei.
+    // Führt ein Export NUR «belegnr», greift `nr` darauf zurück — dann bleibt
+    // dieses Feld leer, was richtig ist.
+    {id:'fibuBelegNr',label:'Fibu-Belegnummer', hint:'Im Altsystem «belegnr» bzw. «abacbelegnr» — NICHT die Rechnungsnummer', alias:['abacbelegnr','fibubelegnr','belegnrfibu','belegnr']},
+    {id:'opDebi',     label:'Offene-Posten-Nr. (Debitor)', alias:['opdebi','opnr','debitorop']},
+    {id:'kostenstelle',label:'Kostenstelle', alias:['kostenstid','kostenstelle']}
+  ]
+},
+{
+  id:'positionen', label:'Positionen', ic:'📐', bereit:true,
+  info:'Die echten Belegpositionen mit Menge, Einheit, Preis und Kalkulation. Sie werden an die bereits importierte Offerte bzw. Rechnung gehängt — die beim Kopf-Import erzeugte Sammelposition wird dabei ersetzt. Ein Beleg, an dem schon von Hand Positionen erfasst wurden, bleibt unangetastet.',
+  felder:[
+    {id:'belegTyp',   label:'Belegart', pflicht:true, hint:'«2»/«Offerte» oder «4»/«Rechnung» — im Altsystem die Spalte module_id', alias:['moduleid','belegart','belegtyp','modul','typ']},
+    {id:'belegNr',    label:'Beleg-Nr.', pflicht:true, hint:'Offert- bzw. Rechnungsnummer, an die die Position gehört', alias:['belegnr','offertnr','rechnungnr','nr','nummer','itemnr']},
+    {id:'belegExtId', label:'Beleg-ID im Altsystem', hint:'Alternative zur Nummer — im Export die Spalte item_id', alias:['itemid','belegid','docid']},
+    {id:'sort',       label:'Reihenfolge', hint:'Ohne Angabe zählt die Zeilenfolge der Datei', alias:['sort','sortorder','reihenfolge','zeile','autoid']},
+    {id:'art',        label:'Positionsart', hint:'postyp des Altsystems (9/10 = Titel, 19/20 = Text, 27 = Zuschlag) oder ein Wort', alias:['postyp','art','positionsart','zeilentyp']},
+    {id:'posNr',      label:'Positions-Nr.', alias:['spos','posnr','code','positionsnr']},
+    {id:'bez',        label:'Bezeichnung', pflicht:true, alias:['text','bez','bezeichnung','beschrieb','leistung']},
+    {id:'menge',      label:'Menge', alias:['qty','menge','anzahl','quantity']},
+    {id:'einheit',    label:'Einheit', alias:['unit','einheit','eh']},
+    {id:'ep',         label:'Einheitspreis', alias:['price','ep','einheitspreis','preis']},
+    {id:'total',      label:'Positionstotal', hint:'Nur zur Kontrolle — GEMA rechnet Menge × EP', alias:['total','betrag','summe','positionstotal']},
+    {id:'rabattPct',  label:'Rabatt %', alias:['rabatt','rabattpct','discount']},
+    {id:'dim',        label:'Dimension', alias:['dim','dimension','abmessung']},
+    // NPK-Herkunft: bleibt als Vermerk an der Position, damit nachvollziehbar
+    // ist, woher sie stammt. Der Katalog selbst wandert NICHT mit (Lizenz).
+    {id:'npkKapitel', label:'NPK-Kapitel', alias:['schapter','npkkapitel','chapter','kapitel']},
+    {id:'npkBuch',    label:'NPK-Buch', alias:['sbuchnr','npkbuch','buchnr','book']},
+    {id:'npkPos',     label:'NPK-Position', alias:['npkpos','npknr']},
+    // Kalkulation — GEMA rechnet bereits nach NPK-Systematik
+    // (Leitfadenzeit × Verkaufsansatz), die Felder haben dort ihre Entsprechung.
+    {id:'leitfadenZeit',label:'Leitfadenzeit', alias:['leitfadenzeit','leitfaden','zeit']},
+    {id:'zeitFaktor',   label:'Zeitfaktor', alias:['zeitfaktor','faktorzeit']},
+    {id:'ansatz',       label:'Verkaufsansatz', alias:['ansatz','stundenansatz','verkaufsansatz']},
+    {id:'matPreis',     label:'Materialpreis', alias:['matprice','matpreis','materialpreis']},
+    {id:'matFaktor',    label:'Materialfaktor', alias:['matfaktor','faktormat']},
+    {id:'einkRabatt',   label:'Einkaufsrabatt %', alias:['einkaufsrabatt','ekrabatt','einkaufrabatt']},
+    {id:'verschnitt',   label:'Verschnitt %', alias:['verschnitt','waste','abfall']}
+  ]
+},
+{
+  id:'zahlungen', label:'Zahlungen', ic:'💰', bereit:true,
+  info:'Zahlungseingänge zu bereits importierten Rechnungen. Deckt die Summe der Zahlungen den Rechnungsbetrag, wird der Beleg auf «bezahlt» gesetzt — der Stichtag-Behelf des Rechnungs-Imports wird damit überflüssig.',
+  felder:[
+    {id:'belegNr',   label:'Rechnungs-Nr.', pflicht:true, alias:['rechnungnr','rechnungsnr','belegnr','nr','nummer']},
+    {id:'datum',     label:'Zahlungsdatum', pflicht:true, alias:['zahlungsdatum','datum','valuta','eingang']},
+    {id:'betrag',    label:'Betrag', pflicht:true, alias:['zahlungsbetrag','betrag','summe','amount']},
+    {id:'bemerkung', label:'Bemerkung', alias:['bemerkung','bemerkungen','notiz','text']}
+  ]
+},
+{
+  id:'kreditoren', label:'Kreditoren', ic:'💳', bereit:true,
+  info:'Lieferantenrechnungen mit Betrag, Fälligkeit und Freigabestand. Der Lieferant wird über den Namen dem Adressstamm zugeordnet; die Zuteilung auf einen Auftrag erfolgt über dessen Nummer.',
+  felder:[
+    {id:'extId',     label:'ID im Altsystem', hint:'Für den Wiederholungs-Import (keine Dubletten)', alias:['id','kreditorid','kreditorkey']},
+    {id:'nr',        label:'Kreditor-Nr.', alias:['nr','nummer','kreditornr']},
+    {id:'lieferant', label:'Lieferant', pflicht:true, alias:['name1','lieferant','firma','name','kreditor']},
+    {id:'rechnungsNr',label:'Rechnungs-Nr. des Lieferanten', alias:['belegnr','rechnungnr','rechnungsnr','esrnr']},
+    {id:'datum',     label:'Belegdatum', alias:['datum','belegdatum','rechnungsdatum']},
+    {id:'faellig',   label:'Fällig bis', alias:['faelligdatum','faellig','faelligbis','duedate']},
+    {id:'betrag',    label:'Betrag', pflicht:true, hint:'Brutto — GEMA führt den Kreditor mit einem Betrag', alias:['betrag','summe','total','amount']},
+    {id:'mwstBetrag',label:'MwSt-Betrag', hint:'Nur als Vermerk', alias:['mwstbetrag','mwst','mehrwertsteuer']},
+    {id:'restBetrag',label:'Restbetrag', hint:'Nur als Vermerk — offener Saldo im Altsystem', alias:['restbetrag','offen','saldo']},
+    {id:'status',    label:'Status im Altsystem', hint:'z.B. Offen / Freigegeben / Bezahlt', alias:['kredistatustext','status','zustand','kredistatus']},
+    {id:'auftragNr', label:'Auftrags-Nr.', hint:'Ordnet den Kreditor dem bereits importierten Auftrag zu', alias:['rapportnr','auftragnr','auftragsnr']},
+    {id:'beschrieb', label:'Beschrieb / Bemerkung', alias:['bemerkung','bemerkungen','beschrieb','text','notiz']},
+    {id:'konto',     label:'Aufwandkonto', hint:'Vermerk für die Fibu', alias:['konto','gkonto','aufwandkonto']},
+    {id:'kostenstelle',label:'Kostenstelle', hint:'Vermerk für die Fibu', alias:['kostenstid','kostenstelle','kost']},
+    {id:'iban',      label:'IBAN', alias:['iban']},
+    {id:'esrRef',    label:'ESR-Referenz', alias:['esrref','esr','referenz']},
+    {id:'sesamOpNr', label:'Sesam OP-Nr.', hint:'Schlüssel der Fibu-Anbindung — wandert als Vermerk mit', alias:['sesamopnr','opnr']}
+  ]
+},
+{
+  id:'artikel', label:'Eigener Artikelstamm', ic:'📦', bereit:true,
+  info:'Die selbst gepflegten Artikel und Leistungen (nicht der lizenzierte NPK-Katalog). Sie landen in den org-weiten GEMA-Artikelkatalogen und stehen dort im Positions-Editor zur Auswahl.',
+  felder:[
+    {id:'katalog',   label:'Katalog / Kapitel', hint:'Gruppiert die Artikel; ohne Angabe «Übernahme Altsystem»', alias:['katalog','kapitel','gruppe','chapter','chapterguid','kategorie']},
+    {id:'extId',     label:'ID im Altsystem', hint:'Für den Wiederholungs-Import (keine Dubletten)', alias:['guid','id','artikelid','autoid']},
+    {id:'artNr',     label:'Artikel-Nr.', alias:['artref','artnr','artikelnr','nr','posnr']},
+    {id:'bez',       label:'Bezeichnung', pflicht:true, alias:['text','bez','bezeichnung','beschrieb','name']},
+    {id:'einheit',   label:'Einheit', alias:['unit','einheit','eh']},
+    {id:'ep',        label:'Verkaufspreis', alias:['price','ep','preis','verkaufspreis']},
+    {id:'dim',       label:'Dimension', alias:['dim','dimension','abmessung']},
+    {id:'matPreis',  label:'Materialpreis', alias:['matprice','matpreis','einkaufspreis']},
+    {id:'einkRabatt',label:'Einkaufsrabatt %', alias:['einkaufsrabatt','ekrabatt']},
+    {id:'verschnitt',label:'Verschnitt %', alias:['verschnitt','waste']},
+    {id:'leitfadenZeit',label:'Leitfadenzeit', alias:['leitfadenzeit','leitfaden']},
+    {id:'ansatz',    label:'Verkaufsansatz', alias:['ansatz','stundenansatz']}
+  ]
+},
+{
+  id:'zahlbed', label:'Zahlungsbedingungen', ic:'📆', bereit:true,
+  info:'Die Konditionen des Altsystems (Kürzel, Frist, Skonto). Sie werden zu den GEMA-Zahlungsbedingungen der Firma ergänzt — bestehende bleiben unverändert. Danach setzt der Belegimport die richtige Zahlungsfrist statt des Firmen-Standards.',
+  felder:[
+    {id:'kuerzel',   label:'Kürzel', pflicht:true, hint:'«01», «02» … — ACHTUNG führende Null: «00» ist ein gültiger Wert', alias:['shortcut','kuerzel','kurz','code','zahlbedid']},
+    {id:'label',     label:'Bezeichnung', pflicht:true, alias:['description','bezeichnung','beschreibung','text','label']},
+    {id:'tage',      label:'Tage netto', alias:['daysnetto','tagenetto','tage','netto']},
+    {id:'skontoTage',label:'Skonto-Tage', alias:['days1','skontotage','tage1']},
+    {id:'skontoPct', label:'Skonto %', alias:['skonto1','skonto','skontopct']},
+    {id:'fibuCode',  label:'Fibu-Code', hint:'Vermerk für die Fibu-Anbindung', alias:['fibucode','fibu']}
   ]
 }
 ];
+
+/* `module_id` des Altsystems → Belegart. Die Zuordnung ist über den Abgleich
+   der Positionssummen mit den Belegtotalen NACHGEWIESEN (2 → Offerte trifft
+   3375 Offertbeträge gegen 3 Rechnungen; 4 → Rechnung 6343 gegen 3), nicht
+   geraten. Aufträge tragen im Altsystem keine eigenen Positionen. */
+var MODULE_BELEG={'2':'offerte','4':'rechnung'};
+function belegTyp(roh){
+  var t=s(roh);
+  if(MODULE_BELEG[t])return {typ:MODULE_BELEG[t],erkannt:true};
+  var n=norm(t);
+  if(n.indexOf('offert')===0)return {typ:'offerte',erkannt:true};
+  if(n.indexOf('rechn')===0)return {typ:'rechnung',erkannt:true};
+  if(n.indexOf('auftr')===0||n.indexOf('rapport')===0)return {typ:'auftrag',erkannt:true};
+  return {typ:'',erkannt:false};
+}
 function sektion(id){return SEKTIONEN.find(function(x){return x.id===id;})||null;}
 
 /* Automatische Spalten-Zuordnung in ZWEI globalen Durchgängen:
@@ -711,8 +927,13 @@ function erkenneSektion(headers){
 
 /* Reihenfolge, in der die Abschnitte importiert werden MÜSSEN: jeder hängt
    sich an das an, was schon da ist (Rechnung → Auftrag → Offerte → Objekt).
-   Wer die Rechnungen zuerst einliest, bekommt Belege ohne Verknüpfung. */
-var IMPORT_REIHENFOLGE=['objekte','adressen','offerten','auftraege','rechnungen'];
+   Wer die Rechnungen zuerst einliest, bekommt Belege ohne Verknüpfung.
+
+   Davor die Stammdaten (Konditionen, Artikel), danach alles, was einen
+   fertigen Beleg braucht: Positionen und Zahlungen hängen sich an Offerte
+   bzw. Rechnung, Kreditoren an den Auftrag. */
+var IMPORT_REIHENFOLGE=['zahlbed','artikel','objekte','adressen','offerten',
+                        'auftraege','rechnungen','positionen','zahlungen','kreditoren'];
 function sektionRang(sekId){
   var i=IMPORT_REIHENFOLGE.indexOf(sekId);
   return i<0?99:i;
@@ -733,7 +954,9 @@ function normalisiereZeile(row,map,sekId){
       typen:g('typen').split(/[,;/]+/).map(s).filter(Boolean),
       strasse:g('strasse'), strasse2:g('strasse2'), plz:g('plz'), ort:g('ort'), land:g('land'),
       tel:g('tel'), natel:g('natel'), email:g('email'),
-      wohnung:g('wohnung'), bemerkungen:g('bemerkungen')
+      wohnung:g('wohnung'), bemerkungen:g('bemerkungen'),
+      zahlbedKuerzel:g('zahlbedKuerzel'), stdRabatt:pct(g('stdRabatt')), stdSkonto:pct(g('stdSkonto')),
+      pkDebi:g('pkDebi'), pkKredi:g('pkKredi'), eBillId:g('eBillId'), rechnungEmail:g('rechnungEmail')
     };
   }
   if(sekId==='offerten'){
@@ -797,7 +1020,8 @@ function normalisiereZeile(row,map,sekId){
       sachb:g('sachb'), abteilung:g('abteilung'),
       objekt:{strasse:g('strasse'), strasse2:g('strasse2'), plz:g('plz'), ort:g('ort'),
               egid:g('egid'), egrid:g('egrid')},
-      ref1:g('ref1'), ref2:g('ref2'), wohnung:g('wohnung'), personen:rpers
+      ref1:g('ref1'), ref2:g('ref2'), wohnung:g('wohnung'), personen:rpers,
+      fibuBelegNr:g('fibuBelegNr'), opDebi:g('opDebi'), kostenstelle:g('kostenstelle')
     };
   }
   if(sekId==='auftraege'){
@@ -825,6 +1049,68 @@ function normalisiereZeile(row,map,sekId){
               egid:g('egid'), egrid:g('egrid')},
       schluessel:{code:g('schluessel'), info:g('schluesselTel')},
       wohnung:g('wohnung'), personen:apers
+    };
+  }
+  if(sekId==='positionen'){
+    var pz={menge:parseBetrag(g('menge')), ep:parseBetrag(g('ep')), total:parseBetrag(g('total'))};
+    // Der Export liefert je nach Positionsmodell mal EP, mal nur das Total —
+    // das Fehlende wird hergeleitet, statt die Position mit 0 anzulegen.
+    if(pz.ep==null&&pz.total!=null&&pz.menge)pz.ep=Math.round(pz.total/pz.menge*100)/100;
+    if(pz.menge==null&&pz.total!=null&&pz.ep)pz.menge=Math.round(pz.total/pz.ep*1000)/1000;
+    var bt=belegTyp(g('belegTyp'));
+    var pa=posArt(g('art'),pz);
+    return {
+      belegTyp:bt.typ, belegTypRoh:g('belegTyp'), belegTypErkannt:bt.erkannt,
+      belegNr:g('belegNr'), belegExtId:g('belegExtId'),
+      sort:parseBetrag(g('sort')),
+      art:pa.art, artRoh:g('art'), artErkannt:pa.erkannt,
+      posNr:g('posNr'), bez:g('bez'),
+      menge:pz.menge, einheit:g('einheit'), ep:pz.ep, total:pz.total,
+      rabattPct:pct(g('rabattPct')), dim:g('dim'),
+      npk:{kapitel:g('npkKapitel'), buch:g('npkBuch'), pos:g('npkPos')||g('posNr')},
+      kalk:{
+        leitfadenZeit:parseBetrag(g('leitfadenZeit')), zeitFaktor:parseBetrag(g('zeitFaktor')),
+        ansatz:parseBetrag(g('ansatz')), matPreis:parseBetrag(g('matPreis')),
+        matFaktor:parseBetrag(g('matFaktor')), einkRabatt:pct(g('einkRabatt')),
+        verschnitt:pct(g('verschnitt'))
+      }
+    };
+  }
+  if(sekId==='zahlungen'){
+    return {belegNr:g('belegNr'), datum:parseDatum(g('datum')),
+            betrag:parseBetrag(g('betrag')), bemerkung:g('bemerkung')};
+  }
+  if(sekId==='kreditoren'){
+    var kst=kreditorStatus(g('status'));
+    return {
+      extId:g('extId'), nr:g('nr'), lieferant:g('lieferant'),
+      rechnungsNr:g('rechnungsNr'), datum:parseDatum(g('datum')), faellig:parseDatum(g('faellig')),
+      betrag:parseBetrag(g('betrag')), mwstBetrag:parseBetrag(g('mwstBetrag')),
+      restBetrag:parseBetrag(g('restBetrag')),
+      statusText:g('status'), status:kst.status, statusErkannt:kst.erkannt,
+      auftragNr:g('auftragNr'), beschrieb:g('beschrieb'),
+      konto:g('konto'), kostenstelle:g('kostenstelle'), iban:g('iban'),
+      esrRef:g('esrRef'), sesamOpNr:g('sesamOpNr')
+    };
+  }
+  if(sekId==='artikel'){
+    return {
+      katalog:g('katalog')||'Übernahme Altsystem', extId:g('extId'),
+      artNr:g('artNr'), bez:g('bez'), einheit:g('einheit'),
+      ep:parseBetrag(g('ep')), dim:g('dim'),
+      kalk:{matPreis:parseBetrag(g('matPreis')), einkRabatt:pct(g('einkRabatt')),
+            verschnitt:pct(g('verschnitt')), leitfadenZeit:parseBetrag(g('leitfadenZeit')),
+            ansatz:parseBetrag(g('ansatz'))}
+    };
+  }
+  if(sekId==='zahlbed'){
+    var zbTage=parseBetrag(g('tage'));
+    var zbSkT=parseBetrag(g('skontoTage'));
+    return {
+      kuerzel:g('kuerzel'), label:g('label'),
+      tage:zbTage==null?null:Math.round(zbTage),
+      skontoTage:zbSkT==null?null:Math.round(zbSkT),
+      skontoPct:pct(g('skontoPct')), fibuCode:g('fibuCode')
     };
   }
   // objekte
@@ -900,6 +1186,34 @@ function pruefe(z,sekId){
   }else if(sekId==='adressen'){
     if(!s(z.firma)&&!s(z.name))hin.push({typ:'fehler',text:'Weder Firma noch Name — Zeile wird übersprungen.'});
     if(!s(z.nr))hin.push({typ:'warn',text:'Keine Kundennummer — Verknüpfung zu Objekten nur über Name + PLZ.'});
+  }else if(sekId==='positionen'){
+    if(!s(z.belegNr)&&!s(z.belegExtId))hin.push({typ:'fehler',text:'Weder Beleg-Nr. noch Beleg-ID — die Position wäre keinem Beleg zuzuordnen.'});
+    if(!s(z.bez))hin.push({typ:'fehler',text:'Keine Bezeichnung — Zeile wird übersprungen.'});
+    if(!s(z.belegTypRoh))hin.push({typ:'fehler',text:'Keine Belegart — die Position wäre keinem Beleg zuzuordnen.'});
+    else if(!z.belegTypErkannt)hin.push({typ:'fehler',text:'Belegart «'+s(z.belegTypRoh)+'» unbekannt (erwartet 2/Offerte oder 4/Rechnung).'});
+    if(!z.artErkannt&&s(z.artRoh))hin.push({typ:'warn',text:'Positionsart «'+s(z.artRoh)+'» unbekannt → aus der Zeile abgeleitet («'+z.art+'»).'});
+    if(z.art==='frei'&&z.ep==null&&z.total==null)hin.push({typ:'warn',text:'Position ohne Preis — sie entsteht mit 0.00.'});
+  }else if(sekId==='zahlungen'){
+    if(!s(z.belegNr))hin.push({typ:'fehler',text:'Keine Rechnungs-Nr. — die Zahlung wäre keinem Beleg zuzuordnen.'});
+    if(z.betrag==null||!z.betrag)hin.push({typ:'fehler',text:'Kein Betrag — Zeile wird übersprungen.'});
+    if(!s(z.datum))hin.push({typ:'warn',text:'Kein Zahlungsdatum — es wird das Rechnungsdatum eingesetzt.'});
+  }else if(sekId==='kreditoren'){
+    if(!s(z.lieferant))hin.push({typ:'fehler',text:'Kein Lieferant — Zeile wird übersprungen.'});
+    if(z.betrag==null||!(z.betrag>0))hin.push({typ:'fehler',text:'Kein Betrag — GEMA führt jeden Kreditor mit einem Betrag.'});
+    if(!z.statusErkannt&&s(z.statusText))hin.push({typ:'warn',text:'Status «'+s(z.statusText)+'» unbekannt → «Zur Freigabe».'});
+    if(!s(z.extId))hin.push({typ:'warn',text:'Keine ID aus dem Altsystem — Dubletten werden über Lieferant + Rechnungs-Nr. erkannt.'});
+    if(s(z.auftragNr))hin.push({typ:'info',text:'Wird Auftrag '+s(z.auftragNr)+' zugeteilt (sofern importiert).'});
+  }else if(sekId==='artikel'){
+    if(!s(z.bez))hin.push({typ:'fehler',text:'Keine Bezeichnung — Zeile wird übersprungen.'});
+    if(z.ep==null)hin.push({typ:'warn',text:'Kein Verkaufspreis — der Artikel entsteht mit 0.00.'});
+  }else if(sekId==='zahlbed'){
+    if(!s(z.kuerzel))hin.push({typ:'fehler',text:'Kein Kürzel — die Belege könnten die Kondition nicht referenzieren.'});
+    if(!s(z.label))hin.push({typ:'fehler',text:'Keine Bezeichnung — Zeile wird übersprungen.'});
+    // Excel macht aus «01» die Zahl 1 und wirft die führende Null weg. Im
+    // Altsystem sind die Kürzel zweistellig — «00» ist 60 Tage netto.
+    if(/^\d$/.test(s(z.kuerzel)))
+      hin.push({typ:'warn',text:'Kürzel «'+s(z.kuerzel)+'» ist einstellig; im Altsystem sind sie zweistellig. Vermutlich hat Excel die führende Null entfernt — bitte als CSV exportieren.'});
+    if(z.tage==null)hin.push({typ:'warn',text:'Keine Frist — für diese Kondition bleibt der Firmen-Standard massgebend.'});
   }
   return hin;
 }
@@ -1037,6 +1351,15 @@ function vorbereiten(opts){
     .forEach(function(d){bekannt[dokSchluessel('auftrag',d)]=d;});
   if(sekId==='rechnungen')bestehendeDocs().filter(function(d){return d.typ==='rechnung';})
     .forEach(function(d){bekannt[dokSchluessel('rechnung',d)]=d;});
+  if(sekId==='kreditoren')bestehendeKreditoren().forEach(function(k){bekannt[kredSchluessel(k)]=k;});
+  var ix=(sekId==='positionen'||sekId==='zahlungen')?dokIndex():null;
+  // Positionen ersetzen die Sammelposition, aber NIE ein von Hand erfasstes
+  // Leistungsverzeichnis. Was übersprungen würde, steht schon in der Vorschau.
+  var posGesehen={};
+  var warnungen=[];
+  if(rows.length>50000)warnungen.push('Die Datei hat '+rows.length.toLocaleString('de-CH')+' Zeilen. '
+    +'Der Import läuft im Browser — bei mehr als etwa 50 000 Zeilen wird er sehr langsam und kann am '
+    +'Arbeitsspeicher scheitern. Besser in Jahresscheiben exportieren und nacheinander einlesen.');
   var adrGesehen={};
   rows.forEach(function(row,i){
     var z=normalisiereZeile(row,map,sekId);
@@ -1077,12 +1400,37 @@ function vorbereiten(opts){
       var rk=dokSchluessel('rechnung',z);
       if(bekannt[rk]){aktion='aktualisiert';stats.aktualisiert++;}
       else{stats.neu++;bekannt[rk]={};}
+    }else if(sekId==='positionen'){
+      var pdoc=dokFinden(ix,z.belegTyp,z.belegNr,z.belegExtId);
+      if(!pdoc){
+        hin.push({typ:'fehler',text:'Beleg «'+(s(z.belegNr)||s(z.belegExtId))+'» nicht gefunden — zuerst Offerten und Rechnungen importieren.'});
+        aktion='fehler';stats.fehler++;
+      }else{
+        // Den Hinweis nur EINMAL je Beleg setzen — sonst stünde er bei jeder
+        // der oft mehreren hundert Positionen desselben Belegs.
+        if(!posGesehen[pdoc.id]){
+          posGesehen[pdoc.id]=1;
+          if((pdoc.positionen||[]).length&&!istSammelposition(pdoc))
+            hin.push({typ:'warn',text:'Beleg «'+s(pdoc.nr)+'» führt bereits Positionen — er bleibt unverändert.'});
+        }
+        stats.neu++;
+      }
+    }else if(sekId==='zahlungen'){
+      var zdoc=dokFinden(ix,'rechnung',z.belegNr,'');
+      if(!zdoc){
+        hin.push({typ:'fehler',text:'Rechnung «'+s(z.belegNr)+'» nicht gefunden — zuerst die Rechnungen importieren.'});
+        aktion='fehler';stats.fehler++;
+      }else stats.neu++;
+    }else if(sekId==='kreditoren'){
+      var kk=kredSchluessel(z);
+      if(bekannt[kk]){aktion='aktualisiert';stats.aktualisiert++;}
+      else{stats.neu++;bekannt[kk]={};}
     }else{
       aktion='neu';stats.neu++;
     }
     zeilen.push({nr:i+1,roh:row,ziel:z,aktion:aktion,hinweise:hin});
   });
-  return {sektion:sekId,zeilen:zeilen,stats:stats,mapping:map};
+  return {sektion:sekId,zeilen:zeilen,stats:stats,mapping:map,warnungen:warnungen};
 }
 
 // ── Laufzeit: Ausführen ─────────────────────────────────────────────────
@@ -1128,6 +1476,60 @@ function dokSichern(doc){
   var p=(typeof GemaSync!=='undefined'&&GemaSync.saveRecord)
     ? GemaSync.saveRecord('erp',DOK_PREFIX+doc.id,doc) : Promise.resolve();
   return p.then(function(){return doc;},function(){return doc;});
+}
+
+/* Dieselbe Mechanik für die übrigen ERP-Sammlungen: bei JEDEM Aufruf frisch
+   lesen, damit aufeinanderfolgende Schreibungen einander sehen. */
+var KRED_POOL='gema_erp_kred_pool_v1', KRED_PREFIX='erpkred:';
+var KAT_POOL='gema_erp_kat_pool_v1',   KAT_PREFIX='erpkat:';
+function poolLesen(key){
+  var pool=[];
+  try{
+    if(typeof GemaSync!=='undefined'&&GemaSync.getCached)pool=GemaSync.getCached(key)||[];
+    if(!pool.length){var r=localStorage.getItem(key);if(r)pool=JSON.parse(r)||[];}
+  }catch(e){}
+  return pool.slice();
+}
+function poolSichern(key,prefix,rec){
+  var pool=poolLesen(key);
+  var i=pool.findIndex(function(x){return x.id===rec.id;});
+  if(i>=0)pool[i]=rec;else pool.push(rec);
+  try{localStorage.setItem(key,JSON.stringify(pool));}catch(e){}
+  var p=(typeof GemaSync!=='undefined'&&GemaSync.saveRecord)
+    ? GemaSync.saveRecord('erp',prefix+rec.id,rec) : Promise.resolve();
+  return p.then(function(){return rec;},function(){return rec;});
+}
+function eigeneOrgId(){var u=null;try{u=GemaAuth.getCurrentUser();}catch(e){}return u?u.orgId:'';}
+/* KRITISCH — beide Pools sind org-gescopt und tragen `orgId` auf jedem Record
+   (CLAUDE.md §3): ohne den Filter sähe der Import fremde Firmen, ohne den
+   Stempel beim Schreiben lehnt RLS den Record ab. */
+function bestehendeKreditoren(){
+  var o=eigeneOrgId();
+  return poolLesen(KRED_POOL).filter(function(k){return k&&(!o||k.orgId===o);});
+}
+function bestehendeKataloge(){
+  var o=eigeneOrgId();
+  return poolLesen(KAT_POOL).filter(function(k){return k&&(!o||k.orgId===o);});
+}
+function kredSchluessel(k){
+  var ext=s(k&&(k.extId||(k.quelle&&k.quelle.extId)));
+  if(ext)return 'ext:'+ext.toLowerCase();
+  return 'lr:'+norm([k&&k.lieferant,k&&k.rechnungsNr].join('|'));
+}
+/* Beleg-Nachschlag für Positionen und Zahlungen: Nummer UND Alt-ID, weil der
+   Positions-Export je nach Abfrage das eine oder das andere liefert. */
+function dokIndex(){
+  var ix={};
+  bestehendeDocs().forEach(function(d){
+    if(!d||!d.typ)return;
+    if(s(d.nr))ix[d.typ+'|nr:'+norm(d.nr)]=d;
+    var ext=s(d.extId||(d.quelle&&d.quelle.extId));
+    if(ext)ix[d.typ+'|ext:'+norm(ext)]=d;
+  });
+  return ix;
+}
+function dokFinden(ix,typ,nr,extId){
+  return (s(nr)&&ix[typ+'|nr:'+norm(nr)])||(s(extId)&&ix[typ+'|ext:'+norm(extId)])||null;
 }
 
 /* Objekt zu einem Beleg auflösen: vorhandenes über Strasse + PLZ finden,
@@ -1247,8 +1649,18 @@ function rechnungSchreiben(z,adrCtx,report,opts){
       // «01» = 30 Tage netto ist aus dem Beispiel-Export belegt — nur dieser
       // eine Fall wird auf die GEMA-Kondition gemappt, alles andere bleibt
       // Vermerk (keine erfundene Zuordnung).
-      if(!s(doc.zahlbedId)&&fristTage(z.zahlbed,0)===30)doc.zahlbedId='netto30';
+      // Sind die Konditionen importiert, gewinnt die echte Zuordnung; sonst
+      // bleibt es bei der belegten Notlösung («01» = 30 Tage netto).
+      if(!s(doc.zahlbedId)){
+        var zbId=zahlbedIdFuer(z.zahlbed);
+        if(zbId)doc.zahlbedId=zbId;
+        else if(fristTage(z.zahlbed,0)===30)doc.zahlbedId='netto30';
+      }
       if(s(z.adrId)&&!s(doc.importAdrId))doc.importAdrId=s(z.adrId);
+      // Fibu-Schlüssel — Vermerke für eine spätere Anbindung an die Buchhaltung.
+      if(s(z.fibuBelegNr)&&!s(doc.importFibuBelegNr))doc.importFibuBelegNr=s(z.fibuBelegNr);
+      if(s(z.opDebi)&&!s(doc.importOpDebi))doc.importOpDebi=s(z.opDebi);
+      if(s(z.kostenstelle)&&!s(doc.importKostenstelle))doc.importKostenstelle=s(z.kostenstelle);
       // ESR-Referenz: nur eine GÜLTIGE wandert in den Nachdruck-QR
       // (erpRefFuer prüft sie nochmals), der Rohwert bleibt in jedem Fall.
       if(s(z.esrRef)&&!s(doc.importEsrRefRoh))doc.importEsrRefRoh=s(z.esrRef);
@@ -1263,7 +1675,10 @@ function rechnungSchreiben(z,adrCtx,report,opts){
         doc.positionen=[{
           id:uid('p'), art:'frei',
           bez:'Übernahme aus dem Altsystem — Rechnung '+s(z.nr)+(s(z.titel)?'<br>'+s(z.titel):''),
-          menge:1, einheit:'Psch', ep:z.netto
+          menge:1, einheit:'Psch', ep:z.netto,
+          // Kennzeichen für den späteren Positions-Import: DIESE Zeile ist ein
+          // Platzhalter und darf durch die echten Positionen ersetzt werden.
+          importSammel:true
         }];
         doc.importSumme={netto:z.netto,mwst:z.mwst,brutto:z.brutto,satz:z.mwstPct};
       }
@@ -1423,7 +1838,10 @@ function offerteSchreiben(z,adrCtx,report,opts){
         doc.positionen=[{
           id:uid('p'), art:'frei',
           bez:'Übernahme aus dem Altsystem — Offerte '+s(z.nr)+(s(z.titel)?'<br>'+s(z.titel):''),
-          menge:1, einheit:'Psch', ep:z.netto
+          menge:1, einheit:'Psch', ep:z.netto,
+          // Kennzeichen für den späteren Positions-Import: DIESE Zeile ist ein
+          // Platzhalter und darf durch die echten Positionen ersetzt werden.
+          importSammel:true
         }];
         doc.importSumme={netto:z.netto,mwst:z.mwst,brutto:z.brutto,satz:z.mwstPct};
       }
@@ -1434,12 +1852,353 @@ function offerteSchreiben(z,adrCtx,report,opts){
   });
 }
 
+/* Eine normalisierte Zeile → GEMA-Position.
+
+   KRITISCH — die Kalkulationswerte landen unter `importKalk` und NICHT in den
+   Rechenfeldern von GEMA. Der importierte EP ist der tatsächlich fakturierte
+   Preis; würde GEMA aus Leitfadenzeit und Ansatz neu rechnen, bekäme ein
+   abgeschlossener Beleg nachträglich andere Zahlen. Die Werte bleiben damit
+   erhalten und sichtbar, ohne etwas zu verschieben.
+   Leere Werte werden nicht als 0 geschrieben — «0 % Verschnitt» ist eine
+   Aussage, «unbekannt» ist keine. */
+function positionRecord(z){
+  var p={id:uid('p'), art:z.art, bez:s(z.bez)};
+  if(z.art!=='titel'&&z.art!=='text'){
+    p.menge=z.menge!=null?z.menge:1;
+    p.einheit=s(z.einheit)||'Psch';
+    p.ep=z.ep!=null?z.ep:0;
+    if(z.rabattPct)p.rabattPct=z.rabattPct;
+    if(s(z.dim))p.dim=s(z.dim);
+  }
+  if(s(z.posNr))p.importPosNr=s(z.posNr);
+  var n=z.npk||{};
+  if(s(n.kapitel)||s(n.pos))p.importNpk={kapitel:s(n.kapitel),buch:s(n.buch),pos:s(n.pos)};
+  var k=z.kalk||{},kal={};
+  ['leitfadenZeit','zeitFaktor','ansatz','matPreis','matFaktor','einkRabatt','verschnitt']
+    .forEach(function(f){if(k[f]!=null)kal[f]=k[f];});
+  if(Object.keys(kal).length)p.importKalk=kal;
+  return p;
+}
+
+/* Positionen — GRUPPIERT je Beleg geschrieben.
+
+   Ein GEMA-Dokument trägt seine Positionen als Array: 500 Einzelschreibungen
+   an denselben Beleg wären 500 Cloud-Pushes, die einander überholen. Deshalb
+   wird je Beleg EINMAL geschrieben.
+
+   Die Reihenfolge der Datei ist massgebend, `sort` entscheidet nur bei
+   Gleichstand. Die Hierarchie des Altsystems (parent_pos_guid) flacht dabei
+   ab — GEMA führt Titel als eigene Zeile und die folgenden Positionen gehören
+   optisch dazu, also genau das Bild, das die Sortierung des Exports liefert. */
+function positionenSchreiben(zeilen,report,opts){
+  opts=opts||{};
+  var ix=dokIndex(), grp=[], byId={};
+  zeilen.forEach(function(zl,i){
+    var z=zl.ziel;
+    var doc=dokFinden(ix,z.belegTyp,z.belegNr,z.belegExtId);
+    if(!doc){report.belegFehlt=(report.belegFehlt||0)+1;return;}
+    var g=byId[doc.id];
+    if(!g){g=byId[doc.id]={doc:doc,pos:[]};grp.push(g);}
+    g.pos.push({z:z,i:i});
+  });
+  var kette=Promise.resolve();
+  grp.forEach(function(g){
+    kette=kette.then(function(){
+      var akt=dokPool().find(function(x){return x.id===g.doc.id;})||g.doc;
+      // Ein echtes Leistungsverzeichnis wird NIE überschrieben.
+      if((akt.positionen||[]).length&&!istSammelposition(akt)){
+        report.belegBesetzt=(report.belegBesetzt||0)+1;
+        return;
+      }
+      g.pos.sort(function(a,b){
+        var sa=a.z.sort, sb=b.z.sort;
+        if(sa!=null&&sb!=null&&sa!==sb)return sa-sb;
+        return a.i-b.i;
+      });
+      var doc=Object.assign({},akt);
+      doc.positionen=g.pos.map(function(p){return positionRecord(p.z);});
+      doc.updatedAt=jetzt();
+      report.posBelege=(report.posBelege||0)+1;
+      report.posZeilen=(report.posZeilen||0)+doc.positionen.length;
+      report.neu++;
+      return dokSichern(doc);
+    });
+  });
+  return kette;
+}
+
+/* Bruttobetrag eines Belegs: bevorzugt die beim Kopf-Import gemerkte Summe des
+   Altsystems, sonst aus den Positionen gerechnet. */
+function belegBrutto(doc){
+  if(doc&&doc.importSumme&&doc.importSumme.brutto!=null)return doc.importSumme.brutto;
+  var netto=0;
+  ((doc&&doc.positionen)||[]).forEach(function(p){
+    if(!p||p.art==='titel'||p.art==='text')return;
+    netto+=(parseFloat(p.ep)||0)*(parseFloat(p.menge)||0)*(1-((parseFloat(p.rabattPct)||0)/100));
+  });
+  var satz=(doc&&doc.mwstPct!=null)?doc.mwstPct:8.1;
+  return Math.round(netto*(1+satz/100)*100)/100;
+}
+
+/* Zahlungen — ebenfalls je Rechnung gruppiert (Akonto + Schluss treffen
+   denselben Beleg). Der Status wird nur HOCHGESTUFT: eine stornierte Rechnung
+   bleibt storniert, egal was an Zahlungen kommt. */
+function zahlungenSchreiben(zeilen,report,opts){
+  opts=opts||{};
+  var ix=dokIndex(), grp=[], byId={};
+  zeilen.forEach(function(zl){
+    var z=zl.ziel;
+    var doc=dokFinden(ix,'rechnung',z.belegNr,'');
+    if(!doc){report.belegFehlt=(report.belegFehlt||0)+1;return;}
+    var g=byId[doc.id];
+    if(!g){g=byId[doc.id]={doc:doc,zl:[]};grp.push(g);}
+    g.zl.push(z);
+  });
+  var kette=Promise.resolve();
+  grp.forEach(function(g){
+    kette=kette.then(function(){
+      var akt=dokPool().find(function(x){return x.id===g.doc.id;})||g.doc;
+      var doc=Object.assign({},akt);
+      var za=(doc.zahlungen||[]).slice(), neu=0;
+      g.zl.forEach(function(z){
+        var datum=s(z.datum)||s(doc.datum);
+        var betrag=Math.round((z.betrag||0)*100)/100;
+        if(!betrag)return;
+        // Wiederholungs-Import darf keine Dubletten erzeugen.
+        var da=za.some(function(x){
+          return s(x.datum)===datum&&Math.round((parseFloat(x.betrag)||0)*100)/100===betrag;
+        });
+        if(da)return;
+        za.push({datum:datum,betrag:betrag,bemerkung:s(z.bemerkung)||'Übernahme aus dem Altsystem'});
+        neu++;
+      });
+      if(!neu)return;
+      doc.zahlungen=za;
+      var summe=za.reduce(function(a,x){return a+(parseFloat(x.betrag)||0);},0);
+      var soll=belegBrutto(doc);
+      // 5 Rappen Toleranz — Rundungsdifferenzen zwischen den Systemen.
+      if(doc.status!=='storniert'&&soll>0&&summe+0.05>=soll){
+        if(doc.status!=='bezahlt')report.alsBezahlt=(report.alsBezahlt||0)+1;
+        doc.status='bezahlt';
+      }
+      doc.updatedAt=jetzt();
+      report.zahlungen=(report.zahlungen||0)+neu;
+      report.neu+=neu;
+      return dokSichern(doc);
+    });
+  });
+  return kette;
+}
+
+/* Einen Kreditor schreiben. Der Lieferant ist im GEMA-Kreditor ein Textfeld —
+   es entsteht bewusst KEIN Adressstamm-Eintrag, sonst stünden 12 000
+   Lieferantenrechnungen mit je einer Adress-Dublette im Kundenstamm. */
+function kreditorSchreiben(z,report,opts){
+  opts=opts||{};
+  var u=null;try{u=GemaAuth.getCurrentUser();}catch(e){}
+  var orgId=u?u.orgId:'';
+  var alt=bestehendeKreditoren().find(function(k){return kredSchluessel(k)===kredSchluessel(z);})||null;
+  var auf=null;
+  if(s(z.auftragNr)){
+    var an=norm(z.auftragNr);
+    auf=dokPool().find(function(d){
+      return d.typ==='auftrag'&&norm(d.nr)===an&&(!orgId||d.orgId===orgId);
+    })||null;
+    if(!auf)report.auftragFehlt=(report.auftragFehlt||0)+1;
+  }
+  var k=alt?JSON.parse(JSON.stringify(alt)):{
+    id:uid('kred'), orgId:orgId, status:'offen', verlauf:[],
+    erstelltVon:{userId:u?u.id:'',name:u?u.name:''}, erstelltAm:jetzt()
+  };
+  function fuelle(f,v){if(s(v)&&!s(k[f]))k[f]=s(v);}
+  fuelle('lieferant',z.lieferant);
+  fuelle('rechnungsNr',z.rechnungsNr);
+  fuelle('datum',z.datum);
+  fuelle('faelligBis',z.faellig);
+  fuelle('beschrieb',z.beschrieb);
+  if(!s(k.extId))k.extId=s(z.extId);
+  if(k.betrag==null&&z.betrag!=null)k.betrag=Math.round(z.betrag*100)/100;
+  if(!alt&&z.status)k.status=z.status;
+  if(auf&&!s(k.auftragId)){k.auftragId=auf.id;k.auftragNr=s(auf.nr);}
+  // Vermerke — alles, wofür GEMA kein eigenes Feld führt, bleibt am Datensatz.
+  [['importNr',z.nr],['importStatusText',z.statusText],['importKonto',z.konto],
+   ['importKostenstelle',z.kostenstelle],['importIban',z.iban],
+   ['importEsrRef',z.esrRef],['importSesamOpNr',z.sesamOpNr]].forEach(function(p){
+    if(s(p[1])&&!s(k[p[0]]))k[p[0]]=s(p[1]);
+  });
+  if(k.importMwstBetrag==null&&z.mwstBetrag!=null)k.importMwstBetrag=z.mwstBetrag;
+  if(k.importRestBetrag==null&&z.restBetrag!=null)k.importRestBetrag=z.restBetrag;
+  if(!alt){
+    k.verlauf=(k.verlauf||[]).concat([{
+      am:jetzt(), was:'Übernommen aus dem Altsystem',
+      von:{userId:u?u.id:'',name:u?u.name:''}
+    }]);
+  }
+  k.quelle=k.quelle||{typ:'import',system:opts.quelleName||'ERP-Migration',am:jetzt(),extId:s(z.extId)};
+  k.updatedAt=jetzt();
+  return poolSichern(KRED_POOL,KRED_PREFIX,k).then(function(){
+    if(alt)report.aktualisiert++;else report.neu++;
+  });
+}
+
+/* Artikel — gruppiert je Katalog. Bestehende Artikel werden nie überschrieben;
+   erkannt werden sie über die Alt-ID, ersatzweise über die Bezeichnung. */
+function artikelSchreiben(zeilen,report,opts){
+  opts=opts||{};
+  var orgId=eigeneOrgId();
+  var u=null;try{u=GemaAuth.getCurrentUser();}catch(e){}
+  var grp={}, reihe=[];
+  zeilen.forEach(function(zl){
+    var z=zl.ziel;
+    var name=s(z.katalog)||'Übernahme Altsystem';
+    if(!grp[name]){grp[name]=[];reihe.push(name);}
+    grp[name].push(z);
+  });
+  var kette=Promise.resolve();
+  reihe.forEach(function(name){
+    kette=kette.then(function(){
+      var kat=bestehendeKataloge().find(function(k){return norm(k.name)===norm(name);})||null;
+      var neuKat=!kat;
+      kat=kat?JSON.parse(JSON.stringify(kat)):{
+        id:uid('kat'), orgId:orgId, name:name, artikel:[],
+        erstelltVon:{userId:u?u.id:'',name:u?u.name:''}, erstelltAm:jetzt()
+      };
+      var arts=(kat.artikel||[]).slice(), da={};
+      arts.forEach(function(a){
+        if(s(a.extId))da['ext:'+norm(a.extId)]=1;
+        da['bez:'+norm(a.bez)]=1;
+      });
+      var zu=0;
+      grp[name].forEach(function(z){
+        var ek=s(z.extId)?('ext:'+norm(z.extId)):'';
+        if(ek&&da[ek])return;
+        if(!ek&&da['bez:'+norm(z.bez)])return;
+        var a={id:uid('a'), bez:s(z.bez), einheit:s(z.einheit)||'Stk', ep:z.ep!=null?z.ep:0};
+        if(s(z.extId))a.extId=s(z.extId);
+        if(s(z.artNr))a.artNr=s(z.artNr);
+        if(s(z.dim))a.dim=s(z.dim);
+        var kal={};
+        ['matPreis','einkRabatt','verschnitt','leitfadenZeit','ansatz'].forEach(function(f){
+          if(z.kalk&&z.kalk[f]!=null)kal[f]=z.kalk[f];
+        });
+        if(Object.keys(kal).length)a.importKalk=kal;
+        arts.push(a);
+        if(ek)da[ek]=1;
+        da['bez:'+norm(z.bez)]=1;
+        zu++;
+      });
+      if(!zu&&!neuKat)return;
+      kat.artikel=arts;
+      kat.updatedAt=jetzt();
+      report.artikel=(report.artikel||0)+zu;
+      report.neu+=zu;
+      if(neuKat)report.kataloge=(report.kataloge||0)+1;
+      return poolSichern(KAT_POOL,KAT_PREFIX,kat);
+    });
+  });
+  return kette;
+}
+
+/* Zahlungsbedingungen → org.settings.erp.zahlbed. EINE Schreibung für alle
+   Zeilen; Bestehendes bleibt unverändert (ergänzen, nie ersetzen).
+   Die id wird aus dem Kürzel gebildet und bleibt damit stabil, auch wenn
+   jemand die Bezeichnung später ändert (CLAUDE.md §2). */
+function zahlbedSchreiben(zeilen,report,opts){
+  var org=null;try{org=GemaAuth.getCurrentOrg&&GemaAuth.getCurrentOrg();}catch(e){}
+  if(!org||!org.id)return Promise.reject(new Error('Firma nicht geladen — die Zahlungsbedingungen können nicht gespeichert werden.'));
+  var st=org.settings||{};
+  var liste=(((st.erp||{}).zahlbed)||[]).slice();
+  var da={};
+  liste.forEach(function(z){da[norm(z.id)]=1;da['l:'+norm(z.label)]=1;});
+  var zu=0;
+  zeilen.forEach(function(zl){
+    var z=zl.ziel;
+    var kuerzel=s(z.kuerzel);
+    var id='alt_'+norm(kuerzel);
+    if(da[norm(id)]||da['l:'+norm(z.label)]){report.uebersprungen++;return;}
+    var rec={id:id, label:s(z.label), tage:z.tage!=null?z.tage:30, importKuerzel:kuerzel};
+    if(z.skontoPct)rec.skontoPct=z.skontoPct;
+    if(z.skontoTage)rec.skontoTage=z.skontoTage;
+    if(s(z.fibuCode))rec.importFibuCode=s(z.fibuCode);
+    liste.push(rec);
+    da[norm(id)]=1;da['l:'+norm(z.label)]=1;
+    zu++;
+  });
+  report.neu+=zu;
+  if(!zu)return Promise.resolve();
+  var erp=Object.assign({},st.erp||{},{zahlbed:liste});
+  // updateOrgSettings(orgId, settings) — die orgId ist das ERSTE Argument,
+  // sonst findet die Funktion die Firma nicht und gibt still `false` zurück.
+  return Promise.resolve(GemaAuth.updateOrgSettings(org.id,{erp:erp})).then(function(){
+    zahlbedAusOrgLaden();
+  });
+}
+
+/* Füllt die Kürzel→Tage-Tabelle der Engine aus den Firmen-Einstellungen. So
+   wirkt ein früher gelaufener Konditions-Import auch in einer SPÄTEREN
+   Sitzung auf die Zahlungsfrist der importierten Belege. */
+function zahlbedAusOrgLaden(){
+  var map={};
+  try{
+    var st=(GemaAuth.getCurrentOrg()||{}).settings||{};
+    (((st.erp||{}).zahlbed)||[]).forEach(function(z){
+      if(s(z.importKuerzel)&&z.tage!=null)map[s(z.importKuerzel)]=z.tage;
+    });
+  }catch(e){}
+  zahlbedTageSetzen(map);
+}
+/* GEMA-Konditions-ID zum Kürzel des Altsystems — leer, wenn die Konditionen
+   noch nicht importiert wurden. */
+function zahlbedIdFuer(kuerzel){
+  var t=s(kuerzel);if(!t)return '';
+  try{
+    var st=(GemaAuth.getCurrentOrg()||{}).settings||{};
+    var hit=(((st.erp||{}).zahlbed)||[]).find(function(z){return s(z.importKuerzel)===t;});
+    if(hit)return hit.id;
+  }catch(e){}
+  return '';
+}
+
+/* Ergänzt Konditionen und Fibu-Schlüssel am Adressdatensatz und meldet, ob
+   etwas geändert wurde. Bestehende Werte bleiben IMMER stehen — der Import
+   füllt Lücken, er korrigiert nicht. */
+function adressZusatz(z,rec){
+  if(!z||!rec)return false;
+  var ae=false;
+  function txt(f,v){if(!s(v)||s(rec[f]))return;rec[f]=s(v);ae=true;}
+  function zahl(f,v){if(v==null||rec[f]!=null)return;rec[f]=v;ae=true;}
+  txt('importZahlbedKuerzel',z.zahlbedKuerzel);
+  var zbId=zahlbedIdFuer(z.zahlbedKuerzel);
+  if(zbId)txt('zahlbedId',zbId);
+  txt('importPkDebi',z.pkDebi);
+  txt('importPkKredi',z.pkKredi);
+  txt('eBillId',z.eBillId);
+  txt('rechnungEmail',z.rechnungEmail);
+  zahl('stdRabattPct',z.stdRabatt);
+  zahl('stdSkontoPct',z.stdSkonto);
+  return ae;
+}
+
 function ausfuehren(plan,opts){
   opts=opts||{};
   var sekId=plan.sektion;
   var report={neu:0,aktualisiert:0,uebersprungen:0,adressen:0,fehler:[]};
   var zeilen=plan.zeilen.filter(function(z){return z.aktion!=='fehler'&&z.gewaehlt!==false;});
   report.uebersprungen=plan.zeilen.length-zeilen.length;
+  zahlbedAusOrgLaden();
+
+  /* Abschnitte, die GRUPPIERT schreiben: viele Zeilen treffen dasselbe Ziel
+     (alle Positionen eines Belegs, alle Konditionen der Firma). Sie laufen
+     bewusst NICHT durch die Zeilenschleife — sonst würde derselbe Datensatz
+     hundertfach hintereinander gespeichert. Sie brauchen auch den
+     Adressstamm nicht, darum stehen sie vor dessen Prüfung. */
+  function fertig(){return report;}
+  function gescheitert(e){report.fehler.push({zeile:0,text:(e&&e.message)||String(e)});return report;}
+  if(sekId==='zahlbed')return zahlbedSchreiben(zeilen,report,opts).then(fertig,gescheitert);
+  if(sekId==='positionen')return positionenSchreiben(zeilen,report,opts).then(fertig,gescheitert);
+  if(sekId==='zahlungen')return zahlungenSchreiben(zeilen,report,opts).then(fertig,gescheitert);
+  if(sekId==='artikel')return artikelSchreiben(zeilen,report,opts).then(fertig,gescheitert);
+
   if(typeof GemaAdressen==='undefined')return Promise.reject(new Error('Adressstamm nicht geladen.'));
   // Adressbestand EINMAL lesen und über den ganzen Lauf mitführen.
   var adrCtx={cache:{},bestand:GemaAdressen.list(),neu:0};
@@ -1456,7 +2215,11 @@ function ausfuehren(plan,opts){
         roh.typen=(roh.typen||[]).map(function(t){return GemaAdressen.typIdFuerLabel(t,true);}).filter(Boolean);
         roh.extId=roh.nr?('adr:'+roh.nr):'';
         var r=GemaAdressen.upsertVonImport(roh,{bestand:adrCtx.bestand});
-        if(r.aktion==='unveraendert'){report.uebersprungen++;return;}
+        // Konditionen und Fibu-Schlüssel führt der Adressstamm nicht in seiner
+        // Merge-Liste; sie werden hier ergänzt (nie überschrieben). `normalize`
+        // reicht unbekannte Felder unverändert durch, darum genügt das.
+        var zusatz=adressZusatz(z.ziel,r.rec);
+        if(r.aktion==='unveraendert'&&!zusatz){report.uebersprungen++;return;}
         return GemaAdressen.save(r.rec).then(function(rec){
           var i=adrCtx.bestand.findIndex(function(x){return x.id===rec.id;});
           if(i>=0)adrCtx.bestand[i]=rec;else adrCtx.bestand.push(rec);
@@ -1468,6 +2231,9 @@ function ausfuehren(plan,opts){
         report.fehler.push({zeile:z.nr,text:(e&&e.message)||String(e)});
       });
       if(sekId==='rechnungen')return rechnungSchreiben(z.ziel,adrCtx,report,opts).catch(function(e){
+        report.fehler.push({zeile:z.nr,text:(e&&e.message)||String(e)});
+      });
+      if(sekId==='kreditoren')return kreditorSchreiben(z.ziel,report,opts).catch(function(e){
         report.fehler.push({zeile:z.nr,text:(e&&e.message)||String(e)});
       });
       // ── Objekte ──
@@ -1587,7 +2353,8 @@ function auftraegeAusRechnungen(report,opts){
       doc.positionen=[{
         id:uid('p'), art:'frei',
         bez:'Übernahme aus dem Altsystem — verrechnet gemäss Rechnung(en)'+(s(doc.nr)?' zu Auftrag '+s(doc.nr):''),
-        menge:1, einheit:'Psch', ep:Math.round(summe[aid]*100)/100
+        menge:1, einheit:'Psch', ep:Math.round(summe[aid]*100)/100,
+        importSammel:true
       }];
       doc.updatedAt=jetzt();
       report.auftragBetrag=(report.auftragBetrag||0)+1;
@@ -1611,9 +2378,14 @@ window.GemaErpImport={
   rechnungStatus:rechnungStatus, rechnungArt:rechnungArt,
   esrGueltig:esrGueltig, fristTage:fristTage, addTage:addTage,
   objektSchluessel:objektSchluessel,
+  posArt:posArt, belegTyp:belegTyp, kreditorStatus:kreditorStatus,
+  istSammelposition:istSammelposition, positionRecord:positionRecord,
+  belegBrutto:belegBrutto, adressZusatz:adressZusatz,
+  MODULE_BELEG:MODULE_BELEG, POSTYP_ART:POSTYP_ART,
   // Engine-Exports für Node-Tests
   serialZuDatum:serialZuDatum, istDatumFmt:istDatumFmt, entescape:entescape,
-  spalteZuIndex:spalteZuIndex, norm:norm
+  spalteZuIndex:spalteZuIndex, norm:norm, pct:pct,
+  zahlbedTageSetzen:zahlbedTageSetzen
 };
 
 })();

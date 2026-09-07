@@ -587,7 +587,132 @@ Katalog-Import ins Migrationsprojekt. Ist es die Ausnahme, kann er warten.
 
 ---
 
-## 8. Datenschutz
+## 8. Export-Abfragen für den Importer
+
+`gema_erp_import.js` liest CSV und XLSX, kein SQL. Der Weg ist je Abschnitt:
+`SELECT` → CSV → Import-Assistent in `pm_erp` («Migration»). Die Spaltennamen
+unten sind so gewählt, dass die automatische Zuordnung greift.
+
+**CSV statt XLSX exportieren**, wo Kürzel mit führender Null vorkommen — Excel
+macht aus «01» die Zahl 1 und aus «00» eine 0. Der Importer meldet das zwar,
+aber der Umweg kostet einen Durchgang.
+
+Reihenfolge einhalten (Abschnitt 5): Stammdaten → Adressen/Objekte → Belege →
+Positionen/Zahlungen → Kreditoren.
+
+### 8.1 Zahlungsbedingungen
+
+```sql
+SELECT shortcut, description, days_netto, days1, skonto1, fibucode
+FROM paymentterm ORDER BY shortcut;
+```
+
+### 8.2 Eigener Artikelstamm
+
+```sql
+SELECT c.text AS katalog, a.guid, a.artref, a.text, a.unit, a.price, a.dim,
+       a.mat_price, a.einkaufs_rabatt, a.verschnitt, a.leitfaden_zeit, a.ansatz
+FROM abarticle a
+LEFT JOIN abchapter c ON c.guid = a.chapterguid
+ORDER BY c.text, a.sort;
+```
+
+### 8.3 Positionen (`lvposition` — 632 008 Zeilen)
+
+Die Belegnummer wird mitgeliefert, weil der Importer daran anknüpft. Weil
+`module_id` 2 auf `offerten` und 4 auf `rechnungen` zeigt, braucht es zwei
+Zweige:
+
+```sql
+SELECT 2 AS module_id, o.offert_nr AS nr, p.autoid AS sort, p.postyp,
+       p.SPos, p.text, p.qty, p.unit, p.price, p.total, p.dim,
+       p.SChapter, p.sbuchnr,
+       p.leitfaden_zeit, p.zeit_faktor, p.ansatz,
+       p.mat_price, p.mat_faktor, p.einkaufs_rabatt, p.verschnitt
+FROM lvposition p JOIN offerten o ON o.id = p.item_id
+WHERE p.module_id = 2
+UNION ALL
+SELECT 4, r.nr, p.autoid, p.postyp,
+       p.SPos, p.text, p.qty, p.unit, p.price, p.total, p.dim,
+       p.SChapter, p.sbuchnr,
+       p.leitfaden_zeit, p.zeit_faktor, p.ansatz,
+       p.mat_price, p.mat_faktor, p.einkaufs_rabatt, p.verschnitt
+FROM lvposition p JOIN rechnungen r ON r.id = p.item_id
+WHERE p.module_id = 4
+ORDER BY 1, 2, 3;
+```
+
+> **In Jahresscheiben exportieren.** Der Import läuft im Browser; ab etwa
+> 50 000 Zeilen wird er sehr langsam und kann am Arbeitsspeicher scheitern.
+> Der Assistent warnt davor, aber besser gleich schneiden — etwa mit
+> `AND YEAR(o.datum) = 2024` je Zweig.
+
+### 8.4 Positionen (`nlvposition` — 241 628 Zeilen)
+
+Das neuere Modell führt **kein `postyp`**. Der Importer leitet die Positionsart
+dann aus der Zeile ab (ohne Preis und Menge = Textzeile) und meldet jede
+abgeleitete Zeile in der Vorschau — er rät nicht still.
+
+Vor dem Export dieses Zweigs lohnt ein Blick auf fünf Beispielzeilen: ob
+`nlvposition.typ` oder `title_id` die Rolle von `postyp` übernimmt, ist aus der
+Struktur allein nicht zu erkennen. Findet sich dort eine Typ-Spalte, wandert
+sie als `postyp` in den Export und die Zuordnung wird wieder exakt.
+
+### 8.5 Zahlungen
+
+```sql
+SELECT nr, zahlungsdatum, zahlungsbetrag
+FROM rechnungen
+WHERE zahlungsbetrag IS NOT NULL AND zahlungsbetrag <> 0;
+```
+
+### 8.6 Kreditoren
+
+```sql
+SELECT k.id, k.nr, k.name1, k.belegnr, k.datum, k.faelligdatum,
+       k.betrag, k.mwstbetrag, k.restbetrag, k.kredistatustext,
+       k.gkonto, k.kostenst_id, k.iban, k.esr_nr, k.sesam_op_nr, k.bemerkung,
+       (SELECT r.rapport_nr FROM kredzut z
+          JOIN rapporte r ON r.id = z.rapport_id
+         WHERE z.kred_id = k.id LIMIT 1) AS rapport_nr
+FROM kreditoren k;
+```
+
+### 8.7 Adressen — die Zusatzfelder
+
+Der bestehende Adress-Export wird um Konditionen und Fibu-Schlüssel ergänzt.
+`adressen.password` und `adrkre.igh_password` bleiben **draussen**:
+
+```sql
+SELECT a.oknummer AS knummer, a.name1 AS firma, a.anrede, a.vorname,
+       a.name2 AS nachname, a.zuhand AS kontakt,
+       a.strasse, a.strasse2, a.plz, a.ort, a.land,
+       a.tel1 AS telefon, a.natel, a.email, a.bemerkungen,
+       a.zahlbedid, a.stdrabatt, a.stdskonto,
+       a.pk_debi, a.pk_kredi, a.eBillID, a.Rechnung_Email
+FROM adressen a;
+```
+
+> Vor diesem Export den `companydata`-Overlay klären (Abschnitt 6): bei
+> `zahlbedid` ist die Basisspalte bei 6 061 von 6 627 Adressen leer und der
+> gültige Wert steht im Overlay. Der Export muss ihn also mitnehmen —
+> `COALESCE(overlay, a.zahlbedid)`.
+
+### 8.8 Rechnungen — die Fibu-Schlüssel
+
+Zum bestehenden Rechnungs-Export kommen drei Spalten dazu:
+
+```sql
+SELECT r.nr, r.belegnr, r.abacbelegnr, r.opdebi, r.kostenst_id, r.zahlbedid
+FROM rechnungen r;
+```
+
+`belegnr` ist die **Fibu**-Belegnummer, nicht die Rechnungsnummer — der
+Importer hält die beiden auseinander (`nr` wird zuerst zugeordnet).
+
+---
+
+## 9. Datenschutz
 
 Der produktive Bestand enthält Kundennamen, Adressen, Beträge sowie
 Personaldaten in `arbeiter` (AHV-Nummer, Geburtsdatum, Zivilstand, Kinderzahl,

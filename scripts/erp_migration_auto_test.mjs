@@ -79,11 +79,24 @@ t('Rechnungen ohne Pflichtspalte: nicht «sicher» (Import bleibt zu)', !rOhne.s
 t('… und die fehlende Spalte wird BENANNT', !!(rOhne.beste.fehlendePflicht || []).length);
 
 console.log('\n═══ A3 — Import-Reihenfolge (jeder Abschnitt hängt am vorherigen) ═══');
-eq('Reihenfolge Objekte → Adressen → Offerten → Aufträge → Rechnungen',
-  I.IMPORT_REIHENFOLGE, ['objekte', 'adressen', 'offerten', 'auftraege', 'rechnungen']);
-const gemischt = ['rechnungen', 'objekte', 'auftraege', 'adressen', 'offerten'];
+// BEWUSST ÜBERSTEUERT: der Guard pinnte die Liste der fünf Kopf-Abschnitte
+// wörtlich. Inzwischen laufen die Stammdaten davor und Positionen, Zahlungen
+// und Kreditoren danach. Eine gepinnte Liste blockierte jede weitere Sektion —
+// geprüft wird darum die ABSICHT: jede Abhängigkeit steht in der richtigen
+// Richtung. Genau das ist der Zweck der Reihenfolge.
+function vor(a, b) { return I.sektionRang(a) < I.sektionRang(b); }
+t('Objekte vor Offerten', vor('objekte', 'offerten'));
+t('Adressen vor Offerten', vor('adressen', 'offerten'));
+t('Offerten vor Aufträgen (der Auftrag erbt die Positionen)', vor('offerten', 'auftraege'));
+t('Aufträge vor Rechnungen (die Rechnung hängt am Auftrag)', vor('auftraege', 'rechnungen'));
+t('Konditionen vor Rechnungen (sie setzen die Zahlungsfrist)', vor('zahlbed', 'rechnungen'));
+t('Rechnungen vor Positionen (die Position braucht ihren Beleg)', vor('rechnungen', 'positionen'));
+t('Rechnungen vor Zahlungen', vor('rechnungen', 'zahlungen'));
+t('Aufträge vor Kreditoren (der Kreditor wird dem Auftrag zugeteilt)', vor('auftraege', 'kreditoren'));
+const gemischt = ['zahlungen', 'rechnungen', 'objekte', 'positionen', 'auftraege', 'adressen', 'offerten', 'zahlbed'];
 eq('sektionRang sortiert eine gemischte Ablage richtig',
-  gemischt.slice().sort((a, b) => I.sektionRang(a) - I.sektionRang(b)), I.IMPORT_REIHENFOLGE);
+  gemischt.slice().sort((a, b) => I.sektionRang(a) - I.sektionRang(b)),
+  I.IMPORT_REIHENFOLGE.filter(x => gemischt.indexOf(x) >= 0));
 t('unbekannter Abschnitt landet hinten', I.sektionRang('irgendwas') > I.sektionRang('rechnungen'));
 
 console.log('\n═══ A4 — mappingGuete zählt ehrlich ═══');
@@ -158,7 +171,12 @@ console.log('\n═══ B1 — Ablage-Feld statt Abschnitt-für-Abschnitt ═�
 t('Ablage-Feld für die Export-Dateien vorhanden', await page.isVisible('#migDrop'));
 t('mehrere Dateien auf einmal', await page.getAttribute('#migAutoFile', 'multiple') !== null);
 t('Erklärung nennt die automatische Erkennung', /erkennt selbst/i.test(await page.textContent('#migDrop')));
-t('der Weg über die Abschnitts-Karten bleibt offen', (await page.$$('.mig-card')).length === 5);
+// BEWUSST ÜBERSTEUERT: hier stand die Zahl 5. Gemeint ist, dass der manuelle
+// Weg neben dem Ablage-Feld erhalten bleibt — nicht, wie viele Abschnitte es
+// gibt. Geprüft wird darum gegen die tatsächlich registrierten Abschnitte.
+const migSekIds = await page.evaluate(() => (window.GemaErpImport.SEKTIONEN || []).map(x => x.id));
+t('der Weg über die Abschnitts-Karten bleibt offen',
+  (await page.$$('.mig-card')).length === migSekIds.length && migSekIds.length > 0);
 
 console.log('\n═══ B2 — 6 Dateien auf einmal, in falscher Reihenfolge abgelegt ═══');
 await page.setInputFiles('#migAutoFile', DATEIEN);
