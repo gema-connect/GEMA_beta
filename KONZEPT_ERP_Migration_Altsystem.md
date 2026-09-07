@@ -810,13 +810,26 @@ ORDER BY s.ser_next_rev;
 
 ### 8.11 Stunden
 
-`nstunden` ist die Tagesebene und deckt 2016 bis heute ab. `hours` darf als
-zweite Datei dazu — der Importer dedupliziert:
+**Die drei Tabellen sind keine Generationen, sondern drei Stufen desselben
+Ablaufs** (Auskunft des Betriebs, den Daten nicht anzusehen):
+
+1. **`termin.stunden`** — die Annahme aus der Disposition.
+2. **`hours`** — was der Monteur auf dem Handy erfasst, mit dem Termin als
+   Vorlage; er korrigiert dort bei Bedarf und trägt seine Spesen ein
+   (`hrs_termin_id`, `hrs_spesen`, `hrs_comment`). Läuft erst seit 2025-12,
+   weil die App neu ist.
+3. **`nstunden` / `stunden`** — der Stand im Stundenmodul, den der
+   Abteilungsleiter korrigiert, wenn etwas falsch erfasst wurde.
+
+Für den Import folgt daraus: **eine Abweichung zwischen Stufe 2 und 3 ist kein
+Konflikt, sondern die Korrektur.** Der freigegebene Wert gewinnt immer. Die
+Spalte `quelle` sagt dem Importer, welche Stufe eine Zeile trägt.
 
 ```sql
--- Datei 1: die Tageszeilen (Hauptbestand)
+-- Datei 1: der freigegebene Stand (Hauptbestand, 2016 bis heute)
 SELECT a.kuerzel AS arb_name, n.datum, n.stunden, n.rappnr,
-       ty.beschr AS arbtyp, ab.kurz AS absenz
+       ty.beschr AS arbtyp, ab.kurz AS absenz,
+       'freigegeben' AS quelle
 FROM nstunden n
 LEFT JOIN arbeiter a  ON a.id = n.arb_id
 LEFT JOIN arbtyp   ty ON ty.id = n.arbtyp
@@ -824,15 +837,27 @@ LEFT JOIN absenz   ab ON ab.id = n.absenz
 WHERE n.stunden <> 0
 ORDER BY n.datum;
 
--- Datei 2 (optional): die Einzeleintraege der letzten Monate
+-- Datei 2: die mobile Erfassung — bringt Spesen, Kommentar und den
+-- Termin-Bezug mit, den Datei 1 nicht kennt
 SELECT a.kuerzel AS arb_name, DATE(h.hrs_datetime) AS datum,
        h.hrs_length AS stunden, h.hrs_rapportnr AS rappnr,
-       h.hrs_description AS arbtyp, h.hrs_spesen AS spesen,
-       h.hrs_comment AS bemerkung
+       h.hrs_description AS arbtyp, h.hrs_spesen, h.hrs_comment,
+       h.hrs_terminguid, 'erfasst' AS quelle
 FROM hours h
 LEFT JOIN arbeiter a ON a.id = h.hrs_arb_id
 WHERE COALESCE(h.hrs_deleted,0) = 0 AND h.hrs_length <> 0;
 ```
+
+Beide Dateien dürfen in beliebiger Reihenfolge eingelesen werden — die Stufe
+entscheidet, nicht der Zeitpunkt des Imports. Korrigiert der freigegebene Wert
+den erfassten, bleibt der ursprüngliche als `importErfasst` am Eintrag sichtbar
+und wird im Bericht gezählt. Nur wenn zwei Zeilen **derselben** Stufe für Tag
+und Auftrag verschiedene Stunden liefern, gibt es keine Regel — dann meldet der
+Importer das, statt zu raten.
+
+Über `hrs_terminguid` bleibt die Kette Disposition → Zeit erhalten: ist der
+Termin importiert, trägt der Zeiteintrag dessen `einsatzId`. Dafür müssen die
+Termine **vor** den Stunden eingelesen werden (so steht es in der Reihenfolge).
 
 > Die Mitarbeitenden müssen in GEMA **vorher** angelegt sein — der Import
 > ordnet sie über den Namen zu. Was er nicht findet, wird gemeldet: die Zeit

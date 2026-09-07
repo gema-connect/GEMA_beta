@@ -307,6 +307,25 @@ function istSammelposition(doc){
   return !!(doc&&doc.importSumme)&&/^(Ü|U)bernahme aus dem Altsystem/.test(s(p[0]&&p[0].bez));
 }
 
+/* Stufe der Zeiterfassung → Rang.
+
+   Das Altsystem führt DREI Stufen desselben Ablaufs, nicht drei Generationen:
+     1. der Termin liefert die geplante Zeit (Annahme),
+     2. der Monteur erfasst sie auf dem Handy und korrigiert sie dort,
+     3. im Stundenmodul korrigiert der Abteilungsleiter, was falsch erfasst wurde.
+
+   Für den Import heisst das: eine Abweichung zwischen Stufe 2 und 3 ist KEIN
+   Konflikt, sondern genau die Korrektur. Der freigegebene Wert gewinnt immer.
+   Ohne Angabe gilt «freigegeben» — der Hauptbestand ist das Stundenmodul. */
+var STUNDEN_RANG={erfasst:1, freigegeben:2};
+function stundenQuelle(text){
+  var n=norm(text);
+  if(!n)return 'freigegeben';
+  if(n.indexOf('erfasst')===0||n.indexOf('mobil')===0||n.indexOf('handy')===0
+     ||n.indexOf('app')===0||n.indexOf('hours')===0)return 'erfasst';
+  return 'freigegeben';
+}
+
 /* Kreditoren-Status des Altsystems → GEMA
    (offen | freigegeben | zurueckgewiesen | bezahlt).
    REIHENFOLGE beachten: «zurückgewiesen» enthält kein Wort der anderen Regeln,
@@ -875,15 +894,17 @@ var SEKTIONEN=[
 },
 {
   id:'stunden', label:'Stunden', ic:'⏱', bereit:true,
-  info:'Erfasste Arbeitszeit je Mitarbeiter und Tag. Das Altsystem führt eine DAUER, GEMA sonst Von-/Bis-Zeiten — importierte Tage tragen deshalb nur die Dauer und lösen bewusst KEINE Nacht- oder Wochenendzuschläge aus. Mehrere Quellen (Tageszeilen und Einzeleinträge) dürfen zusammen eingelesen werden: gleiche Kombination aus Mitarbeiter, Datum und Auftrag wird nur einmal übernommen, Abweichungen werden gemeldet.',
+  info:'Erfasste Arbeitszeit je Mitarbeiter und Tag. Das Altsystem kennt drei Stufen desselben Ablaufs: der Termin liefert die Annahme, der Monteur erfasst auf dem Handy, und im Stundenmodul korrigiert der Abteilungsleiter. Beide Erfassungsstufen dürfen zusammen eingelesen werden — die Spalte «Stufe» entscheidet, welcher Wert gilt: der freigegebene schlägt den mobil erfassten. Das Altsystem führt eine DAUER, GEMA sonst Von-/Bis-Zeiten; importierte Tage tragen deshalb nur die Dauer und lösen bewusst KEINE Nacht- oder Wochenendzuschläge aus.',
   felder:[
     {id:'mitarbeiter',label:'Mitarbeiter', pflicht:true, hint:'Wird über den Namen einer Person der Firma zugeordnet', alias:['arbname','mitarbeiter','name1','arbeiter','kuerzel','monteur']},
     {id:'datum',     label:'Datum', pflicht:true, alias:['datum','date','tag']},
     {id:'stunden',   label:'Stunden', pflicht:true, hint:'Dezimal — 7.5 statt 7:30', alias:['stunden','hrslength','dauer','h','anzahl']},
+    {id:'quelle',    label:'Stufe', hint:'«freigegeben» (Stundenmodul, korrigiert) oder «erfasst» (Handy des Monteurs). Ohne Angabe gilt «freigegeben».', alias:['quelle','stufe','herkunft','source']},
     {id:'auftragNr', label:'Auftrags-Nr.', hint:'Ordnet die Zeit dem importierten Auftrag zu', alias:['rappnr','rapportnr','hrsrapportnr','auftragnr','auftragsnr']},
+    {id:'terminId',  label:'Termin-ID', hint:'Verknüpft die Zeit mit dem importierten Termin (im Export «hrs_terminguid»)', alias:['hrsterminguid','terminguid','terminid','hrsterminid']},
     {id:'taetigkeit',label:'Tätigkeit', alias:['arbtyp','taetigkeit','arbeit','hrsdescription','beschrieb']},
     {id:'absenz',    label:'Absenz', hint:'Gesetzt = Abwesenheit statt Arbeitszeit', alias:['absenz','hrsabsenzid','abwesenheit']},
-    {id:'spesen',    label:'Spesen', alias:['spesen','hrsspesen','auslagen']},
+    {id:'spesen',    label:'Spesen CHF', hint:'Betrag aus der App — GEMA führt Mittag und km separat, der Betrag bleibt als Vermerk am Tag', alias:['spesen','hrsspesen','auslagen']},
     {id:'bemerkung', label:'Bemerkung', alias:['bemerkung','bemerkungen','hrscomment','notiz']}
   ]
 },
@@ -1223,7 +1244,8 @@ function normalisiereZeile(row,map,sekId){
     return {
       mitarbeiter:g('mitarbeiter'), datum:parseDatum(g('datum')),
       stunden:parseBetrag(g('stunden')),
-      auftragNr:g('auftragNr'), taetigkeit:g('taetigkeit'),
+      quelle:stundenQuelle(g('quelle')),
+      auftragNr:g('auftragNr'), terminId:g('terminId'), taetigkeit:g('taetigkeit'),
       absenz:(stAbs&&stAbs!=='0')?stAbs:'',
       spesen:parseBetrag(g('spesen')), bemerkung:g('bemerkung')
     };
@@ -2497,34 +2519,66 @@ function stundenSchreiben(zeilen,report,opts){
       var ein=(t.eintraege||[]).slice();
       var da={};
       ein.forEach(function(e){da[norm([e.importAuftragNr,e.taetigkeit].join('|'))]=e;});
-      var neu=0;
+      // Termin-Bezug: der auf dem Handy erfasste Eintrag nennt den Termin,
+      // aus dem er entstanden ist. Ist der Termin importiert, bleibt die
+      // Kette Disposition → Zeit auch in GEMA erhalten.
+      var evIx={};
+      if(g.zl.some(function(z){return s(z.terminId);})){
+        poolEigene(EP_POOL).forEach(function(ev){
+          var e2=s(ev.extId||(ev.quelle&&ev.quelle.extId));
+          if(e2)evIx[norm(e2)]=ev;
+        });
+      }
+      var neu=0,spesenSum=0;
       g.zl.forEach(function(z){
         var min=Math.round((z.stunden||0)*60);
         if(!min)return;
+        if(z.spesen)spesenSum+=z.spesen;
         var k2=norm([z.auftragNr,z.taetigkeit].join('|'));
+        var rang=STUNDEN_RANG[z.quelle]||2;
         var vor=da[k2];
         if(vor){
-          /* Zwei Quellen (Tageszeilen und Einzeleinträge) liefern denselben
-             Schlüssel. Gleiche Dauer = Dublette, still übergehen. Andere Dauer
-             = echter Widerspruch, der GEMELDET und am Eintrag vermerkt wird —
-             hier darf nichts einfach überschrieben oder addiert werden. */
-          if((parseInt(vor.dauerMin,10)||0)!==min){
-            vor.importKonflikt={andereQuelle:min,uebernommen:parseInt(vor.dauerMin,10)||0};
+          var rangVor=STUNDEN_RANG[vor.importQuelle]||2;
+          var minVor=parseInt(vor.dauerMin,10)||0;
+          if(rang>rangVor){
+            /* Der freigegebene Wert korrigiert den mobil erfassten — das ist
+               genau der Zweck des Stundenmoduls, kein Widerspruch. Der alte
+               Wert bleibt als Vermerk sichtbar. */
+            if(minVor!==min){
+              vor.importErfasst=minVor;
+              report.stundenKorrigiert=(report.stundenKorrigiert||0)+1;
+            }
+            vor.dauerMin=min; vor.importQuelle=z.quelle;
+          }else if(rang===rangVor&&minVor!==min){
+            // Gleiche Stufe, verschiedene Dauer: hier gibt es keine Regel,
+            // welcher Wert gilt. Melden statt raten.
+            vor.importKonflikt={andereQuelle:min,uebernommen:minVor};
             report.stundenKonflikt=(report.stundenKonflikt||0)+1;
           }
+          // Was die andere Stufe zusätzlich weiss, wird ergänzt.
+          if(s(z.bemerkung)&&!s(vor.bemerkung))vor.bemerkung=s(z.bemerkung);
+          if(s(z.terminId)&&!s(vor.einsatzId)&&evIx[norm(z.terminId)])
+            vor.einsatzId=evIx[norm(z.terminId)].id;
           return;
         }
         var e={
           id:uid('e'), von:'', bis:'', pauseMin:0, dauerMin:min,
           objektId:'', objektName:'', taetigkeit:s(z.taetigkeit)||s(z.auftragNr)||'Übernahme Altsystem',
-          einsatzId:'', ausPlan:false, importAuftragNr:s(z.auftragNr)
+          einsatzId:'', ausPlan:false, importAuftragNr:s(z.auftragNr), importQuelle:z.quelle
         };
         if(s(z.absenz))e.importAbsenz=s(z.absenz);
         if(s(z.bemerkung))e.bemerkung=s(z.bemerkung);
-        if(z.spesen!=null&&z.spesen)e.importSpesen=z.spesen;
+        if(s(z.terminId)&&evIx[norm(z.terminId)]){e.einsatzId=evIx[norm(z.terminId)].id;e.ausPlan=true;}
         ein.push(e); da[k2]=e; neu++;
       });
-      if(!neu&&alt)return;
+      /* Spesen: GEMA führt am Tag «Mittag auswärts» und «km». Der Betrag aus
+         der App passt in keins von beiden — er wird daneben vermerkt, statt
+         eine Mittagspauschale oder eine Kilometerzahl zu erfinden. */
+      if(spesenSum){
+        t.spesen=Object.assign({},t.spesen||{});
+        if(t.spesen.importBetrag==null)t.spesen.importBetrag=Math.round(spesenSum*100)/100;
+      }
+      if(!neu&&alt&&!spesenSum)return;
       t.eintraege=ein;
       t.importiert=true;
       t.updatedAt=jetzt();
@@ -2824,6 +2878,7 @@ window.GemaErpImport={
   istSammelposition:istSammelposition, positionRecord:positionRecord,
   belegBrutto:belegBrutto, positionenNetto:positionenNetto, adressZusatz:adressZusatz,
   terminSchluessel:terminSchluessel,
+  stundenQuelle:stundenQuelle, STUNDEN_RANG:STUNDEN_RANG,
   MODULE_BELEG:MODULE_BELEG, POSTYP_ART:POSTYP_ART,
   // Engine-Exports für Node-Tests
   serialZuDatum:serialZuDatum, istDatumFmt:istDatumFmt, entescape:entescape,

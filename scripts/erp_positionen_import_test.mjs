@@ -296,6 +296,22 @@ eq('Auftrags-Nr.', std.ziel.auftragNr, '8123');
 t('ohne Stunden blockiert die Zeile',
   I.pruefe({ mitarbeiter: 'M', datum: '2026-01-01', stunden: null }, 'stunden')
     .some(h => h.typ === 'fehler'));
+
+// Die drei Stufen des Altsystems: Termin (Annahme) -> Handy (erfasst) ->
+// Stundenmodul (freigegeben). Eine Abweichung zwischen Stufe 2 und 3 ist die
+// KORREKTUR des Abteilungsleiters, kein Konflikt — der freigegebene Wert gilt.
+eq('ohne Angabe gilt «freigegeben» (Hauptbestand)', std.ziel.quelle, 'freigegeben');
+const stdMobil = zeile('stunden', ['arb_name', 'datum', 'stunden', 'quelle', 'hrs_spesen'],
+  ['Meier', '2026-05-04', '8.0', 'erfasst', '18.50']);
+eq('mobil erfasste Stufe erkannt', stdMobil.ziel.quelle, 'erfasst');
+eq('Spesenbetrag übernommen', stdMobil.ziel.spesen, 18.5);
+eq('«Handy» zählt auch als erfasst', I.normalisiereZeile(['x'], { quelle: 0 }, 'stunden').quelle, 'freigegeben');
+t('freigegeben schlägt erfasst (Rangfolge)',
+  I.STUNDEN_RANG.freigegeben > I.STUNDEN_RANG.erfasst);
+// GEGENPROBE: wären beide gleichrangig, ginge die Korrektur des
+// Abteilungsleiters verloren — je nach Importreihenfolge.
+t('GEGENPROBE — die Stufen sind NICHT gleichrangig',
+  I.STUNDEN_RANG.freigegeben !== I.STUNDEN_RANG.erfasst);
 // KRITISCH: pm_stunden zaehlte Eintraege ohne von/bis als 0 Minuten. Ohne den
 // dauerMin-Zweig gingen 91'586 importierte Tage still auf null.
 const stdHtml = fs.readFileSync(path.join(ROOT, 'pm_stunden.html'), 'utf8');
@@ -334,6 +350,7 @@ t('abweichende Belegsummen werden gemeldet', /rep\.summeAbweichung/.test(erpHtml
 t('Termine in der Zukunft werden eigens gezählt', /rep\.terminZukunft/.test(erpHtml));
 t('anstehende Revisionen werden eigens gezählt', /rep\.revisionKuenftig/.test(erpHtml));
 t('widersprüchliche Stunden werden gemeldet', /rep\.stundenKonflikt/.test(erpHtml));
+t('Korrekturen der Freigabe werden ausgewiesen', /rep\.stundenKorrigiert/.test(erpHtml));
 t('nicht zuordenbare Mitarbeitende werden gemeldet', /rep\.personFehlt/.test(erpHtml));
 
 console.log('');
