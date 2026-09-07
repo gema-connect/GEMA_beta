@@ -224,6 +224,30 @@ console.log('\n═══ A13 — jeder neue Abschnitt ist vollständig deklarier
   t(id + ': steht in der Import-Reihenfolge', I.IMPORT_REIHENFOLGE.indexOf(id) >= 0);
 });
 
+console.log('\n═══ A13b — Summenkontrolle nach dem Positions-Import ═══');
+// Die Sammelposition trug den Betrag des Altsystems. Ergeben die echten
+// Positionen etwas anderes (Belegrabatt, Akonto-Abzug, nachtraegliche
+// Aenderung), muss das auffallen statt still eine neue Summe zu erzeugen.
+eq('Netto zaehlt Titel und Text nicht mit', I.positionenNetto([
+  { art: 'titel', bez: 'Sanitär' },
+  { art: 'text', bez: 'Hinweis' },
+  { art: 'frei', menge: 2, ep: 50 }
+]), 100);
+eq('Rabatt je Position wird abgezogen',
+  I.positionenNetto([{ art: 'frei', menge: 1, ep: 100, rabattPct: 10 }]), 90);
+eq('leere Liste ergibt 0', I.positionenNetto([]), 0);
+// Die Formel des nlv-Modells, an einem echten Beleg verifiziert (netto 467.50):
+// EP = mat_price * mat_factor + labor_amount * labor_factor * labor_rate
+const nlvZeilen = [
+  { qty: 3.5, mat: 3.00, mf: 1.0, la: 1.0, lf: 1.0, lr: 122.00 },
+  { qty: 1.0, mat: 25.00, mf: 1.0, la: 0, lf: 1.0, lr: 0 },
+  { qty: 1.0, mat: 3.85, mf: 1.298, la: 0, lf: 1.0, lr: 100.14 }
+];
+const nlvPos = nlvZeilen.map(z => ({
+  art: 'frei', menge: z.qty, ep: Math.round((z.mat * z.mf + z.la * z.lf * z.lr) * 100) / 100
+}));
+eq('nlv-Formel trifft das Belegtotal auf den Rappen', I.positionenNetto(nlvPos), 467.5);
+
 console.log('\n═══ A14 — die Vorschau kennt jeden Abschnitt ═══');
 // Ohne eigenen Zweig fällt ein Abschnitt in der Vorschau auf die Adress-Ansicht
 // zurück und zeigt leere Spalten — der Nutzer sähe vor dem Import nicht, was
@@ -241,6 +265,7 @@ t('globale Plan-Warnungen werden angezeigt (kein stiller Deckel)',
 t('die neuen Zähler stehen im Abschluss-Bericht',
   /rep\.posBelege/.test(erpHtml) && /rep\.zahlungen/.test(erpHtml) &&
   /rep\.belegFehlt/.test(erpHtml) && /rep\.belegBesetzt/.test(erpHtml));
+t('abweichende Belegsummen werden gemeldet', /rep\.summeAbweichung/.test(erpHtml));
 
 console.log('');
 if (fail) { console.error('✗ ' + fail + ' von ' + n + ' Checks fehlgeschlagen'); process.exit(1); }

@@ -245,10 +245,37 @@ Summe. `lvposition` enthält die echten Positionen:
 | `lvposition` | **632 008 Zeilen** | Hauptbestand, relational und direkt lesbar |
 | `nlv` / `nlvposition` / `nlvprice` | 6 687 Köpfe / **241 628 Positionen** / 178 009 Preise | neueres Modell, Preise normalisiert über `price_id` in `nlvprice` (`mat_price`, `mat_discount`, `mat_loss`, `mat_factor`, `labor_amount`, `labor_factor`, `labor_rate`) |
 
-Beide relationalen Modelle sind gefüllt, es gab also eine Umstellung im
-laufenden Betrieb. **Der Positions-Import muss beide lesen** und je Beleg
-entscheiden, welches Modell greift. Die Verteilung von `module_id` in
-`lvposition`:
+**Gelöst: `nlv` wird nicht gebraucht.** Der Abgleich zeigt, dass die
+`nlv`-Belege fast vollständig auch in `lvposition` stehen:
+
+| Modul | `nlv`-Belege | davon auch in `lvposition` | **nur** im `nlv` |
+|---|---|---|---|
+| 2 (Offerten) | 2 914 | 2 905 | **9** |
+| 4 (Rechnungen) | 3 773 | 3 752 | **21** |
+
+99,7 % Überschneidung. Von rund 26 000 Belegen existieren **30** ausschliesslich
+im `nlv`-Modell. Der Import läuft deshalb durchgehend über `lvposition`, wo der
+Preis fertig in der Zeile steht; die 30 Ausnahmen behalten die Sammelposition
+mit dem korrekten Belegbetrag und werden im Bericht benannt.
+
+Struktur des `nlv`-Modells, falls die 30 doch von Hand nacherfasst werden:
+`title_id` und `sortorder` sind **unbenutzt** (alle NULL) — die Reihenfolge
+macht `autoid`. Die Zeilenart steckt allein in `price_id`: gesetzt = Position
+(177 446 Zeilen), NULL = Titel oder Text (64 182). Zwischen Titel und Text
+unterscheidet das Altsystem nicht.
+
+Der Einheitspreis steht dort nirgends, er wird gerechnet — an einem Beleg mit
+drei Positionen und Netto 467.50 auf den Rappen verifiziert:
+
+```
+EP    = mat_price × mat_factor + labor_amount × labor_factor × labor_rate
+Total = quantity × EP
+```
+
+`mat_loss` ist ein Faktor (0…1,15), `mat_discount` dagegen Prozent (0…100) —
+die beiden sind NICHT gleich skaliert.
+
+Die Verteilung von `module_id` in `lvposition`:
 
 | `module_id` | Bedeutung | Positionen | Belege |
 |---|---|---|---|
@@ -647,16 +674,22 @@ ORDER BY 1, 2, 3;
 > Der Assistent warnt davor, aber besser gleich schneiden — etwa mit
 > `AND YEAR(o.datum) = 2024` je Zweig.
 
-### 8.4 Positionen (`nlvposition` — 241 628 Zeilen)
+### 8.4 Positionen aus dem `nlv`-Modell — entfällt
 
-Das neuere Modell führt **kein `postyp`**. Der Importer leitet die Positionsart
-dann aus der Zeile ab (ohne Preis und Menge = Textzeile) und meldet jede
-abgeleitete Zeile in der Vorschau — er rät nicht still.
+Der Abgleich in Abschnitt 3.6 hat gezeigt, dass 99,7 % dieser Belege auch in
+`lvposition` stehen. Der Zweig wird **nicht** exportiert.
 
-Vor dem Export dieses Zweigs lohnt ein Blick auf fünf Beispielzeilen: ob
-`nlvposition.typ` oder `title_id` die Rolle von `postyp` übernimmt, ist aus der
-Struktur allein nicht zu erkennen. Findet sich dort eine Typ-Spalte, wandert
-sie als `postyp` in den Export und die Zuordnung wird wieder exakt.
+Die 30 Belege, die es nur dort gibt, findet diese Abfrage — sie behalten beim
+Import die Sammelposition und lassen sich bei Bedarf von Hand nacherfassen:
+
+```sql
+SELECT n.module_id, n.item_id,
+       CASE n.module_id WHEN 2 THEN 'Offerte' WHEN 4 THEN 'Rechnung' END art
+FROM nlv n
+WHERE NOT EXISTS (SELECT 1 FROM lvposition p
+                   WHERE p.module_id = n.module_id AND p.item_id = n.item_id)
+ORDER BY 1, 2;
+```
 
 ### 8.5 Zahlungen
 

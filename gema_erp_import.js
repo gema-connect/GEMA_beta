@@ -283,6 +283,16 @@ function posArt(roh,zeile){
   return {art:(hatPreis||hatMenge)?'frei':'text',erkannt:false};
 }
 
+/* Nettosumme einer Positionsliste — Titel und Textzeilen zählen nicht mit. */
+function positionenNetto(positionen){
+  var n=0;
+  (positionen||[]).forEach(function(p){
+    if(!p||p.art==='titel'||p.art==='text')return;
+    n+=(parseFloat(p.ep)||0)*(parseFloat(p.menge)||0)*(1-((parseFloat(p.rabattPct)||0)/100));
+  });
+  return Math.round(n*100)/100;
+}
+
 /* Trägt der Beleg nur die beim Kopf-Import erzeugte Sammelposition?
 
    Nur dann darf der Positions-Import sie ersetzen. Ein von Hand erfasstes oder
@@ -1917,6 +1927,22 @@ function positionenSchreiben(zeilen,report,opts){
       });
       var doc=Object.assign({},akt);
       doc.positionen=g.pos.map(function(p){return positionRecord(p.z);});
+      /* Summenkontrolle: Die Sammelposition trug den Betrag, den das Altsystem
+         am Beleg führt. Ergeben die echten Positionen etwas anderes, ist das
+         eine Aussage — Belegrabatt, Akonto-Abzug oder ein nachträglich
+         geänderter Beleg. Sie wird am Dokument festgehalten und gezählt, statt
+         den Beleg stillschweigend mit einer neuen Summe dastehen zu lassen.
+         Toleranz: ein Franken oder ein halbes Promille, was grösser ist. */
+      var soll=(akt.importSumme&&akt.importSumme.netto!=null)?akt.importSumme.netto:null;
+      if(soll!=null){
+        var ist=positionenNetto(doc.positionen);
+        if(Math.abs(ist-soll)>Math.max(1,Math.abs(soll)*0.005)){
+          doc.importSummeAbweichung={soll:soll,ist:ist,diff:Math.round((ist-soll)*100)/100};
+          report.summeAbweichung=(report.summeAbweichung||0)+1;
+        }else if(doc.importSummeAbweichung){
+          delete doc.importSummeAbweichung;
+        }
+      }
       doc.updatedAt=jetzt();
       report.posBelege=(report.posBelege||0)+1;
       report.posZeilen=(report.posZeilen||0)+doc.positionen.length;
@@ -2380,7 +2406,7 @@ window.GemaErpImport={
   objektSchluessel:objektSchluessel,
   posArt:posArt, belegTyp:belegTyp, kreditorStatus:kreditorStatus,
   istSammelposition:istSammelposition, positionRecord:positionRecord,
-  belegBrutto:belegBrutto, adressZusatz:adressZusatz,
+  belegBrutto:belegBrutto, positionenNetto:positionenNetto, adressZusatz:adressZusatz,
   MODULE_BELEG:MODULE_BELEG, POSTYP_ART:POSTYP_ART,
   // Engine-Exports für Node-Tests
   serialZuDatum:serialZuDatum, istDatumFmt:istDatumFmt, entescape:entescape,
