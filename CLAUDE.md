@@ -293,7 +293,7 @@ Registrierung eines NEUEN Moduls (Reihenfolge): `gema_auth.js` (MODULES + FILE_M
 | `pm_behoerden_formulare` | Pool-Definition + Objekt-Instanz, KI-Feldanalyse, Split-View PDF/Zuordnung, AcroForm-Befüllung (pdf-lib), Watcher + Cron. |
 | `pm_goodel` | Terminabstimmung, org-gescopt, externer Freigabe-Link (`goodel-share.js`), Lösch-Buttons brauchen `gema-read-ok`. |
 | `pm_wirtschaftlichkeit` | Varianten-Kostenvergleich (Annuität/Mittelwert), Rückzahlfrist mit korrigiertem Zins (Excel-Bug dokumentiert), Amortisations-Diagramm. |
-| `pm_machbarkeitsstudie` / `pm_zustandsanalyse` | Vollbild-Studien nach S+P-Vorlage: Kapitel mit Standardtexten, eigene Feldtypen (jeder braucht UI **und** Bericht-Zweig in `_bFeld`), Material mit Lebensdauer-Ampel, Foto-Queue, Print + Word. |
+| `pm_machbarkeitsstudie` / `pm_zustandsanalyse` | Vollbild-Studien nach S+P-Vorlage: Kapitel mit Standardtexten, eigene Feldtypen (jeder braucht UI **und** Bericht-Zweig in `_bFeld`), Material mit Lebensdauer-Ampel, Foto-Queue, Print + Word. **Zustandsanalyse: Fotos je Kapitel nach RAUM unterteilt** (`f.raum`, Blöcke natürlich sortiert, «Ohne Raum» zuletzt) mit Bemerkung je Raum (`cur.raumNotiz[kapId][raum]`) — Raum anlegen/umbenennen/entfernen migriert die Fotos mit, gelöscht wird nie; Bildunterschrift an der Kachel + Datei-Drag&Drop in den Raum-Block; Bericht gliedert gleich. Raum-Index (nicht -Name) in onclick, Test-Hooks `window._zaHooks`. Guard `scripts/schaden_bilder_raeume_test.mjs`. |
 | `pm_lebensdauer` | Katalog (`gema_lebensdauer_api.js`, ~253 Einträge, MV/HEV) + Ampel-Rechner; Org-Overrides via `basisId`. |
 | `pm_wareneingang` → siehe `if_wareneingang` | |
 | weitere | `pm_ausschreibung` (Hub), `pm_crbx` (SIA-451-Offertvergleich, org-gescopt), `pm_schnellausschreibung`, `pm_besprechung`, `pm_kostenkontrolle`, `pm_baustelle`. |
@@ -312,7 +312,7 @@ Registrierung eines NEUEN Moduls (Reihenfolge): `gema_auth.js` (MODULES + FILE_M
 | `hy_spuelmanager` | Spülobjekte/-stellen/-vorgänge, QR-Timer mit Countdown, Fälligkeit, Kopplung zu Legionellen + Immobilien. |
 | `hy_w12` | SVGW W12 Selbstkontrolle, 17 GVP-Module. |
 | `sv_service` | Anlagenregister + Wartungsverträge + Serviceaufträge, Import aus Offertanfragen, Cross-Modul-Writes (Einsatz, ERP-Rechnung), QR-Wartungsdoku, Schlüssel/Bereich an den Termin. |
-| `sd_schadensbericht` | Phasen Erfasst→Analyse→Trocknung→Abschluss, **Bereichs-Struktur** (Fotos/Messpunkte/Geräte je Bereich, `raum` additiv), Geräte-Tage TAG-INKLUSIV (identisch in `gema_schaden_pdf.js`), Messwerte mit Foto-Beleg, Bereich-Trocknung abschliessbar, Print + jsPDF + Word. |
+| `sd_schadensbericht` | Phasen Erfasst→Analyse→Trocknung→Abschluss, **Bereichs-Struktur** (Fotos/Messpunkte/Geräte je Bereich, `raum` additiv), Geräte-Tage TAG-INKLUSIV (identisch in `gema_schaden_pdf.js`), Messwerte mit Foto-Beleg, Bereich-Trocknung abschliessbar, Print + jsPDF + Word. **Bildunterschrift direkt an der Kachel** (`sdUpdatePhotoCaption`, `change` statt `input`) plus ✎-Dialog mit Vorschau; **Bilddateien per Drag&Drop** in die Bereichs-Karte (auch mehrere; `data-drop-phase` markiert die Ablagefläche, `sdImportFiles` importiert seriell ohne Dialogkette — der Dateiwahl-Weg behält seine). Guard `scripts/schaden_bilder_raeume_test.mjs`. |
 | `sp_dachbericht` | Kapitel/Unterkapitel mit Org-Templates, Rich-Text-Felder (`gema_richtext.js`), Claude-Texthilfe, Bilder-Grid 1/2/4/6 mit Seitenumbruch. |
 
 ### System & Ausbildung
