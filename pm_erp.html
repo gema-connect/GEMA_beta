@@ -7078,6 +7078,14 @@ function erpMigRender(){
       ? '<th>Katalog</th><th>Art.-Nr.</th><th>Bezeichnung</th><th>EH</th><th class="num">Preis</th>'
       : _mig.sekId==='zahlbed'
       ? '<th>Kürzel</th><th>Bezeichnung</th><th class="num">Tage</th><th>Skonto</th>'
+      : _mig.sekId==='termine'
+      ? '<th>Datum</th><th>Zeit</th><th>Art</th><th>Arbeit</th><th>Monteur</th><th>Auftrag</th>'
+      : _mig.sekId==='anlagen'
+      ? '<th>Bezeichnung</th><th>Hersteller / Typ</th><th>Serien-Nr.</th><th>Objekt</th><th>Letzte Rev.</th><th>Nächste Rev.</th><th class="num">Int.</th>'
+      : _mig.sekId==='stunden'
+      ? '<th>Mitarbeiter</th><th>Datum</th><th class="num">Stunden</th><th>Auftrag</th><th>Tätigkeit</th>'
+      : _mig.sekId==='bezugspersonen'
+      ? '<th>Objekt</th><th>Name</th><th>Rolle</th><th>Kontakt</th><th>Wohnung</th>'
       : '<th>Kd-Nr.</th><th>Name</th><th>Adresse</th><th>Kontakt</th><th>Typ</th>')
     +'<th>Hinweis</th></tr></thead><tbody>';
   zz.forEach(function(z){
@@ -7154,6 +7162,34 @@ function erpMigRender(){
       h3+='<td>'+esc(t.katalog||'—')+'</td><td>'+esc(t.artNr||'—')+'</td>'
         +'<td>'+esc((t.bez||'').slice(0,70))+'</td><td>'+esc(t.einheit||'—')+'</td>'
         +'<td class="num" style="white-space:nowrap">'+(t.ep!=null?t.ep.toFixed(2):'—')+'</td>';
+    }else if(_mig.sekId==='termine'){
+      var tTyp={auftrag:'📋 Auftrag',frei:'🔧 Frei',ferien:'🏖 Abwesend'}[t.typ]||t.typ;
+      h3+='<td><b>'+esc(t.datum||'—')+'</b></td>'
+        +'<td>'+esc([t.zeitVon,t.zeitBis].filter(Boolean).join('–')||'—')+'</td>'
+        +'<td>'+esc(tTyp)+'</td>'
+        +'<td>'+esc((t.titel||'').slice(0,50))+'</td>'
+        +'<td>'+esc(t.monteur||'—')+'</td><td>'+esc(t.auftragNr||'—')+'</td>';
+    }else if(_mig.sekId==='anlagen'){
+      var heute=new Date().toISOString().slice(0,10);
+      var nx=t.naechsteWartung||'';
+      h3+='<td><b>'+esc((t.name||'').slice(0,40))+'</b></td>'
+        +'<td>'+esc([t.hersteller,t.modell].filter(Boolean).join(' · ')||'—')+'</td>'
+        +'<td>'+esc(t.serienNr||'—')+'</td>'
+        +'<td>'+esc([t.objekt&&t.objekt.strasse,t.objekt&&t.objekt.ort].filter(Boolean).join(', ')||'—')+'</td>'
+        +'<td>'+esc(t.letzteWartung||'—')+'</td>'
+        +'<td>'+(nx?(nx>=heute?'<b style="color:var(--grn)">'+esc(nx)+'</b>':esc(nx)):'—')+'</td>'
+        +'<td class="num">'+(t.intervall!=null?t.intervall:'—')+'</td>';
+    }else if(_mig.sekId==='stunden'){
+      h3+='<td><b>'+esc(t.mitarbeiter||'—')+'</b></td><td>'+esc(t.datum||'—')+'</td>'
+        +'<td class="num"><b>'+(t.stunden!=null?t.stunden:'—')+'</b></td>'
+        +'<td>'+esc(t.auftragNr||'—')+'</td>'
+        +'<td>'+esc((t.taetigkeit||'').slice(0,40)||(t.absenz?'Absenz '+esc(t.absenz):'—'))+'</td>';
+    }else if(_mig.sekId==='bezugspersonen'){
+      h3+='<td>'+esc([t.objekt&&t.objekt.strasse,t.objekt&&t.objekt.ort].filter(Boolean).join(', ')||t.objektNr||'—')+'</td>'
+        +'<td><b>'+esc([t.vorname,t.name].filter(Boolean).join(' '))+'</b></td>'
+        +'<td>'+esc(t.rolle||'—')+'</td>'
+        +'<td style="font-size:11px">'+esc([t.tel,t.natel,t.email].filter(Boolean).join(' · ')||'—')+'</td>'
+        +'<td>'+esc(t.wohnung||'—')+'</td>';
     }else if(_mig.sekId==='zahlbed'){
       h3+='<td><b>'+esc(t.kuerzel||'—')+'</b></td><td>'+esc(t.label||'—')+'</td>'
         +'<td class="num">'+(t.tage!=null?t.tage:'—')+'</td>'
@@ -7285,6 +7321,14 @@ function erpMigStart(){
     if(rep.artikel)txt+=', <b>'+rep.artikel+'</b> Artikel'+(rep.kataloge?' in '+rep.kataloge+' neuen Katalogen':'');
     if(rep.belegFehlt)txt+='<br><span style="color:var(--amber)">'+rep.belegFehlt+' × der Beleg war nicht gefunden — bitte zuerst die Offerten und Rechnungen importieren.</span>';
     if(rep.belegBesetzt)txt+='<br><span style="color:var(--amber)">'+rep.belegBesetzt+' Belege führen bereits Positionen und blieben unverändert.</span>';
+    if(rep.terminZukunft)txt+=', davon <b>'+rep.terminZukunft+'</b> in der Zukunft';
+    if(rep.revisionKuenftig)txt+=', <b>'+rep.revisionKuenftig+'</b> mit anstehender Revision';
+    if(rep.stundenTage)txt+=', <b>'+rep.stundenEintraege+'</b> Zeiteinträge auf <b>'+rep.stundenTage+'</b> Tagen';
+    if(rep.personen)txt+=', <b>'+rep.personen+'</b> Bezugspersonen ergänzt';
+    if(rep.personFehlt)txt+='<br><span style="color:var(--amber)">'+rep.personFehlt+' Tage konnten keinem GEMA-Benutzer zugeordnet werden — die Zeit ist erfasst, aber ohne Person. Bitte die Mitarbeitenden zuerst anlegen.</span>';
+    if(rep.objektFehlt)txt+='<br><span style="color:var(--amber)">'+rep.objektFehlt+' × das Objekt war nicht gefunden — bitte zuerst die Objekte importieren.</span>';
+    if(rep.stundenKonflikt)txt+='<br><span style="color:var(--amber)">'+rep.stundenKonflikt+' × liefern zwei Quellen für denselben Tag und Auftrag unterschiedliche Stunden. Übernommen wurde der erste Wert; die Abweichung steht am Eintrag unter «importKonflikt».</span>';
+    if(rep.revisionAbweichung)txt+='<br><span style="color:var(--amber)">Bei '+rep.revisionAbweichung+' Anlagen passt die nächste Revision des Altsystems nicht zu «letzte Wartung + Intervall». GEMA rechnet sie neu; der alte Wert steht unter «importNaechsteRevision».</span>';
     if(rep.summeAbweichung)txt+='<br><span style="color:var(--amber)">Bei '+rep.summeAbweichung+' Belegen weicht die Summe der Positionen vom Betrag des Altsystems ab '
       +'(Belegrabatt, Akonto-Abzug oder nachträgliche Änderung). Die Differenz steht am Beleg unter «importSummeAbweichung».</span>';
     if(rep.offerteFehlt)txt+='<br><span style="color:var(--amber)">'+rep.offerteFehlt+' × die angegebene Offerte war nicht gefunden — bitte zuerst die Offerten importieren.</span>';

@@ -166,10 +166,11 @@ console.log('\n═══ A6 — Abschnitte & Kopfzeile ═══');
 // Erweiterung blockieren — geprüft wird darum die ABSICHT: alle Abschnitte, die
 // es geben MUSS, sind da, und keiner ist ein leeres Gerüst.
 const KERN = ['objekte', 'adressen', 'offerten', 'auftraege', 'rechnungen'];
-const NACHGEZOGEN = ['positionen', 'zahlungen', 'kreditoren', 'artikel', 'zahlbed'];
+const NACHGEZOGEN = ['positionen', 'zahlungen', 'kreditoren', 'artikel', 'zahlbed',
+  'termine', 'anlagen', 'stunden', 'bezugspersonen'];
 t('Alle Kopf-Abschnitte registriert',
   KERN.every(id => I.SEKTIONEN.some(x => x.id === id)));
-t('Positionen, Zahlungen, Kreditoren, Artikel und Konditionen registriert',
+t('Positionen, Zahlungen, Kreditoren, Artikel, Konditionen, Termine, Anlagen, Stunden und Bezugspersonen registriert',
   NACHGEZOGEN.every(id => I.SEKTIONEN.some(x => x.id === id)));
 t('Kein Abschnitt doppelt', new Set(I.SEKTIONEN.map(x => x.id)).size === I.SEKTIONEN.length);
 eq('Kein Abschnitt wartet mehr auf einen Export',

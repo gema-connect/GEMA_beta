@@ -552,10 +552,42 @@ Kopfdaten. Es fehlen:
 | **Zahlungen** | `rechnungen.zahlungsdatum` / `.zahlungsbetrag` | 10 328 | ersetzt den Stichtag-Behelf |
 | **Kreditoren** | `kreditoren` + `kredzut` | 27 044 | inkl. Freigabe-/Kontrollvermerke |
 | **Artikelstamm** | `abarticle` + `abchapter`/`absheet`/`abtitle`/`abline` | 15 888 | → `erpkat:` |
-| **Bezugspersonen** | `zuhand`, `objadr`, `contact` | ~75 000 | am Kunden und am Objekt |
+| **Bezugspersonen** | `zuhand` + `contact` + `contactkrit` | ~54 000 Zuordnungen | → `objekt.bezugspersonen[]` |
+| **Termine** | `termin` | 7 000, davon etliche bis 2027-07 | → `einsatz:` (pm_einsatzplan) |
+| **Anlagen** | `services` + `apparate` + `komponenten` | 394 Anlagen, **184 mit künftiger Revision** | → `svanl:` (sv_service) |
+| **Stunden** | `nstunden` + `stunden` (+ `hours`) | 91 586 Tageszeilen | → `std:` (pm_stunden) |
 
-Später und optional: Stunden (`stunden`/`nstunden`/`stdtot`/`spesen`),
-Service (`services`/`apparate`/`komponenten`), Termine (`termin`).
+**Die drei zuletzt genannten entsprechen den Modulen «Termine», «Anlagen» und
+«Stunden» in der Modulleiste des Altsystems** und waren im ersten Wurf nicht
+abgedeckt. Zwei davon sind operativ kritisch, unabhängig von der Frage, wie
+viel Historie übernommen wird:
+
+- **Termine reichen bis 28. Juli 2027.** Das ist die geplante Arbeit der
+  nächsten Monate, nicht bloss Dokumentation. 4 887 hängen an einem Auftrag,
+  1 605 sind Abwesenheiten, 1 950 stammen aus Serien.
+- **184 von 394 Anlagen haben eine Revision in der Zukunft** (bis 2037). Das
+  ist der aktive Wartungskalender — der einzige Bestand hier, dessen Verlust
+  unmittelbar Umsatz kostet.
+
+**`hours` ist die dritte Stunden-Generation und weitgehend redundant**: sie
+deckt nur 2025-12 bis 2026-09 ab, und 5 183 ihrer 5 212 Einträge haben am
+selben Tag bereits einen `nstunden`-Eintrag. Sie darf trotzdem mitgelesen
+werden — der Importer dedupliziert über Mitarbeiter · Datum · Auftrag und
+meldet, wenn zwei Quellen für denselben Schlüssel verschiedene Stunden
+liefern. Damit gehen die 29 fehlenden Tage nicht verloren und nichts zählt
+doppelt.
+
+**Kriterien sind kein eigenes Modul**, sondern die Rolle einer Person
+(`krit`, 32 Einträge: Bewohner 7 040 · Besteller 5 839 · Eigentümer 3 441 ·
+Mieter 3 354 · Bauherr · Architekt · Verwalter · «Schlüssel bei» …). Sie
+wandern als Adresstyp mit den Bezugspersonen mit. Zwei Auffälligkeiten:
+«Kontakt» existiert doppelt (1 480 und 320 Zuordnungen), und elf Kriterien
+haben null Zuordnungen — darunter vier «Programm …»-Einträge, die auf
+geplante Serviceprogramme hindeuten.
+
+Nicht migriert: `terminsmscontact` (leer), `stdtot`/`spesen`/`arbueber`
+(Wochentotale, Spesen und Jahressalden — GEMA rechnet die Totale selbst; die
+Salden aus `arbueber` müssten von Hand als Startwert gesetzt werden).
 
 ### 7.2 Felder, die in GEMA zu ergänzen sind
 
@@ -742,6 +774,98 @@ FROM rechnungen r;
 
 `belegnr` ist die **Fibu**-Belegnummer, nicht die Rechnungsnummer — der
 Importer hält die beiden auseinander (`nr` wird zuerst zugeordnet).
+
+---
+
+### 8.9 Termine
+
+```sql
+SELECT t.guid, t.datum, t.von, t.bis, t.arbeit, t.absenz, t.arbtyp,
+       t.stunden, t.location, t.serie_id, t.private_text,
+       a.kuerzel AS arb_name, r.rapport_nr
+FROM termin t
+LEFT JOIN arbeiter a ON a.id = t.arb_id
+LEFT JOIN rapporte r ON r.id = t.rapp_id
+ORDER BY t.datum;
+```
+
+> **Zuerst die künftigen exportieren** (`WHERE t.datum >= CURDATE()`) — das ist
+> die geplante Arbeit und der Teil, der beim Wechsel wirklich fehlen würde.
+> Die Historie kann danach folgen.
+
+### 8.10 Anlagen (Service)
+
+```sql
+SELECT s.id, s.ser_app_beschr, s.ser_app_fabrikaservapp, s.ser_app_typ,
+       s.ser_app_nr, s.ser_standort, s.ser_inst_datum,
+       s.ser_last_rev, s.ser_next_rev, s.ser_rev_int, s.ser_vertragsnr,
+       s.ser_strasse, s.ser_plz, s.ser_ort, s.ser_bemerkungen,
+       k.app_beschr AS kategorie, ab.name1 AS abt_name
+FROM services s
+LEFT JOIN appkat k  ON k.id  = s.ser_kat_id
+LEFT JOIN abt    ab ON ab.id = s.ser_abt_id
+WHERE COALESCE(s.ser_storniert,0) = 0
+ORDER BY s.ser_next_rev;
+```
+
+### 8.11 Stunden
+
+`nstunden` ist die Tagesebene und deckt 2016 bis heute ab. `hours` darf als
+zweite Datei dazu — der Importer dedupliziert:
+
+```sql
+-- Datei 1: die Tageszeilen (Hauptbestand)
+SELECT a.kuerzel AS arb_name, n.datum, n.stunden, n.rappnr,
+       ty.beschr AS arbtyp, ab.kurz AS absenz
+FROM nstunden n
+LEFT JOIN arbeiter a  ON a.id = n.arb_id
+LEFT JOIN arbtyp   ty ON ty.id = n.arbtyp
+LEFT JOIN absenz   ab ON ab.id = n.absenz
+WHERE n.stunden <> 0
+ORDER BY n.datum;
+
+-- Datei 2 (optional): die Einzeleintraege der letzten Monate
+SELECT a.kuerzel AS arb_name, DATE(h.hrs_datetime) AS datum,
+       h.hrs_length AS stunden, h.hrs_rapportnr AS rappnr,
+       h.hrs_description AS arbtyp, h.hrs_spesen AS spesen,
+       h.hrs_comment AS bemerkung
+FROM hours h
+LEFT JOIN arbeiter a ON a.id = h.hrs_arb_id
+WHERE COALESCE(h.hrs_deleted,0) = 0 AND h.hrs_length <> 0;
+```
+
+> Die Mitarbeitenden müssen in GEMA **vorher** angelegt sein — der Import
+> ordnet sie über den Namen zu. Was er nicht findet, wird gemeldet: die Zeit
+> ist dann erfasst, aber ohne Person.
+
+### 8.12 Bezugspersonen mit ihrer Rolle
+
+Die Personen hängen über `contact` an Objekt und Beleg, die Rolle liefert
+`contactkrit` → `krit`:
+
+```sql
+SELECT o.id AS obj_id, o.strasse, o.plz, o.ort,
+       z.zuhanden, z.vorname, z.tel1, z.natel, z.email,
+       c.wohnung, c.bemerkungen, k.kriterium
+FROM contact c
+JOIN obj    o ON o.id = c.item_id AND c.module_id = 1
+JOIN zuhand z ON z.id = c.zuhand_id
+LEFT JOIN contactkrit ck ON ck.contact_id = c.autoid
+LEFT JOIN krit        k  ON k.id = ck.krit_id
+ORDER BY o.id;
+```
+
+`module_id = 1` sind die Objekte. Ob das stimmt, zeigt eine Gegenprobe vor dem
+Export — die `contact`-Verteilung war 0 (1 459) · 1 (9 138) · 2 (7 706) ·
+3 (17 450) · 4 (17 171) · 6 (662), und 2 bzw. 4 sind als Offerte und Rechnung
+bereits belegt:
+
+```sql
+SELECT c.module_id, COUNT(*) n,
+       SUM(EXISTS(SELECT 1 FROM obj      o WHERE o.id = c.item_id)) trifft_obj,
+       SUM(EXISTS(SELECT 1 FROM rapporte r WHERE r.id = c.item_id)) trifft_rapport
+FROM contact c GROUP BY c.module_id ORDER BY n DESC;
+```
 
 ---
 

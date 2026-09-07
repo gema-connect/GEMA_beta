@@ -830,6 +830,80 @@ var SEKTIONEN=[
     {id:'skontoPct', label:'Skonto %', alias:['skonto1','skonto','skontopct']},
     {id:'fibuCode',  label:'Fibu-Code', hint:'Vermerk für die Fibu-Anbindung', alias:['fibucode','fibu']}
   ]
+},
+{
+  id:'termine', label:'Termine', ic:'📅', bereit:true,
+  info:'Die Disposition aus dem Altsystem — Aufträge, freie Termine und Abwesenheiten. Termine, die in der Zukunft liegen, sind der wichtigste Teil: sie sind die geplante Arbeit der nächsten Monate. Der Monteur wird über den Namen einer Person der Firma zugeordnet, der Auftrag über seine Nummer.',
+  felder:[
+    {id:'extId',    label:'ID im Altsystem', hint:'Für den Wiederholungs-Import (keine Dubletten)', alias:['guid','id','terminid']},
+    {id:'datum',    label:'Datum', pflicht:true, alias:['datum','date','termindatum']},
+    {id:'zeitVon',  label:'Von', alias:['von','zeitvon','start','beginn']},
+    {id:'zeitBis',  label:'Bis', alias:['bis','zeitbis','ende']},
+    {id:'titel',    label:'Arbeit / Titel', pflicht:true, alias:['arbeit','titel','betreff','taetigkeit','text']},
+    {id:'monteur',  label:'Monteur', hint:'Wird über den Namen zugeordnet', alias:['monteur','arbname','mitarbeiter','name1','arbeiter']},
+    {id:'auftragNr',label:'Auftrags-Nr.', hint:'Verknüpft den Termin mit dem importierten Auftrag', alias:['rapportnr','auftragnr','auftragsnr','rappnr']},
+    {id:'absenz',   label:'Absenz', hint:'Gesetzt = Abwesenheit statt Einsatz', alias:['absenz','abwesenheit','ferien']},
+    {id:'arbtyp',   label:'Arbeitsart', alias:['arbtyp','arbeitsart','typ']},
+    {id:'stunden',  label:'Geplante Stunden', alias:['stunden','effectivetime','dauer','h']},
+    {id:'standort', label:'Standort', alias:['location','standort','ort']},
+    {id:'serie',    label:'Serien-Nr.', hint:'Nur als Vermerk — GEMA legt keine Serie an', alias:['serieid','serie','serienr']},
+    {id:'notiz',    label:'Notiz', alias:['privatetext','notiz','bemerkung','bemerkungen']}
+  ]
+},
+{
+  id:'anlagen', label:'Anlagen (Service)', ic:'⚙️', bereit:true,
+  info:'Anlagenregister mit Revisionsintervall und letzter Wartung. Der Revisionskalender ist der operativ kritischste Datenbestand der Migration — geht er verloren, fehlen die anstehenden Wartungen. Das Objekt wird über die Adresse verknüpft.',
+  felder:[
+    {id:'extId',       label:'ID im Altsystem', hint:'Für den Wiederholungs-Import (keine Dubletten)', alias:['id','sernr','anlageid']},
+    {id:'name',        label:'Bezeichnung', pflicht:true, alias:['serappbeschr','appbeschr','bezeichnung','name','beschrieb']},
+    {id:'kategorie',   label:'Kategorie', alias:['serkatid','appkat','kategorie','kat']},
+    {id:'hersteller',  label:'Hersteller / Fabrikat', alias:['serappfabrikaservapp','appfabrikant','fabrikant','hersteller','fabrikat']},
+    {id:'modell',      label:'Typ / Modell', alias:['serapptyp','apptyp','modell','typ']},
+    {id:'serienNr',    label:'Serien-Nr.', alias:['serappnr','appnr','seriennr','serienummer']},
+    {id:'standort',    label:'Standort', alias:['serstandort','standort','platzierung']},
+    {id:'inbetrieb',   label:'Inbetriebnahme', alias:['serinstdatum','instdatum','inbetriebnahme','installation']},
+    {id:'letzteWartung',label:'Letzte Revision', alias:['serlastrev','lastrev','letztewartung','letzterevision']},
+    {id:'naechsteWartung',label:'Nächste Revision', hint:'Treibt den Wartungskalender', alias:['sernextrev','nextrev','naechsterevision','naechstewartung']},
+    {id:'intervall',   label:'Intervall (Monate)', alias:['serrevint','revint','intervall','intervallmonate']},
+    {id:'vertragsNr',  label:'Vertrags-Nr.', hint:'Vermerk — GEMA-Wartungsverträge werden separat erfasst', alias:['servertragsnr','vertragsnr','vertragnr']},
+    {id:'strasse',     label:'Objekt: Strasse / Nr.', hint:'Verknüpft die Anlage mit dem Objekt', alias:['serstrasse','strasse','str']},
+    {id:'plz',         label:'Objekt: PLZ', alias:['serplz','plz']},
+    {id:'ort',         label:'Objekt: Ort', alias:['serort','ort']},
+    {id:'abteilung',   label:'Abteilung', hint:'Wird zum GEMA-Arbeitsbereich', alias:['serabtid','abtname','abteilung','bereich']},
+    {id:'notiz',       label:'Bemerkungen', alias:['serbemerkungen','bemerkung','bemerkungen','notiz','serprotokoll']}
+  ]
+},
+{
+  id:'stunden', label:'Stunden', ic:'⏱', bereit:true,
+  info:'Erfasste Arbeitszeit je Mitarbeiter und Tag. Das Altsystem führt eine DAUER, GEMA sonst Von-/Bis-Zeiten — importierte Tage tragen deshalb nur die Dauer und lösen bewusst KEINE Nacht- oder Wochenendzuschläge aus. Mehrere Quellen (Tageszeilen und Einzeleinträge) dürfen zusammen eingelesen werden: gleiche Kombination aus Mitarbeiter, Datum und Auftrag wird nur einmal übernommen, Abweichungen werden gemeldet.',
+  felder:[
+    {id:'mitarbeiter',label:'Mitarbeiter', pflicht:true, hint:'Wird über den Namen einer Person der Firma zugeordnet', alias:['arbname','mitarbeiter','name1','arbeiter','kuerzel','monteur']},
+    {id:'datum',     label:'Datum', pflicht:true, alias:['datum','date','tag']},
+    {id:'stunden',   label:'Stunden', pflicht:true, hint:'Dezimal — 7.5 statt 7:30', alias:['stunden','hrslength','dauer','h','anzahl']},
+    {id:'auftragNr', label:'Auftrags-Nr.', hint:'Ordnet die Zeit dem importierten Auftrag zu', alias:['rappnr','rapportnr','hrsrapportnr','auftragnr','auftragsnr']},
+    {id:'taetigkeit',label:'Tätigkeit', alias:['arbtyp','taetigkeit','arbeit','hrsdescription','beschrieb']},
+    {id:'absenz',    label:'Absenz', hint:'Gesetzt = Abwesenheit statt Arbeitszeit', alias:['absenz','hrsabsenzid','abwesenheit']},
+    {id:'spesen',    label:'Spesen', alias:['spesen','hrsspesen','auslagen']},
+    {id:'bemerkung', label:'Bemerkung', alias:['bemerkung','bemerkungen','hrscomment','notiz']}
+  ]
+},
+{
+  id:'bezugspersonen', label:'Bezugspersonen', ic:'👤', bereit:true,
+  info:'Personen mit ihrer Rolle am Objekt — Bewohner, Besteller, Verwalter, «Schlüssel bei» … Sie werden am jeweiligen Objekt ergänzt (Dedupe über Name und Vorname); Bestehendes wird nie überschrieben. Die Rolle aus dem Altsystem wird zum GEMA-Adresstyp.',
+  felder:[
+    {id:'objektNr',  label:'Objekt-ID im Altsystem', hint:'Alternative zur Adresse', alias:['objid','objektid','itemid']},
+    {id:'strasse',   label:'Objekt: Strasse / Nr.', hint:'Verknüpft die Person mit dem Objekt', alias:['strasse','str','objektstrasse']},
+    {id:'plz',       label:'Objekt: PLZ', alias:['plz','postleitzahl']},
+    {id:'ort',       label:'Objekt: Ort', alias:['ort','stadt']},
+    {id:'name',      label:'Name', pflicht:true, alias:['zuhanden','name','nachname','name1']},
+    {id:'vorname',   label:'Vorname', alias:['vorname']},
+    {id:'rolle',     label:'Rolle / Kriterium', hint:'z.B. Bewohner, Besteller, Verwalter — wird zum Adresstyp', alias:['kriterium','rolle','typ','funktion','krit']},
+    {id:'tel',       label:'Telefon', alias:['tel1','telefon','tel']},
+    {id:'natel',     label:'Natel', alias:['natel','mobile','handy','mobil']},
+    {id:'email',     label:'E-Mail', alias:['email','mail']},
+    {id:'wohnung',   label:'Wohnung', alias:['wohnung','stockwerk']},
+    {id:'bemerkung', label:'Bemerkung', alias:['bemerkung','bemerkungen','notiz']}
+  ]
 }
 ];
 
@@ -942,8 +1016,9 @@ function erkenneSektion(headers){
    Davor die Stammdaten (Konditionen, Artikel), danach alles, was einen
    fertigen Beleg braucht: Positionen und Zahlungen hängen sich an Offerte
    bzw. Rechnung, Kreditoren an den Auftrag. */
-var IMPORT_REIHENFOLGE=['zahlbed','artikel','objekte','adressen','offerten',
-                        'auftraege','rechnungen','positionen','zahlungen','kreditoren'];
+var IMPORT_REIHENFOLGE=['zahlbed','artikel','objekte','adressen','bezugspersonen',
+                        'offerten','auftraege','rechnungen','positionen','zahlungen',
+                        'kreditoren','anlagen','termine','stunden'];
 function sektionRang(sekId){
   var i=IMPORT_REIHENFOLGE.indexOf(sekId);
   return i<0?99:i;
@@ -1113,6 +1188,54 @@ function normalisiereZeile(row,map,sekId){
             ansatz:parseBetrag(g('ansatz'))}
     };
   }
+  if(sekId==='termine'){
+    var tAbs=s(g('absenz'));
+    var tAuf=s(g('auftragNr'));
+    // Abwesenheit schlägt alles: eine Absenz ist nie ein Einsatz, auch wenn
+    // ein Auftrag daneben steht.
+    var tTyp=(tAbs&&tAbs!=='0')?'ferien':(tAuf?'auftrag':'frei');
+    return {
+      extId:g('extId'), datum:parseDatum(g('datum')),
+      zeitVon:g('zeitVon'), zeitBis:g('zeitBis'),
+      titel:g('titel'), typ:tTyp,
+      monteur:g('monteur'), auftragNr:tAuf,
+      absenz:tAbs, arbtyp:g('arbtyp'),
+      stunden:parseBetrag(g('stunden')),
+      standort:g('standort'), serie:g('serie'), notiz:g('notiz')
+    };
+  }
+  if(sekId==='anlagen'){
+    var aInt=parseBetrag(g('intervall'));
+    return {
+      extId:g('extId'), name:g('name'), kategorie:g('kategorie'),
+      hersteller:g('hersteller'), modell:g('modell'), serienNr:g('serienNr'),
+      standort:g('standort'),
+      inbetrieb:parseDatum(g('inbetrieb')),
+      letzteWartung:parseDatum(g('letzteWartung')),
+      naechsteWartung:parseDatum(g('naechsteWartung')),
+      intervall:aInt==null?null:Math.round(aInt),
+      vertragsNr:g('vertragsNr'), abteilung:g('abteilung'), notiz:g('notiz'),
+      objekt:{strasse:g('strasse'), plz:g('plz'), ort:g('ort')}
+    };
+  }
+  if(sekId==='stunden'){
+    var stAbs=s(g('absenz'));
+    return {
+      mitarbeiter:g('mitarbeiter'), datum:parseDatum(g('datum')),
+      stunden:parseBetrag(g('stunden')),
+      auftragNr:g('auftragNr'), taetigkeit:g('taetigkeit'),
+      absenz:(stAbs&&stAbs!=='0')?stAbs:'',
+      spesen:parseBetrag(g('spesen')), bemerkung:g('bemerkung')
+    };
+  }
+  if(sekId==='bezugspersonen'){
+    return {
+      objektNr:g('objektNr'), name:g('name'), vorname:g('vorname'),
+      rolle:g('rolle'), tel:g('tel'), natel:g('natel'), email:g('email'),
+      wohnung:g('wohnung'), bemerkung:g('bemerkung'),
+      objekt:{strasse:g('strasse'), plz:g('plz'), ort:g('ort')}
+    };
+  }
   if(sekId==='zahlbed'){
     var zbTage=parseBetrag(g('tage'));
     var zbSkT=parseBetrag(g('skontoTage'));
@@ -1216,6 +1339,27 @@ function pruefe(z,sekId){
   }else if(sekId==='artikel'){
     if(!s(z.bez))hin.push({typ:'fehler',text:'Keine Bezeichnung — Zeile wird übersprungen.'});
     if(z.ep==null)hin.push({typ:'warn',text:'Kein Verkaufspreis — der Artikel entsteht mit 0.00.'});
+  }else if(sekId==='termine'){
+    if(!s(z.datum))hin.push({typ:'fehler',text:'Kein Datum — Zeile wird übersprungen.'});
+    if(!s(z.titel))hin.push({typ:'fehler',text:'Keine Arbeit/Bezeichnung — Zeile wird übersprungen.'});
+    if(!s(z.monteur))hin.push({typ:'warn',text:'Kein Monteur — der Termin entsteht ohne Zuordnung.'});
+    if(z.typ==='auftrag'&&s(z.auftragNr))hin.push({typ:'info',text:'Wird mit Auftrag '+s(z.auftragNr)+' verknüpft (sofern importiert).'});
+    if(z.typ==='ferien')hin.push({typ:'info',text:'Abwesenheit — wird als «Abwesend» geplant, nicht als Einsatz.'});
+  }else if(sekId==='anlagen'){
+    if(!s(z.name))hin.push({typ:'fehler',text:'Keine Bezeichnung — Zeile wird übersprungen.'});
+    if(!s(z.objekt&&z.objekt.strasse))hin.push({typ:'warn',text:'Ohne Objekt-Adresse — die Anlage bleibt ohne Objektbezug.'});
+    if(!s(z.naechsteWartung)&&!z.intervall)
+      hin.push({typ:'warn',text:'Weder nächste Revision noch Intervall — die Anlage erscheint in keinem Wartungskalender.'});
+  }else if(sekId==='stunden'){
+    if(!s(z.mitarbeiter))hin.push({typ:'fehler',text:'Kein Mitarbeiter — Zeile wird übersprungen.'});
+    if(!s(z.datum))hin.push({typ:'fehler',text:'Kein Datum — Zeile wird übersprungen.'});
+    if(z.stunden==null||!z.stunden)hin.push({typ:'fehler',text:'Keine Stunden — Zeile wird übersprungen.'});
+    if(s(z.absenz))hin.push({typ:'info',text:'Absenz «'+s(z.absenz)+'» — wird als Abwesenheit vermerkt.'});
+  }else if(sekId==='bezugspersonen'){
+    if(!s(z.name))hin.push({typ:'fehler',text:'Kein Name — Zeile wird übersprungen.'});
+    if(!s(z.objekt&&z.objekt.strasse)&&!s(z.objektNr))
+      hin.push({typ:'fehler',text:'Weder Objekt-Adresse noch Objekt-ID — die Person wäre keinem Objekt zuzuordnen.'});
+    if(!s(z.rolle))hin.push({typ:'warn',text:'Keine Rolle — die Person entsteht ohne Typ.'});
   }else if(sekId==='zahlbed'){
     if(!s(z.kuerzel))hin.push({typ:'fehler',text:'Kein Kürzel — die Belege könnten die Kondition nicht referenzieren.'});
     if(!s(z.label))hin.push({typ:'fehler',text:'Keine Bezeichnung — Zeile wird übersprungen.'});
@@ -1362,6 +1506,11 @@ function vorbereiten(opts){
   if(sekId==='rechnungen')bestehendeDocs().filter(function(d){return d.typ==='rechnung';})
     .forEach(function(d){bekannt[dokSchluessel('rechnung',d)]=d;});
   if(sekId==='kreditoren')bestehendeKreditoren().forEach(function(k){bekannt[kredSchluessel(k)]=k;});
+  if(sekId==='termine')poolEigene(EP_POOL).forEach(function(e){
+    bekannt[terminSchluessel(e.datum,e.monteurName,e.titel,e.extId||(e.quelle&&e.quelle.extId))]=e;});
+  if(sekId==='anlagen')poolEigene(ANL_POOL).forEach(function(a){
+    var ae=s(a.extId||(a.quelle&&a.quelle.extId));
+    bekannt[ae?('ext:'+norm(ae)):('x:'+norm([a.name,a.serienNr,a.objektName].join('|')))]=a;});
   var ix=(sekId==='positionen'||sekId==='zahlungen')?dokIndex():null;
   // Positionen ersetzen die Sammelposition, aber NIE ein von Hand erfasstes
   // Leistungsverzeichnis. Was übersprungen würde, steht schon in der Vorschau.
@@ -1435,6 +1584,19 @@ function vorbereiten(opts){
       var kk=kredSchluessel(z);
       if(bekannt[kk]){aktion='aktualisiert';stats.aktualisiert++;}
       else{stats.neu++;bekannt[kk]={};}
+    }else if(sekId==='termine'){
+      // Über denselben Schlüssel wie der Writer — auch der Monteurname wird
+      // hier schon aufgelöst, sonst meldete die Vorschau «neu» für etwas,
+      // das der Import dann doch nur ergänzt.
+      var tm=s(z.monteur)?findeSachbearbeiter(z.monteur):null;
+      var tk=terminSchluessel(z.datum,tm?tm.name:s(z.monteur),z.titel,z.extId);
+      if(bekannt[tk]){aktion='aktualisiert';stats.aktualisiert++;}
+      else{stats.neu++;bekannt[tk]={};}
+    }else if(sekId==='anlagen'){
+      var alk=s(z.extId)?('ext:'+norm(z.extId))
+        :('x:'+norm([z.name,z.serienNr,z.objekt&&z.objekt.strasse].join('|')));
+      if(bekannt[alk]){aktion='aktualisiert';stats.aktualisiert++;}
+      else{stats.neu++;bekannt[alk]={};}
     }else{
       aktion='neu';stats.neu++;
     }
@@ -1490,8 +1652,14 @@ function dokSichern(doc){
 
 /* Dieselbe Mechanik für die übrigen ERP-Sammlungen: bei JEDEM Aufruf frisch
    lesen, damit aufeinanderfolgende Schreibungen einander sehen. */
+/* Zielsammlungen ausserhalb des ERP-Moduls. `mod` ist der moduleKey von
+   GemaSync — er MUSS stimmen, sonst landet der Record in der falschen
+   Collection und keine Modulseite findet ihn wieder (CLAUDE.md §3). */
 var KRED_POOL='gema_erp_kred_pool_v1', KRED_PREFIX='erpkred:';
 var KAT_POOL='gema_erp_kat_pool_v1',   KAT_PREFIX='erpkat:';
+var EP_POOL='gema_einsatz_pool_v1',    EP_PREFIX='einsatz:', EP_MODULE='einsatzplan';
+var ST_POOL='gema_std_pool_v1',        ST_PREFIX='std:',     ST_MODULE='stundenerfassung';
+var ANL_POOL='gema_sv_anlagen_pool_v1',ANL_PREFIX='svanl:',  SV_MODULE='service';
 function poolLesen(key){
   var pool=[];
   try{
@@ -1500,14 +1668,19 @@ function poolLesen(key){
   }catch(e){}
   return pool.slice();
 }
-function poolSichern(key,prefix,rec){
+function poolSichern(key,prefix,rec,mod){
   var pool=poolLesen(key);
   var i=pool.findIndex(function(x){return x.id===rec.id;});
   if(i>=0)pool[i]=rec;else pool.push(rec);
   try{localStorage.setItem(key,JSON.stringify(pool));}catch(e){}
   var p=(typeof GemaSync!=='undefined'&&GemaSync.saveRecord)
-    ? GemaSync.saveRecord('erp',prefix+rec.id,rec) : Promise.resolve();
+    ? GemaSync.saveRecord(mod||'erp',prefix+rec.id,rec) : Promise.resolve();
   return p.then(function(){return rec;},function(){return rec;});
+}
+/* Org-gefilterter Lesezugriff — jeder dieser Pools ist org-gescopt. */
+function poolEigene(key){
+  var o=eigeneOrgId();
+  return poolLesen(key).filter(function(r){return r&&(!o||r.orgId===o);});
 }
 function eigeneOrgId(){var u=null;try{u=GemaAuth.getCurrentUser();}catch(e){}return u?u.orgId:'';}
 /* KRITISCH — beide Pools sind org-gescopt und tragen `orgId` auf jedem Record
@@ -2185,6 +2358,241 @@ function zahlbedIdFuer(kuerzel){
   return '';
 }
 
+/* ── Termine → einsatz: (pm_einsatzplan) ──────────────────────────────── */
+function terminSchluessel(datum,monteurName,titel,extId){
+  var e=s(extId);
+  if(e)return 'ext:'+norm(e);
+  return 'x:'+norm([datum,monteurName,titel].join('|'));
+}
+function terminSchreiben(z,report,opts){
+  opts=opts||{};
+  var u=null;try{u=GemaAuth.getCurrentUser();}catch(e){}
+  var orgId=u?u.orgId:'';
+  var mont=s(z.monteur)?findeSachbearbeiter(z.monteur):null;
+  var montName=mont?mont.name:s(z.monteur);
+  var key=terminSchluessel(z.datum,montName,z.titel,z.extId);
+  var alt=poolEigene(EP_POOL).find(function(e){
+    return terminSchluessel(e.datum,e.monteurName,e.titel,e.extId||(e.quelle&&e.quelle.extId))===key;
+  })||null;
+  var auf=null;
+  if(s(z.auftragNr)){
+    var an=norm(z.auftragNr);
+    auf=dokPool().find(function(d){
+      return d.typ==='auftrag'&&norm(d.nr)===an&&(!orgId||d.orgId===orgId);
+    })||null;
+    if(!auf)report.auftragFehlt=(report.auftragFehlt||0)+1;
+  }
+  var ev=alt?JSON.parse(JSON.stringify(alt)):{
+    id:uid('ev'), orgId:orgId, typ:z.typ, titel:'', monteurUserId:'', monteurName:'',
+    datum:'', dauerTage:1, slot:'ganz', zeitVon:'', zeitBis:'',
+    auftragId:'', auftragNr:'', kunde:'', objektId:'', objektName:'', notiz:'',
+    bereichId:'', garantie:false, besonderheiten:[],
+    erstelltVon:{userId:u?u.id:'',name:u?u.name:''}, erstelltAm:jetzt()
+  };
+  function fuelle(f,v){if(s(v)&&!s(ev[f]))ev[f]=s(v);}
+  fuelle('datum',z.datum); fuelle('titel',z.titel);
+  fuelle('zeitVon',z.zeitVon); fuelle('zeitBis',z.zeitBis); fuelle('notiz',z.notiz);
+  if(!s(ev.extId))ev.extId=s(z.extId);
+  if(!alt)ev.typ=z.typ;
+  if(mont){
+    if(!s(ev.monteurUserId)&&s(mont.userId))ev.monteurUserId=mont.userId;
+    if(!s(ev.monteurName))ev.monteurName=mont.name;
+  }
+  if(auf&&!s(ev.auftragId)){
+    ev.auftragId=auf.id; ev.auftragNr=s(auf.nr);
+    if(!s(ev.objektId)&&s(auf.objektId)){ev.objektId=auf.objektId;ev.objektName=s(auf.objektName);}
+    if(!s(ev.kunde)&&auf.kundeSnapshot)ev.kunde=s(auf.kundeSnapshot.firma);
+  }else if(s(z.auftragNr)&&!s(ev.auftragNr))ev.auftragNr=s(z.auftragNr);
+  [['importArbtyp',z.arbtyp],['importAbsenz',z.absenz],
+   ['importStandort',z.standort],['importSerie',z.serie]].forEach(function(pp){
+    if(s(pp[1])&&!s(ev[pp[0]]))ev[pp[0]]=s(pp[1]);
+  });
+  if(ev.importStunden==null&&z.stunden!=null)ev.importStunden=z.stunden;
+  ev.quelle=ev.quelle||{typ:'import',system:opts.quelleName||'ERP-Migration',am:jetzt(),extId:s(z.extId)};
+  ev.updatedAt=jetzt();
+  return poolSichern(EP_POOL,EP_PREFIX,ev,EP_MODULE).then(function(){
+    if(alt)report.aktualisiert++;else report.neu++;
+    // Termine in der Zukunft eigens zählen — sie sind die geplante Arbeit,
+    // nicht bloss Dokumentation.
+    if(s(ev.datum)&&ev.datum>=jetzt().slice(0,10))report.terminZukunft=(report.terminZukunft||0)+1;
+  });
+}
+
+/* ── Anlagen → svanl: (sv_service) ────────────────────────────────────── */
+function anlageSchreiben(z,report,opts){
+  opts=opts||{};
+  var u=null;try{u=GemaAuth.getCurrentUser();}catch(e){}
+  var orgId=u?u.orgId:'';
+  var key=s(z.extId)?('ext:'+norm(z.extId)):('x:'+norm([z.name,z.serienNr,z.objekt&&z.objekt.strasse].join('|')));
+  var alt=poolEigene(ANL_POOL).find(function(a){
+    var e=s(a.extId||(a.quelle&&a.quelle.extId));
+    return (e?('ext:'+norm(e)):('x:'+norm([a.name,a.serienNr,a.objektName].join('|'))))===key;
+  })||null;
+  return objektFuerBeleg(z.objekt,null,null,orgId,report,opts).then(function(obj){
+    var bereichId=findeBereich(z.abteilung);
+    var a=alt?JSON.parse(JSON.stringify(alt)):{
+      id:uid('anl'), orgId:orgId, name:'', kategorie:'', standort:'',
+      hersteller:'', modell:'', serienNr:'', lieferantFirma:'', produktId:'',
+      objektId:'', objektName:'', inbetriebnahme:'', garantieBis:'',
+      intervallMonate:'', letzteWartung:'', notizen:'',
+      schluessel:{code:'',info:''}, bereichId:'', status:'aktiv',
+      erstelltVon:{userId:u?u.id:'',name:u?u.name:''}, erstelltAm:jetzt()
+    };
+    function fuelle(f,v){if(s(v)&&!s(a[f]))a[f]=s(v);}
+    fuelle('name',z.name); fuelle('kategorie',z.kategorie); fuelle('standort',z.standort);
+    fuelle('hersteller',z.hersteller); fuelle('modell',z.modell); fuelle('serienNr',z.serienNr);
+    fuelle('inbetriebnahme',z.inbetrieb); fuelle('letzteWartung',z.letzteWartung);
+    fuelle('notizen',z.notiz);
+    if(!s(a.extId))a.extId=s(z.extId);
+    if(!s(a.bereichId)&&bereichId)a.bereichId=bereichId;
+    if(obj&&!s(a.objektId)){a.objektId=obj.id;a.objektName=s(obj.name);}
+    if(!s(a.intervallMonate)&&z.intervall!=null)a.intervallMonate=String(z.intervall);
+    if(s(z.vertragsNr)&&!s(a.importVertragsNr))a.importVertragsNr=s(z.vertragsNr);
+    /* GEMA rechnet die nächste Revision aus letzter Wartung + Intervall. Die
+       Angabe des Altsystems wird deshalb NICHT als Feld gesetzt, sondern als
+       Vermerk behalten — weicht sie ab, ist das eine Aussage über den
+       Altbestand und keine, die GEMAs Kalender verstellen darf. */
+    if(s(z.naechsteWartung)){
+      if(!s(a.importNaechsteRevision))a.importNaechsteRevision=s(z.naechsteWartung);
+      var soll=(s(a.letzteWartung)&&z.intervall)?addTage(a.letzteWartung,Math.round(z.intervall*30.44)):'';
+      if(soll&&Math.abs(new Date(soll)-new Date(z.naechsteWartung))>1000*60*60*45)
+        report.revisionAbweichung=(report.revisionAbweichung||0)+1;
+    }
+    a.quelle=a.quelle||{typ:'import',system:opts.quelleName||'ERP-Migration',am:jetzt(),extId:s(z.extId)};
+    a.updatedAt=jetzt();
+    return poolSichern(ANL_POOL,ANL_PREFIX,a,SV_MODULE).then(function(){
+      if(alt)report.aktualisiert++;else report.neu++;
+      if(s(z.naechsteWartung)&&z.naechsteWartung>=jetzt().slice(0,10))
+        report.revisionKuenftig=(report.revisionKuenftig||0)+1;
+    });
+  });
+}
+
+/* ── Stunden → std: (pm_stunden), gruppiert je Mitarbeiter und Tag ─────── */
+function stundenSchreiben(zeilen,report,opts){
+  opts=opts||{};
+  var u=null;try{u=GemaAuth.getCurrentUser();}catch(e){}
+  var orgId=u?u.orgId:'';
+  var grp=[],byKey={};
+  zeilen.forEach(function(zl){
+    var z=zl.ziel;
+    var p=findeSachbearbeiter(z.mitarbeiter);
+    var k=norm((p&&p.userId)||z.mitarbeiter)+'|'+s(z.datum);
+    var g=byKey[k];
+    if(!g){g=byKey[k]={person:p,datum:s(z.datum),zl:[]};grp.push(g);}
+    g.zl.push(z);
+  });
+  var kette=Promise.resolve();
+  grp.forEach(function(g){
+    kette=kette.then(function(){
+      var uid2=(g.person&&g.person.userId)||'';
+      var name=(g.person&&g.person.name)||'';
+      var alt=poolEigene(ST_POOL).find(function(t){
+        return s(t.datum)===g.datum&&(uid2?t.userId===uid2:norm(t.userName)===norm(name));
+      })||null;
+      var t=alt?JSON.parse(JSON.stringify(alt)):{
+        id:uid('std'), orgId:orgId, userId:uid2, userName:name, datum:g.datum,
+        eintraege:[], spesen:{}, status:'offen', erstelltAm:jetzt()
+      };
+      var ein=(t.eintraege||[]).slice();
+      var da={};
+      ein.forEach(function(e){da[norm([e.importAuftragNr,e.taetigkeit].join('|'))]=e;});
+      var neu=0;
+      g.zl.forEach(function(z){
+        var min=Math.round((z.stunden||0)*60);
+        if(!min)return;
+        var k2=norm([z.auftragNr,z.taetigkeit].join('|'));
+        var vor=da[k2];
+        if(vor){
+          /* Zwei Quellen (Tageszeilen und Einzeleinträge) liefern denselben
+             Schlüssel. Gleiche Dauer = Dublette, still übergehen. Andere Dauer
+             = echter Widerspruch, der GEMELDET und am Eintrag vermerkt wird —
+             hier darf nichts einfach überschrieben oder addiert werden. */
+          if((parseInt(vor.dauerMin,10)||0)!==min){
+            vor.importKonflikt={andereQuelle:min,uebernommen:parseInt(vor.dauerMin,10)||0};
+            report.stundenKonflikt=(report.stundenKonflikt||0)+1;
+          }
+          return;
+        }
+        var e={
+          id:uid('e'), von:'', bis:'', pauseMin:0, dauerMin:min,
+          objektId:'', objektName:'', taetigkeit:s(z.taetigkeit)||s(z.auftragNr)||'Übernahme Altsystem',
+          einsatzId:'', ausPlan:false, importAuftragNr:s(z.auftragNr)
+        };
+        if(s(z.absenz))e.importAbsenz=s(z.absenz);
+        if(s(z.bemerkung))e.bemerkung=s(z.bemerkung);
+        if(z.spesen!=null&&z.spesen)e.importSpesen=z.spesen;
+        ein.push(e); da[k2]=e; neu++;
+      });
+      if(!neu&&alt)return;
+      t.eintraege=ein;
+      t.importiert=true;
+      t.updatedAt=jetzt();
+      report.stundenTage=(report.stundenTage||0)+1;
+      report.stundenEintraege=(report.stundenEintraege||0)+neu;
+      if(alt)report.aktualisiert++;else report.neu++;
+      if(!uid2)report.personFehlt=(report.personFehlt||0)+1;
+      return poolSichern(ST_POOL,ST_PREFIX,t,ST_MODULE);
+    });
+  });
+  return kette;
+}
+
+/* ── Bezugspersonen → objekt.bezugspersonen[], gruppiert je Objekt ─────── */
+function bezugspersonenSchreiben(zeilen,report,opts){
+  opts=opts||{};
+  var u=null;try{u=GemaAuth.getCurrentUser();}catch(e){}
+  var orgId=u?u.orgId:'';
+  var grp=[],byKey={};
+  zeilen.forEach(function(zl){
+    var z=zl.ziel;
+    var k=s(z.objektNr)?('ext:'+norm(z.objektNr)):objektAdrKey(z.objekt);
+    var g=byKey[k];
+    if(!g){g=byKey[k]={key:k,objekt:z.objekt,extId:s(z.objektNr),pers:[]};grp.push(g);}
+    g.pers.push(z);
+  });
+  var kette=Promise.resolve();
+  grp.forEach(function(g){
+    kette=kette.then(function(){
+      var liste=bestehendeObjekte();
+      var obj=g.extId
+        ? liste.find(function(o){return objektSchluessel(o)==='ext:'+norm(g.extId);})||null
+        : findeObjekt(g.objekt,liste);
+      if(!obj){report.objektFehlt=(report.objektFehlt||0)+1;return;}
+      var o=Object.assign({},obj);
+      var bp=(o.bezugspersonen||[]).slice();
+      var neu=0;
+      g.pers.forEach(function(z){
+        var da=bp.find(function(x){
+          return norm(x.name)===norm(z.name)&&norm(x.vorname)===norm(z.vorname||'');
+        });
+        var typId='';
+        try{if(s(z.rolle)&&typeof GemaAdressen!=='undefined')typId=GemaAdressen.typIdFuerLabel(z.rolle,true)||'';}catch(e){}
+        if(da){
+          // Person schon da: nur Lücken füllen, Rolle ergänzen.
+          if(typId&&(da.typen||[]).indexOf(typId)<0)da.typen=(da.typen||[]).concat([typId]);
+          ['tel','natel','email','wohnung'].forEach(function(f){
+            if(s(z[f])&&!s(da[f]))da[f]=s(z[f]);
+          });
+          return;
+        }
+        bp.push({
+          id:uid('bp'), anrede:'', vorname:s(z.vorname), name:s(z.name),
+          typen:typId?[typId]:[], tel:s(z.tel), natel:s(z.natel), email:s(z.email),
+          wohnung:s(z.wohnung), bemerkung:s(z.bemerkung)
+        });
+        neu++;
+      });
+      o.bezugspersonen=bp;
+      o.updatedAt=jetzt();
+      report.personen=(report.personen||0)+neu;
+      report.neu+=neu;
+      return GemaObjekte.upsertObjekt(o);
+    });
+  });
+  return kette;
+}
+
 /* Ergänzt Konditionen und Fibu-Schlüssel am Adressdatensatz und meldet, ob
    etwas geändert wurde. Bestehende Werte bleiben IMMER stehen — der Import
    füllt Lücken, er korrigiert nicht. */
@@ -2224,6 +2632,8 @@ function ausfuehren(plan,opts){
   if(sekId==='positionen')return positionenSchreiben(zeilen,report,opts).then(fertig,gescheitert);
   if(sekId==='zahlungen')return zahlungenSchreiben(zeilen,report,opts).then(fertig,gescheitert);
   if(sekId==='artikel')return artikelSchreiben(zeilen,report,opts).then(fertig,gescheitert);
+  if(sekId==='stunden')return stundenSchreiben(zeilen,report,opts).then(fertig,gescheitert);
+  if(sekId==='bezugspersonen')return bezugspersonenSchreiben(zeilen,report,opts).then(fertig,gescheitert);
 
   if(typeof GemaAdressen==='undefined')return Promise.reject(new Error('Adressstamm nicht geladen.'));
   // Adressbestand EINMAL lesen und über den ganzen Lauf mitführen.
@@ -2260,6 +2670,12 @@ function ausfuehren(plan,opts){
         report.fehler.push({zeile:z.nr,text:(e&&e.message)||String(e)});
       });
       if(sekId==='kreditoren')return kreditorSchreiben(z.ziel,report,opts).catch(function(e){
+        report.fehler.push({zeile:z.nr,text:(e&&e.message)||String(e)});
+      });
+      if(sekId==='termine')return terminSchreiben(z.ziel,report,opts).catch(function(e){
+        report.fehler.push({zeile:z.nr,text:(e&&e.message)||String(e)});
+      });
+      if(sekId==='anlagen')return anlageSchreiben(z.ziel,report,opts).catch(function(e){
         report.fehler.push({zeile:z.nr,text:(e&&e.message)||String(e)});
       });
       // ── Objekte ──
@@ -2407,6 +2823,7 @@ window.GemaErpImport={
   posArt:posArt, belegTyp:belegTyp, kreditorStatus:kreditorStatus,
   istSammelposition:istSammelposition, positionRecord:positionRecord,
   belegBrutto:belegBrutto, positionenNetto:positionenNetto, adressZusatz:adressZusatz,
+  terminSchluessel:terminSchluessel,
   MODULE_BELEG:MODULE_BELEG, POSTYP_ART:POSTYP_ART,
   // Engine-Exports für Node-Tests
   serialZuDatum:serialZuDatum, istDatumFmt:istDatumFmt, entescape:entescape,

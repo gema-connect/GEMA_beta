@@ -1,14 +1,17 @@
 // Drift-Guard — ERP-Migration, nachgezogene Abschnitte
 //
-// Geprüft werden die fünf Abschnitte, die den Kopf-Import ergänzen:
-// Positionen · Zahlungen · Kreditoren · Artikelstamm · Zahlungsbedingungen.
+// Geprüft werden die neun Abschnitte, die den Kopf-Import ergänzen:
+// Positionen · Zahlungen · Kreditoren · Artikelstamm · Zahlungsbedingungen ·
+// Termine · Anlagen · Stunden · Bezugspersonen.
 //
 // Der Schwerpunkt liegt auf den Zuordnungen, die am Altbestand GEMESSEN und
 // nicht geraten wurden (postyp → Positionsart, module_id → Belegart) und auf
-// den drei Fallen, die beim Import echten Schaden anrichten würden:
+// den Fallen, die beim Import echten Schaden anrichten würden:
 //   1. eine führende Null im Zahlbed-Kürzel («00» = 60 Tage, nicht «leer»),
 //   2. krumme FLOAT-Prozente (3 % steht als 2.9999999329447746),
-//   3. ein echtes Leistungsverzeichnis, das die Positionen überschreiben würden.
+//   3. ein echtes Leistungsverzeichnis, das die Positionen überschreiben würden,
+//   4. importierte Arbeitszeit ohne Uhrzeiten, die als null Stunden zählen
+//      würde — und die umgekehrt keinen erfundenen Nachtzuschlag auslösen darf.
 //
 // Aufruf:  node scripts/erp_positionen_import_test.mjs
 import fs from 'fs';
@@ -213,7 +216,8 @@ eq('nr bleibt die Rechnungsnummer', re.ziel.nr, '5001');
 eq('belegnr landet in der Fibu-Belegnummer', re.ziel.fibuBelegNr, 'FIBU-99');
 
 console.log('\n═══ A13 — jeder neue Abschnitt ist vollständig deklariert ═══');
-['positionen', 'zahlungen', 'kreditoren', 'artikel', 'zahlbed'].forEach(id => {
+['positionen', 'zahlungen', 'kreditoren', 'artikel', 'zahlbed',
+ 'termine', 'anlagen', 'stunden', 'bezugspersonen'].forEach(id => {
   const sek = I.sektion(id);
   t(id + ': registriert und bereit', !!sek && sek.bereit === true);
   t(id + ': hat Felder', !!sek && Array.isArray(sek.felder) && sek.felder.length > 0);
@@ -248,6 +252,67 @@ const nlvPos = nlvZeilen.map(z => ({
 }));
 eq('nlv-Formel trifft das Belegtotal auf den Rappen', I.positionenNetto(nlvPos), 467.5);
 
+console.log('\n═══ A15 — Termine ═══');
+const kopfTermin = ['guid', 'datum', 'von', 'bis', 'arbeit', 'arb_name', 'rapport_nr', 'absenz', 'location'];
+const tA = zeile('termine', kopfTermin,
+  ['g1', '2027-03-04', '08:00', '12:00', 'Boiler ersetzen', 'Meier', '8123', '0', 'Keller']);
+eq('Datum', tA.ziel.datum, '2027-03-04');
+eq('mit Auftrag → Typ «auftrag»', tA.ziel.typ, 'auftrag');
+eq('Auftrags-Nr. erkannt', tA.ziel.auftragNr, '8123');
+const tB = zeile('termine', kopfTermin,
+  ['g2', '2026-12-24', '', '', 'Ferien', 'Meier', '', '3', '']);
+eq('Absenz schlägt den Auftrag → «ferien»', tB.ziel.typ, 'ferien');
+const tC = zeile('termine', kopfTermin, ['g3', '2026-10-01', '', '', 'Werkstatt', 'Meier', '', '0', '']);
+eq('ohne Auftrag und ohne Absenz → «frei»', tC.ziel.typ, 'frei');
+t('ohne Datum blockiert die Zeile',
+  I.pruefe({ datum: '', titel: 'x', typ: 'frei' }, 'termine').some(h => h.typ === 'fehler'));
+// Der Schluessel muss ueber die Alt-ID laufen, sonst legt ein zweiter Lauf alles neu an.
+eq('Schlüssel bevorzugt die Alt-ID',
+  I.terminSchluessel('2026-01-01', 'Meier', 'x', 'g1'), 'ext:g1');
+t('ohne Alt-ID greift Datum + Monteur + Titel',
+  /^x:/.test(I.terminSchluessel('2026-01-01', 'Meier', 'Boiler', '')));
+
+console.log('\n═══ A16 — Anlagen (der Revisionskalender) ═══');
+const kopfAnl = ['id', 'ser_app_beschr', 'app_fabrikant', 'ser_app_typ', 'ser_app_nr',
+                 'ser_last_rev', 'ser_next_rev', 'ser_rev_int', 'ser_strasse', 'ser_plz', 'ser_ort'];
+const anl = zeile('anlagen', kopfAnl,
+  ['s7', 'Boiler 300 l', 'Domotec', 'DHB 300', 'SN-99', '2025-04-01', '2026-04-01', '12',
+   'Bahnhofstrasse 1', '4051', 'Basel']);
+eq('Bezeichnung', anl.ziel.name, 'Boiler 300 l');
+eq('Hersteller', anl.ziel.hersteller, 'Domotec');
+eq('nächste Revision', anl.ziel.naechsteWartung, '2026-04-01');
+eq('Intervall als ganze Monate', anl.ziel.intervall, 12);
+eq('Objekt-Adresse', anl.ziel.objekt.ort, 'Basel');
+t('ohne Revision UND ohne Intervall wird gewarnt',
+  I.pruefe({ name: 'X', objekt: { strasse: 'a' }, naechsteWartung: '', intervall: null }, 'anlagen')
+    .some(h => h.typ === 'warn' && /Wartungskalender/.test(h.text)));
+
+console.log('\n═══ A17 — Stunden: Dauer statt Uhrzeit ═══');
+const std = zeile('stunden', ['arb_name', 'datum', 'stunden', 'rappnr', 'arbtyp'],
+  ['Meier', '2026-05-04', '7.5', '8123', 'Montage']);
+eq('Mitarbeiter', std.ziel.mitarbeiter, 'Meier');
+eq('Stunden dezimal', std.ziel.stunden, 7.5);
+eq('Auftrags-Nr.', std.ziel.auftragNr, '8123');
+t('ohne Stunden blockiert die Zeile',
+  I.pruefe({ mitarbeiter: 'M', datum: '2026-01-01', stunden: null }, 'stunden')
+    .some(h => h.typ === 'fehler'));
+// KRITISCH: pm_stunden zaehlte Eintraege ohne von/bis als 0 Minuten. Ohne den
+// dauerMin-Zweig gingen 91'586 importierte Tage still auf null.
+const stdHtml = fs.readFileSync(path.join(ROOT, 'pm_stunden.html'), 'utf8');
+t('pm_stunden zählt importierte Dauer-Einträge (dauerMin)',
+  /function stdEintragMin[\s\S]{0,400}dauerMin/.test(stdHtml));
+t('… und erfindet dafür keine Uhrzeiten (kein Nachtzuschlag)',
+  /function stdNachtMin[\s\S]{0,120}if\s*\(\s*a\s*==\s*null/.test(stdHtml));
+
+console.log('\n═══ A18 — Bezugspersonen ═══');
+const bp = zeile('bezugspersonen', ['strasse', 'plz', 'ort', 'zuhanden', 'vorname', 'kriterium', 'tel1', 'natel'],
+  ['Bahnhofstrasse 1', '4051', 'Basel', 'Muster', 'Anna', 'Bewohner', '061 000 00 00', '079 000 00 00']);
+eq('Name', bp.ziel.name, 'Muster');
+eq('Rolle wird zum Adresstyp', bp.ziel.rolle, 'Bewohner');
+eq('Objekt über die Adresse', bp.ziel.objekt.strasse, 'Bahnhofstrasse 1');
+t('ohne Objektbezug blockiert die Zeile',
+  I.pruefe({ name: 'X', objekt: {}, objektNr: '' }, 'bezugspersonen').some(h => h.typ === 'fehler'));
+
 console.log('\n═══ A14 — die Vorschau kennt jeden Abschnitt ═══');
 // Ohne eigenen Zweig fällt ein Abschnitt in der Vorschau auf die Adress-Ansicht
 // zurück und zeigt leere Spalten — der Nutzer sähe vor dem Import nicht, was
@@ -266,6 +331,10 @@ t('die neuen Zähler stehen im Abschluss-Bericht',
   /rep\.posBelege/.test(erpHtml) && /rep\.zahlungen/.test(erpHtml) &&
   /rep\.belegFehlt/.test(erpHtml) && /rep\.belegBesetzt/.test(erpHtml));
 t('abweichende Belegsummen werden gemeldet', /rep\.summeAbweichung/.test(erpHtml));
+t('Termine in der Zukunft werden eigens gezählt', /rep\.terminZukunft/.test(erpHtml));
+t('anstehende Revisionen werden eigens gezählt', /rep\.revisionKuenftig/.test(erpHtml));
+t('widersprüchliche Stunden werden gemeldet', /rep\.stundenKonflikt/.test(erpHtml));
+t('nicht zuordenbare Mitarbeitende werden gemeldet', /rep\.personFehlt/.test(erpHtml));
 
 console.log('');
 if (fail) { console.error('✗ ' + fail + ' von ' + n + ' Checks fehlgeschlagen'); process.exit(1); }
