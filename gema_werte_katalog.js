@@ -15,7 +15,7 @@
  * wenn der Admin das Werkzeug oeffnet) — sie ist zu gross, um auf jeder
  * Berechnungsseite mitzulaufen.
  *
- * Stand: 1494 Werte in 48 Modulen.
+ * Stand: 1532 Werte in 49 Modulen.
  */
 (function (w) {
   'use strict';
@@ -10052,6 +10052,327 @@
     "id": "spannungsfall.sf_energie",
     "feld": "sf_energie",
     "label": "Energieverlust E = PV · t · (Auslastung)² / 1000",
+    "art": "ergebnis",
+    "typ": "zahl"
+   }
+  ]
+ },
+ "summenlinien": {
+  "key": "summenlinien",
+  "datei": "sb_summenlinien",
+  "label": "Summenliniendiagramm",
+  "kategorie": "Sanitär",
+  "autosave": "summenlinien",
+  "werte": [
+   {
+    "id": "summenlinien.sl_profil",
+    "feld": "sl_profil",
+    "label": "setzt die 24 Stundenwerte — jeder Wert bleibt danach frei überschreibbar",
+    "art": "eingabe",
+    "typ": "auswahl",
+    "quelle": "gema_summenlinien__<objektId>"
+   },
+   {
+    "id": "summenlinien.sl_start",
+    "feld": "sl_start",
+    "label": "VSSH-Konvention 05:00 — die Summenlinie startet mit diesem Tageszeitpunkt bei 0 %",
+    "art": "eingabe",
+    "typ": "auswahl",
+    "quelle": "gema_summenlinien__<objektId>"
+   },
+   {
+    "id": "summenlinien.sl_spitze",
+    "feld": "sl_spitze",
+    "label": "Effektive Stundenspitze (Überschreibung)",
+    "art": "eingabe",
+    "typ": "zahl",
+    "einheit": "%",
+    "quelle": "gema_summenlinien__<objektId>"
+   },
+   {
+    "id": "summenlinien.sl_bedarf",
+    "feld": "sl_bedarf",
+    "label": "Bezugsgrösse des ganzen Diagramms",
+    "art": "eingabe",
+    "typ": "zahl",
+    "einheit": "l/d",
+    "quelle": "gema_summenlinien__<objektId>"
+   },
+   {
+    "id": "summenlinien.sl_vp",
+    "feld": "sl_vp",
+    "label": "Personen × Liter/Person — schreibt beim Klick in den Tagesbedarf",
+    "art": "eingabe",
+    "typ": "zahl",
+    "einheit": "l/P·d",
+    "quelle": "gema_summenlinien__<objektId>"
+   },
+   {
+    "id": "summenlinien.sl_np",
+    "feld": "sl_np",
+    "label": "Anzahl Personen / Einheiten",
+    "art": "eingabe",
+    "typ": "zahl",
+    "einheit": "–",
+    "quelle": "gema_summenlinien__<objektId>"
+   },
+   {
+    "id": "summenlinien.sl_tkw",
+    "feld": "sl_tkw",
+    "label": "Eintritt in den Speicher",
+    "art": "eingabe",
+    "typ": "zahl",
+    "einheit": "°C",
+    "quelle": "gema_summenlinien__<objektId>"
+   },
+   {
+    "id": "summenlinien.sl_tsp",
+    "feld": "sl_tsp",
+    "label": "Temperatur, auf die geladen wird",
+    "art": "eingabe",
+    "typ": "zahl",
+    "einheit": "°C",
+    "quelle": "gema_summenlinien__<objektId>"
+   },
+   {
+    "id": "summenlinien.sl_lead",
+    "feld": "sl_lead",
+    "label": "welche der beiden Grössen führt — die andere wird daraus errechnet",
+    "art": "eingabe",
+    "typ": "auswahl",
+    "quelle": "gema_summenlinien__<objektId>"
+   },
+   {
+    "id": "summenlinien.sl_leistung",
+    "feld": "sl_leistung",
+    "label": "Wärmeerzeugerleistung für die Warmwasserladung",
+    "art": "eingabe",
+    "typ": "zahl",
+    "einheit": "kW",
+    "quelle": "gema_summenlinien__<objektId>"
+   },
+   {
+    "id": "summenlinien.sl_aufwaerm",
+    "feld": "sl_aufwaerm",
+    "label": "Zeit, um das Speichervolumen von θKW auf θsto zu laden",
+    "art": "eingabe",
+    "typ": "zahl",
+    "einheit": "h",
+    "quelle": "gema_summenlinien__<objektId>"
+   },
+   {
+    "id": "summenlinien.sl_speicher",
+    "feld": "sl_speicher",
+    "label": "0 = erforderliches Minimum aus dem Diagramm (bei Vorgabe «Aufwärmzeit» ist ein Wert nötig)",
+    "art": "eingabe",
+    "typ": "zahl",
+    "einheit": "l",
+    "quelle": "gema_summenlinien__<objektId>"
+   },
+   {
+    "id": "summenlinien.sl_modus",
+    "feld": "sl_modus",
+    "label": "bestimmt, wann Ladeleistung zur Verfügung steht",
+    "art": "eingabe",
+    "typ": "auswahl",
+    "quelle": "gema_summenlinien__<objektId>"
+   },
+   {
+    "id": "summenlinien.sl_f1a",
+    "feld": "sl_f1a",
+    "label": "sl_f1a",
+    "art": "eingabe",
+    "typ": "auswahl",
+    "quelle": "gema_summenlinien__<objektId>",
+    "unsicher": true
+   },
+   {
+    "id": "summenlinien.sl_f1von",
+    "feld": "sl_f1von",
+    "label": "sl_f1von",
+    "art": "eingabe",
+    "typ": "zahl",
+    "quelle": "gema_summenlinien__<objektId>",
+    "unsicher": true
+   },
+   {
+    "id": "summenlinien.sl_f1bis",
+    "feld": "sl_f1bis",
+    "label": "sl_f1bis",
+    "art": "eingabe",
+    "typ": "zahl",
+    "quelle": "gema_summenlinien__<objektId>",
+    "unsicher": true
+   },
+   {
+    "id": "summenlinien.sl_f2a",
+    "feld": "sl_f2a",
+    "label": "sl_f2a",
+    "art": "eingabe",
+    "typ": "auswahl",
+    "quelle": "gema_summenlinien__<objektId>",
+    "unsicher": true
+   },
+   {
+    "id": "summenlinien.sl_f2von",
+    "feld": "sl_f2von",
+    "label": "sl_f2von",
+    "art": "eingabe",
+    "typ": "zahl",
+    "quelle": "gema_summenlinien__<objektId>",
+    "unsicher": true
+   },
+   {
+    "id": "summenlinien.sl_f2bis",
+    "feld": "sl_f2bis",
+    "label": "sl_f2bis",
+    "art": "eingabe",
+    "typ": "zahl",
+    "quelle": "gema_summenlinien__<objektId>",
+    "unsicher": true
+   },
+   {
+    "id": "summenlinien.sl_f3a",
+    "feld": "sl_f3a",
+    "label": "sl_f3a",
+    "art": "eingabe",
+    "typ": "auswahl",
+    "quelle": "gema_summenlinien__<objektId>",
+    "unsicher": true
+   },
+   {
+    "id": "summenlinien.sl_f3von",
+    "feld": "sl_f3von",
+    "label": "sl_f3von",
+    "art": "eingabe",
+    "typ": "zahl",
+    "quelle": "gema_summenlinien__<objektId>",
+    "unsicher": true
+   },
+   {
+    "id": "summenlinien.sl_f3bis",
+    "feld": "sl_f3bis",
+    "label": "sl_f3bis",
+    "art": "eingabe",
+    "typ": "zahl",
+    "quelle": "gema_summenlinien__<objektId>",
+    "unsicher": true
+   },
+   {
+    "id": "summenlinien.sl_f4a",
+    "feld": "sl_f4a",
+    "label": "sl_f4a",
+    "art": "eingabe",
+    "typ": "auswahl",
+    "quelle": "gema_summenlinien__<objektId>",
+    "unsicher": true
+   },
+   {
+    "id": "summenlinien.sl_f4von",
+    "feld": "sl_f4von",
+    "label": "sl_f4von",
+    "art": "eingabe",
+    "typ": "zahl",
+    "quelle": "gema_summenlinien__<objektId>",
+    "unsicher": true
+   },
+   {
+    "id": "summenlinien.sl_f4bis",
+    "feld": "sl_f4bis",
+    "label": "sl_f4bis",
+    "art": "eingabe",
+    "typ": "zahl",
+    "quelle": "gema_summenlinien__<objektId>",
+    "unsicher": true
+   },
+   {
+    "id": "summenlinien.sl_out_dt",
+    "feld": "sl_out_dt",
+    "label": "Temperaturerhöhung Ladung [∆θ] θsto − θKW",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "summenlinien.sl_out_p",
+    "feld": "sl_out_p",
+    "label": "Ladeleistung [P] V·4.187·∆θ ÷ (3600·tauf)",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "summenlinien.sl_out_tauf",
+    "feld": "sl_out_tauf",
+    "label": "Aufwärmzeit [tauf] V·4.187·∆θ ÷ (3600·P)",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "summenlinien.sl_out_vref",
+    "feld": "sl_out_vref",
+    "label": "Bezugsvolumen der Aufwärmzeit",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "summenlinien.sl_out_bedarf",
+    "feld": "sl_out_bedarf",
+    "label": "Tagesbedarf (= 100 %)",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "summenlinien.sl_out_rate",
+    "feld": "sl_out_rate",
+    "label": "Laderate V̇ = P·3600 ÷ (4.187·∆θ)",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "summenlinien.sl_out_kap",
+    "feld": "sl_out_kap",
+    "label": "Ladekapazität pro Tag",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "summenlinien.sl_out_pmin",
+    "feld": "sl_out_pmin",
+    "label": "Mindest-Ladeleistung Tagesbedarf ÷ Ladezeit",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "summenlinien.sl_out_speicher",
+    "feld": "sl_out_speicher",
+    "label": "grösster Bedarfsüberschuss über jede Zeitspanne",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "summenlinien.sl_out_krit",
+    "feld": "sl_out_krit",
+    "label": "Kritische Entladung",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "summenlinien.sl_out_spitze",
+    "feld": "sl_out_spitze",
+    "label": "Spitzenstunde (Spitzendeckungsvolumen)",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "summenlinien.sl_out_cap",
+    "feld": "sl_out_cap",
+    "label": "Dargestelltes Speichervolumen",
+    "art": "ergebnis",
+    "typ": "zahl"
+   },
+   {
+    "id": "summenlinien.sl_out_sperr",
+    "feld": "sl_out_sperr",
+    "label": "Dargestelltes Speichervolumen",
     "art": "ergebnis",
     "typ": "zahl"
    }
