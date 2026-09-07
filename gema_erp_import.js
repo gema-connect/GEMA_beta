@@ -195,15 +195,26 @@ var RECHNUNG_STATUS=[
   {re:/storniert|annulliert|gutgeschrieben|gutschrift/i,                      status:'storniert'},
   // KRITISCH — «teilweise bezahlt» MUSS vor «bezahlt» stehen: sonst greift die
   // Bezahlt-Regel und ein offener Restbetrag verschwindet aus der Debitorenliste.
+  // Im ausgewerteten Altbestand kommt der Wert nicht vor; die Regel bleibt, weil
+  // ein anderer Mandant ihn führen kann.
   {re:/teilweise|teilzahlung|akonto\s*bezahlt|anzahlung\s*erhalten/i,          status:'gestellt'},
+  // «Kulanz» und «Garantie» (11 Belege) sind KEIN Zahlungsstand, sondern ein
+  // Verzichtsgrund. Sie werden erkannt — sonst meldete der Bericht sie als
+  // unbekannten Status — und der Grund bleibt am Beleg. Vor der Bezahlt-Regel,
+  // weil «Garantie» sonst nirgends greift und «Kulanz» als offen gälte.
+  {re:/kulanz|garantie|abgeschrieben|verzicht/i, status:'gestellt', vermerk:'verzicht'},
   {re:/bezahlt|beglichen|ausgeglichen|saldiert/i,                             status:'bezahlt'},
+  // «In Buchhaltung geschrieben» (961 Belege) heisst: an die Fibu übergeben.
+  // Über die Zahlung sagt der Wert nichts — die Rechnung ist gestellt.
+  {re:/in\s*buchhaltung|verbucht|(an\s*die\s*)?fibu/i, status:'gestellt', vermerk:'fibu'},
   {re:/versandt|verschickt|gedruckt|gestellt|gemahnt|mahnung|offen/i,          status:'gestellt'}
 ];
 function rechnungStatus(text){
   var t=s(text);
-  if(!t)return {status:'gestellt',erkannt:false};
+  if(!t)return {status:'gestellt',erkannt:false,vermerk:''};
   var hit=RECHNUNG_STATUS.find(function(x){return x.re.test(t);});
-  return hit?{status:hit.status,erkannt:true}:{status:'gestellt',erkannt:false};
+  return hit?{status:hit.status,erkannt:true,vermerk:hit.vermerk||''}
+            :{status:'gestellt',erkannt:false,vermerk:''};
 }
 
 /* Rechnungs-TYP des Altsystems → GEMA `rechnungsArt`.
@@ -781,7 +792,7 @@ var SEKTIONEN=[
     // (rechastatus) und Zahlung (debistatus). Für GEMAs einen Status ist der
     // Zahlungsstand der massgebende — er entscheidet, ob die Rechnung noch in
     // der Debitorenliste steht. Er gewinnt darum über den Bearbeitungsstatus.
-    {id:'zahlStatus', label:'Zahlungsstatus', hint:'Im Altsystem «debistatus»: Bezahlt / Offen / Storniert / Teilweise bezahlt. Bestimmt den Status in GEMA.', alias:['debistatus','debistatustext','zahlungsstatus','debitorenstatus']},
+    {id:'zahlStatus', label:'Zahlungsstatus', hint:'Im Altsystem «debistatus» — im Bestand gezählt: Bezahlt (7 738) · Offen (1 986) · In Buchhaltung geschrieben (961) · Storniert · Kulanz · Garantie. Bestimmt den Status in GEMA.', alias:['debistatus','debistatustext','zahlungsstatus','debitorenstatus']},
     {id:'nettoBetrag',label:'Betrag exkl. MwSt', hint:'Massgebend für die Sammelposition', alias:['exmwstbetrag','nettobetrag','netto','betragexklmwst']},
     {id:'mwstBetrag', label:'MwSt-Betrag', hint:'Daraus wird der MwSt-Satz je Beleg gerechnet', alias:['mwstbetrag','mehrwertsteuer']},
     {id:'bruttoBetrag',label:'Betrag inkl. MwSt', alias:['rbetrag','bruttobetrag','brutto','total','betrag']},
@@ -1214,7 +1225,7 @@ function normalisiereZeile(row,map,sekId){
       titel:g('titel')||g('arbeit'), arbeit:g('arbeit'),
       artText:g('art'), art:rart.art, artErkannt:rart.erkannt,
       statusText:g('status'), zahlStatusText:rzs,
-      status:rst.status, statusErkannt:rst.erkannt,
+      status:rst.status, statusErkannt:rst.erkannt, statusVermerk:rst.vermerk,
       netto:rnetto, mwst:rmwst, brutto:rbrutto, mwstPct:rsatz, mwstCode:g('mwstCode'),
       esrRef:g('esrRef'), esrOk:esrGueltig(g('esrRef')),
       zahlbed:g('zahlbed'), ausgefuehrt:g('ausgefuehrt'),
@@ -1453,6 +1464,10 @@ function pruefe(z,sekId){
     // nicht kassiert wird. GEMA hat dafür kein Feld — melden statt einordnen.
     if(/kulanz|garantie/i.test(s(z.zahlStatusText)))
       hin.push({typ:'warn',text:'Zahlungsstatus «'+s(z.zahlStatusText)+'» ist ein Verzichtsgrund, kein Zahlungsstand — die Rechnung entsteht als «gestellt» und bleibt offen.'});
+    // «In Buchhaltung geschrieben» sagt nur, dass der Beleg an die Fibu ging.
+    // Ob er bezahlt ist, weiss diese Datenbank nicht — das steht in der Fibu.
+    if(z.statusVermerk==='fibu')
+      hin.push({typ:'info',text:'«'+s(z.zahlStatusText)+'» heisst an die Buchhaltung übergeben, nicht bezahlt — die Rechnung entsteht als «gestellt».'});
     if(z.mwstPct!=null&&z.mwstPct>0&&Math.abs(z.mwstPct-8.1)>0.15&&Math.abs(z.mwstPct-7.7)>0.15)
       hin.push({typ:'warn',text:'Ungewöhnlicher MwSt-Satz '+z.mwstPct+' % — bitte prüfen.'});
     if(s(z.auftragNr))hin.push({typ:'info',text:'Wird mit Auftrag '+s(z.auftragNr)+' verknüpft (sofern importiert).'});

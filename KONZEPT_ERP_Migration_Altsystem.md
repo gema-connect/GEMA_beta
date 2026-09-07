@@ -476,6 +476,40 @@ zuoberst, weil erst sie den Belegen die richtige Zahlungsfrist geben.
 
 ## 6. Offene Punkte
 
+### 6.0 Was noch nicht am Bestand geprüft ist
+
+Der Rest dieses Kapitels hält fest, was gemessen wurde. Ehrlichkeitshalber
+zuerst das Gegenteil — vier Zuordnungen sind **generisch geschrieben und nicht
+gegen die Nachschlagetabellen des Altsystems geprüft**. Alle vier fallen bei
+Unbekanntem auf einen Vorgabewert zurück und melden das, es geht also nichts
+still verloren; verlässlich sind sie deswegen aber nicht.
+
+| Zuordnung | Quelle | Stand |
+|---|---|---|
+| Auftragsstatus | `arbstatus.typ_text` | nur «Nicht begonnen» belegt (als Reihenfolge-Falle), die übrigen Werte ungeprüft |
+| Offertstatus | `offstatus.typ_text` | ungeprüft |
+| Rechnungsart | `rechtyp.typ_text` | ungeprüft |
+| **Absenzarten** | `absenz.kurz` / `.beschr` | **ungeprüft — mit Folgen, siehe unten** |
+
+Der Zahlungsstatus (`debistatus`) ist dagegen ausgezählt und vollständig
+zugeordnet (6.x unten), ebenso `postyp`, `module_id` und der Revisionszyklus.
+Der MwSt-Satz wird aus den Beträgen des Belegs gerechnet und nicht aus einer
+Tabelle geraten; die Bezugspersonen-Rollen (`krit`) werden als Adresstyp
+angelegt, wie sie heissen — beides ist zuordnungsfrei.
+
+**Die Absenzarten sind der einzige Punkt mit echten Folgen.** Solange die Liste
+nicht bekannt ist, gilt:
+
+1. **Im Terminplan wird jede Abwesenheit zu «Ferien»** — Militärdienst,
+   Krankheit, Schule und unbezahlter Urlaub sähen gleich aus.
+2. **In der Zeiterfassung entsteht aus einer Absenz ein normaler Zeiteintrag**
+   mit der Dauer und dem Vermerk `importAbsenz`; sie wird nicht zur GEMA-Absenz.
+   Das schlägt auf den Ferienübertrag durch: importierte Ferientage zählen als
+   null bezogene Tage und erhöhen gleichzeitig die Ist-Zeit.
+
+Beides ist erst zu beheben, wenn die Werte von `absenz` vorliegen — vorher wäre
+jede Zuordnung geraten. Die Abfrage dafür steht in 8.14.
+
 ### Beantwortet durch die Zählung vom 2026-09-07
 
 | Frage | Antwort |
@@ -1129,6 +1163,46 @@ mischen im GEMA-Jahr zwei Perioden. Der Import übernimmt sie mit ihrem Datum,
 die Ferien werden tagesgenau ab dem Stichtag gezählt, die Überzeit erst ab der
 Folgewoche (das Wochensoll kommt aus dem Kalender, eine angebrochene Woche
 zählte sonst voll) — beides wird ausgewiesen statt kaschiert.
+
+---
+
+### 8.14 Nachschlagetabellen — die letzte offene Prüfung
+
+Diese Abfrage schliesst die vier Zuordnungen aus 6.0. Sie liest nur und zählt,
+wie oft jeder Wert benutzt wird — ein Wert mit null Treffern braucht keine
+Zuordnung.
+
+```sql
+SELECT '=== A Auftragsstatus (arbstatus) ===' AS x;
+SELECT s.id, s.typ_text, COUNT(r.id) AS auftraege
+FROM arbstatus s LEFT JOIN rapporte r ON r.astatus = s.id
+GROUP BY s.id, s.typ_text ORDER BY auftraege DESC;
+
+SELECT '=== B Offertstatus (offstatus) ===' AS x;
+SELECT s.id, s.typ_text, COUNT(o.id) AS offerten
+FROM offstatus s LEFT JOIN offerten o ON o.status = s.id
+GROUP BY s.id, s.typ_text ORDER BY offerten DESC;
+
+SELECT '=== C Rechnungsart (rechtyp) ===' AS x;
+SELECT t.id, t.typ_text, COUNT(r.id) AS rechnungen
+FROM rechtyp t LEFT JOIN rechnungen r ON r.typ = t.id
+GROUP BY t.id, t.typ_text ORDER BY rechnungen DESC;
+
+SELECT '=== D Absenzarten (absenz) ===' AS x;
+SELECT a.id, a.kurz, a.beschr, a.paid AS bezahlt, a.social,
+       (SELECT COUNT(*) FROM termin t WHERE t.absenz = a.id)        AS termine,
+       (SELECT COUNT(*) FROM hours h WHERE h.hrs_absenz_id = a.id)  AS handy
+FROM absenz a ORDER BY termine DESC;
+
+SELECT '=== E Arbeitsarten (arbtyp) ===' AS x;
+SELECT a.id, a.kurz, a.beschr, a.bkp_nr,
+       (SELECT COUNT(*) FROM termin t WHERE t.arbtyp = a.id) AS termine
+FROM arbtyp a ORDER BY termine DESC;
+```
+
+`absenz.paid` (bezahlt ja/nein) und `.social` entscheiden mit, auf welchen
+GEMA-Typ eine Art fällt: bezahlte Abwesenheiten füllen das Tagessoll auf,
+unbezahlte nicht. Beide Spalten sind `BIT(1)` und kommen als `\0`/`\1` heraus.
 
 ---
 
