@@ -795,18 +795,41 @@ ORDER BY t.datum;
 
 ### 8.10 Anlagen (Service)
 
+**Massgebend ist die Komponente, nicht die Anlage.** Am Bestand gemessen:
+`komponenten` führt 421 Geräte mit 228 künftigen Revisionen, `services` nur
+394 mit 184 — und bei 36 von 369 Paaren weichen die beiden Ebenen voneinander
+ab. Das gesperrte Rechenfeld sitzt ebenfalls im Komponenten-Formular. 378 der
+379 Anlagen haben genau eine Komponente, eine hat 43; der Export ist deshalb
+1:1 mit einer Ausnahme, die zu 43 GEMA-Anlagen wird.
+
 ```sql
-SELECT s.id, s.ser_app_beschr, s.ser_app_fabrikaservapp, s.ser_app_typ,
-       s.ser_app_nr, s.ser_standort, s.ser_inst_datum,
-       s.ser_last_rev, s.ser_next_rev, s.ser_rev_int, s.ser_vertragsnr,
+SELECT k.id AS kom_id, k.kom_name, k.kom_sernr, k.kom_standort,
+       k.kom_inst_datum, k.kom_garantie,
+       k.kom_last_rev, k.kom_next_rev, k.kom_rev_int, k.kom_rev_toleranz,
+       k.kom_calc_with_basis, k.kom_rev_basis, k.kom_rev_kosten,
+       s.ser_app_fabrikaservapp, s.ser_app_typ, s.ser_vertragsnr,
        s.ser_strasse, s.ser_plz, s.ser_ort, s.ser_bemerkungen,
-       k.app_beschr AS kategorie, ab.name1 AS abt_name
-FROM services s
-LEFT JOIN appkat k  ON k.id  = s.ser_kat_id
-LEFT JOIN abt    ab ON ab.id = s.ser_abt_id
+       ak.app_beschr AS kategorie, ab.name1 AS abt_name
+FROM komponenten k
+LEFT JOIN services s  ON s.id  = k.kom_ser_id
+LEFT JOIN appkat   ak ON ak.id = s.ser_kat_id
+LEFT JOIN abt      ab ON ab.id = s.ser_abt_id
 WHERE COALESCE(s.ser_storniert,0) = 0
-ORDER BY s.ser_next_rev;
+ORDER BY k.kom_next_rev;
 ```
+
+Zwei Befunde aus der Verifikation:
+
+- **Das nächste Revisionsdatum wird gerechnet, nicht gesetzt.** Im Formular ist
+  es gesperrt, und 410 von 410 vergleichbaren Geräten stimmen exakt auf
+  «letzte Revision + Intervall» (MySQL-Monatsarithmetik, im Importer als
+  `addMonate` nachgebaut). GEMA rechnet es also selbst; der Wert des
+  Altsystems bleibt nur als Vermerk am Datensatz.
+- **Es gibt einen zweiten Modus**, «Revisionsbasis»: der Termin ankert an
+  einem festen Datum, statt mit der Ausführung mitzuwandern. GEMA kennt ihn
+  nicht. Betroffen sind **2 von 421** Geräten — sie werden im Bericht benannt
+  und tragen den Alt-Termin sichtbar, statt still ein falsches Datum zu
+  bekommen.
 
 ### 8.11 Stunden
 

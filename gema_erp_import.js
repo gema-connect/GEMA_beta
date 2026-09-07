@@ -216,6 +216,20 @@ function esrGueltig(ref){
 /* Tage zur Zahlungsfrist. Belegt ist einzig «01» = 30 Tage netto aus dem
    Beispiel-Export; alles andere fällt bewusst auf den Firmen-Standard
    zurück, statt eine Zuordnung zu erfinden. */
+/* ISO-Datum + n Monate → ISO-Datum, gerechnet wie MySQLs
+   `DATE_ADD(d, INTERVAL n MONTH)`: der Tag wird auf den Monatsletzten
+   begrenzt, der 31.01. + 1 Monat ist also der 28./29.02. und nicht der 03.03.
+   Wird für den Revisionskalender gebraucht — dort ist «letzte Revision +
+   Intervall» am Altbestand exakt bestätigt (410 von 410). */
+function addMonate(iso,n){
+  var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s(iso));
+  if(!m)return s(iso);
+  var d=new Date(Date.UTC(+m[1],(+m[2]-1)+(parseInt(n,10)||0),1));
+  var letzter=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,0)).getUTCDate();
+  d.setUTCDate(Math.min(+m[3],letzter));
+  return d.toISOString().slice(0,10);
+}
+
 /* ISO-Datum + n Tage → ISO-Datum (UTC-Arithmetik, sommerzeit-fest). */
 function addTage(iso,tage){
   var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s(iso));
@@ -871,19 +885,24 @@ var SEKTIONEN=[
 },
 {
   id:'anlagen', label:'Anlagen (Service)', ic:'⚙️', bereit:true,
-  info:'Anlagenregister mit Revisionsintervall und letzter Wartung. Der Revisionskalender ist der operativ kritischste Datenbestand der Migration — geht er verloren, fehlen die anstehenden Wartungen. Das Objekt wird über die Adresse verknüpft.',
+  info:'Anlagenregister mit Revisionsintervall und letzter Wartung. Der Revisionskalender ist der operativ kritischste Datenbestand der Migration — geht er verloren, fehlen die anstehenden Wartungen. Massgebend ist die KOMPONENTE: dort führt das Altsystem den Zyklus (421 Geräte, 228 mit künftiger Revision), die Anlage liefert Objekt und Vertrag dazu. Das nächste Revisionsdatum wird gerechnet, nicht gespeichert — am Altbestand exakt bestätigt.',
   felder:[
-    {id:'extId',       label:'ID im Altsystem', hint:'Für den Wiederholungs-Import (keine Dubletten)', alias:['id','sernr','anlageid']},
-    {id:'name',        label:'Bezeichnung', pflicht:true, alias:['serappbeschr','appbeschr','bezeichnung','name','beschrieb']},
+    {id:'extId',       label:'ID im Altsystem', hint:'Für den Wiederholungs-Import (keine Dubletten) — die ID der Komponente', alias:['komid','id','sernr','anlageid']},
+    {id:'name',        label:'Bezeichnung', pflicht:true, alias:['komname','serappbeschr','appbeschr','bezeichnung','name','beschrieb']},
     {id:'kategorie',   label:'Kategorie', alias:['serkatid','appkat','kategorie','kat']},
     {id:'hersteller',  label:'Hersteller / Fabrikat', alias:['serappfabrikaservapp','appfabrikant','fabrikant','hersteller','fabrikat']},
     {id:'modell',      label:'Typ / Modell', alias:['serapptyp','apptyp','modell','typ']},
-    {id:'serienNr',    label:'Serien-Nr.', alias:['serappnr','appnr','seriennr','serienummer']},
-    {id:'standort',    label:'Standort', alias:['serstandort','standort','platzierung']},
-    {id:'inbetrieb',   label:'Inbetriebnahme', alias:['serinstdatum','instdatum','inbetriebnahme','installation']},
-    {id:'letzteWartung',label:'Letzte Revision', alias:['serlastrev','lastrev','letztewartung','letzterevision']},
-    {id:'naechsteWartung',label:'Nächste Revision', hint:'Treibt den Wartungskalender', alias:['sernextrev','nextrev','naechsterevision','naechstewartung']},
-    {id:'intervall',   label:'Intervall (Monate)', alias:['serrevint','revint','intervall','intervallmonate']},
+    {id:'serienNr',    label:'Serien-Nr.', alias:['komsernr','serappnr','appnr','seriennr','serienummer']},
+    {id:'standort',    label:'Standort / Raum', alias:['komstandort','serstandort','standort','raum','platzierung']},
+    {id:'inbetrieb',   label:'Inbetriebnahme', alias:['kominstdatum','serinstdatum','instdatum','inbetriebnahme','installation']},
+    {id:'garantie',    label:'Garantie (Monate)', alias:['komgarantie','garantie','garantiemonate']},
+    {id:'letzteWartung',label:'Letzte Revision', alias:['komlastrev','serlastrev','lastrev','letztewartung','letzterevision']},
+    {id:'naechsteWartung',label:'Nächste Revision', hint:'Nur zur Kontrolle — GEMA rechnet sie aus letzter Wartung + Intervall', alias:['komnextrev','sernextrev','nextrev','naechsterevision','naechstewartung']},
+    {id:'intervall',   label:'Intervall (Monate)', alias:['komrevint','serrevint','revint','intervall','intervallmonate']},
+    {id:'toleranz',    label:'Revisionstoleranz (Monate)', hint:'Vermerk — GEMA führt kein Toleranzfenster', alias:['komrevtoleranz','serrevtoleranz','toleranz','revtoleranz']},
+    {id:'revBasisModus',label:'Berechnung ab Revisionsbasis', hint:'Gesetzt = fester Anker statt letzter Revision. GEMA kennt diesen Modus nicht — solche Anlagen werden gemeldet.', alias:['komcalcwithbasis','calcwithbasis','mitbasis','revbasismodus']},
+    {id:'revBasis',    label:'Revisionsbasis', alias:['komrevbasis','revbasis','basisdatum']},
+    {id:'revKosten',   label:'Revisionskosten', alias:['komrevkosten','serrevkosten','revkosten','preis']},
     {id:'vertragsNr',  label:'Vertrags-Nr.', hint:'Vermerk — GEMA-Wartungsverträge werden separat erfasst', alias:['servertragsnr','vertragsnr','vertragnr']},
     {id:'strasse',     label:'Objekt: Strasse / Nr.', hint:'Verknüpft die Anlage mit dem Objekt', alias:['serstrasse','strasse','str']},
     {id:'plz',         label:'Objekt: PLZ', alias:['serplz','plz']},
@@ -1227,14 +1246,23 @@ function normalisiereZeile(row,map,sekId){
   }
   if(sekId==='anlagen'){
     var aInt=parseBetrag(g('intervall'));
+    var aTol=parseBetrag(g('toleranz'));
+    var aGar=parseBetrag(g('garantie'));
+    var aBas=s(g('revBasisModus'));
     return {
       extId:g('extId'), name:g('name'), kategorie:g('kategorie'),
       hersteller:g('hersteller'), modell:g('modell'), serienNr:g('serienNr'),
       standort:g('standort'),
       inbetrieb:parseDatum(g('inbetrieb')),
+      garantie:aGar==null?null:Math.round(aGar),
       letzteWartung:parseDatum(g('letzteWartung')),
       naechsteWartung:parseDatum(g('naechsteWartung')),
       intervall:aInt==null?null:Math.round(aInt),
+      toleranz:aTol==null?null:Math.round(aTol),
+      // «0», «false» und leer heissen alle: normaler Modus ab letzter Revision.
+      revBasisModus:!!(aBas&&aBas!=='0'&&norm(aBas)!=='false'&&norm(aBas)!=='nein'),
+      revBasis:parseDatum(g('revBasis')),
+      revKosten:parseBetrag(g('revKosten')),
       vertragsNr:g('vertragsNr'), abteilung:g('abteilung'), notiz:g('notiz'),
       objekt:{strasse:g('strasse'), plz:g('plz'), ort:g('ort')}
     };
@@ -2470,14 +2498,29 @@ function anlageSchreiben(z,report,opts){
     if(obj&&!s(a.objektId)){a.objektId=obj.id;a.objektName=s(obj.name);}
     if(!s(a.intervallMonate)&&z.intervall!=null)a.intervallMonate=String(z.intervall);
     if(s(z.vertragsNr)&&!s(a.importVertragsNr))a.importVertragsNr=s(z.vertragsNr);
-    /* GEMA rechnet die nächste Revision aus letzter Wartung + Intervall. Die
-       Angabe des Altsystems wird deshalb NICHT als Feld gesetzt, sondern als
-       Vermerk behalten — weicht sie ab, ist das eine Aussage über den
-       Altbestand und keine, die GEMAs Kalender verstellen darf. */
-    if(s(z.naechsteWartung)){
-      if(!s(a.importNaechsteRevision))a.importNaechsteRevision=s(z.naechsteWartung);
-      var soll=(s(a.letzteWartung)&&z.intervall)?addTage(a.letzteWartung,Math.round(z.intervall*30.44)):'';
-      if(soll&&Math.abs(new Date(soll)-new Date(z.naechsteWartung))>1000*60*60*45)
+    if(!s(a.garantieBis)&&s(a.inbetriebnahme)&&z.garantie)
+      a.garantieBis=addMonate(a.inbetriebnahme,z.garantie);
+    [['importToleranzMonate',z.toleranz],['importRevKosten',z.revKosten]].forEach(function(pp){
+      if(pp[1]!=null&&a[pp[0]]==null)a[pp[0]]=pp[1];
+    });
+    /* GEMA rechnet die nächste Revision aus letzter Wartung + Intervall. Am
+       Altbestand ist genau das bestätigt: 410 von 410 Geräten stimmen exakt.
+       Die Angabe des Altsystems wird deshalb NICHT als Feld gesetzt, sondern
+       als Vermerk behalten — die Rechnung gehört GEMA. */
+    if(s(z.naechsteWartung)&&!s(a.importNaechsteRevision))
+      a.importNaechsteRevision=s(z.naechsteWartung);
+    if(z.revBasisModus){
+      /* Der zweite Modus des Altsystems ankert den Termin an einem festen
+         Datum, statt ihn mit der Ausführung mitwandern zu lassen. GEMA kennt
+         ihn nicht — für diese Anlagen wäre die gerechnete Revision falsch.
+         Sie werden GEMELDET und tragen den Alt-Termin sichtbar am Datensatz,
+         statt still ein falsches Datum zu bekommen. Betrifft 2 von 421. */
+      if(!s(a.importRevBasis))a.importRevBasis=s(z.revBasis);
+      a.importRevBasisModus=true;
+      report.revisionBasisModus=(report.revisionBasisModus||0)+1;
+    }else if(s(z.naechsteWartung)&&s(a.letzteWartung)&&z.intervall){
+      // Gegenprobe mit derselben Monatsarithmetik wie das Altsystem.
+      if(addMonate(a.letzteWartung,z.intervall)!==s(z.naechsteWartung))
         report.revisionAbweichung=(report.revisionAbweichung||0)+1;
     }
     a.quelle=a.quelle||{typ:'import',system:opts.quelleName||'ERP-Migration',am:jetzt(),extId:s(z.extId)};
@@ -2878,7 +2921,7 @@ window.GemaErpImport={
   istSammelposition:istSammelposition, positionRecord:positionRecord,
   belegBrutto:belegBrutto, positionenNetto:positionenNetto, adressZusatz:adressZusatz,
   terminSchluessel:terminSchluessel,
-  stundenQuelle:stundenQuelle, STUNDEN_RANG:STUNDEN_RANG,
+  stundenQuelle:stundenQuelle, STUNDEN_RANG:STUNDEN_RANG, addMonate:addMonate,
   MODULE_BELEG:MODULE_BELEG, POSTYP_ART:POSTYP_ART,
   // Engine-Exports für Node-Tests
   serialZuDatum:serialZuDatum, istDatumFmt:istDatumFmt, entescape:entescape,

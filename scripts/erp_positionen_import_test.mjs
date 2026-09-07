@@ -287,6 +287,28 @@ t('ohne Revision UND ohne Intervall wird gewarnt',
   I.pruefe({ name: 'X', objekt: { strasse: 'a' }, naechsteWartung: '', intervall: null }, 'anlagen')
     .some(h => h.typ === 'warn' && /Wartungskalender/.test(h.text)));
 
+// Am Altbestand verifiziert: 410 von 410 Geraeten stimmen exakt auf
+// "letzte Revision + Intervall". Die Monatsarithmetik muss der von MySQL
+// entsprechen, sonst meldet der Import lauter Scheinabweichungen.
+eq('addMonate: 07.05.2026 + 12 = 07.05.2027', I.addMonate('2026-05-07', 12), '2027-05-07');
+eq('addMonate begrenzt auf den Monatsletzten (31.01. + 1)', I.addMonate('2026-01-31', 1), '2026-02-28');
+eq('addMonate im Schaltjahr', I.addMonate('2024-01-31', 1), '2024-02-29');
+eq('addMonate ueber den Jahreswechsel', I.addMonate('2026-11-15', 6), '2027-05-15');
+// GEGENPROBE: eine Naeherung ueber 30.44 Tage je Monat laege daneben.
+t('GEGENPROBE — keine Tages-Naeherung', I.addMonate('2026-01-31', 1) !== I.addTage('2026-01-31', 30));
+
+// Der zweite Modus des Altsystems ("Revisionsbasis") wird erkannt, damit die
+// betroffenen Anlagen gemeldet statt still falsch gerechnet werden.
+const anlBasis = zeile('anlagen', ['id', 'kom_name', 'kom_calc_with_basis', 'kom_rev_basis', 'kom_rev_toleranz'],
+  ['k9', 'Lueftung', '1', '2026-03-01', '1']);
+t('Revisionsbasis-Modus erkannt', anlBasis.ziel.revBasisModus === true);
+eq('Revisionsbasis uebernommen', anlBasis.ziel.revBasis, '2026-03-01');
+eq('Toleranz als ganze Monate', anlBasis.ziel.toleranz, 1);
+t('«0» ist NICHT der Basis-Modus',
+  zeile('anlagen', ['kom_name', 'kom_calc_with_basis'], ['X', '0']).ziel.revBasisModus === false);
+t('leer ist NICHT der Basis-Modus',
+  zeile('anlagen', ['kom_name', 'kom_calc_with_basis'], ['X', '']).ziel.revBasisModus === false);
+
 console.log('\n═══ A17 — Stunden: Dauer statt Uhrzeit ═══');
 const std = zeile('stunden', ['arb_name', 'datum', 'stunden', 'rappnr', 'arbtyp'],
   ['Meier', '2026-05-04', '7.5', '8123', 'Montage']);
@@ -349,6 +371,7 @@ t('die neuen Zähler stehen im Abschluss-Bericht',
 t('abweichende Belegsummen werden gemeldet', /rep\.summeAbweichung/.test(erpHtml));
 t('Termine in der Zukunft werden eigens gezählt', /rep\.terminZukunft/.test(erpHtml));
 t('anstehende Revisionen werden eigens gezählt', /rep\.revisionKuenftig/.test(erpHtml));
+t('Anlagen im Revisionsbasis-Modus werden gemeldet', /rep\.revisionBasisModus/.test(erpHtml));
 t('widersprüchliche Stunden werden gemeldet', /rep\.stundenKonflikt/.test(erpHtml));
 t('Korrekturen der Freigabe werden ausgewiesen', /rep\.stundenKorrigiert/.test(erpHtml));
 t('nicht zuordenbare Mitarbeitende werden gemeldet', /rep\.personFehlt/.test(erpHtml));
