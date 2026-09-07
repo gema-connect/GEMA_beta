@@ -252,6 +252,39 @@ const nlvPos = nlvZeilen.map(z => ({
 }));
 eq('nlv-Formel trifft das Belegtotal auf den Rappen', I.positionenNetto(nlvPos), 467.5);
 
+console.log('\n═══ A14b — Rechnungsstatus: Zahlung schlaegt Bearbeitung ═══');
+// Das Altsystem fuehrt DREI Statusfelder. Nur debistatus sagt, ob kassiert
+// wurde — "Versandt" heisst nicht bezahlt.
+const kopfRe2 = ['nr', 'datum', 'rbetrag', 'typtext1', 'debistatus'];
+const reBez = zeile('rechnungen', kopfRe2, ['5001', '2026-02-01', '1080', 'Versandt', 'Bezahlt']);
+eq('Zahlungsstatus gewinnt über den Bearbeitungsstand', reBez.ziel.status, 'bezahlt');
+eq('… der Bearbeitungsstand bleibt als Vermerk', reBez.ziel.statusText, 'Versandt');
+const reOff = zeile('rechnungen', kopfRe2, ['5002', '2026-02-01', '1080', 'Versandt', 'Offen']);
+eq('«Offen» → gestellt', reOff.ziel.status, 'gestellt');
+const reSto = zeile('rechnungen', kopfRe2, ['5003', '2026-02-01', '1080', 'Versandt', 'Storniert']);
+eq('«Storniert» → storniert', reSto.ziel.status, 'storniert');
+// KRITISCH: "Teilweise bezahlt" enthaelt "bezahlt" — ohne eigene Regel davor
+// verschwaende ein offener Restbetrag aus der Debitorenliste.
+const reTeil = zeile('rechnungen', kopfRe2, ['5004', '2026-02-01', '1080', 'Versandt', 'Teilweise bezahlt']);
+eq('«Teilweise bezahlt» ist NICHT bezahlt', reTeil.ziel.status, 'gestellt');
+t('GEGENPROBE — die Regel greift wirklich vor «bezahlt»',
+  I.rechnungStatus('Teilweise bezahlt').status !== I.rechnungStatus('Bezahlt').status);
+// Kulanz und Garantie sind Verzichtsgruende, kein Zahlungsstand.
+t('«Kulanz» wird als Verzichtsgrund gemeldet',
+  I.pruefe({ nr: '1', kunde: { firma: 'X' }, zahlStatusText: 'Kulanz', statusErkannt: false },
+    'rechnungen').some(h => h.typ === 'warn' && /Verzichtsgrund/.test(h.text)));
+// Ohne debistatus bleibt das bisherige Verhalten.
+eq('ohne Zahlungsstatus zaehlt der Bearbeitungsstand',
+  zeile('rechnungen', ['nr', 'rbetrag', 'typtext1'], ['5005', '1080', 'Entwurf']).ziel.status, 'entwurf');
+
+console.log('\n═══ A14c — Positions-Hierarchie bleibt als Vermerk ═══');
+const pH = I.positionRecord(zeile('positionen',
+  ['module_id', 'nr', 'postyp', 'text', 'qty', 'price', 'guid', 'parent_pos_guid'],
+  ['2', '1042', '11', 'Rohr', '1', '10', 'g-77', 'g-12']).ziel);
+eq('eigene GUID als Vermerk', pH.importGuid, 'g-77');
+eq('übergeordnete Position als Vermerk', pH.importParentGuid, 'g-12');
+t('… ohne die Positionsart zu beeinflussen', pH.art === 'frei');
+
 console.log('\n═══ A15 — Termine ═══');
 const kopfTermin = ['guid', 'datum', 'von', 'bis', 'arbeit', 'arb_name', 'rapport_nr', 'absenz', 'location'];
 const tA = zeile('termine', kopfTermin,

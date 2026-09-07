@@ -739,9 +739,16 @@ SELECT k.id, k.nr, k.name1, k.belegnr, k.datum, k.faelligdatum,
        k.gkonto, k.kostenst_id, k.iban, k.esr_nr, k.sesam_op_nr, k.bemerkung,
        (SELECT r.rapport_nr FROM kredzut z
           JOIN rapporte r ON r.id = z.rapport_id
-         WHERE z.kred_id = k.id LIMIT 1) AS rapport_nr
+         WHERE z.kred_id = k.id ORDER BY z.id LIMIT 1) AS rapport_nr,
+       (SELECT COUNT(*) FROM kredzut z WHERE z.kred_id = k.id) AS zuteilungen
 FROM kreditoren k;
 ```
+
+> **259 von 14 287 Kreditoren sind auf mehrere Aufträge verteilt** (1,8 %; bis
+> zu zehn Zuteilungen). GEMA führt einen Kreditor mit genau einem Auftrag —
+> der Export nimmt darum den ersten. Die Spalte `zuteilungen` macht sichtbar,
+> wo eine Aufteilung verloren geht; diese Belege sind nach dem Import von Hand
+> zu prüfen.
 
 ### 8.7 Adressen — die Zusatzfelder
 
@@ -768,9 +775,32 @@ FROM adressen a;
 Zum bestehenden Rechnungs-Export kommen drei Spalten dazu:
 
 ```sql
-SELECT r.nr, r.belegnr, r.abacbelegnr, r.opdebi, r.kostenst_id, r.zahlbedid
-FROM rechnungen r;
+SELECT r.nr, r.belegnr, r.abacbelegnr, r.opdebi, r.kostenst_id, r.zahlbedid,
+       ds.typ_text AS debistatus, ast.typ_text AS astatustext
+FROM rechnungen r
+LEFT JOIN debistatus  ds  ON ds.id  = r.debistatus
+LEFT JOIN rechastatus ast ON ast.id = r.astatus;
 ```
+
+**`debistatus` ist der Zahlungsstand und gehört zwingend in den Export.**
+Das Altsystem führt drei Statusfelder, und nur dieses sagt, ob kassiert wurde:
+
+| Spalte | Nachschlagetabelle | Bedeutung |
+|---|---|---|
+| `typ` | `rechtyp` | Schluss- / Akonto- / Teilrechnung / Gutschrift |
+| `astatus` | `rechastatus` | In Bearbeitung … Kontrolliert … Versandt |
+| **`debistatus`** | **`debistatus`** | **Bezahlt (7 738) · Offen (1 986) · In Buchhaltung geschrieben (961) · Storniert · Kulanz · Garantie** |
+
+Er bestimmt in GEMA den Belegstatus; der Bearbeitungsstand bleibt Vermerk.
+«Kulanz» und «Garantie» (11 Belege) sind kein Zahlungsstand, sondern ein
+Verzichtsgrund — sie entstehen als «gestellt» und werden gemeldet.
+
+> **`rechnungen.zahlungsdatum` und `.zahlungsbetrag` sind durchgehend leer.**
+> Über alle 7 738 bezahlten Rechnungen ergibt `SUM(zahlungsbetrag > 0)` NULL.
+> Die Spalten existieren, werden aber nicht gefüllt — die Zahlungs-Sektion
+> (8.5) bleibt darum ohne Wirkung, solange sich das nicht ändert. Der
+> Zahlungsstand kommt allein aus `debistatus`. Das korrigiert die frühere
+> Annahme, die Datenbank führe die Zahlungsinformation vollständig.
 
 `belegnr` ist die **Fibu**-Belegnummer, nicht die Rechnungsnummer — der
 Importer hält die beiden auseinander (`nr` wird zuerst zugeordnet).
@@ -782,10 +812,12 @@ Importer hält die beiden auseinander (`nr` wird zuerst zugeordnet).
 ```sql
 SELECT t.guid, t.datum, t.von, t.bis, t.arbeit, t.absenz, t.arbtyp,
        t.stunden, t.location, t.serie_id, t.private_text,
-       a.kuerzel AS arb_name, r.rapport_nr
+       TRIM(CONCAT(COALESCE(ad.vorname,''),' ',COALESCE(ad.name1,''))) AS arb_name,
+       r.rapport_nr
 FROM termin t
-LEFT JOIN arbeiter a ON a.id = t.arb_id
-LEFT JOIN rapporte r ON r.id = t.rapp_id
+LEFT JOIN arbeiter a  ON a.id  = t.arb_id
+LEFT JOIN adressen ad ON ad.id = a.adr_id
+LEFT JOIN rapporte r  ON r.id  = t.rapp_id
 ORDER BY t.datum;
 ```
 
@@ -848,13 +880,22 @@ Für den Import folgt daraus: **eine Abweichung zwischen Stufe 2 und 3 ist kein
 Konflikt, sondern die Korrektur.** Der freigegebene Wert gewinnt immer. Die
 Spalte `quelle` sagt dem Importer, welche Stufe eine Zeile trägt.
 
+> **`arbeiter` führt keinen Namen.** Die Tabelle hat nur ein Kürzel — und das
+> auch nur bei 42 von 222 Personen. Der Klarname steht in `adressen`, verlinkt
+> über `arbeiter.adr_id`. Ein Export über `kuerzel` liefert «MEI», und der
+> Import fände dazu keinen GEMA-Benutzer: alle 91 586 Zeilen landeten ohne
+> Person. Der Join über `adressen` ist deshalb Pflicht, hier und bei Terminen,
+> Objekten und Belegen.
+
 ```sql
 -- Datei 1: der freigegebene Stand (Hauptbestand, 2016 bis heute)
-SELECT a.kuerzel AS arb_name, n.datum, n.stunden, n.rappnr,
+SELECT TRIM(CONCAT(COALESCE(ad.vorname,''),' ',COALESCE(ad.name1,''))) AS arb_name,
+       n.datum, n.stunden, n.rappnr,
        ty.beschr AS arbtyp, ab.kurz AS absenz,
        'freigegeben' AS quelle
 FROM nstunden n
-LEFT JOIN arbeiter a  ON a.id = n.arb_id
+LEFT JOIN arbeiter a  ON a.id  = n.arb_id
+LEFT JOIN adressen ad ON ad.id = a.adr_id
 LEFT JOIN arbtyp   ty ON ty.id = n.arbtyp
 LEFT JOIN absenz   ab ON ab.id = n.absenz
 WHERE n.stunden <> 0
@@ -862,13 +903,28 @@ ORDER BY n.datum;
 
 -- Datei 2: die mobile Erfassung — bringt Spesen, Kommentar und den
 -- Termin-Bezug mit, den Datei 1 nicht kennt
-SELECT a.kuerzel AS arb_name, DATE(h.hrs_datetime) AS datum,
+SELECT TRIM(CONCAT(COALESCE(ad.vorname,''),' ',COALESCE(ad.name1,''))) AS arb_name,
+       DATE(h.hrs_datetime) AS datum,
        h.hrs_length AS stunden, h.hrs_rapportnr AS rappnr,
        h.hrs_description AS arbtyp, h.hrs_spesen, h.hrs_comment,
        h.hrs_terminguid, 'erfasst' AS quelle
 FROM hours h
-LEFT JOIN arbeiter a ON a.id = h.hrs_arb_id
+LEFT JOIN arbeiter a  ON a.id  = h.hrs_arb_id
+LEFT JOIN adressen ad ON ad.id = a.adr_id
 WHERE COALESCE(h.hrs_deleted,0) = 0 AND h.hrs_length <> 0;
+```
+
+**Vor dem Import prüfen**, ob die Namen überhaupt treffen — sonst merkt man es
+erst an 91 586 personenlosen Zeilen:
+
+```sql
+SELECT TRIM(CONCAT(COALESCE(ad.vorname,''),' ',COALESCE(ad.name1,''))) AS name,
+       a.kuerzel, COUNT(n.autoid) stunden_zeilen
+FROM arbeiter a
+LEFT JOIN adressen ad ON ad.id = a.adr_id
+LEFT JOIN nstunden n  ON n.arb_id = a.id
+GROUP BY a.id, name, a.kuerzel
+HAVING stunden_zeilen > 0 ORDER BY stunden_zeilen DESC;
 ```
 
 Beide Dateien dürfen in beliebiger Reihenfolge eingelesen werden — die Stufe
@@ -903,17 +959,20 @@ LEFT JOIN krit        k  ON k.id = ck.krit_id
 ORDER BY o.id;
 ```
 
-`module_id = 1` sind die Objekte. Ob das stimmt, zeigt eine Gegenprobe vor dem
-Export — die `contact`-Verteilung war 0 (1 459) · 1 (9 138) · 2 (7 706) ·
-3 (17 450) · 4 (17 171) · 6 (662), und 2 bzw. 4 sind als Offerte und Rechnung
-bereits belegt:
+**`module_id = 1` sind die Objekte — bestätigt**: alle 9 138 Zeilen treffen
+`obj`, also 100 %. Dieselbe Gegenprobe klärt die übrigen Werte gleich mit:
 
-```sql
-SELECT c.module_id, COUNT(*) n,
-       SUM(EXISTS(SELECT 1 FROM obj      o WHERE o.id = c.item_id)) trifft_obj,
-       SUM(EXISTS(SELECT 1 FROM rapporte r WHERE r.id = c.item_id)) trifft_rapport
-FROM contact c GROUP BY c.module_id ORDER BY n DESC;
-```
+| `module_id` | Zeilen | Ziel |
+|---|---|---|
+| 0 | 1 459 | Adressen (99,5 % Treffer) |
+| **1** | **9 138** | **Objekte (100 %)** |
+| 2 | 7 706 | Offerten |
+| 3 | 17 450 | Aufträge (100 %) |
+| 4 | 17 171 | Rechnungen |
+| 6 | 662 | Anlagen |
+
+Damit ist der polymorphe Schlüssel des Altsystems vollständig entschlüsselt —
+er gilt genauso für `lvposition`, `contactinfos` und `task`.
 
 ---
 
