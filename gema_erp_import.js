@@ -153,11 +153,19 @@ function parseBetrag(v){
 /* Offert-Status des Altsystems → GEMA-Status.
    Unbekannte Werte landen auf «versendet» und werden in der Vorschau als
    Hinweis ausgewiesen — nie still auf einen falschen Status gezwungen. */
+/* Am Bestand ausgezählt (offstatus): In Bearbeitung 2 387 · Zuschlag 1 813 ·
+   Versandt 784 · Absage 781 · Erledigt 7. Die Regeln sind darauf abgestimmt —
+   «In Bearbeitung» und «Versandt» fielen vorher beide durch und landeten auf
+   dem Vorgabewert «versendet»: 2 387 Entwürfe galten damit als verschickt. */
 var OFFERT_STATUS=[
   {re:/^(zuschlag|auftrag|angenommen|gewonnen|erteilt)/i,   status:'angenommen'},
   {re:/^(absage|abgelehnt|verloren|storno|annulliert)/i,    status:'abgelehnt'},
-  {re:/^(offen|pendent|offeriert|versendet|verschickt|gesendet)/i, status:'versendet'},
-  {re:/^(entwurf|erfassung|in\s*arbeit)/i,                  status:'entwurf'}
+  // «In Bearbeitung» ist der grösste Posten und steht VOR der Versand-Regel,
+  // damit «in Bearbeitung, versandt» nicht als versendet durchgeht.
+  // «offen» gehört NICHT hierher: eine offene Offerte ist verschickt und
+  // wartet auf den Entscheid — sie ist kein Entwurf.
+  {re:/^(entwurf|erfassung|in\s*(arbeit|bearbeitung))/i, status:'entwurf'},
+  {re:/^(offen|pendent|offeriert|versendet|versandt|verschickt|gesendet|gedruckt)/i, status:'versendet'}
 ];
 function offertStatus(text){
   var t=s(text);
@@ -221,17 +229,76 @@ function rechnungStatus(text){
    KRITISCH — die importierte Schlussrechnung trägt den TATSÄCHLICH
    fakturierten Betrag; `erpSchlussPositionen` (Auftragspositionen minus
    Akonti) darf beim Import NIE laufen, sonst würde der Beleg neu gerechnet. */
+/* Am Bestand ausgezählt (rechtyp): Schlussrechnung 9 044 · A-Konto-Rechnung
+   1 479 · Teilrechnung 173 · Gutschrift 8.
+
+   KRITISCH — «A-Konto-Rechnung» schreibt das Altsystem MIT Bindestrichen. Ein
+   Muster `/akonto/` trifft das nicht; 1 479 Akonto-Rechnungen galten dadurch
+   als Einzelrechnung. Das ist keine Kosmetik: die Schlussrechnung zieht die
+   Akonti ab, und eine falsch eingeordnete Akonto-Rechnung fehlt in diesem
+   Abzug. Darum trennzeichentolerant. */
 var RECHNUNG_ART=[
-  {re:/schluss|final|end(ab)?rechnung/i,               art:'schluss'},
-  {re:/akonto|abschlag|anzahlung|vorauszahlung/i,      art:'akonto'},
-  {re:/teil(rechnung|betrag)?|zwischenrechnung/i,      art:'teil'},
-  {re:/gutschrift|storno/i,                            art:'einzel'}
+  {re:/schluss|final|end[\s\-]*(ab)?rechnung/i,             art:'schluss'},
+  {re:/a[\s\-.]*konto|akonto|abschlag|anzahlung|vorauszahlung/i, art:'akonto'},
+  {re:/teil[\s\-]*(rechnung|betrag)?|zwischenrechnung/i,    art:'teil'},
+  {re:/gutschrift|storno/i,                                 art:'einzel'}
 ];
 function rechnungArt(text){
   var t=s(text);
   if(!t)return {art:'einzel',erkannt:false};
   var hit=RECHNUNG_ART.find(function(x){return x.re.test(t);});
   return hit?{art:hit.art,erkannt:true}:{art:'einzel',erkannt:false};
+}
+
+/* Absenzart des Altsystems → GEMA.
+
+   Die Tabelle `absenz` ist NICHT nur eine Absenzliste. Am Bestand ausgezählt
+   stehen dort auch Arbeitskategorien — «Werkstatt» (87 Termine + 170 mobile
+   Zeiten), «Büro» (10 + 47), «Sitzung» (22 + 1), «Garantiearbeit», «Teamevent»
+   — und reine Zuschlagsarten («Stundenzuschlag», «Nachtzuschlag»). Wer die
+   Spalte als «gesetzt = abwesend» liest, macht aus 119 Arbeitsterminen
+   Abwesenheiten.
+
+   Drei Ausgänge:
+     typ    — eine echte GEMA-Absenz (ferien|krank|unfall|militaer|schule|
+              uek|kompensation|brueckentag)
+     arbeit — keine Absenz, sondern Arbeit: der Termin bleibt ein Einsatz
+     weder noch — unbekannt: als Abwesenheit geplant (so heisst die Spalte),
+              aber OHNE erfundenen GEMA-Typ, und im Bericht benannt.
+
+   `absenz.paid` taugt NICHT als Kriterium: im Bestand steht es bei «Ferien»
+   auf 0 und bei «unbezahlter Urlaub» auf 1. Was die Spalte bedeutet, ist
+   unbekannt — sie wird darum nicht ausgewertet. */
+var ABSENZ_MAP={
+  // ── echte Absenzen (Kürzel und Klartext, beides kommt im Export vor) ──
+  fe:'ferien',        ferien:'ferien',
+  kra:'krank',        krankheit:'krank',        krank:'krank',
+  un:'unfall',        unfall:'unfall',
+  sch:'schule',       schule:'schule',          berufsschule:'schule',
+  uek:'uek',          ueberbetrieblicherkurs:'uek',
+  mi:'militaer',      militaer:'militaer',      militaerdienst:'militaer',
+  // Zivildienst ist weder Militär noch Zivilschutz; GEMA führt für alle drei
+  // einen Typ («Militär / Zivilschutz»). Bewusst dorthin — und gemeldet.
+  zi:'militaer',      zivildienst:'militaer',   zivilschutz:'militaer',
+  kom:'kompensation', kompensation:'kompensation',
+  br:'brueckentag',   bruecke:'brueckentag',    brueckentag:'brueckentag',
+  // ── keine Absenz, sondern Arbeit ──
+  we:'#arbeit',       werkstatt:'#arbeit',      werkstattarbeiten:'#arbeit',
+  bue:'#arbeit',      buero:'#arbeit',          bueroarbeiten:'#arbeit',
+  si:'#arbeit',       sitzung:'#arbeit',        besprechung:'#arbeit',
+  ga:'#arbeit',       garantierarbeit:'#arbeit',garantiearbeit:'#arbeit',
+  te:'#arbeit',       teamevent:'#arbeit',
+  // ── Feiertag: GEMA führt Feiertage im Kalender, nicht als Absenz ──
+  fei:'#feiertag',    feiertage:'#feiertag',    feiertag:'#feiertag'
+};
+function absenzArt(text){
+  var t=norm(text);
+  if(!t||t==='0')return {typ:'',arbeit:false,feiertag:false,erkannt:false,leer:true};
+  var m=ABSENZ_MAP[t];
+  if(m==='#arbeit')  return {typ:'',arbeit:true, feiertag:false,erkannt:true, leer:false};
+  if(m==='#feiertag')return {typ:'',arbeit:false,feiertag:true, erkannt:true, leer:false};
+  if(m)              return {typ:m, arbeit:false,feiertag:false,erkannt:true, leer:false};
+  return {typ:'',arbeit:false,feiertag:false,erkannt:false,leer:false};
 }
 
 /* Gültige 27-stellige ESR-/QR-Referenz? (Mod10 rekursiv, wie erpMod10)
@@ -988,7 +1055,7 @@ var SEKTIONEN=[
   felder:[
     {id:'mitarbeiter',label:'Mitarbeiter', pflicht:true, hint:'Wird über den Namen einer Person der Firma zugeordnet', alias:['arbname','mitarbeiter','name1','arbeiter','kuerzel','monteur']},
     {id:'datum',     label:'Datum', pflicht:true, alias:['datum','date','tag']},
-    {id:'stunden',   label:'Stunden', pflicht:true, hint:'Dezimal — 7.5 statt 7:30', alias:['stunden','hrslength','dauer','h','anzahl']},
+    {id:'stunden',   label:'Stunden', pflicht:true, hint:'Dezimal — 7.5 statt 7:30. ACHTUNG bei der mobilen Erfassung: «hrs_length» ist im Altsystem ein Zähler, dessen Einheit nicht belegt ist — im Export umrechnen, sonst werden Zeilen über 24 h übersprungen.', alias:['stunden','hrslength','dauer','h','anzahl']},
     {id:'quelle',    label:'Stufe', hint:'«freigegeben» (Stundenmodul, korrigiert) oder «erfasst» (Handy des Monteurs). Ohne Angabe gilt «freigegeben».', alias:['quelle','stufe','herkunft','source']},
     {id:'auftragNr', label:'Auftrags-Nr.', hint:'Ordnet die Zeit dem importierten Auftrag zu', alias:['rappnr','rapportnr','hrsrapportnr','auftragnr','auftragsnr']},
     {id:'terminId',  label:'Termin-ID', hint:'Verknüpft die Zeit mit dem importierten Termin (im Export «hrs_terminguid»)', alias:['hrsterminguid','terminguid','terminid','hrsterminid']},
@@ -1322,9 +1389,14 @@ function normalisiereZeile(row,map,sekId){
   if(sekId==='termine'){
     var tAbs=s(g('absenz'));
     var tAuf=s(g('auftragNr'));
-    // Abwesenheit schlägt alles: eine Absenz ist nie ein Einsatz, auch wenn
-    // ein Auftrag daneben steht.
-    var tTyp=(tAbs&&tAbs!=='0')?'ferien':(tAuf?'auftrag':'frei');
+    var tArt=absenzArt(tAbs);
+    /* Abwesenheit schlägt einen Auftrag — ABER nur, wenn es wirklich eine ist.
+       «Werkstatt», «Büro» und «Sitzung» stehen im Altsystem in derselben
+       Spalte und sind Arbeit; sie bleiben Einsätze. Unbekanntes gilt als
+       Abwesenheit (so heisst die Spalte) und wird gemeldet. */
+    var tTyp;
+    if(tArt.leer||tArt.arbeit) tTyp=tAuf?'auftrag':'frei';
+    else                       tTyp='ferien';   // im Einsatzplan = «Abwesend»
     // Rohwert mitführen: konnte die Zeit nicht sicher gelesen werden, geht sie
     // nicht verloren, sondern landet als Vermerk am Termin und wird gemeldet.
     var tvR=g('zeitVon'), tbR=g('zeitBis');
@@ -1333,9 +1405,13 @@ function normalisiereZeile(row,map,sekId){
       extId:g('extId'), datum:parseDatum(g('datum')),
       zeitVon:tv, zeitBis:tb,
       zeitRoh:((s(tvR)&&!tv)||(s(tbR)&&!tb))?(s(tvR)+(s(tbR)?'–'+s(tbR):'')):'',
-      titel:g('titel'), typ:tTyp,
+      // Ohne eigenen Titel wird die Kategorie zum Titel — sonst stünde im
+      // Plan ein leerer Eintrag, wo «Werkstatt» oder «Schule» hingehört.
+      titel:g('titel')||(tArt.leer?'':tAbs), typ:tTyp,
       monteur:g('monteur'), auftragNr:tAuf,
-      absenz:tAbs, arbtyp:g('arbtyp'),
+      absenz:tAbs, absenzTyp:tArt.typ, absenzArbeit:tArt.arbeit,
+      absenzFeiertag:tArt.feiertag, absenzErkannt:tArt.erkannt,
+      arbtyp:g('arbtyp'),
       stunden:parseBetrag(g('stunden')),
       standort:g('standort'), serie:g('serie'), notiz:g('notiz')
     };
@@ -1365,7 +1441,12 @@ function normalisiereZeile(row,map,sekId){
   }
   if(sekId==='stunden'){
     var stAbs=s(g('absenz'));
+    var stArt=absenzArt(stAbs);
     return {
+      // Arbeitskategorien («Werkstatt», «Büro») sind KEINE Absenz — sie
+      // bleiben normale Arbeitszeit und werden nur als Tätigkeit vermerkt.
+      absenzTyp:stArt.arbeit?'':stArt.typ,
+      absenzArbeit:stArt.arbeit, absenzErkannt:stArt.erkannt,
       mitarbeiter:g('mitarbeiter'), datum:parseDatum(g('datum')),
       stunden:parseBetrag(g('stunden')),
       quelle:stundenQuelle(g('quelle')),
@@ -1509,7 +1590,10 @@ function pruefe(z,sekId){
     if(!s(z.titel))hin.push({typ:'fehler',text:'Keine Arbeit/Bezeichnung — Zeile wird übersprungen.'});
     if(!s(z.monteur))hin.push({typ:'warn',text:'Kein Monteur — der Termin entsteht ohne Zuordnung.'});
     if(z.typ==='auftrag'&&s(z.auftragNr))hin.push({typ:'info',text:'Wird mit Auftrag '+s(z.auftragNr)+' verknüpft (sofern importiert).'});
-    if(z.typ==='ferien')hin.push({typ:'info',text:'Abwesenheit — wird als «Abwesend» geplant, nicht als Einsatz.'});
+    if(z.absenzArbeit)hin.push({typ:'info',text:'«'+s(z.absenz)+'» ist im Altsystem als Absenzart erfasst, aber Arbeit — der Termin bleibt ein Einsatz.'});
+    else if(z.absenzFeiertag)hin.push({typ:'warn',text:'«'+s(z.absenz)+'» ist ein Feiertag. GEMA führt Feiertage im Firmenkalender, nicht als Abwesenheit — bitte dort eintragen; der Termin entsteht als «Abwesend».'});
+    else if(s(z.absenz)&&!z.absenzErkannt)hin.push({typ:'warn',text:'Absenzart «'+s(z.absenz)+'» ist GEMA unbekannt — der Termin entsteht als «Abwesend», bekommt aber keinen Absenztyp. Bei Bedarf in den ⚙️-Einstellungen der Stundenerfassung als eigene Absenzart anlegen.'});
+    else if(z.typ==='ferien')hin.push({typ:'info',text:'Abwesenheit «'+s(z.absenz)+'» → GEMA-Typ «'+s(z.absenzTyp)+'», wird als «Abwesend» geplant.'});
     if(s(z.zeitRoh))hin.push({typ:'warn',text:'Zeit «'+s(z.zeitRoh)+'» ist keine Uhrzeit — der Termin entsteht ohne Zeit, der Wert bleibt als Vermerk. Im Altsystem die Spalten «von60»/«bis60» exportieren.'});
   }else if(sekId==='anlagen'){
     if(!s(z.name))hin.push({typ:'fehler',text:'Keine Bezeichnung — Zeile wird übersprungen.'});
@@ -1520,7 +1604,16 @@ function pruefe(z,sekId){
     if(!s(z.mitarbeiter))hin.push({typ:'fehler',text:'Kein Mitarbeiter — Zeile wird übersprungen.'});
     if(!s(z.datum))hin.push({typ:'fehler',text:'Kein Datum — Zeile wird übersprungen.'});
     if(z.stunden==null||!z.stunden)hin.push({typ:'fehler',text:'Keine Stunden — Zeile wird übersprungen.'});
-    if(s(z.absenz))hin.push({typ:'info',text:'Absenz «'+s(z.absenz)+'» — wird als Abwesenheit vermerkt.'});
+    /* Einheiten-Schutz: An einem Tag kann niemand mehr als 24 h leisten. Ein
+       grösserer Wert heisst, dass die Spalte nicht in Stunden geführt wird —
+       `hours.hrs_length` des Altsystems ist ein INT, dessen Einheit (Minuten
+       oder Sekunden) nicht belegt ist. Ohne diesen Riegel entstünden aus
+       28 800 Sekunden 28 800 Stunden, und die Jahresbilanz wäre Schrott. */
+    else if(z.stunden>24)hin.push({typ:'fehler',text:'«'+z.stunden+'» Stunden an einem Tag — das kann keine Stundenzahl sein. Die Spalte ist offenbar nicht in Stunden geführt (im Altsystem ist «hrs_length» ein Zähler, dessen Einheit erst zu klären ist). Zeile wird übersprungen.'});
+    else if(z.stunden>16)hin.push({typ:'warn',text:z.stunden+' h an einem Tag — bitte prüfen, ob die Spalte wirklich Stunden führt.'});
+    if(z.absenzArbeit)hin.push({typ:'info',text:'«'+s(z.absenz)+'» ist Arbeit, keine Absenz — die Zeit zählt als geleistet.'});
+    else if(s(z.absenzTyp))hin.push({typ:'info',text:'Absenz «'+s(z.absenz)+'» → GEMA-Typ «'+s(z.absenzTyp)+'» am Tag.'});
+    else if(s(z.absenz))hin.push({typ:'warn',text:'Absenzart «'+s(z.absenz)+'» ist GEMA unbekannt — der Tag entsteht als normale Arbeitszeit mit Vermerk, NICHT als Abwesenheit. Bei Bedarf als eigene Absenzart anlegen und erneut einlesen.'});
   }else if(sekId==='uebertraege'){
     if(!s(z.mitarbeiter))hin.push({typ:'fehler',text:'Kein Mitarbeiter — Zeile wird übersprungen.'});
     if(!s(z.datum))hin.push({typ:'fehler',text:'Kein Stichtag — Zeile wird übersprungen.'});
@@ -2757,6 +2850,20 @@ function stundenSchreiben(zeilen,report,opts){
       var ein=(t.eintraege||[]).slice();
       var da={};
       ein.forEach(function(e){da[norm([e.importAuftragNr,e.taetigkeit].join('|'))]=e;});
+      /* Erkannte Absenz → GEMA-Absenz am TAG (dort führt sie pm_stunden), nicht
+         als Arbeitseintrag. Ohne das zählte ein Ferientag als geleistete Zeit
+         und gleichzeitig als null bezogene Ferien — der Feriensaldo wäre zu
+         hoch und die Ist-Zeit auch. Bestehendes wird nie überschrieben: hat der
+         Tag schon eine Absenz, gewinnt sie.
+         Unbekannte Arten bekommen KEINEN erfundenen Typ (siehe absenzArt). */
+      if(!t.absenz){
+        var aZ=g.zl.find(function(z){return s(z.absenzTyp);});
+        if(aZ){
+          t.absenz={typ:s(aZ.absenzTyp)};
+          if(s(aZ.absenz))t.importAbsenz=s(aZ.absenz);
+          report.absenzen=(report.absenzen||0)+1;
+        }
+      }
       // Termin-Bezug: der auf dem Handy erfasste Eintrag nennt den Termin,
       // aus dem er entstanden ist. Ist der Termin importiert, bleibt die
       // Kette Disposition → Zeit auch in GEMA erhalten.
@@ -3120,6 +3227,7 @@ window.GemaErpImport={
   belegBrutto:belegBrutto, positionenNetto:positionenNetto, adressZusatz:adressZusatz,
   terminSchluessel:terminSchluessel, uebertragSchluessel:uebertragSchluessel,
   parseZeit:parseZeit, parseNachkalk:parseNachkalk,
+  absenzArt:absenzArt, ABSENZ_MAP:ABSENZ_MAP,
   stundenQuelle:stundenQuelle, STUNDEN_RANG:STUNDEN_RANG, addMonate:addMonate,
   MODULE_BELEG:MODULE_BELEG, POSTYP_ART:POSTYP_ART,
   // Engine-Exports für Node-Tests

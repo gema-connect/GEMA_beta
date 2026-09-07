@@ -222,6 +222,154 @@ console.log('\n═══ D — Vorschau und Bericht zeigen das Neue ═══');
   t('und sagt, welche Spalten zu exportieren sind', /von60/.test(html));
 }
 
+console.log('\n═══ E — Nachschlagetabellen: die AUSGEZAEHLTEN Werte ═══');
+// Alle Werte stammen aus der Zaehlung vom 07.09.2026 gegen die Lookup-Tabellen
+// des Altsystems. Vorher waren die Muster generisch geschrieben; drei der
+// haeufigsten Werte fielen durch und landeten auf einem Vorgabewert.
+{
+  const auf = [
+    ['Erledigt, Rapport zurück', 'abgeschlossen'],   // 9610
+    ['Nicht begonnen', 'offen'],                     //  394 — Reihenfolge-Falle
+    ['Laufende Arbeit', 'in_arbeit'],                //  209
+    ['Storniert', 'abgeschlossen'],                  //   84
+    ['Erledigt, Rapport verloren', 'abgeschlossen'], //    2
+  ];
+  auf.forEach(([txt, soll]) => {
+    const r = I.auftragStatus(txt);
+    eq('Auftrag «' + txt + '»', [r.status, r.erkannt], [soll, true]);
+  });
+}
+{
+  // «In Bearbeitung» (2387) und «Versandt» (784) fielen beide durch: 2387
+  // Entwuerfe galten als verschickt, 784 lösten eine Falschmeldung aus.
+  const off = [
+    ['In Bearbeitung', 'entwurf'],   // 2387
+    ['Zuschlag', 'angenommen'],      // 1813
+    ['Versandt', 'versendet'],       //  784
+    ['Absage', 'abgelehnt'],         //  781
+  ];
+  off.forEach(([txt, soll]) => {
+    const r = I.offertStatus(txt);
+    eq('Offerte «' + txt + '»', [r.status, r.erkannt], [soll, true]);
+  });
+  // Gegenprobe: «offen» ist KEIN Entwurf — eine offene Offerte ist verschickt.
+  eq('«Offen» bleibt versendet', I.offertStatus('Offen').status, 'versendet');
+}
+{
+  // «A-Konto-Rechnung» schreibt das Altsystem mit Bindestrichen; /akonto/
+  // trifft das nicht. 1479 Akonto-Rechnungen galten als Einzelrechnung — und
+  // fehlten damit im Abzug der Schlussrechnung.
+  const art = [
+    ['Schlussrechnung', 'schluss'],   // 9044
+    ['A-Konto-Rechnung', 'akonto'],   // 1479
+    ['Teilrechnung', 'teil'],         //  173
+    ['Gutschrift', 'einzel'],         //    8
+  ];
+  art.forEach(([txt, soll]) => {
+    const r = I.rechnungArt(txt);
+    eq('Rechnungsart «' + txt + '»', [r.art, r.erkannt], [soll, true]);
+  });
+  t('Gegenprobe: die Schreibweise ohne Trennzeichen trifft auch',
+    I.rechnungArt('Akontorechnung').art === 'akonto');
+}
+
+console.log('\n═══ F — Absenzarten: nicht jede ist eine Abwesenheit ═══');
+{
+  // Die Tabelle `absenz` fuehrt auch ARBEITSKATEGORIEN. Wer die Spalte als
+  // «gesetzt = abwesend» liest, macht aus 119 Arbeitsterminen Abwesenheiten.
+  const echte = [
+    ['Ferien', 'ferien'], ['Krankheit', 'krank'], ['Unfall', 'unfall'],
+    ['Schule', 'schule'], ['Überbetrieblicher Kurs', 'uek'],
+    ['Militär', 'militaer'], ['Zivildienst', 'militaer'],
+    ['Kompensation', 'kompensation'], ['Brücke', 'brueckentag'],
+  ];
+  echte.forEach(([txt, soll]) => {
+    const a = I.absenzArt(txt);
+    eq('«' + txt + '» → ' + soll, [a.typ, a.arbeit, a.erkannt], [soll, false, true]);
+  });
+  // Kuerzel treffen genauso — der Export liefert `absenz.kurz`.
+  eq('Kürzel «fe» → ferien', I.absenzArt('fe').typ, 'ferien');
+  eq('Kürzel «ük» → uek', I.absenzArt('ük').typ, 'uek');
+  eq('Kürzel «bü» → Arbeit', I.absenzArt('bü').arbeit, true);
+}
+{
+  ['Werkstatt', 'Büro', 'Sitzung', 'Garantierarbeit', 'Teamevent'].forEach(txt => {
+    const a = I.absenzArt(txt);
+    t('«' + txt + '» ist Arbeit, keine Absenz', a.arbeit === true && a.typ === '');
+  });
+  const f = I.absenzArt('Feiertage');
+  t('«Feiertage» ist eigen markiert (GEMA fuehrt sie im Kalender)',
+    f.feiertag === true && f.typ === '' && f.arbeit === false);
+}
+{
+  // Unbekanntes bekommt KEINEN erfundenen Typ. «Kurs» koennte Schule oder
+  // Weiterbildung sein, «Arztbesuch» Krankheit oder bezahlte Absenz — beides
+  // ist eine Personalentscheidung, keine Ableitung aus dem Namen.
+  ['Kurs', 'Arztbesuch', 'Privat', 'Bezahlte Absenzen'].forEach(txt => {
+    const a = I.absenzArt(txt);
+    t('«' + txt + '» bleibt ohne Typ und wird gemeldet',
+      a.erkannt === false && a.typ === '' && a.arbeit === false);
+  });
+  const leer = I.absenzArt('');
+  t('leer heisst: gar keine Absenz', leer.leer === true);
+  t('«0» heisst ebenfalls keine Absenz', I.absenzArt('0').leer === true);
+}
+{
+  // Termin-Ebene: die Arbeitskategorie darf NICHT als «Abwesend» landen.
+  const kopf = ['guid', 'datum', 'von60', 'arbeit', 'arbname', 'absenz', 'rapportnr'];
+  const werk = zeile('termine', kopf,
+    ['g1', '2026-03-02', '07:00', '', 'Muster', 'Werkstatt', '']).ziel;
+  eq('Werkstatt-Termin bleibt ein Einsatz', werk.typ, 'frei');
+  eq('und bekommt die Kategorie als Titel', werk.titel, 'Werkstatt');
+  const ferien = zeile('termine', kopf,
+    ['g2', '2026-03-03', '07:00', '', 'Muster', 'Ferien', '']).ziel;
+  eq('Ferien-Termin ist abwesend', ferien.typ, 'ferien');
+  eq('mit GEMA-Typ', ferien.absenzTyp, 'ferien');
+  // Eine Arbeitskategorie mit Auftragsnummer bleibt der Auftrag.
+  const mitAuf = zeile('termine', kopf,
+    ['g3', '2026-03-04', '07:00', 'Montage', 'Muster', 'Werkstatt', '8448.00']).ziel;
+  eq('Arbeitskategorie mit Auftrag → Auftragstermin', mitAuf.typ, 'auftrag');
+  // Gegenprobe: vor der Zuordnung wurde JEDE gesetzte Absenz zu «Abwesend».
+  t('Gegenprobe: Werkstatt ist nicht mehr «Abwesend»', werk.typ !== 'ferien');
+  const unbek = zeile('termine', kopf,
+    ['g4', '2026-03-05', '07:00', '', 'Muster', 'Kurs', '']).ziel;
+  eq('Unbekanntes gilt als abwesend (so heisst die Spalte)', unbek.typ, 'ferien');
+  eq('aber ohne erfundenen Typ', unbek.absenzTyp, '');
+  t('und wird gemeldet',
+    I.pruefe(unbek, 'termine').some(h => h.typ === 'warn' && /unbekannt/i.test(h.text)));
+}
+{
+  // Stunden-Ebene: eine erkannte Absenz wird zur GEMA-Absenz am Tag, eine
+  // Arbeitskategorie bleibt Arbeitszeit.
+  const kopf = ['arbname', 'datum', 'stunden', 'absenz'];
+  const fe = zeile('stunden', kopf, ['Muster', '2026-03-03', '8', 'Ferien']).ziel;
+  eq('Ferien liefern den GEMA-Typ', fe.absenzTyp, 'ferien');
+  const we = zeile('stunden', kopf, ['Muster', '2026-03-02', '8', 'Werkstatt']).ziel;
+  eq('Werkstatt liefert keinen Absenztyp', we.absenzTyp, '');
+  eq('sondern ist als Arbeit markiert', we.absenzArbeit, true);
+  t('der Writer legt die Absenz an den TAG, nicht an den Eintrag',
+    /t\.absenz=\{typ:s\(aZ\.absenzTyp\)\}/.test(
+      fs.readFileSync(path.join(ROOT, 'gema_erp_import.js'), 'utf8')));
+}
+
+console.log('\n═══ G — Einheiten-Riegel bei den Stunden ═══');
+{
+  // `hours.hrs_length` ist ein INT, dessen Einheit nicht belegt ist. Kaeme er
+  // ungerechnet herein, entstuenden aus 28 800 Sekunden 28 800 Stunden.
+  const kopf = ['arbname', 'datum', 'stunden'];
+  const gross = zeile('stunden', kopf, ['Muster', '2026-03-02', '28800']).ziel;
+  const hin = I.pruefe(gross, 'stunden');
+  t('über 24 h an einem Tag wird als Fehler abgewiesen',
+    hin.some(h => h.typ === 'fehler' && /Stundenzahl|nicht in Stunden/i.test(h.text)));
+  const ok = zeile('stunden', kopf, ['Muster', '2026-03-02', '8.5']).ziel;
+  t('ein normaler Tag laeuft durch',
+    !I.pruefe(ok, 'stunden').some(h => h.typ === 'fehler'));
+  const lang = zeile('stunden', kopf, ['Muster', '2026-03-02', '18']).ziel;
+  t('18 h werden gemeldet, aber nicht abgewiesen',
+    I.pruefe(lang, 'stunden').some(h => h.typ === 'warn') &&
+    !I.pruefe(lang, 'stunden').some(h => h.typ === 'fehler'));
+}
+
 console.log('\n' + (fail ? '✗ ' + fail + ' von ' + n + ' Prüfungen fehlgeschlagen'
                           : '✓ alle ' + n + ' Prüfungen bestanden'));
 process.exit(fail ? 1 : 0);

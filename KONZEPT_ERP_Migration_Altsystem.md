@@ -476,39 +476,77 @@ zuoberst, weil erst sie den Belegen die richtige Zahlungsfrist geben.
 
 ## 6. Offene Punkte
 
-### 6.0 Was noch nicht am Bestand geprüft ist
+### 6.0 Nachschlagetabellen — ausgezählt am 2026-09-07
 
-Der Rest dieses Kapitels hält fest, was gemessen wurde. Ehrlichkeitshalber
-zuerst das Gegenteil — vier Zuordnungen sind **generisch geschrieben und nicht
-gegen die Nachschlagetabellen des Altsystems geprüft**. Alle vier fallen bei
-Unbekanntem auf einen Vorgabewert zurück und melden das, es geht also nichts
-still verloren; verlässlich sind sie deswegen aber nicht.
+Vier Zuordnungen waren generisch geschrieben. Die Zählung gegen die
+Nachschlagetabellen (Abfrage in 8.14) hat drei echte Fehler aufgedeckt:
 
-| Zuordnung | Quelle | Stand |
+| Wert | Zeilen | vorher | jetzt |
+|---|---|---|---|
+| Offerte «In Bearbeitung» | 2 387 | fiel durch → «versendet» | **entwurf** |
+| Offerte «Versandt» | 784 | fiel durch (Status zufällig richtig, aber als unbekannt gemeldet) | **versendet**, erkannt |
+| «A-Konto-Rechnung» | 1 479 | fiel durch → «Einzelrechnung» | **akonto** |
+
+Die Akonto-Rechnung ist der teuerste der drei: die Schlussrechnung zieht die
+Akonti ab, eine falsch eingeordnete fehlt in diesem Abzug. Ursache war der
+Bindestrich — `/akonto/` trifft «A-Konto-Rechnung» nicht.
+
+**Der Auftragsstatus war korrekt.** Alle fünf benutzten Werte treffen
+(«Erledigt, Rapport zurück» 9 610 · «Nicht begonnen» 394 · «Laufende Arbeit»
+209 · «Storniert» 84 · «Erledigt, Rapport verloren» 2); nur «Offerte» (1 Beleg)
+und «Wartet» (0) fallen durch und werden gemeldet. Die Arbeitsarten (`arbtyp`)
+sind praktisch unbenutzt — 17 Termine über alle 21 Arten — und bleiben Vermerk.
+
+#### `absenz` ist kein Absenzkatalog
+
+Der wichtigste Fund. In derselben Spalte stehen drei verschiedene Dinge:
+
+| Gruppe | Beispiele | Behandlung |
 |---|---|---|
-| Auftragsstatus | `arbstatus.typ_text` | nur «Nicht begonnen» belegt (als Reihenfolge-Falle), die übrigen Werte ungeprüft |
-| Offertstatus | `offstatus.typ_text` | ungeprüft |
-| Rechnungsart | `rechtyp.typ_text` | ungeprüft |
-| **Absenzarten** | `absenz.kurz` / `.beschr` | **ungeprüft — mit Folgen, siehe unten** |
+| echte Abwesenheiten | Ferien 419 · Schule 454 · Unfall 130 · Krankheit 116 · Feiertage 108 · Militär 47 · Brücke 36 · ÜK 33 · Zivildienst 6 · Kompensation 4 | → GEMA-Absenztyp |
+| **Arbeit** | **Werkstatt 87 (+170 mobil) · Sitzung 22 · Büro 10 (+47) · Garantiearbeit · Teamevent** | **bleibt Einsatz** |
+| Zuschlagsarten | Stundenzuschlag, Nachtzuschlag, Kompensation Typ B/Zuschläge/Vorholzeit | alle unbenutzt |
 
-Der Zahlungsstatus (`debistatus`) ist dagegen ausgezählt und vollständig
-zugeordnet (6.x unten), ebenso `postyp`, `module_id` und der Revisionszyklus.
-Der MwSt-Satz wird aus den Beträgen des Belegs gerechnet und nicht aus einer
-Tabelle geraten; die Bezugspersonen-Rollen (`krit`) werden als Adresstyp
-angelegt, wie sie heissen — beides ist zuordnungsfrei.
+Die alte Regel «Feld gesetzt = abwesend» hätte **119 Arbeitstermine zu
+Abwesenheiten** gemacht. `ABSENZ_MAP` in `gema_erp_import.js` trennt die drei
+Gruppen; unbekannte Arten (Kurs 116, Arztbesuch 4, Privat 1, «Bezahlte
+Absenzen» 2) bekommen **keinen erfundenen Typ**, sondern werden benannt — ob
+«Kurs» Berufsschule, ÜK oder Weiterbildung ist, entscheidet die Personalstelle,
+nicht der Name. Für sie gibt es in GEMA eigene Absenzarten (⚙️-Einstellungen).
 
-**Die Absenzarten sind der einzige Punkt mit echten Folgen.** Solange die Liste
-nicht bekannt ist, gilt:
+> **`absenz.paid` taugt NICHT als Kriterium.** Im Bestand steht es bei «Ferien»
+> auf 0 und bei «unbezahlter Urlaub» und «unbezahlte Absenzen» auf 1. Was die
+> Spalte bedeutet, ist damit offen; sie wird nicht ausgewertet. Das korrigiert
+> die frühere Aussage, `paid` entscheide mit.
 
-1. **Im Terminplan wird jede Abwesenheit zu «Ferien»** — Militärdienst,
-   Krankheit, Schule und unbezahlter Urlaub sähen gleich aus.
-2. **In der Zeiterfassung entsteht aus einer Absenz ein normaler Zeiteintrag**
-   mit der Dauer und dem Vermerk `importAbsenz`; sie wird nicht zur GEMA-Absenz.
-   Das schlägt auf den Ferienübertrag durch: importierte Ferientage zählen als
-   null bezogene Tage und erhöhen gleichzeitig die Ist-Zeit.
+Erkannte Absenzen werden in der Zeiterfassung jetzt zur **GEMA-Absenz am Tag**
+statt zu einem Arbeitseintrag. Ohne das zählte ein Ferientag als geleistete
+Zeit *und* als null bezogene Ferien — der Feriensaldo wäre zu hoch und die
+Ist-Zeit ebenfalls.
 
-Beides ist erst zu beheben, wenn die Werte von `absenz` vorliegen — vorher wäre
-jede Zuordnung geraten. Die Abfrage dafür steht in 8.14.
+**Feiertage (108 Termine)** sind eigens markiert: GEMA führt sie im
+Firmenkalender (`org.settings.stunden.feiertage`), nicht als Abwesenheit. Der
+Termin entsteht als «Abwesend», die Meldung verweist auf den Kalender.
+
+#### Noch offen: die Einheit von `hours.hrs_length`
+
+Die 296 Absenzzeilen der mobilen Erfassung ergeben `SUM(hrs_length)/60` =
+46 275 — also 9 380 pro Zeile. Als Minuten wären das 156 h für einen einzelnen
+Eintrag, als Sekunden 2.6 h. Sekunden ist damit die einzig plausible Lesart,
+**belegt ist sie nicht**. Der Export in 8.11 reicht `hrs_length` bisher
+ungerechnet als «Stunden» durch.
+
+Bis das geklärt ist, weist der Importer jede Zeile über **24 h an einem Tag als
+Fehler zurück** und meldet ab 16 h. Damit kann der Fehler nicht mehr
+unbemerkt durchlaufen; die Umrechnung gehört in den Export, sobald die Einheit
+feststeht (Gegenprobe: eine `hours`-Zeile mit ihrem Termin über
+`hrs_terminguid` vergleichen — `termin.stunden` führt Dezimalstunden).
+
+Der Zahlungsstatus (`debistatus`) ist ausgezählt und vollständig zugeordnet,
+ebenso `postyp`, `module_id` und der Revisionszyklus. Der MwSt-Satz wird aus
+den Beträgen des Belegs gerechnet statt aus einer Tabelle geraten; die
+Bezugspersonen-Rollen (`krit`) werden als Adresstyp angelegt, wie sie heissen —
+beides ist zuordnungsfrei.
 
 ### Beantwortet durch die Zählung vom 2026-09-07
 
@@ -1166,11 +1204,10 @@ zählte sonst voll) — beides wird ausgewiesen statt kaschiert.
 
 ---
 
-### 8.14 Nachschlagetabellen — die letzte offene Prüfung
+### 8.14 Nachschlagetabellen — die Abfrage hinter 6.0
 
-Diese Abfrage schliesst die vier Zuordnungen aus 6.0. Sie liest nur und zählt,
-wie oft jeder Wert benutzt wird — ein Wert mit null Treffern braucht keine
-Zuordnung.
+Am 2026-09-07 gelaufen; die Ergebnisse stehen in 6.0. Hier zur
+Wiederholbarkeit — sie liest nur und zählt, wie oft jeder Wert benutzt wird.
 
 ```sql
 SELECT '=== A Auftragsstatus (arbstatus) ===' AS x;
@@ -1200,9 +1237,8 @@ SELECT a.id, a.kurz, a.beschr, a.bkp_nr,
 FROM arbtyp a ORDER BY termine DESC;
 ```
 
-`absenz.paid` (bezahlt ja/nein) und `.social` entscheiden mit, auf welchen
-GEMA-Typ eine Art fällt: bezahlte Abwesenheiten füllen das Tagessoll auf,
-unbezahlte nicht. Beide Spalten sind `BIT(1)` und kommen als `\0`/`\1` heraus.
+`absenz.paid` sieht aus wie «bezahlt ja/nein», ist es aber nicht — siehe 6.0.
+Beide Bit-Spalten werden mit `+0` abgefragt, sonst kommen sie als `\0`/`\1`.
 
 ---
 
