@@ -83,10 +83,17 @@ ok(/function sdSavePhotoComment\(\)[\s\S]{0,400}_sdPcWeiter\(\)/.test(SD),
   'Speichern setzt die Kette fort');
 ok(/function sdClosePhotoComment\(\)[\s\S]{0,400}_sdPcWeiter\(\)/.test(SD),
   'Verwerfen setzt die Kette ebenfalls fort (kein stiller Abbruch)');
-// Der alert-Text enthaelt selbst Klammern — darum bis zum Zeilenende matchen.
-ok(/reader\.onerror = function\(\) \{ alert\(.*_fertig\(\); \}/.test(SD)
-  && /img\.onerror = function\(\) \{ alert\(.*_fertig\(\); \}/.test(SD)
-  && /alert\('Foto ist nach Komprimierung immer noch zu gross[\s\S]{0,80}_fertig\(\);/.test(SD),
+// Seit 07.09.2026 liegt das Verkleinern in _sdResizeFile (geteilt mit dem
+// Drag&Drop-Import); die drei Fehlergruende kommen als cb(null, grund)
+// zurueck, sdResizeAndStore meldet sie und setzt die Kette fort. Geprueft
+// wird die ABSICHT (jeder Fehlerfall meldet UND macht weiter), nicht mehr
+// der frueher inline stehende Wortlaut.
+ok(/function _sdResizeFile[\s\S]{0,1600}reader\.onerror[^\n]*cb\(null, 'lesen'\)/.test(SD),
+  'Lesefehler wird als Grund gemeldet');
+ok(/function _sdResizeFile[\s\S]{0,1600}img\.onerror[^\n]*cb\(null, 'format'\)/.test(SD)
+  && /function _sdResizeFile[\s\S]{0,1600}cb\(null, 'gross'\); return;/.test(SD),
+  'Format- und Groessenfehler werden als Grund gemeldet');
+ok(/function sdResizeAndStore[\s\S]{0,900}if \(!dataUrl\) \{[\s\S]{0,600}alert\('Foto ist nach Komprimierung[\s\S]{0,600}_fertig\(\);/.test(SD),
   'auch die Fehlerpfade (lesen / verarbeiten / zu gross) setzen die Kette fort');
 
 // ── B1) Statik Werkzeug ────────────────────────────────────────────

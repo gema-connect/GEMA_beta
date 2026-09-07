@@ -249,7 +249,10 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 .acc.open .acc-body{display:block}
 
 /* PHOTO GRID */
-.photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-top:8px}
+/* Spaltenbreite ist auf die BILDUNTERSCHRIFT ausgelegt, nicht aufs Bild:
+   gema_responsive.css erzwingt in Feldern global 16px (iOS-Zoom-Schutz), bei
+   140px Kachelbreite blieben davon rund acht Zeichen sichtbar. */
+.photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(178px,1fr));gap:10px;margin-top:8px}
 .photo-item{position:relative;border-radius:10px;overflow:hidden;border:1.5px solid var(--brd);background:var(--bg2);cursor:pointer}
 .photo-item img{width:100%;aspect-ratio:4/3;object-fit:cover;display:block}
 .photo-item .photo-del{position:absolute;top:6px;right:6px;width:24px;height:24px;border-radius:6px;background:rgba(0,0,0,.6);color:#fff;border:none;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;opacity:0;transition:.15s}
@@ -264,17 +267,31 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 .photo-item.photo-not-in-report img{filter:grayscale(.7)}
 .photo-item .photo-badge{position:absolute;bottom:6px;left:6px;padding:2px 7px;border-radius:5px;font-size:9px;font-weight:700;color:#fff;background:rgba(0,0,0,.5)}
 .photo-comment{margin-top:4px;font-size:11px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 4px}
+/* Bildunterschrift direkt an der Kachel bearbeitbar (Feedback 07.09.2026).
+   Speichert auf 'change' (= Blur mit Änderung) — ein input-Handler dürfte die
+   Kachel-Liste NIE neu bauen, sonst verliert das Feld nach dem ersten Zeichen
+   den Fokus (Kanon-Fokusregel). */
+.photo-cap-inp{display:block;width:100%;box-sizing:border-box;border:none;border-top:1px solid var(--brd);border-radius:0;padding:6px 8px;font-family:var(--sans);font-size:13px;font-weight:500;color:var(--txt);background:var(--sur);outline:none}
+.photo-cap-inp::placeholder{color:#cbd5e1;font-weight:400}
+.photo-cap-inp:focus{background:var(--plan-bg);box-shadow:inset 0 0 0 1.5px var(--plan)}
 .photo-add{display:flex;flex-direction:column;align-items:center;justify-content:center;aspect-ratio:4/3;border:2px dashed var(--brd2);border-radius:10px;cursor:pointer;color:var(--mut);transition:.15s;gap:4px;font-size:12px;font-weight:700}
 .photo-add:hover{border-color:var(--plan);color:var(--plan);background:var(--plan-bg)}
 /* Gesplittete Kachel: oben Kamera, unten Mediathek. Der Container selbst ist
    NICHT mehr klickbar (sonst wäre unklar, welcher Weg zieht) — die Hover-Regel
    der einfachen Kachel wird darum hier gezielt neutralisiert. */
-.photo-add.photo-add-split{padding:0;gap:0;overflow:hidden;cursor:default}
+/* Mit dem Drop-Hinweis passen drei Zeilen NICHT mehr in ein festes 4:3 —
+   darum Seitenverhältnis lösen und die Kachel auf die Zeilenhöhe des Rasters
+   wachsen lassen (align-items:stretch ist die Grid-Vorgabe). */
+.photo-add.photo-add-split{padding:0;gap:0;overflow:hidden;cursor:default;aspect-ratio:auto;min-height:132px}
 .photo-add.photo-add-split:hover{border-color:var(--brd2);color:var(--mut);background:transparent}
 .photo-add-split .pa-half{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;width:100%;min-height:44px;padding:6px 4px;border:none;background:transparent;color:inherit;font-family:inherit;font-size:11.5px;font-weight:700;cursor:pointer;transition:.15s}
 .photo-add-split .pa-half+.pa-half{border-top:1.5px dashed var(--brd2)}
 .photo-add-split .pa-half:hover{background:var(--plan-bg);color:var(--plan)}
 .photo-add-split .pa-ic{font-size:20px;line-height:1}
+/* Hinweis auf den dritten Weg: Bilder aus dem Dateimanager in die Bereichs-
+   Karte ziehen (Desktop). Auf Touch-Geräten gibt es kein Drag&Drop von
+   Dateien — der Hinweis wird dort ausgeblendet (siehe Media-Query unten). */
+.photo-add-split .pa-drophint{font-size:10px;font-weight:700;color:var(--mut);text-align:center;padding:5px 4px;border-top:1.5px dashed var(--brd2);line-height:1.3}
 /* Messfoto-Box im Mess-Dialog: dieselben zwei Wege, nebeneinander. */
 .mess-photo-wahl{display:flex;gap:8px;width:100%}
 .mess-photo-wahl .pa-half{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:70px;padding:8px 6px;border:1.5px solid var(--brd2);border-radius:9px;background:var(--sur);color:var(--mut);font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;transition:.15s}
@@ -386,6 +403,12 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 /* Bereichs-Karten (Fotos/Messpunkte/Geräte je betroffenem Bereich) */
 .sd-area{border:1.5px solid var(--brd2);border-radius:14px;padding:14px;margin-bottom:12px;background:var(--sur);transition:border-color .12s,background .12s}
 .sd-area.sd-area-drop-over{border-color:var(--plan);background:var(--plan-bg);border-style:dashed}
+/* Datei-Drop (Bilder aus dem Dateimanager) — bewusst eine ANDERE Farbe als
+   das Verschieben einer bestehenden Kachel, damit erkennbar bleibt, was
+   gerade passiert (Import vs. Umhängen). */
+.sd-area.sd-area-file-over{border-color:var(--grn);background:var(--grn-bg);border-style:dashed}
+.sd-area-fileflag{display:none;font-size:11.5px;font-weight:800;color:#166534;margin-bottom:8px}
+.sd-area.sd-area-file-over .sd-area-fileflag{display:block}
 .sd-area-hd{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
 .sd-area-name{font-size:14.5px;font-weight:800;color:var(--txt);overflow-wrap:anywhere;flex:1;min-width:120px}
 .sd-area-sub{font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut);margin:12px 0 6px}
@@ -409,6 +432,10 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 .sd-move-target:disabled{opacity:.45;cursor:default}
 .photo-item .photo-move{position:absolute;top:36px;right:6px;width:24px;height:24px;border-radius:6px;background:rgba(15,23,42,.65);color:#fff;border:none;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;opacity:0;transition:.15s}
 .photo-item:hover .photo-move{opacity:1}
+/* ✎ = Bildunterschrift im Dialog bearbeiten (mit grosser Vorschau). Das
+   Direkt-Feld unter der Kachel bleibt der kurze Weg. */
+.photo-item .photo-edit{position:absolute;top:36px;left:6px;width:24px;height:24px;border-radius:6px;background:rgba(15,23,42,.65);color:#fff;border:none;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;opacity:0;transition:.15s}
+.photo-item:hover .photo-edit{opacity:1}
 .sd-unassigned-item{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;border:1.5px solid var(--brd);border-radius:9px;background:var(--bg2);margin-bottom:6px}
 .meas-view-toggle{display:flex;gap:0;border:1.5px solid var(--brd2);border-radius:8px;overflow:hidden;height:32px;flex-shrink:0;box-sizing:border-box}
 .meas-view-toggle button{padding:0 14px;height:100%;border:none;background:transparent;font-size:12px;font-weight:700;color:var(--mut);cursor:pointer;display:inline-flex;align-items:center}
@@ -522,14 +549,21 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
   .modal-x{width:36px;height:36px;top:14px;right:14px}
 
   /* Photos - bigger tiles, always-visible delete */
-  .photo-grid{grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px}
+  .photo-grid{grid-template-columns:repeat(auto-fill,minmax(152px,1fr));gap:8px}
   .photo-item .photo-del{opacity:1;width:28px;height:28px;font-size:14px;border-radius:7px}
   .photo-item .photo-report-toggle{opacity:1;width:28px;height:28px;font-size:14px;border-radius:7px}
   .photo-item .photo-move{opacity:1;width:28px;height:28px;font-size:14px;border-radius:7px;top:40px}
+  .photo-item .photo-edit{opacity:1;width:28px;height:28px;font-size:14px;border-radius:7px;top:40px}
   .photo-add{min-height:100px;font-size:13px}
   .photo-add-split .pa-half{min-height:52px;font-size:12px}
   .photo-add-split .pa-ic{font-size:22px}
   .photo-comment{font-size:10.5px}
+  /* Datei-Drag&Drop gibt es auf Touch-Geräten nicht — Hinweis weglassen,
+     statt eine Bedienung zu versprechen, die dort nicht existiert. */
+  .photo-add-split .pa-drophint{display:none}
+  /* Etwas mehr Luft für den Daumen — die Schriftgrösse liegt ohnehin bei den
+     global erzwungenen 16px (gema_responsive.css, iOS-Zoom-Schutz). */
+  .photo-cap-inp{padding:8px}
 
   /* Lightbox */
   .lightbox{padding:10px}
@@ -836,9 +870,10 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 <!-- PHOTO COMMENT MODAL -->
 <div class="modal-bg hidden" id="photoCommentModal">
   <div class="dlg-card" style="max-width:440px">
-    <div style="font-size:16px;font-weight:800;margin-bottom:12px">📷 Foto-Kommentar</div>
+    <div style="font-size:16px;font-weight:800;margin-bottom:12px" id="pcTitle">📷 Foto-Kommentar</div>
+    <img id="pcPreview" alt="" style="display:none;width:100%;max-height:220px;object-fit:contain;background:var(--bg2);border:1.5px solid var(--brd2);border-radius:10px;margin-bottom:12px">
     <div style="margin-bottom:12px">
-      <label class="dlg-lbl">Kommentar</label>
+      <label class="dlg-lbl">Bildunterschrift</label>
       <input type="text" class="dlg-inp" id="pcComment" placeholder="Beschreibung zum Foto …">
     </div>
     <div class="cb-row" style="margin-bottom:12px">
@@ -1559,6 +1594,42 @@ function sdGeraetTage(g, tr){
   return sdDaysBetween(start, ende);
 }
 var esc = function(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+/* Dezente Kurzmeldung. Bewusst KEIN Dialog: der Sammelimport von Bildern
+   meldet nur, was passiert ist — ein modaler Dialog nach jedem Drop wäre im
+   Weg. Das Element wird bei Bedarf erzeugt (kein Markup nötig) und liegt
+   unter GemaDialog (12800), damit ein echter Dialog immer oben bleibt. */
+var _sdToastEl = null, _sdToastTm = null;
+function _sdToast(msg, ms) {
+  try {
+    if (!_sdToastEl || !_sdToastEl.parentNode) {
+      _sdToastEl = document.createElement('div');
+      _sdToastEl.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);'
+        + 'bottom:calc(22px + env(safe-area-inset-bottom, 0px));z-index:9000;max-width:min(92vw,520px);'
+        + 'background:#0f172a;color:#fff;font-family:var(--sans);font-size:13px;font-weight:700;'
+        + 'padding:11px 16px;border-radius:11px;box-shadow:0 10px 30px rgba(15,23,42,.35);'
+        + 'text-align:center;line-height:1.4;pointer-events:none;opacity:0;transition:opacity .18s';
+      document.body.appendChild(_sdToastEl);
+    }
+    _sdToastEl.textContent = String(msg == null ? '' : msg);
+    // Reflow erzwingen, damit die Einblendung auch beim Wiederverwenden greift
+    void _sdToastEl.offsetWidth;
+    _sdToastEl.style.opacity = '1';
+    clearTimeout(_sdToastTm);
+    _sdToastTm = setTimeout(function() {
+      if (_sdToastEl) _sdToastEl.style.opacity = '0';
+    }, ms || 3600);
+  } catch (e) {}
+}
+window._sdToast = _sdToast;
+/* Attribut-Escaper: deckt zusätzlich " und ' ab (Kanon «Escaper decken &<>"'
+   ab»). Für Werte, die in einem HTML-Attribut landen — esc() allein liesse
+   ein Anführungszeichen im Text das value="…" beenden. Nur für Attribute,
+   NICHT für JS-String-Kontexte in onclick (dort gilt weiterhin: nur Indizes). */
+function _sdAttr(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
 
 // ── FILTER & VIEW ──
 function sdSetFilter(f) {
@@ -2414,26 +2485,101 @@ function sdAssignItemToArea(schadenId, kind, phase, idx, areaName){
 }
 window.sdAssignItemToArea = sdAssignItemToArea;
 
+// Bildunterschrift einer Foto-Kachel ändern. Bewusst OHNE Re-Render — das
+// Feld wird direkt in der Kachel bearbeitet und darf beim Speichern nicht
+// unter dem Cursor weggezeichnet werden (Kanon-Fokusregel).
+function sdUpdatePhotoCaption(schadenId, phase, idx, val){
+  var s = sdGetById(schadenId); if(!s) return;
+  var arr = _sdItemArray(s, 'foto', phase);
+  if(!arr || !arr[idx]) return;
+  var neu = String(val == null ? '' : val).trim();
+  if(arr[idx].kommentar === neu) return;
+  arr[idx].kommentar = neu;
+  sdSave();
+}
+window.sdUpdatePhotoCaption = sdUpdatePhotoCaption;
+
 // ── Drag & Drop (Desktop) ──
+// ZWEI Fälle teilen sich dieselben Handler:
+//  a) eine bestehende Kachel wird in einen anderen Bereich gezogen (_sdDrag)
+//  b) Bilddateien werden aus dem Dateimanager in die Bereichs-Karte gezogen
+// Fall (b) erkennt man an dataTransfer.types — die Datei-Liste selbst ist im
+// dragover-Event aus Sicherheitsgründen noch leer.
 var _sdDrag = null;
+function _sdDragHatDateien(ev){
+  var dt = ev && ev.dataTransfer; if(!dt) return false;
+  var t = dt.types;
+  if(!t) return false;
+  try {
+    if(typeof t.indexOf === 'function') return t.indexOf('Files') >= 0;          // Array (Chrome/Firefox)
+    if(typeof t.contains === 'function') return t.contains('Files');             // DOMStringList (ältere)
+    return Array.prototype.indexOf.call(t, 'Files') >= 0;
+  } catch(e){ return false; }
+}
 function sdDragStart(ev, schadenId, kind, phase, idx){
   _sdDrag = { schadenId: schadenId, kind: kind, phase: phase, idx: idx };
   try { ev.dataTransfer.setData('text/plain', kind + ':' + idx); ev.dataTransfer.effectAllowed = 'move'; } catch(e){}
 }
-function sdDragOverArea(ev, el){ if(!_sdDrag) return; ev.preventDefault(); try { ev.dataTransfer.dropEffect = 'move'; } catch(e){} el.classList.add('sd-area-drop-over'); }
-function sdDragLeaveArea(el){ el.classList.remove('sd-area-drop-over'); }
+function sdDragOverArea(ev, el){
+  if(_sdDragHatDateien(ev)){
+    if(!(el && el.getAttribute && el.getAttribute('data-drop-phase'))) return;  // nur wo erfasst werden darf
+    ev.preventDefault();
+    try { ev.dataTransfer.dropEffect = 'copy'; } catch(e){}
+    el.classList.add('sd-area-file-over');
+    return;
+  }
+  if(!_sdDrag) return;
+  ev.preventDefault();
+  try { ev.dataTransfer.dropEffect = 'move'; } catch(e){}
+  el.classList.add('sd-area-drop-over');
+}
+function sdDragLeaveArea(el){ el.classList.remove('sd-area-drop-over'); el.classList.remove('sd-area-file-over'); }
+function _sdDropMarkerWeg(){
+  document.querySelectorAll('.sd-area-drop-over,.sd-area-file-over').forEach(function(el){
+    el.classList.remove('sd-area-drop-over'); el.classList.remove('sd-area-file-over');
+  });
+}
 function sdDropOnArea(ev, schadenId, areaIdx){
   ev.preventDefault();
   var d = _sdDrag; _sdDrag = null;
-  document.querySelectorAll('.sd-area-drop-over').forEach(function(el){ el.classList.remove('sd-area-drop-over'); });
-  if(!d || d.schadenId !== schadenId) return;
+  var el = ev.currentTarget;
+  var phase = (el && el.getAttribute) ? (el.getAttribute('data-drop-phase') || '') : '';
+  _sdDropMarkerWeg();
   var s = sdGetById(schadenId); if(!s) return;
-  var area = _sdAreaNames(s)[parseInt(areaIdx, 10)];
+  // areaIdx < 0 = «ohne Bereich» (Leerzustand und Sammel-Karte) — Bilder
+  // landen dann bewusst im Zuordnen-Eimer statt nirgends.
+  var ai = parseInt(areaIdx, 10);
+  var area = ai < 0 ? '' : _sdAreaNames(s)[ai];
   if(area == null) return;
+  var dateien = [];
+  try { dateien = Array.prototype.slice.call((ev.dataTransfer && ev.dataTransfer.files) || []); } catch(e){}
+  if(dateien.length){
+    if(!phase) return;                                  // Karte ist nur lesbar — nichts vorgaukeln
+    sdImportFiles(schadenId, phase, area, dateien);
+    return;
+  }
+  if(!d || d.schadenId !== schadenId) return;
   sdAssignItemToArea(schadenId, d.kind, d.phase, d.idx, area);
 }
 window.sdDragStart = sdDragStart; window.sdDragOverArea = sdDragOverArea;
 window.sdDragLeaveArea = sdDragLeaveArea; window.sdDropOnArea = sdDropOnArea;
+
+// Sicherheitsnetz: Ein Bild, das NEBEN eine Bereichs-Karte fällt, würde der
+// Browser sonst als Navigation behandeln — das Fenster zeigt dann das Bild
+// und die Erfassung ist weg (ungespeicherte Eingaben inklusive). Darum wird
+// jeder Datei-Drop, den keine Drop-Zone übernommen hat, verworfen.
+document.addEventListener('dragover', function(ev){
+  if(!_sdDragHatDateien(ev) || ev.defaultPrevented) return;
+  // 'none' = der Mauszeiger zeigt ehrlich, dass hier NICHT abgelegt werden
+  // kann; preventDefault verhindert trotzdem die Browser-Navigation.
+  try { ev.dataTransfer.dropEffect = 'none'; } catch(e){}
+  ev.preventDefault();
+});
+document.addEventListener('drop', function(ev){
+  if(!ev.defaultPrevented && _sdDragHatDateien(ev)) ev.preventDefault();
+  _sdDropMarkerWeg();
+});
+document.addEventListener('dragend', function(){ _sdDrag = null; _sdDropMarkerWeg(); });
 
 // ── Auswahl-Fallback (Touch/alle Geräte): «→ in Bereich …» ──
 function sdMoveSelChanged(sel, schadenId, kind, phase, idx){
@@ -2602,8 +2748,20 @@ function _sdPhotoStrip(schadenId, phase, fotos, editable, area, areaIdx){
         + ' onclick="event.stopPropagation();sdTogglePhotoInReport(\'' + schadenId + '\',\'' + phase + '\',' + i + ')"'
         + ' title="' + (inReport ? 'Foto im Bericht — Klick zum Ausschluss' : 'Foto NICHT im Bericht — Klick zum Einschluss') + '">'
         + (inReport ? '✓' : '🚫') + '</button>';
+      h += '<button class="photo-edit" title="Bildunterschrift gross bearbeiten" onclick="event.stopPropagation();sdEditPhotoComment(\'' + schadenId + '\',\'' + phase + '\',' + i + ')">✎</button>';
     }
-    if(f.kommentar) h += '<div class="photo-comment">' + esc(f.kommentar) + '</div>';
+    // Bildunterschrift direkt an der Kachel — Speichern auf 'change'
+    // (Blur mit Änderung), NIE auf 'input': ein Re-Render mitten im Tippen
+    // würde den Fokus reissen (Kanon-Fokusregel).
+    if(editable){
+      h += '<input type="text" class="photo-cap-inp" value="' + _sdAttr(f.kommentar || '') + '"'
+        // title = der volle Text: die Kachel ist schmaler als manche Unterschrift.
+        + ' placeholder="Bildunterschrift …" title="' + _sdAttr(f.kommentar || 'Bildunterschrift bearbeiten') + '"'
+        + ' onclick="event.stopPropagation()"'
+        + ' onchange="sdUpdatePhotoCaption(\'' + schadenId + '\',\'' + phase + '\',' + i + ',this.value)">';
+    } else if(f.kommentar){
+      h += '<div class="photo-comment">' + esc(f.kommentar) + '</div>';
+    }
     if(!inReport) h += '<div class="photo-badge" style="background:var(--red)">Nicht im Bericht</div>';
     h += '</div>';
   });
@@ -2620,6 +2778,7 @@ function _sdPhotoStrip(schadenId, phase, fotos, editable, area, areaIdx){
       + '<span class="pa-ic">📷</span><span>Foto aufnehmen</span></button>'
       + '<button type="button" class="pa-half" onclick="event.stopPropagation();' + _pa + '\'galerie\')" title="Aus der Mediathek auswählen (mehrere möglich)">'
       + '<span class="pa-ic">🖼</span><span>Aus Mediathek</span></button>'
+      + '<div class="pa-drophint">oder Bilder hierher ziehen</div>'
       + '</div>';
   } else if(!any){
     h += '<div style="font-size:12px;color:var(--mut);padding:8px">Keine Fotos</div>';
@@ -2821,8 +2980,16 @@ function _sdUnassignedBucket(s, phase, areas, editable, canEdit){
     if(_sdRaumOf(f) !== '') return;
     var src = _sdImgSrc(f);
     var body = '<div style="display:flex;align-items:center;gap:10px">'
-      + '<img src="' + src + '" alt="" onclick="sdOpenLightbox(\'' + src.replace(/'/g, "\\'") + '\')" style="width:56px;height:56px;object-fit:cover;border-radius:8px;border:1.5px solid var(--brd2);display:block;cursor:pointer">'
-      + '<span style="font-size:12.5px;flex:1">📷 ' + esc(f.kommentar || 'Foto') + '</span>';
+      + '<img src="' + src + '" alt="" onclick="sdOpenLightbox(\'' + src.replace(/'/g, "\\'") + '\')" style="width:56px;height:56px;object-fit:cover;border-radius:8px;border:1.5px solid var(--brd2);display:block;cursor:pointer">';
+    // Bildunterschrift auch hier direkt editierbar — Speichern auf 'change',
+    // kein Re-Render im Tippen (Kanon-Fokusregel).
+    if(editable){
+      body += '<input type="text" value="' + _sdAttr(f.kommentar || '') + '" placeholder="Bildunterschrift …"'
+        + ' style="flex:1;min-width:0;border:1.5px solid var(--brd2);border-radius:8px;padding:7px 10px;font-family:var(--sans);font-size:12.5px;background:var(--sur);color:var(--txt);outline:none"'
+        + ' onchange="sdUpdatePhotoCaption(\'' + s.id + '\',\'' + phase + '\',' + i + ',this.value)">';
+    } else {
+      body += '<span style="font-size:12.5px;flex:1">📷 ' + esc(f.kommentar || 'Foto') + '</span>';
+    }
     if(canEdit) body += '<button class="btn-del-icon" title="Foto löschen" onclick="sdDelPhoto(\'' + s.id + '\',\'' + phase + '\',' + i + ')">✕</button>';
     body += '</div>';
     items.push({ kind:'foto', idx:i, body:body });
@@ -2838,7 +3005,10 @@ function _sdUnassignedBucket(s, phase, areas, editable, canEdit){
     });
   }
   if(!items.length) return '';
-  var h = '<div class="sd-area sd-area-none">';
+  var dz = (editable ? ' data-drop-phase="' + phase + '"' : '')
+    + ' ondragover="sdDragOverArea(event,this)" ondragleave="sdDragLeaveArea(this)" ondrop="sdDropOnArea(event,\'' + s.id + '\',-1)"';
+  var h = '<div class="sd-area sd-area-none"' + dz + '>';
+  h += '<div class="sd-area-fileflag">📥 Bilder hier ablegen — sie landen ohne Bereich und lassen sich danach zuordnen</div>';
   h += '<div class="sd-area-hd"><div class="sd-area-name">📥 Ohne Bereich — bitte zuordnen</div><span style="font-size:11px;color:var(--mut)">' + items.length + ' Eintrag' + (items.length !== 1 ? 'e' : '') + '</span></div>';
   h += '<div style="font-size:11.5px;color:var(--mut);margin-bottom:8px">In eine Bereichs-Karte oben ziehen — oder unten den Bereich wählen.</div>';
   items.forEach(function(it){
@@ -2865,10 +3035,16 @@ function _sdBereichHeader(phase){
 
 // Eine Bereichs-Karte je Phase.
 function _sdAreaCard(s, phase, area, areaIdx, editable, canEdit){
-  var dz = ' ondragover="sdDragOverArea(event,this)" ondragleave="sdDragLeaveArea(this)" ondrop="sdDropOnArea(event,\'' + s.id + '\',' + areaIdx + ')"';
+  // Datei-Drop nur, wo auch erfasst werden darf — sonst böte die Karte ein
+  // Ablegen an, das anschliessend still ins Leere liefe. Die Phase steht als
+  // Attribut an der Karte (nicht im onclick-String), damit dragover sie ohne
+  // Umweg lesen kann.
+  var dz = (editable ? ' data-drop-phase="' + phase + '"' : '')
+    + ' ondragover="sdDragOverArea(event,this)" ondragleave="sdDragLeaveArea(this)" ondrop="sdDropOnArea(event,\'' + s.id + '\',' + areaIdx + ')"';
   // Bereichs-Abschluss (nur Trocknung): Badge im Kopf + Button am Fuss
   var beEntry = (phase === 'trocknung' && s.trocknung && s.trocknung.bereichEnde) ? s.trocknung.bereichEnde[area] : null;
   var h = '<div class="sd-area"' + dz + '>';
+  h += '<div class="sd-area-fileflag">📥 Bilder hier ablegen — sie landen im Bereich «' + esc(area) + '»</div>';
   h += '<div class="sd-area-hd"><div class="sd-area-name">🏠 ' + esc(area) + '</div>'
     + (beEntry ? '<span class="sd-be-badge">✓ Trocknung beendet am ' + sdFmtDate(beEntry.am) + '</span>' : '')
     + (canEdit ? '<button type="button" class="sd-area-act" title="Bereich umbenennen" onclick="sdBereichUmbenennen(\'' + s.id + '\',' + areaIdx + ')">✏️</button>'
@@ -2907,7 +3083,15 @@ function sdRenderBereiche(s, phase, canEdit, canMeas){
     areas.forEach(function(area, ai){ h += _sdAreaCard(s, phase, area, ai, editable, canEdit); });
   } else {
     var hint = phase === 'analyse' ? 'Fotos und Referenz-Messpunkte' : (phase === 'trocknung' ? 'Fotos, Messungen und Geräte' : 'Fotos');
-    h += '<div class="sd-area-none" style="padding:14px;border-radius:12px;text-align:center;font-size:12.5px">Noch keine betroffenen Bereiche.' + (canEdit ? ' Lege oben mit «+ Bereich» einen an, um darin ' + hint + ' direkt zu erfassen.' : '') + '</div>';
+    // Auch der Leerzustand nimmt gezogene Bilder an (sie landen im
+    // Zuordnen-Eimer) — sonst gäbe es beim ersten Bericht gar keine Ablage.
+    var dzLeer = (editable ? ' data-drop-phase="' + phase + '"' : '')
+      + ' ondragover="sdDragOverArea(event,this)" ondragleave="sdDragLeaveArea(this)" ondrop="sdDropOnArea(event,\'' + s.id + '\',-1)"';
+    h += '<div class="sd-area sd-area-none" style="padding:14px;border-radius:12px;text-align:center;font-size:12.5px"' + dzLeer + '>'
+      + '<div class="sd-area-fileflag">📥 Bilder hier ablegen — sie landen ohne Bereich</div>'
+      + 'Noch keine betroffenen Bereiche.' + (canEdit ? ' Lege oben mit «+ Bereich» einen an, um darin ' + hint + ' direkt zu erfassen.' : '')
+      + (editable ? '<div style="margin-top:6px;font-size:11.5px;color:var(--mut)">Bilder lassen sich auch jetzt schon hierher ziehen — sie warten dann unter «Ohne Bereich».</div>' : '')
+      + '</div>';
   }
   h += _sdUnassignedBucket(s, phase, areas, editable, canEdit);
   h += '</div>';
@@ -4431,11 +4615,53 @@ function sdPickFiles(quelle, multiple, cb) {
   inp.click();
 }
 
+// Datei-Filter NIE über file.type allein — iOS liefert Mediathek-Fotos oft
+// ganz ohne MIME-Typ. Leerer Typ heisst «unbekannt», nicht «kein Bild»:
+// dann entscheidet die Endung, und ohne Endung wird es versucht (der Decoder
+// meldet sich, falls es doch kein Bild war).
+function _sdIstBilddatei(f) {
+  if (!f) return false;
+  if (f.type) return f.type.indexOf('image') === 0;
+  var n = String(f.name || '');
+  if (n.indexOf('.') < 0) return true;
+  return /\.(jpe?g|png|gif|webp|bmp|heic|heif|avif|tiff?)$/i.test(n);
+}
+
+// Datei → verkleinerte dataUrl. cb(dataUrl) bei Erfolg, cb(null, grund) sonst
+// — der Aufrufer entscheidet, WIE er das meldet (Einzelfoto: Dialog,
+// Mehrfachimport: eine Sammelmeldung).
+function _sdResizeFile(file, cb) {
+  var reader = new FileReader();
+  reader.onerror = function() { cb(null, 'lesen'); };
+  reader.onload = function(e) {
+    var img = new Image();
+    img.onerror = function() { cb(null, 'format'); };
+    img.onload = function() {
+      try {
+        var maxW = 1600;
+        var w = img.width, h = img.height;
+        if (w > maxW) { h = Math.round(h * maxW / w); w = maxW; }
+        var canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        var dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+        if (dataUrl.length > 2 * 1024 * 1024) dataUrl = canvas.toDataURL('image/jpeg', 0.5);
+        if (dataUrl.length > 2 * 1024 * 1024) { cb(null, 'gross'); return; }
+        cb(dataUrl);
+      } catch (err) { cb(null, 'format'); }
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
 // raumIdx (optional): Index in _sdAreaNames(s) — das Foto wird direkt diesem
 // Bereich zugeordnet (foto.raum). Ohne raumIdx bleibt das Foto ohne Bereich.
 // quelle (optional): 'kamera' (Vorgabe, Bestandsschutz für Altaufrufe) oder
 // 'galerie'. Mehrere Fotos werden SERIELL abgearbeitet — der Kommentar-Dialog
 // gehört zu genau einem Bild und darf sich nicht selbst überschreiben.
+// (Der Dateiwahl-Weg behält diese Kette bewusst; nur der Drag&Drop-Weg
+//  übernimmt still und lässt die Unterschrift an der Kachel nachtragen.)
 function sdTriggerPhotoUpload(schadenId, phase, raumIdx, quelle) {
   var raum = '';
   if (raumIdx != null && raumIdx !== '') {
@@ -4450,51 +4676,117 @@ function sdTriggerPhotoUpload(schadenId, phase, raumIdx, quelle) {
   });
 }
 
+// Mehrere Bilddateien auf einmal übernehmen — der Drag&Drop-Weg aus dem
+// Dateimanager. Bewusst OHNE Dialogkette: wer zehn Bilder in eine Karte
+// zieht, will sie drin haben, nicht zehn Dialoge quittieren; die
+// Bildunterschrift steht direkt an der Kachel und lässt sich danach
+// nachtragen. Läuft SERIELL — parallele Canvas-Decodes killen auf dem iPad
+// den Speicher. Alles, was nicht übernommen wurde, wird am Ende beziffert
+// (no-silent-caps), statt still zu fehlen.
+function sdImportFiles(schadenId, phase, raum, files) {
+  var s = sdGetById(schadenId); if (!s) return;
+  var kandidaten = [], keinBild = 0, zuGross = 0;
+  (files || []).forEach(function(f) {
+    if (!_sdIstBilddatei(f)) { keinBild++; return; }
+    if (f.size > 10 * 1024 * 1024) { zuGross++; return; }
+    kandidaten.push(f);
+  });
+  if (!kandidaten.length) {
+    var leer = [];
+    if (keinBild) leer.push(keinBild + ' Datei(en) sind keine Bilder');
+    if (zuGross) leer.push(zuGross + ' Bild(er) über 10 MB');
+    _sdToast('Nichts übernommen' + (leer.length ? ' — ' + leer.join(', ') : ''));
+    return;
+  }
+  _sdToast('⏳ ' + kandidaten.length + ' Bild(er) werden übernommen …', 60000);
+  var dazu = 0, fehler = 0;
+  (function next(i) {
+    if (i >= kandidaten.length) {
+      var s2 = sdGetById(schadenId);
+      if (s2) { sdSave(); sdRenderDetail(s2); }
+      var teile = [dazu + (dazu === 1 ? ' Bild' : ' Bilder') + ' hinzugefügt' + (raum ? ' zu «' + raum + '»' : '')];
+      if (keinBild) teile.push(keinBild + ' übersprungen (kein Bild)');
+      if (zuGross) teile.push(zuGross + ' über 10 MB übersprungen');
+      if (fehler) teile.push(fehler + ' nicht lesbar');
+      _sdToast((dazu ? '✓ ' : '⚠ ') + teile.join(' · '));
+      return;
+    }
+    _sdResizeFile(kandidaten[i], function(dataUrl) {
+      if (dataUrl) {
+        var sN = sdGetById(schadenId);
+        if (sN && _sdPushPhoto(sN, phase, dataUrl, '', true, raum)) dazu++;
+        else fehler++;
+      } else fehler++;
+      // Kurz Luft lassen — sonst blockiert eine grosse Auswahl den Hauptthread
+      setTimeout(function() { next(i + 1); }, 0);
+    });
+  })(0);
+}
+window.sdImportFiles = sdImportFiles;
+
 // done (optional): wird gerufen, sobald dieses Foto FERTIG behandelt ist —
 // nach Speichern ODER Abbrechen des Kommentar-Dialogs und in jedem Fehlerpfad.
-// Nur so kann eine Mehrfachauswahl seriell abgearbeitet werden, ohne dass ein
-// Bild den Dialog des vorherigen überschreibt oder die Kette still hängt.
 function sdResizeAndStore(file, done) {
   var _fertig = function() { if (typeof done === 'function') { var d = done; done = null; d(); } };
-  var reader = new FileReader();
-  // Fehler nie still verschlucken — der User muss wissen, dass das Foto
-  // NICHT uebernommen wurde (statt es erst im Bericht zu vermissen).
-  reader.onerror = function() { alert('Foto konnte nicht gelesen werden — bitte erneut aufnehmen.'); _fertig(); };
-  reader.onload = function(e) {
-    var img = new Image();
-    img.onerror = function() { alert('Foto konnte nicht verarbeitet werden (Format nicht unterstützt) — bitte erneut aufnehmen.'); _fertig(); };
-    img.onload = function() {
-      var maxW = 1600;
-      var w = img.width, h = img.height;
-      if (w > maxW) { h = Math.round(h * maxW / w); w = maxW; }
-      var canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      var ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, w, h);
-      var dataUrl = canvas.toDataURL('image/jpeg', 0.82);
-      // Check size
-      if (dataUrl.length > 2 * 1024 * 1024) {
-        // Try lower quality
-        dataUrl = canvas.toDataURL('image/jpeg', 0.5);
-      }
-      if (dataUrl.length > 2 * 1024 * 1024) {
-        alert('Foto ist nach Komprimierung immer noch zu gross. Bitte ein kleineres Bild verwenden.');
-        _fertig();
-        return;
-      }
-      // Open comment dialog
-      _pcCallback = function(kommentar, imBericht) {
-        sdStorePhoto(_photoTarget.schadenId, _photoTarget.phase, dataUrl, kommentar, imBericht, (_photoTarget.raum || ''));
-      };
-      _pcDone = _fertig;
-      document.getElementById('pcComment').value = '';
-      document.getElementById('pcInReport').checked = true;
-      document.getElementById('photoCommentModal').classList.remove('hidden');
+  _sdResizeFile(file, function(dataUrl, grund) {
+    if (!dataUrl) {
+      // Fehler nie still verschlucken — der User muss wissen, dass das Foto
+      // NICHT uebernommen wurde (statt es erst im Bericht zu vermissen).
+      if (grund === 'gross') alert('Foto ist nach Komprimierung immer noch zu gross. Bitte ein kleineres Bild verwenden.');
+      else if (grund === 'format') alert('Foto konnte nicht verarbeitet werden (Format nicht unterstützt) — bitte erneut aufnehmen.');
+      else alert('Foto konnte nicht gelesen werden — bitte erneut aufnehmen.');
+      _fertig();
+      return;
+    }
+    _pcCallback = function(kommentar, imBericht) {
+      sdStorePhoto(_photoTarget.schadenId, _photoTarget.phase, dataUrl, kommentar, imBericht, (_photoTarget.raum || ''));
     };
-    img.src = e.target.result;
-  };
-  reader.readAsDataURL(file);
+    _pcDone = _fertig;
+    _sdPcSetup('📷 Foto-Kommentar', dataUrl, '', true);
+    document.getElementById('photoCommentModal').classList.remove('hidden');
+  });
 }
+
+// Dialog-Inhalt setzen (Titel, Vorschaubild, Vorbelegung). Ein eigener
+// Helfer, weil der Dialog jetzt ZWEI Aufgaben hat: Kommentar zu einem neuen
+// Foto erfassen und die Bildunterschrift eines bestehenden Fotos ändern.
+function _sdPcSetup(titel, src, kommentar, imBericht) {
+  var t = document.getElementById('pcTitle'); if (t) t.textContent = titel;
+  var img = document.getElementById('pcPreview');
+  if (img) {
+    if (src) { img.src = src; img.style.display = ''; }
+    else { img.removeAttribute('src'); img.style.display = 'none'; }
+  }
+  document.getElementById('pcComment').value = kommentar || '';
+  document.getElementById('pcInReport').checked = imBericht !== false;
+}
+
+// Bildunterschrift + «im Bericht» eines BESTEHENDEN Fotos im Dialog ändern
+// (der grössere Weg neben dem Direkt-Feld an der Kachel — hier lässt sich das
+// Bild gross ansehen, während man die Unterschrift schreibt).
+function sdEditPhotoComment(schadenId, phase, idx) {
+  var s = sdGetById(schadenId); if (!s) return;
+  var arr = _sdItemArray(s, 'foto', phase);
+  var f = arr && arr[parseInt(idx, 10)];
+  if (!f) return;
+  idx = parseInt(idx, 10);
+  _pcDone = null;
+  _pcCallback = function(kommentar, imBericht) {
+    var s2 = sdGetById(schadenId); if (!s2) return;
+    var a2 = _sdItemArray(s2, 'foto', phase);
+    var f2 = a2 && a2[idx]; if (!f2) return;
+    f2.kommentar = kommentar || '';
+    f2.imBericht = imBericht !== false;
+    sdSave();
+    sdRenderDetail(s2);
+  };
+  _sdPcSetup('✎ Bildunterschrift', _sdImgSrc(f), f.kommentar || '', f.imBericht !== false);
+  document.getElementById('photoCommentModal').classList.remove('hidden');
+  setTimeout(function() {
+    try { var i = document.getElementById('pcComment'); i.focus(); i.select(); } catch (e) {}
+  }, 60);
+}
+window.sdEditPhotoComment = sdEditPhotoComment;
 
 function sdSavePhotoComment() {
   if (_pcCallback) {
@@ -4521,10 +4813,16 @@ function _sdPcWeiter() {
   if (typeof d === 'function') setTimeout(d, 60);
 }
 
-function sdStorePhoto(schadenId, phase, dataUrl, kommentar, imBericht, raum) {
-  var s = sdGetById(schadenId); if (!s) return;
+// Foto an die Phasen-Liste haengen — OHNE Speichern/Rendern. Trennt den
+// Mehrfachimport (einmal speichern und rendern am Schluss) vom Einzelfall.
+// Liefert das Foto-Objekt bzw. null, wenn die Phase unbekannt ist.
+var _sdPhotoSeq = 0;
+function _sdPushPhoto(s, phase, dataUrl, kommentar, imBericht, raum) {
+  if (!s) return null;
   var photo = {
-    id: 'ph_' + Date.now(),
+    // Date.now() allein kollidiert beim Serienimport (mehrere Bilder in
+    // derselben Millisekunde) — laufende Nummer dazu.
+    id: 'ph_' + Date.now() + '_' + (++_sdPhotoSeq),
     kommentar: kommentar || '',
     imBericht: imBericht !== false,
     erstelltAm: sdToday(),
@@ -4539,14 +4837,25 @@ function sdStorePhoto(schadenId, phase, dataUrl, kommentar, imBericht, raum) {
   if (raum) photo.raum = raum;
   if (phase === 'analyse') {
     if (!s.zustandsanalyse) s.zustandsanalyse = { leckortung: '', schadenausmass: '', massnahmen: [], fotos: [], abgeschlossenAm: null };
+    if (!Array.isArray(s.zustandsanalyse.fotos)) s.zustandsanalyse.fotos = [];
     s.zustandsanalyse.fotos.push(photo);
   } else if (phase === 'trocknung') {
     if (!s.trocknung) s.trocknung = { gestartetAm: null, beendetAm: null, messpunkte: [], geraete: [], fotos: [], notizen: '' };
+    if (!Array.isArray(s.trocknung.fotos)) s.trocknung.fotos = [];
     s.trocknung.fotos.push(photo);
   } else if (phase === 'abschluss') {
     if (!s.abschluss) s.abschluss = { zusammenfassung: '', instandstellung: '', weitereSchaeden: '', fotos: [], abgeschlossenAm: null };
+    if (!Array.isArray(s.abschluss.fotos)) s.abschluss.fotos = [];
     s.abschluss.fotos.push(photo);
+  } else {
+    return null;
   }
+  return photo;
+}
+
+function sdStorePhoto(schadenId, phase, dataUrl, kommentar, imBericht, raum) {
+  var s = sdGetById(schadenId); if (!s) return;
+  if (!_sdPushPhoto(s, phase, dataUrl, kommentar, imBericht, raum)) return;
   sdSave();
   sdRenderDetail(s);
 }

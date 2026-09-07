@@ -211,15 +211,22 @@ await fcK2.setFiles([{ name: 'leitung.jpg', mimeType: 'image/jpeg', buffer: JPG 
 await page.waitForTimeout(900);
 check('Kapitel-Foto erscheint als Kachel', await page.locator('#kapbd_k2 .foto-tile').count() === 1);
 check('Kapitel-Badge zeigt 📷 1', (await page.textContent('#kbf_k2')).indexOf('1') >= 0);
-await page.click('#kapbd_k2 .foto-acts button[title="Angaben bearbeiten"]');
+// Titel-Prefix statt exaktem Wortlaut — der Knopf nennt seit 07.09.2026 auch
+// die Felder (Raum, Bauteil), der Check soll die ABSICHT prüfen.
+await page.click('#kapbd_k2 .foto-acts button[title^="Angaben bearbeiten"]');
 await page.waitForTimeout(250);
 check('Foto-Angaben-Modal offen', await page.evaluate(() => document.getElementById('fotoModalBg').classList.contains('open')));
 await page.fill('#fmBeschreibung', 'Korrosion Steigleitung');
 await page.fill('#fmGeschoss', '2. OG');
 await page.click('#fotoModalBg button:has-text("Übernehmen")');
 await page.waitForTimeout(300);
-const capTxt = await page.textContent('#kapbd_k2 .foto-tile .foto-cap');
-check('Foto-Beschreibung + Geschoss auf der Kachel', capTxt.indexOf('Korrosion Steigleitung') >= 0 && capTxt.indexOf('2. OG') >= 0, capTxt);
+// Seit 07.09.2026 steht die Bildunterschrift in einem EDITIERBAREN Feld an der
+// Kachel (frueher reiner Text in .foto-cap) — der Rest der Angaben bleibt als
+// Meta-Zeile daneben.
+const capVal = await page.inputValue('#kapbd_k2 .foto-tile .foto-cap-inp');
+const capMeta = await page.textContent('#kapbd_k2 .foto-tile .foto-cap-meta');
+check('Bildunterschrift im editierbaren Feld der Kachel', capVal === 'Korrosion Steigleitung', capVal);
+check('Übrige Angaben (Geschoss) als Meta-Zeile auf der Kachel', capMeta.indexOf('2. OG') >= 0, capMeta);
 
 // ── 9) Bericht (Druckfenster) ────────────────────────────
 const [pop] = await Promise.all([
