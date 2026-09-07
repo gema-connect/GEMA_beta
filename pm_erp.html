@@ -7084,6 +7084,8 @@ function erpMigRender(){
       ? '<th>Bezeichnung</th><th>Hersteller / Typ</th><th>Serien-Nr.</th><th>Objekt</th><th>Letzte Rev.</th><th>Nächste Rev.</th><th class="num">Int.</th>'
       : _mig.sekId==='stunden'
       ? '<th>Mitarbeiter</th><th>Datum</th><th class="num">Stunden</th><th>Stufe</th><th>Auftrag</th><th>Tätigkeit</th>'
+      : _mig.sekId==='uebertraege'
+      ? '<th>Mitarbeiter</th><th>Stichtag</th><th class="num">Ferien h</th><th class="num">Überzeit h</th><th class="num">Ausbez. h</th><th>Bemerkung</th>'
       : _mig.sekId==='bezugspersonen'
       ? '<th>Objekt</th><th>Name</th><th>Rolle</th><th>Kontakt</th><th>Wohnung</th>'
       : '<th>Kd-Nr.</th><th>Name</th><th>Adresse</th><th>Kontakt</th><th>Typ</th>')
@@ -7185,6 +7187,16 @@ function erpMigRender(){
         +'<td>'+(t.quelle==='erfasst'?'📱 erfasst':'✓ freigegeben')+'</td>'
         +'<td>'+esc(t.auftragNr||'—')+'</td>'
         +'<td>'+esc((t.taetigkeit||'').slice(0,40)||(t.absenz?'Absenz '+esc(t.absenz):'—'))+'</td>';
+    }else if(_mig.sekId==='uebertraege'){
+      // Minusstunden rot, aber beziffert — ein Saldo von 0.00 ist eine
+      // Aussage und wird nie als «—» dargestellt.
+      var uz=t.ueberzeitH;
+      h3+='<td><b>'+esc(t.mitarbeiter||'—')+'</b></td><td>'+esc(t.datum||'—')+'</td>'
+        +'<td class="num"><b>'+(t.ferienH!=null?t.ferienH.toFixed(2):'—')+'</b></td>'
+        +'<td class="num"'+(uz!=null&&uz<0?' style="color:var(--red)"':'')+'>'
+          +(uz!=null?uz.toFixed(2):'—')+'</td>'
+        +'<td class="num">'+(t.ausbezahltH!=null?t.ausbezahltH.toFixed(2):'—')+'</td>'
+        +'<td>'+esc((t.bemerkung||'').slice(0,40)||'—')+'</td>';
     }else if(_mig.sekId==='bezugspersonen'){
       h3+='<td>'+esc([t.objekt&&t.objekt.strasse,t.objekt&&t.objekt.ort].filter(Boolean).join(', ')||t.objektNr||'—')+'</td>'
         +'<td><b>'+esc([t.vorname,t.name].filter(Boolean).join(' '))+'</b></td>'
@@ -7326,6 +7338,11 @@ function erpMigStart(){
     if(rep.revisionKuenftig)txt+=', <b>'+rep.revisionKuenftig+'</b> mit anstehender Revision';
     if(rep.stundenTage)txt+=', <b>'+rep.stundenEintraege+'</b> Zeiteinträge auf <b>'+rep.stundenTage+'</b> Tagen';
     if(rep.personen)txt+=', <b>'+rep.personen+'</b> Bezugspersonen ergänzt';
+    if(rep.ferienUebertraege)txt+=', <b>'+rep.ferienUebertraege+'</b> Ferien-/Überzeitsalden übernommen';
+    if(rep.nachkalk)txt+=', <b>'+rep.nachkalk+'</b> × Nachkalkulation des Altsystems mitgeführt';
+    if(rep.zeitUnklar)txt+='<br><span style="color:var(--amber)">'+rep.zeitUnklar+' Termine tragen statt einer Uhrzeit eine Dezimalzahl. '
+      +'Sie sind ohne Zeit entstanden, der Rohwert steht am Termin unter «importZeitRoh». '
+      +'Im Altsystem führen die Spalten «von60»/«bis60» die Uhrzeit im Klartext — bitte diese exportieren und den Import wiederholen.</span>';
     if(rep.personFehlt)txt+='<br><span style="color:var(--amber)">'+rep.personFehlt+' Tage konnten keinem GEMA-Benutzer zugeordnet werden — die Zeit ist erfasst, aber ohne Person. Bitte die Mitarbeitenden zuerst anlegen.</span>';
     if(rep.objektFehlt)txt+='<br><span style="color:var(--amber)">'+rep.objektFehlt+' × das Objekt war nicht gefunden — bitte zuerst die Objekte importieren.</span>';
     if(rep.stundenKorrigiert)txt+=', <b>'+rep.stundenKorrigiert+'</b> × die Freigabe hat die mobil erfasste Zeit korrigiert';

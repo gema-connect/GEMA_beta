@@ -118,6 +118,25 @@ function parseDatum(v){
   if(/^\d{1,6}(\.\d+)?$/.test(t))return serialZuDatum(parseFloat(t));
   return '';
 }
+/* Uhrzeit → «HH:MM». BEWUSST STRENG: nur eine Zeit MIT Trennzeichen wird
+   akzeptiert, eine blosse Zahl NIE.
+
+   KRITISCH — im Altsystem führt `termin` zwei Zeitpaare: `von60`/`bis60` sind
+   der Klartext («07:00»), `von`/`bis` dagegen Dezimalzahlen (gemessen 1.00 …
+   19.50). Beide Deutungen einer nackten «19.50» sind plausibel — 19:30 als
+   Dezimalstunde oder 19:50 als Uhrzeit — und keine lässt sich aus dem Wert
+   belegen. Statt zu raten liefert die Funktion '' und der Importer meldet die
+   Zeile; der Export soll `von60`/`bis60` mitgeben. */
+function parseZeit(v){
+  var t=s(v);if(!t)return '';
+  // Nur «:» und «h» trennen — ein «.» wäre genau die Dezimalfalle von oben
+  // («19.50» ist als Uhrzeit 19:50 und als Dezimalstunde 19:30).
+  var m=/^(\d{1,2})[:h](\d{2})$/i.exec(t);
+  if(!m)return '';
+  var h=parseInt(m[1],10),mi=parseInt(m[2],10);
+  if(!(h>=0&&h<=23)||!(mi>=0&&mi<=59))return '';
+  return (h<10?'0':'')+h+':'+(mi<10?'0':'')+mi;
+}
 /* Betrag: akzeptiert 1'234.50 · 1,234.50 · 1.234,50 · 1234.5 → Number.
    Die Entscheidung, ob «.» oder «,» das Dezimaltrennzeichen ist, fällt über
    das ZULETZT auftretende Zeichen (so lesen es auch Excel-Exporte). */
@@ -263,6 +282,25 @@ function fristTage(zahlbed,standard){
 function pct(v){
   var n=parseBetrag(v);
   return n==null?null:Math.round(n*100)/100;
+}
+/* Nachkalkulation des Altsystems (JSON_OBJECT über die `nk*`-Spalten).
+   Felder ohne Wert fliegen raus — das Altsystem legt für jeden Auftrag alle
+   35 Spalten an, gefüllt sind sie nur bei 121 von 9 723. Ein Objekt aus
+   lauter Nullen wäre kein Wissen, sondern Rauschen. Lässt sich der Text nicht
+   als JSON lesen, wird er ROH behalten statt verworfen. */
+function parseNachkalk(v){
+  var t=s(v);
+  if(!t||t==='{}'||norm(t)==='null')return null;
+  var o=null;
+  try{o=JSON.parse(t);}catch(e){return {roh:t};}
+  if(!o||typeof o!=='object'||Array.isArray(o))return {roh:t};
+  var out={},leer=true;
+  Object.keys(o).forEach(function(k){
+    var n=parseBetrag(o[k]);
+    if(n==null||n===0)return;
+    out[k]=n;leer=false;
+  });
+  return leer?null:out;
 }
 
 /* `postyp` des Altsystems → GEMA-Positionsart.
@@ -716,7 +754,12 @@ var SEKTIONEN=[
     {id:'bestellerTel',label:'Besteller — Telefon', alias:['besttel','bestellertel']},
     {id:'wohnung',    label:'Wohnung', alias:['wohnung','stockwerk']},
     {id:'wohnStandort',label:'Wohnung — Name / Standort', hint:'Wird als Bezugsperson «Bewohner» hinterlegt', alias:['wohnstandort','bewohner']},
-    {id:'wohnTel',    label:'Wohnung — Telefon', alias:['wohntel','bewohnertel']}
+    {id:'wohnTel',    label:'Wohnung — Telefon', alias:['wohntel','bewohnertel']},
+    // Die rund 35 `nk*`-Spalten des Altsystems kommen als EIN JSON-Feld herein
+    // (JSON_OBJECT im Export). So bleibt die Nachkalkulation vollständig
+    // erhalten, ohne die Zuordnungsmaske mit 16 Zahlenfeldern zu füllen, die
+    // nur 1.2 % der Aufträge überhaupt führen.
+    {id:'nachkalk',   label:'Nachkalkulation Altsystem', hint:'JSON aus dem Export — wird unverändert als Vermerk abgelegt. GEMA rechnet seine eigene Nachkalkulation aus Rechnungen, Kreditoren und Stunden.', alias:['nachkalk','nachkalkulation','nkjson','nk']}
   ]
 },
 {
@@ -883,8 +926,12 @@ var SEKTIONEN=[
   felder:[
     {id:'extId',    label:'ID im Altsystem', hint:'Für den Wiederholungs-Import (keine Dubletten)', alias:['guid','id','terminid']},
     {id:'datum',    label:'Datum', pflicht:true, alias:['datum','date','termindatum']},
-    {id:'zeitVon',  label:'Von', alias:['von','zeitvon','start','beginn']},
-    {id:'zeitBis',  label:'Bis', alias:['bis','zeitbis','ende']},
+    // KRITISCH — `von60`/`bis60` STEHEN VORN: im Altsystem führen sie die
+    // Uhrzeit im Klartext («07:00»), während `von`/`bis` Dezimalzahlen sind
+    // (gemessen 1.00 … 19.50). Wer nur `von` exportiert, bekommt keine
+    // erfundene Uhrzeit, sondern eine Meldung (siehe parseZeit).
+    {id:'zeitVon',  label:'Von', hint:'Uhrzeit im Klartext — im Altsystem «von60», NICHT «von» (das ist eine Dezimalzahl)', alias:['von60','zeitvon','startzeit','beginn','von']},
+    {id:'zeitBis',  label:'Bis', hint:'Uhrzeit im Klartext — im Altsystem «bis60»', alias:['bis60','zeitbis','endzeit','ende','bis']},
     {id:'titel',    label:'Arbeit / Titel', pflicht:true, alias:['arbeit','titel','betreff','taetigkeit','text']},
     {id:'monteur',  label:'Monteur', hint:'Wird über den Namen zugeordnet', alias:['monteur','arbname','mitarbeiter','name1','arbeiter']},
     {id:'auftragNr',label:'Auftrags-Nr.', hint:'Verknüpft den Termin mit dem importierten Auftrag', alias:['rapportnr','auftragnr','auftragsnr','rappnr']},
@@ -938,6 +985,20 @@ var SEKTIONEN=[
     {id:'absenz',    label:'Absenz', hint:'Gesetzt = Abwesenheit statt Arbeitszeit', alias:['absenz','hrsabsenzid','abwesenheit']},
     {id:'spesen',    label:'Spesen CHF', hint:'Betrag aus der App — GEMA führt Mittag und km separat, der Betrag bleibt als Vermerk am Tag', alias:['spesen','hrsspesen','auslagen']},
     {id:'bemerkung', label:'Bemerkung', alias:['bemerkung','bemerkungen','hrscomment','notiz']}
+  ]
+},
+{
+  id:'uebertraege', label:'Ferien- & Überzeitüberträge', ic:'🧮', bereit:true,
+  info:'Der Stand von Ferienguthaben und Überzeit je Mitarbeiter auf ein Stichdatum — im Altsystem die Maske «Stunden- und Ferienübertrag». Jede Zeile ist ein SALDO auf diesen Tag, kein Zuwachs; mehrere Zeilen je Person bilden die Geschichte ab. Ohne diese Überträge fingen alle Mitarbeitenden in GEMA bei null an, weil GEMA die Jahresbilanz aus den Tagesrapporten rechnet und die Jahre vor der Migration dort fehlen.',
+  felder:[
+    {id:'extId',      label:'ID im Altsystem', hint:'Für den Wiederholungs-Import (keine Dubletten)', alias:['id','uebertragid']},
+    {id:'mitarbeiter',label:'Mitarbeiter', pflicht:true, hint:'Wird über den Namen einer Person der Firma zugeordnet', alias:['arbname','mitarbeiter','name1','arbeiter','kuerzel']},
+    {id:'datum',      label:'Datierung auf', pflicht:true, hint:'Der Stichtag, auf den die Salden gelten', alias:['datum','date','stichtag','datierung']},
+    {id:'ueberzeitH', label:'Stundenübertrag (h)', hint:'Überzeitsaldo — darf negativ sein (Minusstunden)', alias:['totarbeit','stundenuebertrag','ueberzeit','saldoh']},
+    {id:'ferienH',    label:'Ferienguthaben (h)', hint:'Das Altsystem führt Ferien in STUNDEN, nicht in Tagen', alias:['totferien','ferienguthaben','ferien']},
+    {id:'ausbezahltH',label:'Ausbezahlte Überstunden (h)', alias:['ausbezst','ausbezahlt','ausbezahltestunden']},
+    {id:'zuschlagH',  label:'Zuschlägestunden (h)', alias:['zusstunden','zuschlagstunden','zuschlaege','zusatz']},
+    {id:'bemerkung',  label:'Bemerkung', hint:'Trägt im Altbestand die Begründung («Ferienkürzung da <3 volle Monate», «Topf A=52h(100%)»)', alias:['bemerkung','bemerkungen','notiz']}
   ]
 },
 {
@@ -1071,7 +1132,7 @@ function erkenneSektion(headers){
    bzw. Rechnung, Kreditoren an den Auftrag. */
 var IMPORT_REIHENFOLGE=['zahlbed','artikel','objekte','adressen','bezugspersonen',
                         'offerten','auftraege','rechnungen','positionen','zahlungen',
-                        'kreditoren','anlagen','termine','stunden'];
+                        'kreditoren','anlagen','termine','stunden','uebertraege'];
 function sektionRang(sekId){
   var i=IMPORT_REIHENFOLGE.indexOf(sekId);
   return i<0?99:i;
@@ -1190,7 +1251,8 @@ function normalisiereZeile(row,map,sekId){
       objekt:{strasse:g('strasse'), strasse2:g('strasse2'), plz:g('plz'), ort:g('ort'),
               egid:g('egid'), egrid:g('egrid')},
       schluessel:{code:g('schluessel'), info:g('schluesselTel')},
-      wohnung:g('wohnung'), personen:apers
+      wohnung:g('wohnung'), personen:apers,
+      nachkalk:parseNachkalk(g('nachkalk'))
     };
   }
   if(sekId==='positionen'){
@@ -1252,9 +1314,14 @@ function normalisiereZeile(row,map,sekId){
     // Abwesenheit schlägt alles: eine Absenz ist nie ein Einsatz, auch wenn
     // ein Auftrag daneben steht.
     var tTyp=(tAbs&&tAbs!=='0')?'ferien':(tAuf?'auftrag':'frei');
+    // Rohwert mitführen: konnte die Zeit nicht sicher gelesen werden, geht sie
+    // nicht verloren, sondern landet als Vermerk am Termin und wird gemeldet.
+    var tvR=g('zeitVon'), tbR=g('zeitBis');
+    var tv=parseZeit(tvR), tb=parseZeit(tbR);
     return {
       extId:g('extId'), datum:parseDatum(g('datum')),
-      zeitVon:g('zeitVon'), zeitBis:g('zeitBis'),
+      zeitVon:tv, zeitBis:tb,
+      zeitRoh:((s(tvR)&&!tv)||(s(tbR)&&!tb))?(s(tvR)+(s(tbR)?'–'+s(tbR):'')):'',
       titel:g('titel'), typ:tTyp,
       monteur:g('monteur'), auftragNr:tAuf,
       absenz:tAbs, arbtyp:g('arbtyp'),
@@ -1294,6 +1361,16 @@ function normalisiereZeile(row,map,sekId){
       auftragNr:g('auftragNr'), terminId:g('terminId'), taetigkeit:g('taetigkeit'),
       absenz:(stAbs&&stAbs!=='0')?stAbs:'',
       spesen:parseBetrag(g('spesen')), bemerkung:g('bemerkung')
+    };
+  }
+  if(sekId==='uebertraege'){
+    return {
+      extId:g('extId'), mitarbeiter:g('mitarbeiter'), datum:parseDatum(g('datum')),
+      // parseBetrag liefert null für «leer» — das ist hier bedeutungstragend:
+      // eine leere Zelle heisst «unverändert», eine 0 heisst «Saldo null».
+      ueberzeitH:parseBetrag(g('ueberzeitH')), ferienH:parseBetrag(g('ferienH')),
+      ausbezahltH:parseBetrag(g('ausbezahltH')), zuschlagH:parseBetrag(g('zuschlagH')),
+      bemerkung:g('bemerkung')
     };
   }
   if(sekId==='bezugspersonen'){
@@ -1418,6 +1495,7 @@ function pruefe(z,sekId){
     if(!s(z.monteur))hin.push({typ:'warn',text:'Kein Monteur — der Termin entsteht ohne Zuordnung.'});
     if(z.typ==='auftrag'&&s(z.auftragNr))hin.push({typ:'info',text:'Wird mit Auftrag '+s(z.auftragNr)+' verknüpft (sofern importiert).'});
     if(z.typ==='ferien')hin.push({typ:'info',text:'Abwesenheit — wird als «Abwesend» geplant, nicht als Einsatz.'});
+    if(s(z.zeitRoh))hin.push({typ:'warn',text:'Zeit «'+s(z.zeitRoh)+'» ist keine Uhrzeit — der Termin entsteht ohne Zeit, der Wert bleibt als Vermerk. Im Altsystem die Spalten «von60»/«bis60» exportieren.'});
   }else if(sekId==='anlagen'){
     if(!s(z.name))hin.push({typ:'fehler',text:'Keine Bezeichnung — Zeile wird übersprungen.'});
     if(!s(z.objekt&&z.objekt.strasse))hin.push({typ:'warn',text:'Ohne Objekt-Adresse — die Anlage bleibt ohne Objektbezug.'});
@@ -1428,6 +1506,16 @@ function pruefe(z,sekId){
     if(!s(z.datum))hin.push({typ:'fehler',text:'Kein Datum — Zeile wird übersprungen.'});
     if(z.stunden==null||!z.stunden)hin.push({typ:'fehler',text:'Keine Stunden — Zeile wird übersprungen.'});
     if(s(z.absenz))hin.push({typ:'info',text:'Absenz «'+s(z.absenz)+'» — wird als Abwesenheit vermerkt.'});
+  }else if(sekId==='uebertraege'){
+    if(!s(z.mitarbeiter))hin.push({typ:'fehler',text:'Kein Mitarbeiter — Zeile wird übersprungen.'});
+    if(!s(z.datum))hin.push({typ:'fehler',text:'Kein Stichtag — Zeile wird übersprungen.'});
+    if(z.ueberzeitH==null&&z.ferienH==null)
+      hin.push({typ:'fehler',text:'Weder Stundenübertrag noch Ferienguthaben — die Zeile trüge keinen Saldo.'});
+    if(z.ferienH!=null)hin.push({typ:'info',text:'Ferienguthaben '+z.ferienH.toFixed(2)+' h auf den '+s(z.datum)+'.'});
+    if(z.ueberzeitH!=null&&z.ueberzeitH<0)
+      hin.push({typ:'info',text:'Negativer Stundenübertrag ('+z.ueberzeitH.toFixed(2)+' h) — Minusstunden werden übernommen.'});
+    if(z.zuschlagH!=null&&z.zuschlagH)
+      hin.push({typ:'warn',text:'Zuschlägestunden ('+z.zuschlagH.toFixed(2)+' h) bleiben als Vermerk — GEMA führt Zuschläge über die Töpfe A/B der Wochenauswertung.'});
   }else if(sekId==='bezugspersonen'){
     if(!s(z.name))hin.push({typ:'fehler',text:'Kein Name — Zeile wird übersprungen.'});
     if(!s(z.objekt&&z.objekt.strasse)&&!s(z.objektNr))
@@ -1581,6 +1669,9 @@ function vorbereiten(opts){
   if(sekId==='kreditoren')bestehendeKreditoren().forEach(function(k){bekannt[kredSchluessel(k)]=k;});
   if(sekId==='termine')poolEigene(EP_POOL).forEach(function(e){
     bekannt[terminSchluessel(e.datum,e.monteurName,e.titel,e.extId||(e.quelle&&e.quelle.extId))]=e;});
+  if(sekId==='uebertraege')poolEigene(ST_POOL).filter(function(t){return t.typ==='uebertrag';})
+    .forEach(function(t){
+      bekannt[uebertragSchluessel(t.datum,t.userName,t.extId||(t.quelle&&t.quelle.extId))]=t;});
   if(sekId==='anlagen')poolEigene(ANL_POOL).forEach(function(a){
     var ae=s(a.extId||(a.quelle&&a.quelle.extId));
     bekannt[ae?('ext:'+norm(ae)):('x:'+norm([a.name,a.serienNr,a.objektName].join('|')))]=a;});
@@ -1670,6 +1761,11 @@ function vorbereiten(opts){
         :('x:'+norm([z.name,z.serienNr,z.objekt&&z.objekt.strasse].join('|')));
       if(bekannt[alk]){aktion='aktualisiert';stats.aktualisiert++;}
       else{stats.neu++;bekannt[alk]={};}
+    }else if(sekId==='uebertraege'){
+      var um=s(z.mitarbeiter)?findeSachbearbeiter(z.mitarbeiter):null;
+      var uk=uebertragSchluessel(z.datum,um?um.name:s(z.mitarbeiter),z.extId);
+      if(bekannt[uk]){aktion='aktualisiert';stats.aktualisiert++;}
+      else{stats.neu++;bekannt[uk]={};}
     }else{
       aktion='neu';stats.neu++;
     }
@@ -2009,6 +2105,14 @@ function auftragSchreiben(z,adrCtx,report,opts){
       if(s(z.rechnStatus)&&!s(doc.importRechnungsstatus))doc.importRechnungsstatus=s(z.rechnStatus);
       if(s(z.rechnungNr)&&!s(doc.importRechnungNr))doc.importRechnungNr=s(z.rechnungNr);
       if(s(z.bemerkung)&&!s(doc.notiz))doc.notiz=s(z.bemerkung);
+      // Nachkalkulation des Altsystems: reiner Schnappschuss zum Vergleichen.
+      // Sie fliesst NICHT in GEMAs Zahlen — im Altbestand sind Lohnkosten und
+      // Gemeinkosten unparametriert, der dortige «Gewinn» ist deshalb bloss
+      // Rechnungssumme minus Material und würde in GEMA falsch dastehen.
+      if(z.nachkalk&&!doc.importNachkalk){
+        doc.importNachkalk=z.nachkalk;
+        report.nachkalk=(report.nachkalk||0)+1;
+      }
       if(off&&!(doc.verknuepfung&&doc.verknuepfung.offerteId)){
         doc.verknuepfung=doc.verknuepfung||{};
         doc.verknuepfung.offerteId=off.id;
@@ -2434,6 +2538,51 @@ function zahlbedIdFuer(kuerzel){
   return '';
 }
 
+/* ── Ferien-/Überzeitüberträge → std: mit typ:'uebertrag' ───────────────
+   Sie liegen im Stunden-Pool, aber ausserhalb der Tagesrapporte: pm_stunden
+   trennt beides über `t.typ` (wie schon bei den Auszahlungen). Ein Übertrag
+   ist ein SALDO auf einen Stichtag, kein Zuwachs — mehrere Zeilen je Person
+   sind deshalb Geschichte, nicht Summanden. */
+function uebertragSchluessel(datum,userName,extId){
+  var e=s(extId);
+  if(e)return 'ub:'+norm(e);
+  return 'ub:x:'+norm([datum,userName].join('|'));
+}
+function uebertragSchreiben(z,report,opts){
+  opts=opts||{};
+  var u=null;try{u=GemaAuth.getCurrentUser();}catch(e){}
+  var orgId=u?u.orgId:'';
+  var mit=s(z.mitarbeiter)?findeSachbearbeiter(z.mitarbeiter):null;
+  if(!mit)report.personFehlt=(report.personFehlt||0)+1;
+  var name=mit?mit.name:s(z.mitarbeiter);
+  var key=uebertragSchluessel(z.datum,name,z.extId);
+  var alt=poolEigene(ST_POOL).filter(function(t){return t.typ==='uebertrag';})
+    .find(function(t){
+      return uebertragSchluessel(t.datum,t.userName,t.extId||(t.quelle&&t.quelle.extId))===key;
+    })||null;
+  var rec=alt?JSON.parse(JSON.stringify(alt)):{
+    id:uid('std'), orgId:orgId, typ:'uebertrag',
+    userId:mit?mit.userId:'', userName:name, datum:s(z.datum),
+    erstelltAm:jetzt()
+  };
+  if(!s(rec.userId)&&mit&&s(mit.userId))rec.userId=mit.userId;
+  if(!s(rec.extId))rec.extId=s(z.extId);
+  // Zahlen werden gesetzt, wenn sie im Import stehen — auch die 0, denn ein
+  // Saldo von null ist eine Aussage. Nur `null` (leere Zelle) lässt den
+  // bestehenden Wert stehen.
+  [['ueberzeitH',z.ueberzeitH],['ferienH',z.ferienH],
+   ['ausbezahltH',z.ausbezahltH],['zuschlagH',z.zuschlagH]].forEach(function(pp){
+    if(pp[1]!=null&&rec[pp[0]]==null)rec[pp[0]]=pp[1];
+  });
+  if(s(z.bemerkung)&&!s(rec.bemerkung))rec.bemerkung=s(z.bemerkung);
+  rec.quelle=rec.quelle||{typ:'import',system:opts.quelleName||'ERP-Migration',am:jetzt(),extId:s(z.extId)};
+  rec.updatedAt=jetzt();
+  return poolSichern(ST_POOL,ST_PREFIX,rec,ST_MODULE).then(function(){
+    if(alt)report.aktualisiert++;else report.neu++;
+    if(rec.ferienH!=null)report.ferienUebertraege=(report.ferienUebertraege||0)+1;
+  });
+}
+
 /* ── Termine → einsatz: (pm_einsatzplan) ──────────────────────────────── */
 function terminSchluessel(datum,monteurName,titel,extId){
   var e=s(extId);
@@ -2468,6 +2617,7 @@ function terminSchreiben(z,report,opts){
   function fuelle(f,v){if(s(v)&&!s(ev[f]))ev[f]=s(v);}
   fuelle('datum',z.datum); fuelle('titel',z.titel);
   fuelle('zeitVon',z.zeitVon); fuelle('zeitBis',z.zeitBis); fuelle('notiz',z.notiz);
+  if(s(z.zeitRoh))report.zeitUnklar=(report.zeitUnklar||0)+1;
   if(!s(ev.extId))ev.extId=s(z.extId);
   if(!alt)ev.typ=z.typ;
   if(mont){
@@ -2480,7 +2630,8 @@ function terminSchreiben(z,report,opts){
     if(!s(ev.kunde)&&auf.kundeSnapshot)ev.kunde=s(auf.kundeSnapshot.firma);
   }else if(s(z.auftragNr)&&!s(ev.auftragNr))ev.auftragNr=s(z.auftragNr);
   [['importArbtyp',z.arbtyp],['importAbsenz',z.absenz],
-   ['importStandort',z.standort],['importSerie',z.serie]].forEach(function(pp){
+   ['importStandort',z.standort],['importSerie',z.serie],
+   ['importZeitRoh',z.zeitRoh]].forEach(function(pp){
     if(s(pp[1])&&!s(ev[pp[0]]))ev[pp[0]]=s(pp[1]);
   });
   if(ev.importStunden==null&&z.stunden!=null)ev.importStunden=z.stunden;
@@ -2578,8 +2729,11 @@ function stundenSchreiben(zeilen,report,opts){
     kette=kette.then(function(){
       var uid2=(g.person&&g.person.userId)||'';
       var name=(g.person&&g.person.name)||'';
+      // `!t.typ` ist Pflicht: im selben Pool liegen auch Auszahlungen und
+      // Ferien-/Überzeitüberträge. Ohne den Filter machte ein Übertrag vom
+      // 01.01. aus dem Tagesrapport desselben Tages einen Mischling.
       var alt=poolEigene(ST_POOL).find(function(t){
-        return s(t.datum)===g.datum&&(uid2?t.userId===uid2:norm(t.userName)===norm(name));
+        return !t.typ&&s(t.datum)===g.datum&&(uid2?t.userId===uid2:norm(t.userName)===norm(name));
       })||null;
       var t=alt?JSON.parse(JSON.stringify(alt)):{
         id:uid('std'), orgId:orgId, userId:uid2, userName:name, datum:g.datum,
@@ -2801,6 +2955,9 @@ function ausfuehren(plan,opts){
       if(sekId==='anlagen')return anlageSchreiben(z.ziel,report,opts).catch(function(e){
         report.fehler.push({zeile:z.nr,text:(e&&e.message)||String(e)});
       });
+      if(sekId==='uebertraege')return uebertragSchreiben(z.ziel,report,opts).catch(function(e){
+        report.fehler.push({zeile:z.nr,text:(e&&e.message)||String(e)});
+      });
       // ── Objekte ──
       var z2=z.ziel;
       var slotKeys=Object.keys(z2.slots||{});
@@ -2946,7 +3103,8 @@ window.GemaErpImport={
   posArt:posArt, belegTyp:belegTyp, kreditorStatus:kreditorStatus,
   istSammelposition:istSammelposition, positionRecord:positionRecord,
   belegBrutto:belegBrutto, positionenNetto:positionenNetto, adressZusatz:adressZusatz,
-  terminSchluessel:terminSchluessel,
+  terminSchluessel:terminSchluessel, uebertragSchluessel:uebertragSchluessel,
+  parseZeit:parseZeit, parseNachkalk:parseNachkalk,
   stundenQuelle:stundenQuelle, STUNDEN_RANG:STUNDEN_RANG, addMonate:addMonate,
   MODULE_BELEG:MODULE_BELEG, POSTYP_ART:POSTYP_ART,
   // Engine-Exports für Node-Tests

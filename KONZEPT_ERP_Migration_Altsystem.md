@@ -123,7 +123,8 @@ die Nutzungsrechte hängen am Altsystem-Vertrag, nicht an den Daten.
 | `objmemo` | Notiz | LONGTEXT |
 | `extref1`, `extref2` | `ref1`, `ref2` | |
 | `korr_name` | denormalisierter Name | in GEMA nur Fallback — Live-Lookup gewinnt (CLAUDE.md §2) |
-| `otyp`, `oshow`, `printstr2`, `modenabled`, `lk*` | — | Altsystem-UI-Steuerung |
+| `otyp`, `oshow`, `printstr2`, `modenabled`, `lk*` | — | Altsystem-UI-Steuerung; `otyp`/`oshow` sind bei allen 4 547 Objekten leer |
+| `name3`, `name4` | weitere Adresszeilen | selten benutzt (89 bzw. 17 Zeilen) — wandern in den Adresszusatz |
 
 Ergänzend: `objadr` (Objekt↔Adresse mit `adrtyp`) und `contact` / `contactinfos`
 (polymorph über `module_id`/`item_id`) liefern die weiteren Bezugspersonen.
@@ -159,7 +160,7 @@ Letztere passen direkt auf `gema_dataselect.js`.
 | `rdatum` | `gueltigBis` |
 | `betrmemo` | `titel` |
 | `status` → `offstatus.typ_text` | `status` |
-| `offerttyp` → `offtyp.typ_text` | Vermerk |
+| `offerttyp` → `offtyp.typ_text` | Vermerk — trägt praktisch keine Information: 5 915 von 5 930 Offerten stehen auf «Privatperson als Offertempfänger», die übrigen sechs Typen sind zweistellig oder leer |
 | `obetrag` / `mwstbetrag` / `zbetrag` | Summen |
 | `tostunden`, `toaufwand` | Stunden-/Aufwandtotal |
 | `abt_id` → `abt.name1` | Arbeitsbereich |
@@ -183,12 +184,52 @@ exakt auf das Schlüssel-Feature in `pm_einsatzplan` (Code nie in Notify).
 `dringlichk` → `dringlich`, `astatus` → `arbstatus`, `rstatus`, `arbtyp` → `arbtyp`,
 `monteur_id`, `abt_id`, `sachb_id`, `offerte_id`.
 
-**Nachkalkulation** — rund 35 `nk*`-Felder (`nkofftot`, `nkmantot`, `nkrmat`,
-`nkrnbh`, `nkwp`, `nkgewp`, `nkfaktor`, `nkspesen`, `nkmanspesen`, …). Das ist
-eine vollständige Soll-Ist-Nachkalkulation je Auftrag und entspricht dem
-Nachkalkulations-Teil von `pm_erp`. Die Feldsemantik ist aus den Namen allein
-nicht sicher ableitbar (`nbh` = Nebenkosten/Handel?, `w` = Werte?) — hier braucht
-es einmal einen Blick ins Altsystem-UI oder ein paar Beispielzeilen.
+**Nachkalkulation** — rund 35 `nk*`-Felder auf `rapporte`. Am Auftrag 8448.00
+gegen die Maske abgeglichen und damit aufgelöst:
+
+| Feld | Bedeutung | im Beispiel |
+|---|---|---|
+| `nkrnbh` | verrechnete Stunden aus den Rechnungen | 204.15 |
+| `nkrmat` | Materialanteil netto | 37 699.92 |
+| `nkrfaktor` | Materialfaktor | 0.999 |
+| `nkoffph` | erzielter Stundenansatz Fr./h | 91.99 |
+| `nkofftot`, `nkoffmat`, `nkoffnbh` | dieselben Grössen auf der Offertseite | |
+| `nkwstup`, `nkwmatp` | Projektstand % Stunden / Material | immer 100.00 |
+| `nkgewp` | Gewinn in % | |
+| `nkbez`, `nkspesen` | Aufwand aus Kostenstellen, Spesen | |
+
+Die Maske rechnet: Total M+A − Material brutto = Arbeitsanteil, geteilt durch
+die Stunden ergibt Fr./h; darunter Rechnungssumme − Materialaufwand netto =
+Deckungsbeitrag 1. Die übrigen rund 20 `nk*`-Felder (`nkman*`, `nkw*val`,
+`nkwnbh`, `nkwp`, `*_rec`-Varianten) sind im ganzen Bestand 0 oder NULL — der
+manuelle Zweig der Maske wurde nie benutzt.
+
+**Migriert wird sie trotzdem nicht als Rechengrösse, sondern als
+Schnappschuss**, aus zwei gemessenen Gründen:
+
+1. Sie existiert bei **121 von 9 723 Aufträgen** (1.2 %).
+2. In der Maske sind **«Lohnkosten inkl. Sozialleistungen» und «Gemeinkosten»
+   leer** — die Abteilungskalkulation wurde nie parametriert. Deckungsbeitrag 2
+   und «Gewinn/Verlust» sind deshalb identisch mit Deckungsbeitrag 1, also
+   schlicht Rechnungssumme minus Material. Als «Gewinn» nach GEMA übernommen
+   wäre das eine Zahl, die etwas anderes behauptet, als sie ist. Der
+   Bestandsschnitt von `nkgewp` (−33 %, Minimum −2 584) zeigt dasselbe.
+
+Alle Grössen sind ohnehin aus den migrierten Primärdaten neu rechenbar
+(Rechnungen, Positionen, Kreditoren, Stunden). Der Import führt sie als **ein
+JSON-Feld** `nachkalk` am Auftrag mit und legt es unverändert unter
+`importNachkalk` ab — vollständig erhalten, zum Vergleichen da, aber ausserhalb
+von GEMAs Zahlen.
+
+```sql
+-- Zusatzspalte für den Auftrags-Export (8.3): leere Felder fallen im
+-- Importer heraus, Aufträge ohne Nachkalkulation liefern NULL.
+JSON_OBJECT('nkrnbh',r.nkrnbh,'nkrmat',r.nkrmat,'nkrfaktor',r.nkrfaktor,
+            'nkbez',r.nkbez,'nkofftot',r.nkofftot,'nkoffmat',r.nkoffmat,
+            'nkoffnbh',r.nkoffnbh,'nkoffph',r.nkoffph,'nkfaktor',r.nkfaktor,
+            'nkgewp',r.nkgewp,'nkwstup',r.nkwstup,'nkwmatp',r.nkwmatp,
+            'nkspesen',r.nkspesen) AS nachkalk
+```
 
 Ausserdem: `regiecalculation`, `allow_additional_efforts`, `pdf_hide_prices`
 (→ Preis-Sichtbarkeit wie `_rrCanPrice` in `pm_regierapport`), `sigmonteur` /
@@ -383,42 +424,53 @@ diese Tabelle unverzichtbar.
 
 ---
 
-## 4. Stand des bestehenden Importers
+## 4. Stand des Importers
 
-`gema_erp_import.js` (1619 Zeilen, 5 Sektionen, idempotent über `extId`) liest
-**nur XLSX und CSV** — kein SQL, kein `.frm`. Der Weg bleibt also:
-Alt-DB → `SELECT` mit JOINs → eine flache Datei je Sektion → Import-Assistent.
+`gema_erp_import.js` (3116 Zeilen, **15 Abschnitte**, idempotent über `extId`)
+liest **nur XLSX und CSV** — kein SQL, kein `.frm`. Der Weg bleibt also:
+Alt-DB → `SELECT` mit JOINs → eine flache Datei je Abschnitt → Import-Assistent.
 
-| Sektion | Status | Lücke |
+Ausgangslage waren 5 Abschnitte (Objekte, Adressen, Offerten, Aufträge,
+Rechnungen), alle nur als Kopfdaten. Heute:
+
+| Abschnitt | Ziel | Export |
 |---|---|---|
-| Objekte / Liegenschaften | ✅ | `loc_latitude`/`loc_longitude` ungenutzt |
-| Adressen / Kunden | ✅ | `paymentterm_id`, `stdskonto`/`stdrabatt`, eBill fehlen |
-| Offerten | ⚠ Kopf | Positionen fehlen |
-| Aufträge | ⚠ Kopf | Positionen, Nachkalkulation, Schlüsselblock teilweise |
-| Rechnungen | ⚠ Kopf | Positionen, **Zahlungen** |
-| **Positionen** | ❌ | neu — `lvposition` |
-| **Kreditoren** | ❌ | neu — `kreditoren` + `kredzut` |
-| **Artikelstamm** | ❌ | neu — `abarticle` |
-| **Stunden / Spesen** | ❌ | neu — eigener Import nach `pm_stunden` |
-| **Service / Anlagen** | ❌ | neu — `services` + `apparate` + `komponenten` |
-| Stammdaten (MwSt, Zahlbed., Banken, Kostenstellen) | ❌ | klein, aber Voraussetzung für die Belege |
+| Objekte / Liegenschaften | `objekt:` | 8.1 |
+| Adressen / Kunden | Adressstamm | 8.2 |
+| Offerten · Aufträge · Rechnungen | `erpdok:` | 8.3 |
+| Positionen | LV am Beleg | 8.4 |
+| Zahlungen | `doc.zahlungen[]` | 8.5 |
+| Kreditoren | `erpkred:` | 8.6 |
+| Artikelstamm | `erpkat:` | 8.7 |
+| Zahlungsbedingungen | `org.settings.erp.zahlbed` | 8.8 |
+| Termine | `einsatz:` (pm_einsatzplan) | 8.9 |
+| Anlagen (Service) | `svanl:` (sv_service) | 8.10 |
+| Stunden | `std:` (pm_stunden) | 8.11 |
+| Bezugspersonen | `objekt.bezugspersonen[]` | 8.12 |
+| Ferien-/Überzeitüberträge | `std:` mit `typ:'uebertrag'` | 8.13 |
+
+Offen bleiben nur bewusste Auslassungen (NPK-Katalog, Fibu-Schnittstelle,
+Post-Adressdatenbank) — siehe 6 und 7.
 
 ---
 
-## 5. Empfohlene Reihenfolge
+## 5. Reihenfolge
 
-Die Reihenfolge ergibt sich aus den Fremdschlüsseln — jede Stufe braucht die
-vorherige:
+Sie ergibt sich aus den Fremdschlüsseln — jede Stufe braucht die vorherige und
+ist im Importer als `IMPORT_REIHENFOLGE` hinterlegt, der Assistent sortiert
+danach:
 
-1. **Stammdaten**: `paymentterm`, `mwst`, `bank`, `kostenst`, `abt`, `arbeiter`
-2. **Adressen**: `adressen` + `zuhand` (+ `adrkre` für Lieferanten)
-3. **Objekte**: `obj` + `objadr` + `contact`
-4. **Artikelstamm**: `abarticle` (+ `abchapter`/`absheet`/`abtitle`/`abline`)
-5. **Offerten** (Kopf) → **Aufträge** (Kopf) → **Rechnungen** (Kopf)
-6. **Positionen** `lvposition` — nach den Belegen, über `module_id`/`item_id`
-7. **Zahlungen** aus `rechnungen.zahlungsdatum` / `.zahlungsbetrag`
-8. **Kreditoren** `kreditoren` + `kredzut`
-9. Optional: Stunden, Service, Bestellungen, Termine
+```
+zahlbed → artikel → objekte → adressen → bezugspersonen
+        → offerten → auftraege → rechnungen
+        → positionen → zahlungen → kreditoren
+        → anlagen → termine → stunden → uebertraege
+```
+
+Die Abhängigkeiten dahinter: Positionen und Zahlungen hängen sich an einen
+fertigen Beleg, Kreditoren an den Auftrag, Termine an Auftrag und Person,
+Stunden an Termin und Person, Überträge an die Person. Die Konditionen stehen
+zuoberst, weil erst sie den Belegen die richtige Zahlungsfrist geben.
 
 ---
 
@@ -585,9 +637,14 @@ wandern als Adresstyp mit den Bezugspersonen mit. Zwei Auffälligkeiten:
 haben null Zuordnungen — darunter vier «Programm …»-Einträge, die auf
 geplante Serviceprogramme hindeuten.
 
-Nicht migriert: `terminsmscontact` (leer), `stdtot`/`spesen`/`arbueber`
-(Wochentotale, Spesen und Jahressalden — GEMA rechnet die Totale selbst; die
-Salden aus `arbueber` müssten von Hand als Startwert gesetzt werden).
+Nicht migriert: `terminsmscontact` (leer), `stdtot`/`spesen` (Wochentotale und
+Spesen — GEMA rechnet die Totale selbst).
+
+**Korrektur zu `arbueber`:** hier stand, die Salden müssten von Hand gesetzt
+werden. Das war zu kurz gegriffen — die Tabelle ist in Betrieb (Zeilen in
+jedem Jahr 2016–2026, davon 41 auf 26 Mitarbeitende allein 2026) und
+`arbeiter.ferien` ist bei allen 46 Aktiven NULL, das Guthaben steht also
+ausschliesslich hier. Sie hat einen eigenen Abschnitt bekommen (8.13).
 
 ### 7.2 Felder, die in GEMA zu ergänzen sind
 
@@ -810,7 +867,7 @@ Importer hält die beiden auseinander (`nr` wird zuerst zugeordnet).
 ### 8.9 Termine
 
 ```sql
-SELECT t.guid, t.datum, t.von, t.bis, t.arbeit, t.absenz, t.arbtyp,
+SELECT t.guid, t.datum, t.von60, t.bis60, t.arbeit, t.absenz, t.arbtyp,
        t.stunden, t.location, t.serie_id, t.private_text,
        TRIM(CONCAT(COALESCE(ad.vorname,''),' ',COALESCE(ad.name1,''))) AS arb_name,
        r.rapport_nr
@@ -821,9 +878,21 @@ LEFT JOIN rapporte r  ON r.id  = t.rapp_id
 ORDER BY t.datum;
 ```
 
+> **`von60`/`bis60`, nicht `von`/`bis`.** Die Tabelle führt zwei Zeitpaare, und
+> die naheliegend benannten sind die falschen: `von60`/`bis60` tragen die
+> Uhrzeit im Klartext (gemessen '07:00' … '9:45'), `von`/`bis` dagegen
+> Dezimalzahlen (1.00 … 19.50). Aus einer «19.50» liesse sich weder 19:30 noch
+> 19:50 belegen — der Importer deutet eine nackte Zahl deshalb NIE als Uhrzeit,
+> sondern legt sie als `importZeitRoh` ab und meldet die Zeilen. Betroffen
+> wären 6 924 der 7 000 Termine.
+
 > **Zuerst die künftigen exportieren** (`WHERE t.datum >= CURDATE()`) — das ist
 > die geplante Arbeit und der Teil, der beim Wechsel wirklich fehlen würde.
 > Die Historie kann danach folgen.
+
+Nicht übernommen: `timefrom`/`timeuntil` (bei allen 10 301 Rapportzeilen 0) und
+`mehrtaegig` (durchweg 0 — es gibt im Altbestand keinen mehrtägigen Termin,
+weshalb die feste Dauer von einem Tag im Importer korrekt ist).
 
 ### 8.10 Anlagen (Service)
 
@@ -973,6 +1042,69 @@ ORDER BY o.id;
 
 Damit ist der polymorphe Schlüssel des Altsystems vollständig entschlüsselt —
 er gilt genauso für `lvposition`, `contactinfos` und `task`.
+
+---
+
+### 8.13 Ferien- und Überzeitüberträge
+
+Im Altsystem die Maske **«Stunden- und Ferienübertrag»**. Sie rechnet vom
+letzten Übertrag bis zum Vortag des eingegebenen Datums und schreibt das
+Ergebnis als neue Zeile fort:
+
+```
+Ferienguthaben am 01.01.2026            248.75
+− bezogene Ferien bis 06.09.2026        176.00
+= Feriensaldo                            72.75
+Stundenübertrag am 01.01.2026             0.00
++ geleistete Überzeit                    15.25
+= Stundensaldo                           15.25
+```
+
+**Jede Zeile ist ein Saldo auf einen Stichtag, kein Zuwachs.** Mehrere Zeilen
+je Person sind die Geschichte des Kontos, nicht Summanden — wer sie addiert,
+bekommt Unsinn. Stichtage sind meist der 1. Januar, aber nicht immer
+(im Bestand u.a. 31.10.2025, 31.12.2022, 01.09.2021).
+
+| Spalte | Maske | Anmerkung |
+|---|---|---|
+| `datum` | Datierung auf | der Stichtag |
+| `totarbeit` | Stundenübertrag (+/−h) | darf negativ sein — Minusstunden |
+| `totferien` | Ferienguthaben (h) | **in Stunden**, nicht in Tagen |
+| `ausbezst` | Ausbezahlte Überstunden (h) | |
+| `zus_stunden` | Zuschlägestunden | im Bestand durchweg 0 |
+| `bemerkung` | Bemerkungen | trägt die Begründung, z.B. «Ferienkürzung da <3 volle Monate», «Ferien ausbezahlt, da Austritt», «Topf A=52h(100%)/Topf B» |
+
+`saldo` und `totspesen` sind seit 2020 NULL und werden nicht übernommen.
+
+```sql
+SELECT u.id, u.datum, u.totarbeit, u.totferien, u.ausbezst,
+       u.zus_stunden, u.bemerkung,
+       TRIM(CONCAT(COALESCE(ad.vorname,''),' ',COALESCE(ad.name1,''))) AS arb_name
+FROM arbueber u
+LEFT JOIN arbeiter a  ON a.id  = u.arb_id
+LEFT JOIN adressen ad ON ad.id = a.adr_id
+WHERE u.totarbeit IS NOT NULL OR u.totferien IS NOT NULL
+ORDER BY arb_name, u.datum;
+```
+
+**Warum das nicht weggelassen werden darf:** GEMA rechnet die Jahresbilanz aus
+den Tagesrapporten (`stdJahresAuswertung`). Die Jahre vor der Migration liegen
+dort nicht, also stünde jede Mitarbeiterin am ersten Tag auf null — ein
+Ferienguthaben von 248.75 h wäre schlicht weg. Der Import legt die Überträge
+darum als eigene Datensätze im Stunden-Pool ab (`typ:'uebertrag'`, neben den
+Auszahlungen, die dort schon so liegen), mit dem vollen Verlauf statt nur dem
+letzten Stand.
+
+Zwei Punkte bleiben bewusst offen und werden nicht geraten:
+
+- **Der Ferienanspruch pro Jahr** steht im Altsystem nirgends (`arbeiter.ferien`
+  ist bei allen 46 Aktiven NULL) — er ergibt sich dort aus dem fortgeschriebenen
+  Guthaben. In GEMA ist er ein Stammdatum je Person
+  (`org.settings.stunden.mitarbeiter[…].ferienTage`, in **Tagen**) und muss
+  einmal gesetzt werden.
+- **Stichtage, die nicht der 1. Januar sind**, mischen im GEMA-Jahr zwei
+  Perioden. Der Import übernimmt sie mit ihrem Datum; die Jahresansicht zeigt
+  den Stichtag mit an, statt eine saubere Jahresbilanz vorzutäuschen.
 
 ---
 
