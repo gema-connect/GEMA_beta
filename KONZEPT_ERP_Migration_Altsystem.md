@@ -407,50 +407,107 @@ vorherige:
 | Mandantenfähigkeit? | **Ein Mandant.** Alle Belege tragen dieselbe `company_id` → eine `orgId` in GEMA. |
 | Bestell-/Lagerwesen? | **Nicht genutzt** (`orders`, `orderposition`, `stock*` alle leer) → aus dem Umfang gestrichen. |
 
+### Geklärt: `companydata` ist ein lückenfüllender Overlay
+
+Die Gegenprobe entwarnt. Die Tabelle hat **genau eine Zeile je
+(Tabelle · Datensatz · Feld)** — 8 207 Zeilen auf 8 207 Schlüssel. Also kein
+Versionsverlauf, sondern ein echter Overlay, und alles unter einer `company_id`.
+
+Für `adressen.zahlbedid`:
+
+| Fall | Anzahl |
+|---|---|
+| Basisspalte leer, Overlay gefüllt | 1 445 |
+| beide gefüllt, identisch | 159 |
+| **beide gefüllt, verschieden** | **25** |
+| Overlay leer | 9 |
+
+> **Korrektur.** Die frühere Zahl «1 463 abweichend» war ein Artefakt meiner
+> Abfrage — sie zählte «Basis leer gegen Overlay gefüllt» als Abweichung.
+> Tatsächlich füllt der Overlay in 89 % der Fälle eine **Lücke** und
+> widerspricht nur in **25 Fällen**. Das Risiko ist damit klein und beherrschbar.
+
+Die Werteverteilung bestätigt die Richtung: `adressen.zahlbedid` ist bei 6 061
+von 6 627 Adressen leer, während der Overlay 1 629-mal «01» trägt. Die
+Zahlungsbedingung ist im Lauf der Jahre aus der Basisspalte nach `companydata`
+gewandert; die Basisspalte ist der Altbestand.
+
+**Regel für den Import** (gilt sinngemäss auch für `pk_debi`, `stdrabatt`,
+`stdskonto` und die `adrkre`-Konditionen):
+
+```
+Wert = Overlay aus companydata
+     ?? Basisspalte
+     ?? Firmen-Standard
+```
+
+Die 25 echten Konflikte sind mit dieser Regel abgedeckt; eine Stichprobe im
+ERP-UI bestätigt sie oder deckt die Ausnahme auf.
+
+### Fallen beim Zahlungsbedingungs-Import
+
+Aus `paymentterm` (13 Einträge, Schweizer Standardkonditionen von «per sofort»
+bis «14 T 3%, 30 T 2%, 60 T netto`):
+
+1. **Verknüpft wird über `shortcut`, nicht über `autoid`.** `adressen.zahlbedid`
+   ist CHAR(10) und enthält «01», «02», «05» … — also das Kürzel.
+2. **Die Kürzel sind Strings mit führender Null.** «00» ist ein gültiger Wert
+   (60 Tage netto), nicht «leer». In JavaScript nie über `parseInt` verarbeiten:
+   `parseInt('00') || standard` liefert den Standard statt 60 Tage.
+3. **`skonto1` ist FLOAT und krumm gespeichert**: 3 % steht als
+   `2.9999999329447746`, 2 % als `1.9999999552965164`, 4 % als
+   `3.999999910593033`. Beim Import **auf zwei Stellen runden**, sonst zeigt
+   GEMA «2.9999999 %».
+4. Ein Eintrag (`autoid` 14, «10 Tage 3%, 30 Tage netto») hat ein **leeres
+   Kürzel** und ist darum von keiner Adresse referenzierbar — vermutlich eine
+   Leiche. Beim Import ignorieren, aber nicht stillschweigend: melden.
+
 ### Noch zu klären
 
-1. **Richtung der `companydata`-Overlays.** Der Abgleich für
-   `adressen.zahlbedid` ist alarmierend: von 1 630 Paaren stimmen nur **167**
-   überein, **1 463 weichen ab**. Eine der beiden Quellen ist also falsch —
-   und wenn wir die Basisspalte exportieren, bekämen 1 463 Kunden die falsche
-   Zahlungsfrist. Zu klären, bevor irgendetwas exportiert wird:
-
-   ```sql
-   SELECT SUM(COALESCE(a.zahlbedid,'')='')                       basis_leer,
-          SUM(COALESCE(c.cmd_string,'')='')                      overlay_leer,
-          SUM(COALESCE(a.zahlbedid,'')<>'' AND COALESCE(c.cmd_string,'')<>''
-              AND a.zahlbedid<>c.cmd_string)                     beide_gefuellt_verschieden
-   FROM companydata c JOIN adressen a ON a.id=c.cmd_item_id
-   WHERE c.cmd_tablename='adressen' AND c.cmd_fieldname='zahlbedid';
-   ```
-
-   Füllt der Overlay nur Lücken, ist die Sache harmlos. Widersprechen sich
-   beide bei gefüllten Werten, entscheidet ein Blick ins ERP-UI: zwei, drei
-   Kunden aufrufen und nachsehen, welcher Wert angezeigt wird. Dasselbe gilt
-   für `pk_debi`, `stdrabatt`, `stdskonto` und die `adrkre`-Konditionen.
-
-2. **Format von `sigmonteur` / `sigcustomer`** (LONGTEXT) — Base64-PNG oder SVG?
+1. **Format von `sigmonteur` / `sigcustomer`** (LONGTEXT) — Base64-PNG oder SVG?
    Entscheidet, ob die Unterschriften auf Offerten und Rapporten übernommen
    werden können.
 
-3. **Stichproben für die seltenen `postyp`-Werte** 16, 15, 13, 22, 25, 18, 28
+2. **Stichproben für die seltenen `postyp`-Werte** 16, 15, 13, 22, 25, 18, 28
    (zusammen 1,1 % der Positionen) — je fünf Zeilen genügen.
 
-4. **`artikel.Calculation`** ist LONGBLOB, vermutlich serialisiertes
+3. **`artikel.Calculation`** ist LONGBLOB, vermutlich serialisiertes
    Delphi-Format. `calcdata` (38 396 Zeilen) führt die Kalkulation relational
    und ist die bessere Quelle — der Blob wird voraussichtlich nicht gebraucht.
 
-5. **Wird die Fibu-Anbindung weitergeführt?** Die Sesam-Felder
-   (`sesam_zahlart`, `sesam_pk_nr`, `sesam_op_nr`) sind breit gefüllt, die
-   Anbindung wird also aktiv genutzt. Bleibt sie bestehen, müssen Konten,
-   Kostenstellen und Belegnummern-Schlüssel mitwandern. **Kaufmännische
-   Entscheidung, kein technisches Detail** — und einer der grössten Hebel im
-   Migrationsumfang.
+---
 
-6. **Umfang der Historie.** Der Bestand reicht über 11,5 Jahre. Volle
-   Übernahme bedeutet 874 000 Positionen auf 26 000 Belegen; ein Stichtag
-   (etwa ab 2023) reduziert das erheblich, kostet aber die Nachkalkulation
-   über die Jahre.
+## 6a. Entscheidungen des Auftraggebers (2026-09-07)
+
+**Fibu-Anbindung Sesam bleibt vorerst bestehen**, die Umsetzung der
+Schnittstelle ist noch offen. Daraus folgt für die Migration:
+
+> **Schlüsselfelder mitnehmen, Schnittstelle später bauen.** `pk_debi`,
+> `pk_kredi`, `sesam_pk_nr`, `sesam_op_nr`, `abacbelegnr`, die Kontonummern aus
+> `abt` (`ekonto`, `akkonto`, `bkkonto`, `ckkonto`, `lkkonto`, `dkkonto`) und
+> `kostenst.sesamcode` wandern als Textfelder an Kunde und Beleg mit.
+
+Die Asymmetrie ist der Grund: eine Schnittstelle lässt sich jederzeit nachbauen,
+die Zuordnung von 6 627 Kunden zu ihren Sesam-Personenkonten nicht. Das
+Mitnehmen kostet fast nichts, das Weglassen wäre teuer und kaum reparabel.
+
+Die Schnittstelle selbst wäre ein einseitiger Export von Buchungssätzen
+(Belegnummer, Datum, Konto, Gegenkonto, Betrag, MwSt-Code, Kostenstelle,
+Personenkonto). Technisch überschaubar; die Risiken liegen in der
+Kontierungslogik (falscher MwSt-Code = falsche ESTV-Abrechnung) und in der
+Idempotenz (ein «übergeben»-Kennzeichen je Beleg, sonst driftet die
+Debitorenbuchhaltung von der Fakturierung weg). Unbekannt ist Sesams
+Importformat — das steht in deren Dokumentation.
+
+**Historie: falls migriert wird, dann vollständig.** Technisch unkritisch:
+die 873 636 Positionen verteilen sich auf rund **16 600 Belege** (Aufträge
+tragen keine), das sind 16 600 Datensätze zu je etwa 10 KB. GEMAs Schwelle für
+Sonderbehandlung liegt bei 300 KB je Datensatz. Die 7,4 GB der Altdatenbank
+sind fast vollständig der `lvdata`-Blob, der draussen bleibt.
+
+**Ob überhaupt migriert wird, ist offen.** Die Analyse behält ihren Wert auch
+dann: sie beziffert, was der Wechsel kostet, und dokumentiert die
+Datenlandschaft des Altsystems.
 
 ---
 
