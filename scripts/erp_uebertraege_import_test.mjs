@@ -347,9 +347,13 @@ console.log('\n═══ F — Absenzarten: nicht jede ist eine Abwesenheit ═�
   const we = zeile('stunden', kopf, ['Muster', '2026-03-02', '8', 'Werkstatt']).ziel;
   eq('Werkstatt liefert keinen Absenztyp', we.absenzTyp, '');
   eq('sondern ist als Arbeit markiert', we.absenzArbeit, true);
+  // BEWUSST ÜBERSTEUERT — vorher war hier der Variablenname gepinnt. Die
+  // Aussage ist: die Absenz landet am Tag UND die Absenz-Zeile wird nicht
+  // zusätzlich zum Eintrag. Das Verhalten selbst prüft
+  // erp_stunden_writer_test.mjs am fertigen Datensatz.
+  const src = fs.readFileSync(path.join(ROOT, 'gema_erp_import.js'), 'utf8');
   t('der Writer legt die Absenz an den TAG, nicht an den Eintrag',
-    /t\.absenz=\{typ:s\(aZ\.absenzTyp\)\}/.test(
-      fs.readFileSync(path.join(ROOT, 'gema_erp_import.js'), 'utf8')));
+    /t\.absenz=\{typ:/.test(src) && /if\(s\(z\.absenzTyp\)\)return;/.test(src));
 }
 
 console.log('\n═══ G — Einheiten-Riegel bei den Stunden ═══');

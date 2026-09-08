@@ -2661,7 +2661,10 @@ function uebertragSchreiben(z,report,opts){
   var u=null;try{u=GemaAuth.getCurrentUser();}catch(e){}
   var orgId=u?u.orgId:'';
   var mit=s(z.mitarbeiter)?findeSachbearbeiter(z.mitarbeiter):null;
-  if(!mit)report.personFehlt=(report.personFehlt||0)+1;
+  // findeSachbearbeiter liefert bei unbekanntem Namen {userId:''}, nie null —
+  // geprüft wird darum die userId. Ohne sie fände pm_stunden den Übertrag
+  // nie, und das Guthaben verschwände stillschweigend.
+  if(!mit||!s(mit.userId))report.personFehlt=(report.personFehlt||0)+1;
   var name=mit?mit.name:s(z.mitarbeiter);
   var key=uebertragSchluessel(z.datum,name,z.extId);
   var alt=poolEigene(ST_POOL).filter(function(t){return t.typ==='uebertrag';})
@@ -2702,6 +2705,9 @@ function terminSchreiben(z,report,opts){
   var u=null;try{u=GemaAuth.getCurrentUser();}catch(e){}
   var orgId=u?u.orgId:'';
   var mont=s(z.monteur)?findeSachbearbeiter(z.monteur):null;
+  // Ein Monteur ohne GEMA-Benutzer landet auf keiner Zeile der Plantafel —
+  // das wird gezählt und gemeldet, nicht stillschweigend hingenommen.
+  if(s(z.monteur)&&(!mont||!s(mont.userId)))report.monteurFehlt=(report.monteurFehlt||0)+1;
   var montName=mont?mont.name:s(z.monteur);
   var key=terminSchluessel(z.datum,montName,z.titel,z.extId);
   var alt=poolEigene(EP_POOL).find(function(e){
@@ -2818,6 +2824,21 @@ function anlageSchreiben(z,report,opts){
   });
 }
 
+/* Schlüssel eines Zeiteintrags innerhalb eines Tages.
+
+   KRITISCH — die Tätigkeit gehört NICHT hinein. Die beiden Erfassungsstufen
+   des Altsystems beschriften dieselbe Arbeit verschieden (Stundenmodul:
+   `arbtyp.beschr`, Handy: `hrs_description`); stünde sie im Schlüssel, träfe
+   die Freigabe die mobile Zeile nie, beide lägen nebeneinander am Tag (16 h
+   statt 8), und ein zweiter Lauf verdoppelte alles. Das Korn ist darum die
+   Auftragsnummer; ohne Auftrag ersatzweise die Tätigkeit. Der Schlüssel wird
+   am Eintrag gespeichert (`importKey`), damit der Wiederholungs-Import ihn
+   exakt wiederfindet — auch wenn die Tätigkeit später ergänzt wurde. */
+function eintragKey(auftragNr,taetigkeit){
+  var a=norm(auftragNr);
+  return a?('a:'+a):('t:'+norm(taetigkeit));
+}
+
 /* ── Stunden → std: (pm_stunden), gruppiert je Mitarbeiter und Tag ─────── */
 function stundenSchreiben(zeilen,report,opts){
   opts=opts||{};
@@ -2849,7 +2870,11 @@ function stundenSchreiben(zeilen,report,opts){
       };
       var ein=(t.eintraege||[]).slice();
       var da={};
-      ein.forEach(function(e){da[norm([e.importAuftragNr,e.taetigkeit].join('|'))]=e;});
+      ein.forEach(function(e){da[e.importKey||eintragKey(e.importAuftragNr,e.taetigkeit)]=e;});
+      // Alles, was den Tag verändert, setzt dieses Flag — gespeichert wird
+      // am Ende genau dann. Ein Zähler «neu» reichte nicht: eine Korrektur an
+      // einem bestehenden Eintrag ist kein neuer Eintrag und ging verloren.
+      var geaendert=false;
       /* Erkannte Absenz → GEMA-Absenz am TAG (dort führt sie pm_stunden), nicht
          als Arbeitseintrag. Ohne das zählte ein Ferientag als geleistete Zeit
          und gleichzeitig als null bezogene Ferien — der Feriensaldo wäre zu
@@ -2857,11 +2882,18 @@ function stundenSchreiben(zeilen,report,opts){
          Tag schon eine Absenz, gewinnt sie.
          Unbekannte Arten bekommen KEINEN erfundenen Typ (siehe absenzArt). */
       if(!t.absenz){
-        var aZ=g.zl.find(function(z){return s(z.absenzTyp);});
-        if(aZ){
-          t.absenz={typ:s(aZ.absenzTyp)};
-          if(s(aZ.absenz))t.importAbsenz=s(aZ.absenz);
+        var absZ=g.zl.filter(function(z){return s(z.absenzTyp);});
+        if(absZ.length){
+          var absH=0;absZ.forEach(function(z){absH+=parseFloat(z.stunden)||0;});
+          t.absenz={typ:s(absZ[0].absenzTyp)};
+          // Die Dauer der Absenz-Zeile wird zum Stundenwert der Absenz:
+          // pm_stunden rechnet damit die Soll-Gutschrift exakt (stdTagAbzugH,
+          // gekappt auf das Tagessoll) — ein halber Ferientag kürzt das Soll
+          // um vier Stunden, nicht um acht.
+          if(absH>0)t.absenz.stunden=Math.round(absH*100)/100;
+          if(s(absZ[0].absenz))t.importAbsenz=s(absZ[0].absenz);
           report.absenzen=(report.absenzen||0)+1;
+          geaendert=true;
         }
       }
       // Termin-Bezug: der auf dem Handy erfasste Eintrag nennt den Termin,
@@ -2879,7 +2911,11 @@ function stundenSchreiben(zeilen,report,opts){
         var min=Math.round((z.stunden||0)*60);
         if(!min)return;
         if(z.spesen)spesenSum+=z.spesen;
-        var k2=norm([z.auftragNr,z.taetigkeit].join('|'));
+        /* KRITISCH — eine erkannte Absenz ist am TAG abgelegt (oben) und wird
+           hier NICHT noch einmal zum Arbeitseintrag. Sonst zählte der Ferientag
+           als geleistete Zeit UND senkte das Soll: +8 h Überstunden je Tag. */
+        if(s(z.absenzTyp))return;
+        var k2=eintragKey(z.auftragNr,z.taetigkeit);
         var rang=STUNDEN_RANG[z.quelle]||2;
         var vor=da[k2];
         if(vor){
@@ -2893,37 +2929,49 @@ function stundenSchreiben(zeilen,report,opts){
               vor.importErfasst=minVor;
               report.stundenKorrigiert=(report.stundenKorrigiert||0)+1;
             }
+            if(vor.dauerMin!==min||vor.importQuelle!==z.quelle)geaendert=true;
             vor.dauerMin=min; vor.importQuelle=z.quelle;
-          }else if(rang===rangVor&&minVor!==min){
+          }else if(rang===rangVor&&minVor!==min&&!vor.importKonflikt){
             // Gleiche Stufe, verschiedene Dauer: hier gibt es keine Regel,
             // welcher Wert gilt. Melden statt raten.
             vor.importKonflikt={andereQuelle:min,uebernommen:minVor};
             report.stundenKonflikt=(report.stundenKonflikt||0)+1;
+            geaendert=true;
           }
           // Was die andere Stufe zusätzlich weiss, wird ergänzt.
-          if(s(z.bemerkung)&&!s(vor.bemerkung))vor.bemerkung=s(z.bemerkung);
-          if(s(z.terminId)&&!s(vor.einsatzId)&&evIx[norm(z.terminId)])
-            vor.einsatzId=evIx[norm(z.terminId)].id;
+          if(s(z.bemerkung)&&!s(vor.bemerkung)){vor.bemerkung=s(z.bemerkung);geaendert=true;}
+          if(s(z.terminId)&&!s(vor.einsatzId)&&evIx[norm(z.terminId)]){
+            vor.einsatzId=evIx[norm(z.terminId)].id;geaendert=true;
+          }
+          if(!vor.importKey){vor.importKey=k2;geaendert=true;}
           return;
         }
         var e={
           id:uid('e'), von:'', bis:'', pauseMin:0, dauerMin:min,
           objektId:'', objektName:'', taetigkeit:s(z.taetigkeit)||s(z.auftragNr)||'Übernahme Altsystem',
-          einsatzId:'', ausPlan:false, importAuftragNr:s(z.auftragNr), importQuelle:z.quelle
+          einsatzId:'', ausPlan:false, importAuftragNr:s(z.auftragNr), importQuelle:z.quelle,
+          importKey:k2
         };
+        // Arbeitskategorien des Altsystems («Werkstatt», «Büro») bleiben als
+        // Vermerk am Eintrag — sie sind Arbeit, keine Absenz.
         if(s(z.absenz))e.importAbsenz=s(z.absenz);
         if(s(z.bemerkung))e.bemerkung=s(z.bemerkung);
         if(s(z.terminId)&&evIx[norm(z.terminId)]){e.einsatzId=evIx[norm(z.terminId)].id;e.ausPlan=true;}
-        ein.push(e); da[k2]=e; neu++;
+        ein.push(e); da[k2]=e; neu++; geaendert=true;
       });
       /* Spesen: GEMA führt am Tag «Mittag auswärts» und «km». Der Betrag aus
          der App passt in keins von beiden — er wird daneben vermerkt, statt
          eine Mittagspauschale oder eine Kilometerzahl zu erfinden. */
       if(spesenSum){
         t.spesen=Object.assign({},t.spesen||{});
-        if(t.spesen.importBetrag==null)t.spesen.importBetrag=Math.round(spesenSum*100)/100;
+        if(t.spesen.importBetrag==null){
+          t.spesen.importBetrag=Math.round(spesenSum*100)/100;
+          geaendert=true;
+        }
       }
-      if(!neu&&alt&&!spesenSum)return;
+      // Bestehender Tag ohne jede Änderung → nichts speichern. Alles andere
+      // (neuer Eintrag, Korrektur, Absenz, Spesen, Termin-Bezug) wird gesichert.
+      if(alt&&!geaendert){report.uebersprungen++;return;}
       t.eintraege=ein;
       t.importiert=true;
       t.updatedAt=jetzt();
