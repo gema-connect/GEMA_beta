@@ -1624,6 +1624,58 @@ und werden gemeldet (6.0). C: `deleteditems` ist kein Löschbeweis. D: das
 Altsystem führt weder Pensum noch Leitung — beides wird in GEMA gesetzt
 (8.15); die Spalten werden nicht exportiert.
 
+### 8.16 Zwei offene Klärungen: `objekt1`/`objekt2` und die Dokumenten-Ordner
+
+Beides ist keine Export-Abfrage, sondern eine Frage an den Bestand. `objekt1`
+und `objekt2` (VARCHAR 30, auf `obj` UND auf `rapporte`) sind Freitext ohne
+belegte Bedeutung — sie landen heute als `importObjekt1/2` am Objekt. Ist es
+die Objektbezeichnung, gehört sie in den Namen. `lkdir` (zwölf Tabellen)
+zeigt auf den Dokumentenordner des jeweiligen Datensatzes; die Beispielwerte
+sagen, ob dort ein absoluter Netzpfad steht.
+
+```sql
+SELECT '=== A objekt1 / objekt2: zehn Beispiele (Objekte) ===' AS x;
+SELECT id, strasse, plz, ort, objekt1, objekt2
+FROM obj WHERE COALESCE(objekt1,'')<>'' OR COALESCE(objekt2,'')<>''
+ORDER BY id DESC LIMIT 10;
+
+SELECT '=== B Wie oft sind sie gefuellt? ===' AS x;
+SELECT COUNT(*) AS objekte,
+       SUM(COALESCE(objekt1,'')<>'') AS mit_objekt1,
+       SUM(COALESCE(objekt2,'')<>'') AS mit_objekt2,
+       COUNT(DISTINCT NULLIF(objekt1,'')) AS objekt1_verschieden,
+       COUNT(DISTINCT NULLIF(objekt2,'')) AS objekt2_verschieden
+FROM obj;
+
+SELECT '=== C Haeufigste Werte in objekt1 ===' AS x;
+SELECT objekt1, COUNT(*) AS n FROM obj
+WHERE COALESCE(objekt1,'')<>'' GROUP BY objekt1 ORDER BY n DESC LIMIT 10;
+
+SELECT '=== D Dieselben Felder am Auftrag ===' AS x;
+SELECT rapport_nr, betrifft, objekt1, objekt2 FROM rapporte
+WHERE COALESCE(objekt1,'')<>'' OR COALESCE(objekt2,'')<>''
+ORDER BY id DESC LIMIT 10;
+
+SELECT '=== E Dokumenten-Ordner (lkdir) je Tabelle ===' AS x;
+SELECT 'obj' AS tabelle, COUNT(*) AS mit_ordner, MIN(lkdir) AS beispiel FROM obj WHERE COALESCE(lkdir,'')<>''
+UNION ALL SELECT 'rapporte',   COUNT(*), MIN(lkdir) FROM rapporte   WHERE COALESCE(lkdir,'')<>''
+UNION ALL SELECT 'rechnungen', COUNT(*), MIN(lkdir) FROM rechnungen WHERE COALESCE(lkdir,'')<>''
+UNION ALL SELECT 'offerten',   COUNT(*), MIN(lkdir) FROM offerten   WHERE COALESCE(lkdir,'')<>''
+UNION ALL SELECT 'adressen',   COUNT(*), MIN(lkdir) FROM adressen   WHERE COALESCE(lkdir,'')<>''
+UNION ALL SELECT 'kreditoren', COUNT(*), MIN(lkdir) FROM kreditoren WHERE COALESCE(lkdir,'')<>''
+UNION ALL SELECT 'services',   COUNT(*), MIN(lkdir) FROM services   WHERE COALESCE(lkdir,'')<>''
+UNION ALL SELECT 'arbeiter',   COUNT(*), MIN(lkdir) FROM arbeiter   WHERE COALESCE(lkdir,'')<>'';
+
+SELECT '=== F Fuenf ganze Ordnerpfade zum Anschauen ===' AS x;
+SELECT id, strasse, ort, lkdir FROM obj WHERE COALESCE(lkdir,'')<>'' ORDER BY id DESC LIMIT 5;
+```
+
+Lesart: zeigt **A/C** Bezeichnungen wie «Sanierung Steigzone», wird `objekt1`
+zum Objektnamen (heute ist er «Strasse · Zusatz»). Zeigt **E/F** absolute
+Pfade (`\\server\freigabe\…`), ist das die Wurzel des Dokumentenstrangs;
+stehen dort nur Ordnernamen, liegt die Wurzel in der Konfiguration des
+Altsystem-Clients, nicht in der Datenbank.
+
 ---
 
 ## 9. Datenschutz
