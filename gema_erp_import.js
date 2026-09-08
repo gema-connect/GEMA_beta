@@ -859,13 +859,13 @@ var SEKTIONEN=[
     // keine Bezeichnung — `objekt1` trägt Strasse + Nr., `objekt2` den Ort
     // (am Auftrag «PLZ Ort»). Beleg: 4 417 von 4 547 Objekten gefüllt, 2 833
     // verschiedene Strassen, aber nur 176 verschiedene Werte in `objekt2`.
-    // Es ist die Adresse der PARTEI hinter dem Objekt, nicht eine zweite
-    // Objektadresse: 52.9 % sind eine Kopie der Objektstrasse, und 338
-    // Objekte in Basel, Münchenstein, Binningen, Dornach … tragen alle
-    // «Aliothstrasse 63». Welche Partei (Verwaltung, Eigentümer,
-    // Auftraggeber), ist noch offen — Konzept 8.17. Sie bleibt darum ein
-    // Vermerk und wird nur dann zur Objektadresse, wenn das Objekt gar keine
-    // hat (33 Objekte ohne Strasse, davon 2 mit `objekt1`).
+    // Es ist die KUNDENADRESSE, denormalisiert: 63.6 % stimmen mit der
+    // Adresse des Zahlers (`knummer`) überein, 52.9 % zugleich mit der
+    // Objektstrasse. Die 338 Objekte mit «Aliothstrasse 63» sind die Objekte
+    // EINES Kunden (adressen.id 28). GEMA bekommt diese Adresse ohnehin über
+    // den Slot «Zahlbar durch» — das Feld bleibt darum ein Vermerk (die 36 %
+    // Abweichungen lohnen den Blick) und wird nur dann zur Objektadresse,
+    // wenn das Objekt gar keine hat (33 ohne Strasse, davon 2 mit `objekt1`).
     {id:'bez1',       label:'Adresse im Altsystem — Strasse', hint:'«objekt1» — Vermerk am Objekt; füllt die Objektadresse nur, wenn diese fehlt', alias:['objekt1','objekttext1','bezeichnung1']},
     {id:'bez2',       label:'Adresse im Altsystem — Ort', hint:'«objekt2» — Vermerk am Objekt; am Auftrag im Format «PLZ Ort»', alias:['objekt2','objekttext2','bezeichnung2']},
     {id:'ordner',     label:'Dokumenten-Ordner (Altsystem)', hint:'«lkdir» — nur der Ordnername, nicht der Pfad. Bleibt als Vermerk am Datensatz, damit der spätere Dokumenten-Import zuordnen kann.', alias:['lkdir','ordner','dokordner','dokumentenordner','verzeichnis']}
@@ -875,7 +875,15 @@ var SEKTIONEN=[
   id:'adressen', label:'Adressen / Kunden', ic:'👥', bereit:true,
   info:'Der reine Adressstamm (Kundennummer, Firma, Kontaktperson, Adresse, Typ). Optional — beim Objekt-Import entstehen die Adressen ohnehin automatisch; dieser Import ergänzt sie um die vollständigen Stammdaten.',
   felder:[
-    {id:'nr',       label:'Kundennummer', hint:'Verknüpft die Adresse mit den Objekten', alias:['knummer','kundennummer','kdnr','kundennr','nr','nummer','id']},
+    // KRITISCH — die Kundennummer ist `adressen.id`, NICHT `adressen.oknummer`.
+    // Gemessen: `obj.knummer` (int) trifft in 4 381 von 4 417 Fällen die
+    // `adressen.id`, während `oknummer` fast überall NULL ist. Lieferte der
+    // Export `oknummer`, hätten die drei Adress-Slots am Objekt (Zahlbar
+    // durch · Korrespondenz · Eigentümer) und der Kunde an der Offerte ins
+    // Leere gezeigt — die Adressen wären ein zweites Mal ohne Nummer
+    // entstanden. `oknummer` wandert als Vermerk mit.
+    {id:'nr',       label:'Kundennummer', hint:'Im Altsystem «adressen.id» — verknüpft die Adresse mit Objekten und Belegen', alias:['knummer','kundennummer','kdnr','kundennr','nr','nummer','id']},
+    {id:'kundennrAlt',label:'Alte Kundennummer', hint:'«oknummer» des Altsystems — im Bestand fast überall leer, bleibt als Vermerk', alias:['kundennralt','oknummer','altkundennr']},
     {id:'firma',    label:'Firma / Name', pflicht:true, alias:['firma','name','name1','kunde','adressname','bezeichnung']},
     {id:'anrede',   label:'Anrede', alias:['anrede','titel']},
     {id:'vorname',  label:'Vorname', alias:['vorname']},
@@ -939,7 +947,8 @@ var SEKTIONEN=[
     {id:'ref1',       label:'Externe Referenz 1', alias:['rapportnr','ref1','referenz1']},
     {id:'ref2',       label:'Externe Referenz 2', alias:['ref2','referenz2']},
     {id:'wohnung',    label:'Wohnung / Standort', alias:['wohnung','wohnstandort','stockwerk']},
-    {id:'ordner',     label:'Dokumenten-Ordner (Altsystem)', hint:'«lkdir» — nur der Ordnername, nicht der Pfad. Bleibt als Vermerk am Datensatz, damit der spätere Dokumenten-Import zuordnen kann.', alias:['lkdir','ordner','dokordner','dokumentenordner','verzeichnis']}
+    {id:'ordner',     label:'Dokumenten-Ordner (Altsystem)', hint:'«lkdir» — nur der Ordnername, nicht der Pfad. Bleibt als Vermerk am Datensatz, damit der spätere Dokumenten-Import zuordnen kann.', alias:['lkdir','ordner','dokordner','dokumentenordner','verzeichnis']},
+    {id:'ordnerKat',  label:'Dokumenten-Ordner mit Kategorie (Altsystem)', hint:'«lkmobiledir» — derselbe Ordner mit der Kategorie davor («Sanitär\\9188.00_…»). Nur bei einem kleinen Teil der Belege gefüllt.', alias:['lkmobiledir','ordnerkat','ordnerkategorie','mobildir']}
   ]
 },
 {
@@ -980,7 +989,8 @@ var SEKTIONEN=[
     // erhalten, ohne die Zuordnungsmaske mit 16 Zahlenfeldern zu füllen, die
     // nur 1.2 % der Aufträge überhaupt führen.
     {id:'nachkalk',   label:'Nachkalkulation Altsystem', hint:'JSON aus dem Export — wird unverändert als Vermerk abgelegt. GEMA rechnet seine eigene Nachkalkulation aus Rechnungen, Kreditoren und Stunden.', alias:['nachkalk','nachkalkulation','nkjson','nk']},
-    {id:'ordner',     label:'Dokumenten-Ordner (Altsystem)', hint:'«lkdir» — nur der Ordnername, nicht der Pfad. Bleibt als Vermerk am Datensatz, damit der spätere Dokumenten-Import zuordnen kann.', alias:['lkdir','ordner','dokordner','dokumentenordner','verzeichnis']}
+    {id:'ordner',     label:'Dokumenten-Ordner (Altsystem)', hint:'«lkdir» — nur der Ordnername, nicht der Pfad. Bleibt als Vermerk am Datensatz, damit der spätere Dokumenten-Import zuordnen kann.', alias:['lkdir','ordner','dokordner','dokumentenordner','verzeichnis']},
+    {id:'ordnerKat',  label:'Dokumenten-Ordner mit Kategorie (Altsystem)', hint:'«lkmobiledir» — derselbe Ordner mit der Kategorie davor («Sanitär\\9188.00_…»). Nur bei einem kleinen Teil der Belege gefüllt.', alias:['lkmobiledir','ordnerkat','ordnerkategorie','mobildir']}
   ]
 },
 {
@@ -1040,7 +1050,8 @@ var SEKTIONEN=[
     {id:'fibuBelegNr',label:'Fibu-Belegnummer', hint:'Im Altsystem «belegnr» bzw. «abacbelegnr» — NICHT die Rechnungsnummer', alias:['abacbelegnr','fibubelegnr','belegnrfibu','belegnr']},
     {id:'opDebi',     label:'Offene-Posten-Nr. (Debitor)', alias:['opdebi','opnr','debitorop']},
     {id:'kostenstelle',label:'Kostenstelle', alias:['kostenstid','kostenstelle']},
-    {id:'ordner',     label:'Dokumenten-Ordner (Altsystem)', hint:'«lkdir» — nur der Ordnername, nicht der Pfad. Bleibt als Vermerk am Datensatz, damit der spätere Dokumenten-Import zuordnen kann.', alias:['lkdir','ordner','dokordner','dokumentenordner','verzeichnis']}
+    {id:'ordner',     label:'Dokumenten-Ordner (Altsystem)', hint:'«lkdir» — nur der Ordnername, nicht der Pfad. Bleibt als Vermerk am Datensatz, damit der spätere Dokumenten-Import zuordnen kann.', alias:['lkdir','ordner','dokordner','dokumentenordner','verzeichnis']},
+    {id:'ordnerKat',  label:'Dokumenten-Ordner mit Kategorie (Altsystem)', hint:'«lkmobiledir» — derselbe Ordner mit der Kategorie davor («Sanitär\\9188.00_…»). Nur bei einem kleinen Teil der Belege gefüllt.', alias:['lkmobiledir','ordnerkat','ordnerkategorie','mobildir']}
   ]
 },
 {
@@ -1423,7 +1434,7 @@ function normalisiereZeile(row,map,sekId){
       wohnung:g('wohnung'), bemerkungen:g('bemerkungen'),
       zahlbedKuerzel:g('zahlbedKuerzel'), stdRabatt:pct(g('stdRabatt')), stdSkonto:pct(g('stdSkonto')),
       pkDebi:g('pkDebi'), pkKredi:g('pkKredi'), eBillId:g('eBillId'), rechnungEmail:g('rechnungEmail'),
-      ordner:g('ordner')
+      ordner:g('ordner'), kundennrAlt:g('kundennrAlt')
     };
   }
   if(sekId==='offerten'){
@@ -1459,7 +1470,7 @@ function normalisiereZeile(row,map,sekId){
       objekt:{strasse:g('strasse'), strasse2:g('strasse2'), plz:g('plz'), ort:g('ort'),
               egid:g('egid'), egrid:g('egrid')},
       ref1:g('ref1'), ref2:g('ref2'), wohnung:g('wohnung'), personen:opers,
-      ordner:g('ordner')
+      ordner:g('ordner'), ordnerKat:g('ordnerKat')
     };
   }
   if(sekId==='rechnungen'){
@@ -1500,7 +1511,7 @@ function normalisiereZeile(row,map,sekId){
               egid:g('egid'), egrid:g('egrid')},
       ref1:g('ref1'), ref2:g('ref2'), wohnung:g('wohnung'), personen:rpers,
       fibuBelegNr:g('fibuBelegNr'), opDebi:g('opDebi'), kostenstelle:g('kostenstelle'),
-      ordner:g('ordner')
+      ordner:g('ordner'), ordnerKat:g('ordnerKat')
     };
   }
   if(sekId==='auftraege'){
@@ -1527,7 +1538,7 @@ function normalisiereZeile(row,map,sekId){
       objekt:{strasse:g('strasse'), strasse2:g('strasse2'), plz:g('plz'), ort:g('ort'),
               egid:g('egid'), egrid:g('egrid')},
       schluessel:{code:g('schluessel'), info:g('schluesselTel')},
-      wohnung:g('wohnung'), personen:apers, ordner:g('ordner'),
+      wohnung:g('wohnung'), personen:apers, ordner:g('ordner'), ordnerKat:g('ordnerKat'),
       nachkalk:parseNachkalk(g('nachkalk'))
     };
   }
@@ -2205,6 +2216,25 @@ function adresseSichern(roh,ctx){
   var key=s(roh.nr)?('nr:'+s(roh.nr).toLowerCase()):('x:'+norm([roh.firma,roh.plz,roh.strasse].join('|')));
   if(ctx.cache[key])return Promise.resolve(ctx.cache[key]);
   var res=GemaAdressen.upsertVonImport(roh,{bestand:ctx.bestand});
+  /* Namensprobe bei einer Zuordnung über die NUMMER.
+
+     Belegt ist nur, dass `obj.knummer` die `adressen.id` trifft (4 381 von
+     4 417). Ob `offerten.knummer` dieselbe Bedeutung hat, ist NICHT belegt —
+     hiesse dieselbe Spalte dort etwas anderes, hinge die Offerte am falschen
+     Kunden, ohne dass irgendwo etwas auffiele. Darum: kommt die Zeile mit
+     Nummer UND Name und trägt der getroffene Datensatz einen deutlich
+     anderen Namen, wird das gezählt und gemeldet — die Zuordnung selbst
+     bleibt, geraten wird nichts. */
+  if(s(roh.nr)&&s(roh.firma)&&res&&res.rec&&res.aktion!=='neu'){
+    var trefferName=norm(GemaAdressen.anzeigeName(res.rec));
+    var quelleName=norm(roh.firma);
+    if(trefferName&&quelleName&&trefferName.indexOf(quelleName)<0&&quelleName.indexOf(trefferName)<0){
+      ctx.nrKonflikt=(ctx.nrKonflikt||0)+1;
+      if(!ctx.nrKonfliktBeispiele)ctx.nrKonfliktBeispiele=[];
+      if(ctx.nrKonfliktBeispiele.length<5)
+        ctx.nrKonfliktBeispiele.push({nr:s(roh.nr),imExport:s(roh.firma),inGema:GemaAdressen.anzeigeName(res.rec)});
+    }
+  }
   if(res.aktion==='unveraendert'){ctx.cache[key]=res.rec;return Promise.resolve(res.rec);}
   return GemaAdressen.save(res.rec).then(function(rec){
     ctx.cache[key]=rec;
@@ -2588,6 +2618,7 @@ function rechnungSchreiben(z,adrCtx,report,opts){
       // Pfad. Er endet auf die Datensatz-ID, damit bleibt die Zuordnung
       // Ordner → Beleg eindeutig, wenn die Dateien später nachwandern.
       if(s(z.ordner)&&!s(doc.importOrdner))doc.importOrdner=s(z.ordner);
+      if(s(z.ordnerKat)&&!s(doc.importOrdnerKat))doc.importOrdnerKat=s(z.ordnerKat);
       // ESR-Referenz: nur eine GÜLTIGE wandert in den Nachdruck-QR
       // (erpRefFuer prüft sie nochmals), der Rohwert bleibt in jedem Fall.
       if(s(z.esrRef)&&!s(doc.importEsrRefRoh))doc.importEsrRefRoh=s(z.esrRef);
@@ -2687,6 +2718,7 @@ function auftragSchreiben(z,adrCtx,report,opts){
       if(s(z.rechnungNr)&&!s(doc.importRechnungNr))doc.importRechnungNr=s(z.rechnungNr);
       // Ordnername auf dem Netzlaufwerk des Altsystems («lkdir») — kein Pfad.
       if(s(z.ordner)&&!s(doc.importOrdner))doc.importOrdner=s(z.ordner);
+      if(s(z.ordnerKat)&&!s(doc.importOrdnerKat))doc.importOrdnerKat=s(z.ordnerKat);
       if(s(z.bemerkung)&&!s(doc.notiz))doc.notiz=s(z.bemerkung);
       // Nachkalkulation des Altsystems: reiner Schnappschuss zum Vergleichen.
       // Sie fliesst NICHT in GEMAs Zahlen — im Altbestand sind Lohnkosten und
@@ -2783,6 +2815,7 @@ function offerteSchreiben(z,adrCtx,report,opts){
       if(!s(doc.zahlbedId)&&s(z.zahlbed)){var zbO=zahlbedIdFuer(z.zahlbed);if(zbO)doc.zahlbedId=zbO;}
       // Ordnername auf dem Netzlaufwerk des Altsystems («lkdir») — kein Pfad.
       if(s(z.ordner)&&!s(doc.importOrdner))doc.importOrdner=s(z.ordner);
+      if(s(z.ordnerKat)&&!s(doc.importOrdnerKat))doc.importOrdnerKat=s(z.ordnerKat);
       // Sammelposition NUR bei einem noch leeren Dokument — ein bereits
       // erfasstes Leistungsverzeichnis wird beim Wiederholungs-Import
       // niemals überschrieben oder ergänzt.
@@ -3773,6 +3806,7 @@ function adressZusatz(z,rec){
   txt('importPkDebi',z.pkDebi);
   txt('importPkKredi',z.pkKredi);
   txt('importOrdner',z.ordner);
+  txt('importKundennrAlt',z.kundennrAlt);
   txt('eBillId',z.eBillId);
   txt('rechnungEmail',z.rechnungEmail);
   zahl('stdRabattPct',z.stdRabatt);
@@ -3950,11 +3984,21 @@ function ausfuehren(plan,opts){
   if(sekId==='rechnungen'&&opts.auftragErgaenzen!==false)kette=kette.then(function(){
     return auftraegeAusRechnungen(report,opts);
   });
-  return kette.then(function(){
+  // Die Namensprobe aus `adresseSichern` gehoert in den Bericht — eine
+  // Zuordnung ueber eine Nummer, deren Datensatz anders heisst, ist die
+  // einzige Stelle, an der ein Beleg still am falschen Kunden haengen koennte.
+  function adrBilanz(){
     report.adressen=adrCtx.neu;
+    if(adrCtx.nrKonflikt){
+      report.kundeNrKonflikt=adrCtx.nrKonflikt;
+      report.kundeNrKonfliktBeispiele=adrCtx.nrKonfliktBeispiele||[];
+    }
+  }
+  return kette.then(function(){
+    adrBilanz();
     return report;
   },function(e){
-    report.adressen=adrCtx.neu;
+    adrBilanz();
     return gescheitert(e);
   }).then(abschluss);
 }

@@ -3461,7 +3461,10 @@ var _ERP_VERMERKE=[
   // Ordnername auf dem Netzlaufwerk des Altsystems («lkdir»). Kein Pfad —
   // die Wurzel steht in der Client-Konfiguration. Sichtbar, damit der Beleg
   // seine Dokumente wiederfindet, solange sie nicht migriert sind.
-  ['importOrdner',          'Dokumenten-Ordner (Altsystem)']
+  ['importOrdner',          'Dokumenten-Ordner (Altsystem)'],
+  // «lkmobiledir» — derselbe Ordner mit der Kategorie davor. Nur an 241
+  // Belegen gefüllt, darum eine eigene Zeile statt eines Ersatzes.
+  ['importOrdnerKat',       'Ordner mit Kategorie (Altsystem)']
 ];
 /* Nachkalkulation des Altsystems: am Auftrag 8448.00 gegen die Maske
    aufgelöst (Konzept 3.4). Sie wird NICHT eingerechnet — in der Maske waren
@@ -6914,6 +6917,10 @@ function _adrFormFuellen(a){
     if(a.importPkDebi)fz.push('Debitorenkonto '+esc(a.importPkDebi));
     if(a.importPkKredi)fz.push('Kreditorenkonto '+esc(a.importPkKredi));
     if(a.importZahlbedKuerzel)fz.push('Kondition im Altsystem «'+esc(a.importZahlbedKuerzel)+'»');
+    // «oknummer» des Altsystems — im Bestand fast überall leer; die
+    // Kundennummer selbst kommt aus `adressen.id` (Konzept 8.18).
+    if(a.importKundennrAlt)fz.push('Alte Kundennummer '+esc(a.importKundennrAlt));
+    if(a.importOrdner)fz.push('Ordner '+esc(a.importOrdner));
     if(a.extId)fz.push('Alt-ID '+esc(a.extId));
     fb.innerHTML=fz.length?('📎 Aus dem Altsystem: '+fz.join(' · ')):'';
   }
@@ -7325,6 +7332,7 @@ function erpMigAutoStart(){
       if(rep.monteurFehlt)t+='<br><span style="color:var(--amber)">'+rep.monteurFehlt+' Termine ohne zugeordneten Monteur.</span>';
       if(rep.terminFehlt)t+='<br><span style="color:var(--amber)">'+rep.terminFehlt+' Zeiten nennen einen Termin, der in GEMA nicht liegt.</span>';
       if(rep.kreditorMehrfach)t+='<br><span style="color:var(--amber)">'+rep.kreditorMehrfach+' Kreditoren waren auf mehrere Aufträge verteilt (importZuteilungen).</span>';
+      if(rep.kundeNrKonflikt)t+='<br><span style="color:var(--amber)">'+rep.kundeNrKonflikt+' Belege nennen eine Kundennummer, deren Adresse anders heisst — bitte prüfen.</span>';
       if(rep.fehler&&rep.fehler.length)t+='<br><span style="color:var(--red)">'+rep.fehler.length+' Zeilen mit Fehler: '
         +esc(rep.fehler.slice(0,3).map(function(f){return 'Zeile '+f.zeile+' — '+f.text;}).join(' · '))+'</span>';
       t+=vorab+erpMigCloudZeile(rep);
@@ -7773,6 +7781,16 @@ function erpMigStart(){
     if(rep.stundenKonflikt)txt+='<br><span style="color:var(--amber)">'+rep.stundenKonflikt+' × liefern zwei Zeilen DERSELBEN Stufe unterschiedliche Stunden für Tag und Auftrag. Hier gibt es keine Regel, welche gilt — übernommen wurde die erste, die Abweichung steht am Eintrag unter «importKonflikt».</span>';
     if(rep.terminVerknuepft)txt+=', <b>'+rep.terminVerknuepft+'</b> Zeiteinträge mit ihrem Termin der Plantafel verknüpft';
     if(rep.kreditorMehrfach)txt+='<br><span style="color:var(--amber)">'+rep.kreditorMehrfach+' Kreditoren waren im Altsystem auf mehrere Aufträge verteilt. GEMA führt einen Kreditor mit einem Auftrag — übernommen ist der erste, die Anzahl steht am Datensatz unter «importZuteilungen». Bitte diese Belege prüfen.</span>';
+    // Zuordnung ueber die Kundennummer, aber der getroffene Datensatz heisst
+    // anders: die einzige Stelle, an der ein Beleg still am falschen Kunden
+    // haengen koennte. Wird beziffert und mit Beispielen belegt.
+    if(rep.kundeNrKonflikt){
+      txt+='<br><span style="color:var(--amber)">'+rep.kundeNrKonflikt+' Belege wurden über die Kundennummer einer Adresse zugeordnet, die im Altsystem anders heisst. Die Zuordnung steht, aber bitte stichprobenweise prüfen.';
+      var _bsp=(rep.kundeNrKonfliktBeispiele||[]).slice(0,3).map(function(b){
+        return 'Nr. '+esc(b.nr)+': Export «'+esc(b.imExport)+'» ↔ GEMA «'+esc(b.inGema)+'»';});
+      if(_bsp.length)txt+='<br><span style="font-size:11.5px">'+_bsp.join('<br>')+'</span>';
+      txt+='</span>';
+    }
     if(rep.terminFehlt)txt+='<br><span style="color:var(--amber)">'+rep.terminFehlt+' Zeiteinträge nennen einen Termin, der in GEMA nicht liegt — sie sind erfasst, aber ohne Bezug zur Plantafel; die Termin-ID steht am Eintrag unter «importTerminId». Sind die Termine noch nicht eingelesen: zuerst den Abschnitt «Termine» importieren und den Lauf wiederholen. Im Altsystem gelöschte Termine lassen sich nicht nachholen.</span>';
     if(rep.revisionAbweichung)txt+='<br><span style="color:var(--amber)">Bei '+rep.revisionAbweichung+' Anlagen passt die nächste Revision des Altsystems nicht zu «letzte Wartung + Intervall». GEMA rechnet sie neu; der alte Wert steht unter «importNaechsteRevision».</span>';
     if(rep.revisionBasisModus)txt+='<br><span style="color:var(--amber)">'+rep.revisionBasisModus+' Anlagen rechnen im Altsystem ab einer festen Revisionsbasis statt ab der letzten Revision. GEMA kennt diesen Modus nicht — bitte deren Termin von Hand prüfen (steht am Datensatz unter «importNaechsteRevision»).</span>';

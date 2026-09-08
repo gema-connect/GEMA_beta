@@ -322,5 +322,85 @@ const KR = ['id', 'nr', 'rapport_nr', 'datum', 'betrifft', 'debistatus_text', 'r
   eq('Ordner steht am Kreditor', kred.importOrdner, '000000_Sanitaer_AG_14997');
 }
 
+// ═══ 15 — Der Adress-Schlüssel: adressen.id, nicht oknummer ═══
+//
+// Gemessen (Konzept 8.18): obj.knummer (int) trifft in 4 381 von 4 417 Faellen
+// die adressen.id; oknummer ist im Bestand fast ueberall NULL. Der Export
+// liefert darum a.id AS knummer. Geprueft wird die WIRKUNG: die drei
+// Adress-Slots am Objekt finden die zuvor importierte Adresse, statt eine
+// zweite ohne Nummer anzulegen.
+{
+  console.log('\n═══ 15 — Adress-Slots am Objekt finden die importierte Adresse ═══');
+  const ls = speicher(), sync = syncMock();
+  const objekte = [];
+  const GO = {
+    getAll: () => objekte.slice(), getAllUnfiltered: () => objekte.slice(),
+    upsertObjekt: (o) => { const i = objekte.findIndex(x => x.id === o.id); if (i >= 0) objekte[i] = o; else objekte.push(o); return Promise.resolve(o); }
+  };
+  const win = { ERP_ZAHLBED_DEFAULT: [] };
+  ['gema_erp_adressen.js', 'gema_erp_import.js'].forEach(f => {
+    const src = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    new Function('window', 'localStorage', 'GemaSync', 'GemaAuth', 'GemaObjekte', 'DOMParser', src)(win, ls, sync, authMock(), GO, undefined);
+    if (win.GemaAdressen) globalThis.GemaAdressen = win.GemaAdressen;
+  });
+  const I = win.GemaErpImport;
+  // 1) Adressstamm — der Export liefert adressen.id als Kundennummer, oknummer nur als Vermerk.
+  const KA = ['knummer', 'kundennr_alt', 'firma', 'strasse', 'plz', 'ort'];
+  await lauf(I, 'adressen', KA, [['28', '0', 'Stamm Bau AG', 'Aliothstrasse 63', '4144', 'Arlesheim']]);
+  const adr = win.GemaAdressen.list().filter(a => String(a.nr) === '28');
+  eq('Adresse traegt die ID des Altsystems als Kundennummer', adr.length, 1);
+  eq('alte oknummer bleibt als Vermerk', adr[0] && adr[0].importKundennrAlt, '0');
+  // 2) Objekt zeigt mit knummer=28 auf genau diese Adresse.
+  const KOB = ['id', 'strasse', 'plz', 'ort', 'knummer', 'korr_name'];
+  await lauf(I, 'objekte', KOB, [['5362', 'Hafenrainstrasse 10', '4104', 'Oberwil BL', '28', 'Stamm Bau AG']]);
+  const o = objekte[0] || {};
+  const slot = (o.adressen || {}).zahler || {};
+  eq('Slot «Zahlbar durch» zeigt auf die vorhandene Adresse', slot.nr, '28');
+  eq('keine zweite Adresse mit derselben Nummer', win.GemaAdressen.list().filter(a => String(a.nr) === '28').length, 1);
+  t('Adressbestand ist nicht gewachsen (kein Doppel ohne Nummer)',
+    win.GemaAdressen.list().length === 1, String(win.GemaAdressen.list().length));
+
+  // Gegenprobe: so sah es mit dem falschen Schluessel aus. Lieferte der Export
+  // `oknummer` (im Bestand NULL), kaeme die Adresse OHNE Nummer herein — das
+  // Objekt legt dann eine zweite an, weil sein Slot auf «28» zeigt.
+  const ls2 = speicher(), sync2 = syncMock(); const objekte2 = [];
+  const GO2 = {
+    getAll: () => objekte2.slice(), getAllUnfiltered: () => objekte2.slice(),
+    upsertObjekt: (o) => { objekte2.push(o); return Promise.resolve(o); }
+  };
+  const win2 = { ERP_ZAHLBED_DEFAULT: [] };
+  ['gema_erp_adressen.js', 'gema_erp_import.js'].forEach(f => {
+    const src = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    new Function('window', 'localStorage', 'GemaSync', 'GemaAuth', 'GemaObjekte', 'DOMParser', src)(win2, ls2, sync2, authMock(), GO2, undefined);
+    if (win2.GemaAdressen) globalThis.GemaAdressen = win2.GemaAdressen;
+  });
+  const I2 = win2.GemaErpImport;
+  await lauf(I2, 'adressen', ['knummer', 'firma', 'strasse', 'plz', 'ort'],
+    [['', 'Stamm Bau AG', 'Aliothstrasse 63', '4144', 'Arlesheim']]);
+  await lauf(I2, 'objekte', KOB, [['5362', 'Hafenrainstrasse 10', '4104', 'Oberwil BL', '28', 'Stamm Bau AG']]);
+  t('Gegenprobe: ohne Nummer im Adress-Export entstehen zwei Adressen',
+    win2.GemaAdressen.list().length === 2, String(win2.GemaAdressen.list().length));
+  // Namensprobe: `obj.knummer` trifft belegt die adressen.id — fuer
+  // `offerten.knummer` ist dieselbe Bedeutung NICHT belegt. Traegt der
+  // getroffene Datensatz einen anderen Namen, muss das im Bericht stehen,
+  // statt den Beleg still am falschen Kunden haengen zu lassen.
+  globalThis.GemaAdressen = win.GemaAdressen;
+  const repK = await lauf(I, 'offerten', KO, [
+    ['901', 'O-901', '2026-03-01', 'Umbau', 'Offen', '108.10', '8.10', 'Ganz Andere GmbH', 'Weg 1', '4000', 'Basel', '', '']
+      .concat([])
+  ], { objekteAnlegen: false });
+  t('Offerte ohne Kundennummer loest keine Namensprobe aus', !repK.kundeNrKonflikt, String(repK.kundeNrKonflikt));
+  const KOn = KO.concat(['knummer']);
+  const repK2 = await lauf(I, 'offerten', KOn, [
+    ['902', 'O-902', '2026-03-02', 'Umbau', 'Offen', '108.10', '8.10', 'Ganz Andere GmbH', 'Weg 1', '4000', 'Basel', '', '', '28']
+  ], { objekteAnlegen: false });
+  eq('Kundennummer trifft eine anders benannte Adresse → gemeldet', repK2.kundeNrKonflikt, 1);
+  t('Bericht nennt beide Namen', (repK2.kundeNrKonfliktBeispiele || []).some(b =>
+    /Ganz Andere/.test(b.imExport) && /Stamm Bau/.test(b.inGema)), JSON.stringify(repK2.kundeNrKonfliktBeispiele));
+
+  // Aufraeumen: die Nachbarabschnitte erwarten die erste Instanz.
+  globalThis.GemaAdressen = win.GemaAdressen;
+}
+
 console.log('\n' + (fail ? '✗ ' + fail + ' von ' + n + ' Prüfungen fehlgeschlagen' : '✓ alle ' + n + ' Prüfungen bestanden'));
 process.exit(fail ? 1 : 0);

@@ -112,6 +112,23 @@ const nummern = Object.keys(soll).filter(k => !/\.jahre\.sql$/.test(k)).map(k =>
 const reihenfolgeOk = nummern.every(x => I.IMPORT_REIHENFOLGE[x.nr - 1] === x.sek);
 t('Dateinummern entsprechen der Import-Reihenfolge', reihenfolgeOk, nummern.filter(x => I.IMPORT_REIHENFOLGE[x.nr - 1] !== x.sek).map(x => x.nr + '≠' + x.sek).join(', '));
 
+// ═══ 4b — der Schlüssel, an dem die halbe Migration hängt ═══
+//
+// Gemessen (Konzept 8.18): `obj.knummer` (int) trifft in 4 381 von 4 417
+// Fällen die `adressen.id`; `oknummer` ist im Bestand fast überall NULL.
+// Liefert der Adress-Export wieder `oknummer` als Kundennummer, zeigen die
+// drei Adress-Slots am Objekt und der Kunde an der Offerte ins Leere und
+// jede Adresse entsteht ein zweites Mal — ohne dass irgendetwas rot wird.
+// Darum diese eine Prüfung auf die Quelle der Spalte.
+console.log('\n═══ 4b — Kundennummer im Adress-Export kommt aus adressen.id ═══');
+{
+  const adr = soll['05_adressen.sql'] || '';
+  t('«knummer» wird aus a.id gebildet (nicht aus oknummer)',
+    /\ba\.id\s+AS\s+knummer\b/i.test(adr) && !/\ba\.oknummer\s+AS\s+knummer\b/i.test(adr),
+    (/AS\s+knummer/i.exec(adr) || ['—'])[0]);
+  t('die alte «oknummer» geht trotzdem nicht verloren', /\boknummer\b/i.test(adr));
+}
+
 // ═══ 5 — Runner ═══
 console.log('\n═══ 5 — export.ps1 hält die Parser-Voraussetzungen ein ═══');
 const ps = fs.readFileSync(path.join(ROOT, 'erp_export', 'export.ps1'), 'utf8');

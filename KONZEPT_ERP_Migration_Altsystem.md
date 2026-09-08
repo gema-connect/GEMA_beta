@@ -893,7 +893,8 @@ SELECT o.id, o.offert_nr, o.datum, o.rdatum, o.betrmemo,
        o.knummer AS kundennummer, o.name1, o.korr_name, o.anschrift, o.banrede,
        o.strasse, o.strasse2, o.plz, o.ort, o.egid, o.egrid,
        o.zahlbedid, o.bemerkung, o.wohnung, o.wohn_standort,
-       o.extref2 AS ref2, o.lkdir AS ordner, ab.name1 AS abt_name,
+       o.extref2 AS ref2, o.lkdir AS ordner, o.lkmobiledir AS ordner_kat,
+       ab.name1 AS abt_name,
        TRIM(CONCAT(COALESCE(sad.vorname,''),' ',COALESCE(sad.name1,''))) AS sachb_name
 FROM offerten o
 LEFT JOIN offstatus st ON st.id = o.status
@@ -912,7 +913,8 @@ SELECT r.id, r.rapport_nr, r.best_datum, r.betrifft, r.arbeit,
        r.name1, r.korr_name, r.anschrift, r.telefon,
        r.strasse, r.strasse2, r.plz, r.ort, r.egid, r.egrid,
        r.schlussel, r.schlu_tel, r.besteller, r.best_tel,
-       r.wohnung, r.wohn_standort, r.wohn_tel, r.lkdir AS ordner,
+       r.wohnung, r.wohn_standort, r.wohn_tel,
+       r.lkdir AS ordner, r.lkmobiledir AS ordner_kat,
        ab.name1 AS abt_name,
        TRIM(CONCAT(COALESCE(sad.vorname,''),' ',COALESCE(sad.name1,''))) AS sachb_name,
        JSON_OBJECT('nkrnbh',r.nkrnbh,'nkrmat',r.nkrmat,'nkrfaktor',r.nkrfaktor,
@@ -949,7 +951,8 @@ SELECT r.id, r.nr, r.rapport_nr, r.datum, r.betrifft, r.arbeit,
        r.zahlbedid, r.ausgef, r.belegnr, r.opdebi, r.faelligdatum,
        r.bemerkung, r.wohnung, r.besteller, r.wohn_standort,
        r.post_info_date AS postinfodate, r.print_info AS printinfo,
-       r.kostenst_id AS kostenstid, r.extref1, r.extref2, r.lkdir AS ordner,
+       r.kostenst_id AS kostenstid, r.extref1, r.extref2,
+       r.lkdir AS ordner, r.lkmobiledir AS ordner_kat,
        ab.name1 AS abt_name,
        TRIM(CONCAT(COALESCE(sad.vorname,''),' ',COALESCE(sad.name1,''))) AS sachb_name
 FROM rechnungen r
@@ -1081,7 +1084,8 @@ Der bestehende Adress-Export wird um Konditionen und Fibu-Schlüssel ergänzt.
 
 <!-- export: 05_adressen -->
 ```sql
-SELECT a.oknummer AS knummer, a.name1 AS firma, a.anrede, a.vorname,
+SELECT a.id AS knummer, a.oknummer AS kundennr_alt,
+       a.name1 AS firma, a.anrede, a.vorname,
        a.name2 AS nachname, a.zuhand AS kontakt,
        a.strasse, a.strasse2, a.plz, a.ort, a.land,
        a.tel1 AS telefon, a.natel, a.email, a.bemerkungen,
@@ -1660,11 +1664,11 @@ im Objekt-Dialog unter «📎 Aus dem Altsystem» sichtbar) und legt sich NIE ü
 eine vorhandene Objektadresse. Nur wenn das Objekt gar keine Strasse führt,
 wird sie zur Adresse — mit Herkunfts-Vermerk am Datensatz und Zähler im
 Bericht; das betrifft nach 8.17-A4 genau **2** von 4 547 Objekten. Ein
-Objektname wird daraus nicht. **Zwischenstand 8.17**: für 52.9 % ist das Feld
-eine Kopie der Objektstrasse, und 338 Objekte quer durch die Region tragen
-denselben Wert — es ist die Adresse einer Organisation (Verwaltung,
-Eigentümerschaft, Auftraggeber), nicht eine zweite Objektadresse. Welche
-Partei genau, entscheidet die Nachfassabfrage in 8.17.
+Objektname wird daraus nicht. **Abschliessend geklärt in 8.18**: es ist die
+**Kundenadresse** — 63.6 % stimmen mit der Adresse des Zahlers überein, die
+338 Objekte mit «Aliothstrasse 63» sind die Objekte eines einzigen Kunden.
+GEMA bekommt diese Adresse ohnehin über den Slot «Zahlbar durch»; das Feld
+bleibt Vermerk für die 36 %, die abweichen.
 
 **`lkdir` ist nur der ORDNERNAME, kein Pfad.** Damit gilt die im Konzept
 vorgesehene Lesart: die Wurzel steht in der Konfiguration des
@@ -1864,6 +1868,93 @@ LEERE Ergebnisdatei ohne Fehlermeldung. Und: `objekt1` gegen die Kundenadresse
 läuft über Unterabfragen, nicht über einen JOIN — der Schlüssel ist nicht
 garantiert eindeutig, ein JOIN würde die Zeilen vervielfachen und die Zählung
 verfälschen.
+### 8.18 Geklärt: Adress-Schlüssel, Rolle von `objekt1` und der Netzpfad
+
+Die Nachfassabfrage aus 8.17 ist gelaufen. Alle drei offenen Punkte sind
+entschieden — und dabei kam ein **Fehler im Export** ans Licht, der die halbe
+Migration betroffen hätte.
+
+#### Der Schlüssel: `adressen.id`, nicht `oknummer`
+
+| Messung | Wert |
+|---|---|
+| Objekte mit `objekt1` | 4 417 |
+| `obj.knummer` trifft eine `adressen.id` | **4 381 (99.2 %)** |
+| `obj.knummer`, `co_knummer`, `ei_knummer` | `int(11)` |
+| `adressen.oknummer` | `int(11)`, im Bestand fast überall NULL |
+
+Der Adress-Export lieferte bis jetzt `a.oknummer AS knummer` — also eine
+Spalte, die praktisch leer ist. Die Folge wäre nicht sichtbar gewesen: die
+drei Adress-Slots am Objekt (Zahlbar durch · Korrespondenz · Eigentümer) und
+der Kunde an der Offerte hätten ins Leere gezeigt, und **jede Adresse wäre
+ein zweites Mal entstanden** — einmal ohne Nummer aus dem Adressstamm, einmal
+mit Nummer aus dem Objekt. Der Export liefert jetzt `a.id AS knummer`;
+`oknummer` wandert als `importKundennrAlt` mit. Guard: `erp_export_test`
+(Abschnitt 4b) prüft die Quelle der Spalte, `erp_import_betrieb_test`
+(Abschnitt 15) prüft die Wirkung inklusive Gegenprobe.
+
+#### `objekt1`/`objekt2` ist die **Kundenadresse**
+
+Mit dem richtigen Schlüssel gemessen:
+
+| `objekt1` stimmt überein mit | Treffer von 4 417 |
+|---|---|
+| Adresse des **Zahlers** (`knummer`) | **2 811 (63.6 %)** |
+| eigener Objektstrasse | 2 337 (52.9 %) |
+| Adresse des Eigentümers (`ei_knummer`) | 156 |
+| Adresse der Korrespondenz (`co_knummer`) | 1 |
+
+Der Einzelfall bestätigt es: `adressen.id` 28 ist «Stamm Bau AG,
+Aliothstrasse 63, 4144 Arlesheim» — und genau diese 28 steht als `knummer` an
+den Objekten, deren `objekt1` «Aliothstrasse 63» lautet. Die 338 Objekte sind
+also die 338 Objekte **eines Kunden**.
+
+`objekt1`/`objekt2` ist damit eine **denormalisierte Kopie der
+Kundenadresse**. Sie enthält nichts, was GEMA nicht schon über den
+Adress-Slot «Zahlbar durch» bekommt. Sie bleibt als `importObjekt1/2` am
+Objekt stehen (36 % weichen ab — dort lohnt der Blick), wird aber **nie** zur
+Objektadresse ausser bei den 2 Objekten ohne eigene Strasse. Damit ist die
+Frage aus 8.16 abschliessend beantwortet: **kein Objektname, keine zweite
+Objektadresse.**
+
+#### Der Netzpfad — gefunden
+
+`pdfforms.path` führt einen absoluten UNC-Pfad:
+
+```
+\\<server>\Firma\OFSoftware\OF_Zugeordnete_Dateien\Aufträge\Vorlagen\MobilerRapportFuss_01.pdf
+```
+
+`OF_Zugeordnete_Dateien` ist die **Wurzel des Dokumentenstrangs**; darunter
+folgt eine Kategorie-Ebene (`Aufträge`, und aus `lkmobiledir` bekannt
+`Sanitär`, `Sanitär-Service`) und darin der Datensatz-Ordner aus `lkdir`.
+Der vollständige Pfad eines Dokumentenordners lautet also:
+
+```
+<Wurzel>\<Kategorie>\<lkdir>
+```
+
+Die übrigen Pfad-Spalten sind ohne Belang: `progver.verpath` und
+`filesver.verpath` sind relativ (`.\OF4000.exe`, `.\bkp.data`),
+`chapter.picpath` und `extpictures.picpath` sind leer.
+
+**`lkmobiledir` — Kategorie nur vereinzelt:**
+
+| Tabelle | mit `lkdir` | davon mit Kategorie |
+|---|---|---|
+| `offerten` | 2 713 | 153 |
+| `rechnungen` | 4 468 | 84 |
+| `rapporte` | 87 | 4 |
+| `kreditoren` | 14 251 | 1 292 (ohne Kategorie — gleicher Wert wie `lkdir`) |
+| `obj` / `adressen` / `services` | 206 / 22 / 8 | 0 |
+
+Die Kategorie steht also nur an 241 Belegen wirklich drin. Sie wandert
+trotzdem mit (`ordner_kat` → `importOrdnerKat` an Offerte, Auftrag und
+Rechnung) — sie kostet drei Spalten und ist die einzige Stelle, an der die
+Ordner-Ebene überhaupt benannt ist. Für alle übrigen Datensätze muss der
+Dokumentenstrang die Kategorie ohnehin aus dem Ordnerbaum lesen.
+
+
 ---
 
 ## 9. Datenschutz

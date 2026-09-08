@@ -37,6 +37,14 @@ Kapitel 8 — dort stehen Herleitung und Fallen. **Nicht von Hand ändern.**
 Der Guard `node scripts/erp_export_test.mjs` prüft, dass das Generat aktuell
 ist und jede Spalte jeder Abfrage vom Importer einem Feld zugeordnet wird.
 
+**Eine Stelle darf nie verändert werden**: die Kundennummer im Adress-Export
+kommt aus `adressen.id`, nicht aus `adressen.oknummer`. Das Altsystem
+verknüpft Objekte und Belege über die `id` (belegt: `obj.knummer` trifft sie
+in 4 381 von 4 417 Fällen), während `oknummer` fast überall NULL ist. Mit
+`oknummer` zeigten die drei Adress-Slots am Objekt und der Kunde an der
+Offerte ins Leere, und jede Adresse entstünde doppelt — ohne dass etwas
+auffiele. Konzept 8.18, Guard `erp_export_test` Abschnitt 4b.
+
 ## Datenschutz
 
 Die Dateien enthalten Kunden-, Adress- und Personaldaten. Sie gehören nie ins

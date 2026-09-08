@@ -1,9 +1,10 @@
 -- GEMA ERP-Migration — Export «05_adressen»
--- GENERIERT aus KONZEPT_ERP_Migration_Altsystem.md (Zeile 1082) durch scripts/erp_export_gen.mjs.
+-- GENERIERT aus KONZEPT_ERP_Migration_Altsystem.md (Zeile 1085) durch scripts/erp_export_gen.mjs.
 -- Nicht von Hand ändern: im Konzept ändern und den Generator laufen lassen.
 -- Liest nur. Läuft gegen die lokale Kopie des Altsystems (erp_export/export.ps1).
 
-SELECT a.oknummer AS knummer, a.name1 AS firma, a.anrede, a.vorname,
+SELECT a.id AS knummer, a.oknummer AS kundennr_alt,
+       a.name1 AS firma, a.anrede, a.vorname,
        a.name2 AS nachname, a.zuhand AS kontakt,
        a.strasse, a.strasse2, a.plz, a.ort, a.land,
        a.tel1 AS telefon, a.natel, a.email, a.bemerkungen,
