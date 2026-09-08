@@ -1104,7 +1104,8 @@ var SEKTIONEN=[
     {id:'manager',   label:'Leitung', hint:'Kennzeichen 1/0 → Rolle Abteilungsleiter', alias:['manager','leitung','vorgesetzter']},
     {id:'eintritt',  label:'Eintritt', alias:['eintritt','eintrittsdatum','seit']},
     {id:'austritt',  label:'Austritt', hint:'Gesetzt und vergangen = Benutzer inaktiv', alias:['austritt','austrittsdatum']},
-    {id:'wochenSoll',label:'Wochensoll (h)', hint:'Summe der Tagessolls Mo–Fr des Altsystems. Das Pensum wird gegen das Firmen-Wochensoll inkl. Vorholzeit gerechnet und in der Vorschau gezeigt.', alias:['wochensoll','sollwoche','sollstunden']},
+    {id:'pensumPct', label:'Pensum (%)', hint:'Direktes Pensum in Prozent, falls das Altsystem eines führt — hat Vorrang vor dem Wochensoll. Nur eine Spalte zuordnen, die belegt das Pensum ist.', alias:['pensum','pensumpct','anstellungsgrad','beschaeftigungsgrad']},
+    {id:'wochenSoll',label:'Wochensoll (h)', hint:'Summe der Tagessolls Mo–Fr des Altsystems (0 = nicht geführt). Das Pensum wird gegen das Firmen-Wochensoll inkl. Vorholzeit gerechnet und in der Vorschau gezeigt.', alias:['wochensoll','sollwoche','sollstunden']},
     {id:'ferienTage',label:'Ferien (Tage/Jahr)', hint:'Im Altbestand leer — der Anspruch kommt aus den Firmen-Einstellungen', alias:['ferientage','ferien']},
     {id:'ansatz',    label:'Verkaufsansatz', hint:'Vermerk in den Stammdaten', alias:['ansatz1','ansatz','stundenansatz']}
   ]
@@ -1568,9 +1569,18 @@ function normalisiereZeile(row,map,sekId){
   }
   if(sekId==='mitarbeiter'){
     var mFlag=function(v){var x=norm(v);return !!x&&x!=='0'&&x!=='false'&&x!=='nein';};
+    /* KRITISCH — «Leitung» nur bei einem ECHTEN Ja (1/true/ja/x). Im Altsystem
+       ist `arbeiter.manager` ein INT, kein Bit: steht dort eine Personen-ID
+       (der Vorgesetzte), würde jede Person mit Vorgesetztem zum
+       Abteilungsleiter. Eine 7 ist deshalb kein Ja. */
+    var mFlagStreng=function(v){var x=norm(v);return x==='1'||x==='true'||x==='ja'||x==='x'||x==='wahr';};
     var mAus=parseDatum(g('austritt'));
-    var mMan=mFlag(g('manager')),mSb=mFlag(g('sachbearb')),mMo=mFlag(g('monteur'));
+    var mMan=mFlagStreng(g('manager')),mSb=mFlag(g('sachbearb')),mMo=mFlag(g('monteur'));
     var voller=[s(g('vorname')),s(g('name'))].filter(Boolean).join(' ');
+    // Wochensoll 0 heisst «nicht geführt» (im Bestand bei allen 46 Aktiven so),
+    // nicht «0 % Anstellung» — dann gibt es weder Pensum noch Meldung.
+    var mWs=parseBetrag(g('wochenSoll'));if(mWs!=null&&!(mWs>0))mWs=null;
+    var mPct=parseBetrag(g('pensumPct'));if(mPct!=null&&!(mPct>0&&mPct<=200))mPct=null;
     return {
       extId:g('extId'), name:g('name'), vorname:g('vorname'), voller:voller, kuerzel:g('kuerzel'),
       email:s(g('email')).toLowerCase(), tel:g('tel'), natel:g('natel'), abteilung:g('abteilung'),
@@ -1581,9 +1591,10 @@ function normalisiereZeile(row,map,sekId){
       rolleAbgeleitet:!(mMan||mSb||mMo),
       eintritt:parseDatum(g('eintritt')), austritt:mAus,
       aktiv:!mAus||mAus>jetzt().slice(0,10),
-      wochenSoll:parseBetrag(g('wochenSoll')), ferienTage:parseBetrag(g('ferienTage')),
+      wochenSoll:mWs, ferienTage:parseBetrag(g('ferienTage')),
       ansatz:parseBetrag(g('ansatz')),
-      pensum:pensumAusWochenSoll(parseBetrag(g('wochenSoll')))
+      // Ein direktes Pensum schlägt die Ableitung aus dem Wochensoll.
+      pensum:(mPct!=null)?{pensum:mPct,basis:null,grund:'',direkt:true}:pensumAusWochenSoll(mWs)
     };
   }
   if(sekId==='uebertraege'){
@@ -1750,10 +1761,11 @@ function pruefe(z,sekId){
     if(!s(z.email))hin.push({typ:'warn',text:'Keine E-Mail — der Benutzer entsteht ohne Login und ohne Einladung (Stunden und Termine lassen sich trotzdem zuordnen).'});
     hin.push({typ:'info',text:'Rolle: '+z.rolle.replace('role_','')+(z.rolleAbgeleitet?' (kein Kennzeichen im Altsystem — kleinste Rolle)':'')+'.'});
     if(!z.aktiv)hin.push({typ:'info',text:'Ausgetreten am '+s(z.austritt)+' — wird INAKTIV angelegt.'});
-    if(z.wochenSoll!=null){
+    if(z.pensum&&z.pensum.direkt)hin.push({typ:'info',text:'Pensum '+z.pensum.pensum+' % (direkt aus dem Altsystem).'});
+    else if(z.wochenSoll!=null){
       if(z.pensum.pensum!=null)hin.push({typ:'info',text:'Wochensoll '+z.wochenSoll+' h → Pensum '+z.pensum.pensum+' % (gegen '+z.pensum.basis+' h Firmen-Wochensoll inkl. Vorholzeit).'});
       else hin.push({typ:'warn',text:'Wochensoll '+z.wochenSoll+' h — '+z.pensum.grund+' Das Pensum bleibt leer, der Wert steht als Vermerk in den Stammdaten.'});
-    }
+    }else hin.push({typ:'info',text:'Kein Pensum im Export — GEMA rechnet mit 100 %, anpassbar in den ⚙️-Stammdaten der Stundenerfassung.'});
   }else if(sekId==='uebertraege'){
     if(!s(z.mitarbeiter))hin.push({typ:'fehler',text:'Kein Mitarbeiter — Zeile wird übersprungen.'});
     if(!s(z.datum))hin.push({typ:'fehler',text:'Kein Stichtag — Zeile wird übersprungen.'});

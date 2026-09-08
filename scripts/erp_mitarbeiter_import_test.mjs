@@ -155,6 +155,31 @@ console.log('\n═══ 5 — Ausgetretene bekommen ihre Historie ═══');
   eq('… mit der richtigen userId', tag && tag.userId, fritz.id);
 }
 
+console.log('\n═══ 5b — Pensum: 0 heisst «nicht geführt», direktes Pensum gewinnt ═══');
+{
+  // Im Bestand sind sollmo..sollfr bei allen 46 Aktiven 0.00 — das ist kein
+  // Pensum von 0 %, sondern «nicht geführt». Keine Meldung «unplausibel».
+  const K2 = K.concat(['pensum']);
+  const I2 = ladeImporter(speicher());
+  const map = I2.erkenneMapping(K2, 'mitarbeiter');
+  const plan = I2.vorbereiten({ sektion: 'mitarbeiter', rows: [
+    ['8', 'Null', 'Nina', 'NN', 'nina@firma.ch', '', '', 'Sanitär', '1', '0', '0', '2024-01-01', '', '0', '', '', ''],
+    ['9', 'Direkt', 'Dani', 'DD', 'dani@firma.ch', '', '', 'Sanitär', '1', '0', '0', '2024-01-01', '', '0', '', '', '60'],
+    ['10', 'Beides', 'Bea', 'BB', 'bea@firma.ch', '', '', 'Sanitär', '1', '0', '0', '2024-01-01', '', '41.25', '', '', '50']
+  ], mapping: map });
+  const z = plan.zeilen.map(x => x.ziel);
+  t('Wochensoll 0 → kein Wochensoll, kein Pensum', z[0].wochenSoll === null && z[0].pensum.pensum === null);
+  t('… und KEINE Unplausibel-Warnung', !plan.zeilen[0].hinweise.some(h => h.typ === 'warn' && /plausib|Wochensoll/.test(h.text)));
+  t('… sondern der Hinweis auf 100 %', plan.zeilen[0].hinweise.some(h => /100 %/.test(h.text)));
+  eq('direktes Pensum 60 %', z[1].pensum.pensum, 60);
+  t('als direkt markiert', z[1].pensum.direkt === true);
+  eq('direktes Pensum schlägt das Wochensoll (50 statt 100)', z[2].pensum.pensum, 50);
+  // Die Spalte «pctn» des Altsystems wird NICHT automatisch als Pensum gelesen
+  // — ihre Bedeutung ist unbelegt.
+  const map2 = I2.erkenneMapping(K.concat(['pctn']), 'mitarbeiter');
+  t('Gegenprobe: «pctn» wird nicht still zum Pensum', map2.pensumPct == null);
+}
+
 console.log('\n═══ 6 — Reihenfolge und Export-Sicherheit ═══');
 {
   const r = I.IMPORT_REIHENFOLGE;

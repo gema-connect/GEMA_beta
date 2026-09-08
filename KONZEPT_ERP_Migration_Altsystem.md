@@ -1415,16 +1415,28 @@ Stunden), bleibt das Pensum leer und die Zeile wird gemeldet.
 SELECT a.id, ad.name1, ad.vorname, a.kuerzel,
        COALESCE(NULLIF(a.email_internal,''), ad.email) AS email,
        ad.tel1, ad.natel, ab.name1 AS abt_name,
-       a.monteur+0 AS monteur, a.sachbearb+0 AS sachbearb, a.manager+0 AS manager,
+       a.monteur+0 AS monteur, a.sachbearb+0 AS sachbearb,
        a.eintritt, a.austritt,
-       COALESCE(a.sollmo,0)+COALESCE(a.solldi,0)+COALESCE(a.sollmi,0)
-         +COALESCE(a.solldo,0)+COALESCE(a.sollfr,0) AS wochensoll,
+       NULLIF(COALESCE(a.sollmo,0)+COALESCE(a.solldi,0)+COALESCE(a.sollmi,0)
+         +COALESCE(a.solldo,0)+COALESCE(a.sollfr,0), 0) AS wochensoll,
        a.ferien AS ferientage, a.ansatz1
 FROM arbeiter a
 LEFT JOIN adressen ad ON ad.id = a.adr_id
 LEFT JOIN abt      ab ON ab.id = a.abt_id
 ORDER BY ad.name1, ad.vorname;
 ```
+
+> **Gemessen am 2026-09-08:** `sollmo`…`sollfr` sind bei allen 46 Aktiven
+> **0.00** — das Altsystem führt kein Tagessoll, deshalb `NULLIF(…,0)`: ohne
+> Wert entsteht kein Pensum und keine Meldung; GEMA rechnet mit 100 %,
+> anpassbar in den ⚙️-Stammdaten. Ob `pctn` (VARCHAR 12) oder `stdtime` (INT)
+> ein Pensum führen, ist **unbelegt** — Abfrage 8.14c. Ist es belegt, wird die
+> Spalte als `pensum` exportiert; der Importer nimmt sie dann direkt.
+
+> **`manager` ist INT, kein Bit** — möglicherweise die ID des Vorgesetzten.
+> Die Spalte wird erst exportiert, wenn 8.14c zeigt, dass sie 0/1 enthält;
+> der Importer zählt ohnehin nur ein echtes «1» als Leitung. Bis dahin
+> bekommen Leitungspersonen ihre Rolle in der Verwaltung.
 
 > **Bewusst NICHT exportiert** (Kapitel 9): `ahv`, `gebdat`, `zivilstand`,
 > `anzkinder`, `lohnkonto`, `bankname1/2`, `bankplz/ort/land`, `bc`,
