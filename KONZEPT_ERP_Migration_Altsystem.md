@@ -426,30 +426,34 @@ diese Tabelle unverzichtbar.
 
 ## 4. Stand des Importers
 
-`gema_erp_import.js` (3116 Zeilen, **15 Abschnitte**, idempotent über `extId`)
-liest **nur XLSX und CSV** — kein SQL, kein `.frm`. Der Weg bleibt also:
-Alt-DB → `SELECT` mit JOINs → eine flache Datei je Abschnitt → Import-Assistent.
+`gema_erp_import.js` (**16 Abschnitte**, idempotent über `extId`) liest **nur
+XLSX und CSV** — kein SQL, kein `.frm`. Der Weg bleibt also: Alt-DB → `SELECT`
+mit JOINs → eine flache Datei je Abschnitt → Import-Assistent.
 
 Ausgangslage waren 5 Abschnitte (Objekte, Adressen, Offerten, Aufträge,
-Rechnungen), alle nur als Kopfdaten. Heute:
+Rechnungen), alle nur als Kopfdaten. Heute, in Import-Reihenfolge:
 
 | # | Abschnitt | Ziel | Export | Zeilen |
 |---|---|---|---|---|
 | 1 | Zahlungsbedingungen | `org.settings.erp.zahlbed` | 8.1 | ~20 |
-| 2 | Artikelstamm | `erpkat:` | 8.2 | 15 888 |
-| 3 | Objekte / Liegenschaften | `objekt:` | **8.0** | 4 173 |
-| 4 | Adressen / Kunden | Adressstamm | 8.7 | 6 627 |
-| 5 | Bezugspersonen | `objekt.bezugspersonen[]` | 8.12 | 12 992 |
-| 6 | Offerten | `erpdok:` | **8.0** | 6 321 |
-| 7 | Aufträge | `erpdok:` | **8.0** | 9 723 |
-| 8 | Rechnungen | `erpdok:` | **8.0** | 10 328 |
-| 9 | Positionen | LV am Beleg | 8.3 | 632 008 |
-| 10 | Zahlungen | `doc.zahlungen[]` | 8.5 | — (leer, siehe 8.8) |
-| 11 | Kreditoren | `erpkred:` | 8.6 | 12 310 |
-| 12 | Anlagen (Service) | `svanl:` (sv_service) | 8.10 | 406 |
-| 13 | Termine | `einsatz:` (pm_einsatzplan) | 8.9 | 6 739 |
-| 14 | Stunden | `std:` (pm_stunden) | 8.11 | 91 586 + mobil |
-| 15 | Ferien-/Überzeitüberträge | `std:` mit `typ:'uebertrag'` | 8.13 | ~300 |
+| 2 | **Mitarbeitende** | GEMA-Benutzer (ohne Passwort, mit Einladung) + `org.settings.stunden.mitarbeiter` | **8.15** | 206 |
+| 3 | Artikelstamm | `erpkat:` | 8.2 | 15 888 |
+| 4 | Objekte / Liegenschaften | `objekt:` | 8.0 | 4 173 |
+| 5 | Adressen / Kunden | Adressstamm | 8.7 | 6 627 |
+| 6 | Bezugspersonen | `objekt.bezugspersonen[]` | 8.12 | 12 992 |
+| 7 | Offerten | `erpdok:` | 8.0 | 6 321 |
+| 8 | Aufträge | `erpdok:` | 8.0 | 9 723 |
+| 9 | Rechnungen | `erpdok:` | 8.0 | 10 328 |
+| 10 | Positionen | LV am Beleg | 8.3 | 632 008 |
+| 11 | Zahlungen | `doc.zahlungen[]` | 8.5 | — (leer, siehe 8.8) |
+| 12 | Kreditoren | `erpkred:` | 8.6 | 12 310 |
+| 13 | Anlagen (Service) | `svanl:` (sv_service) | 8.10 | 406 |
+| 14 | Termine | `einsatz:` (pm_einsatzplan) | 8.9 | 6 739 |
+| 15 | Stunden | `std:` (pm_stunden) | 8.11 | 91 586 + mobil |
+| 16 | Ferien-/Überzeitüberträge | `std:` mit `typ:'uebertrag'` | 8.13 | ~300 |
+
+Die Mitarbeitenden stehen so weit vorn, weil Belege (Sachbearbeiter), Termine
+(Monteur), Stunden und Überträge (Person) an sie anknüpfen.
 
 Offen bleiben nur bewusste Auslassungen (NPK-Katalog, Fibu-Schnittstelle,
 Post-Adressdatenbank) — siehe 6 und 7.
@@ -463,7 +467,7 @@ ist im Importer als `IMPORT_REIHENFOLGE` hinterlegt, der Assistent sortiert
 danach:
 
 ```
-zahlbed → artikel → objekte → adressen → bezugspersonen
+zahlbed → mitarbeiter → artikel → objekte → adressen → bezugspersonen
         → offerten → auftraege → rechnungen
         → positionen → zahlungen → kreditoren
         → anlagen → termine → stunden → uebertraege
@@ -512,9 +516,13 @@ Der wichtigste Fund. In derselben Spalte stehen drei verschiedene Dinge:
 Die alte Regel «Feld gesetzt = abwesend» hätte **119 Arbeitstermine zu
 Abwesenheiten** gemacht. `ABSENZ_MAP` in `gema_erp_import.js` trennt die drei
 Gruppen; unbekannte Arten (Kurs 116, Arztbesuch 4, Privat 1, «Bezahlte
-Absenzen» 2) bekommen **keinen erfundenen Typ**, sondern werden benannt — ob
-«Kurs» Berufsschule, ÜK oder Weiterbildung ist, entscheidet die Personalstelle,
-nicht der Name. Für sie gibt es in GEMA eigene Absenzarten (⚙️-Einstellungen).
+Absenzen» 2) bekommen **keinen erfundenen eingebauten Typ**. Entscheid des
+Betriebs (2026-09-08): sie werden beim Import **je als eigene GEMA-Absenzart**
+angelegt (`org.settings.stunden.eigeneAbsenzen`, ID wie in der
+Stundenerfassung selbst), und der Tag wird als Abwesenheit erfasst. Ihre
+Regeln — füllt das Tagessoll auf? keine Vorholzeit? beantragbar? — bleiben
+bewusst auf «aus» und stehen im Bericht als offen: ob «Kurs» wie Berufsschule
+zählt, entscheidet die Personalstelle, nicht der Name.
 
 > **`absenz.paid` taugt NICHT als Kriterium.** Im Bestand steht es bei «Ferien»
 > auf 0 und bei «unbezahlter Urlaub» und «unbezahlte Absenzen» auf 1. Was die
