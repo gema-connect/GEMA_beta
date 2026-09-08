@@ -656,6 +656,111 @@
         return '<option value="' + o.id + '"' + (o.id === activeId ? ' selected' : '') + '>' + (displayName(o) || 'Ohne Name') + '</option>';
       }).join('');
   }
+  /* ── Objekt-Suchfeld (Combobox) — EINE Stelle fuer alle Module ─────────
+     Ein <select> mit allen Objekten ist ab wenigen hundert Eintraegen nicht
+     mehr bedienbar (nach einer ERP-Migration sind es ueber 4 000). Diese
+     Combobox sucht ueber Name, Adresse und Nummer und zeigt die ersten 20
+     Treffer.
+
+     Der GEWAEHLTE Wert liegt in einem verstecktem <input> mit der ID, die
+     der Aufrufer uebergibt — bestehender Code, der `document.getElementById
+     (id).value` liest, funktioniert unveraendert. Das sichtbare Textfeld
+     traegt die ID `<id>_txt`.
+
+       el.innerHTML = GemaObjekte.comboHtml('ein_objekt', gewaehlteId);
+       GemaObjekte.comboBind('ein_objekt', function(id,obj){ … });   // optional
+
+     `comboBind` ist optional: ohne Rueckruf setzt die Auswahl nur den Wert. */
+  var _comboCb = {};
+  function _comboEsc(v){ return String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+  function comboHtml(id, objektId, opts) {
+    opts = opts || {};
+    var o = objektId ? getById(objektId) : null;
+    var txt = o ? (displayName(o) || o.name || '') : '';
+    var ph = opts.placeholder || 'Projekt suchen oder waehlen …';
+    var leer = opts.leerText || '– ohne Projekt –';
+    if (opts.disabled) {
+      return '<input type="hidden" id="' + _comboEsc(id) + '" value="' + _comboEsc(objektId || '') + '"/>'
+        + '<input type="text" value="' + _comboEsc(txt) + '" disabled placeholder="' + _comboEsc(leer) + '"/>';
+    }
+    return '<input type="hidden" id="' + _comboEsc(id) + '" value="' + _comboEsc(objektId || '') + '"/>'
+      + '<div class="gobj-combo" id="' + _comboEsc(id) + '_combo" style="position:relative">'
+      + '<input type="text" id="' + _comboEsc(id) + '_txt" autocomplete="off" placeholder="' + _comboEsc(ph) + '" value="' + _comboEsc(txt) + '" style="width:100%"'
+      + ' oninput="GemaObjekte._comboDrop(\'' + _comboEsc(id) + '\',this.value)"'
+      + ' onfocus="GemaObjekte._comboDrop(\'' + _comboEsc(id) + '\',this.value)"'
+      + ' onkeydown="GemaObjekte._comboKey(\'' + _comboEsc(id) + '\',event)"'
+      + ' onblur="GemaObjekte._comboBlur(\'' + _comboEsc(id) + '\')"/>'
+      + '<div class="gobj-combo-drop" id="' + _comboEsc(id) + '_drop" style="display:none;position:absolute;z-index:60;left:0;right:0;top:100%;max-height:240px;overflow:auto;background:#fff;border:1.5px solid #cbd5e1;border-radius:10px;box-shadow:0 10px 26px rgba(15,23,42,.14);margin-top:2px"></div>'
+      + '</div>';
+  }
+  function comboBind(id, fn) { _comboCb[id] = (typeof fn === 'function') ? fn : null; }
+  function comboTreffer(q) {
+    q = String(q || '').trim().toLowerCase();
+    var alle = getAll();
+    var mit = alle.map(function(o) {
+      var lbl = displayName(o) || o.name || '';
+      var adr = '';
+      try { adr = objektAdresse(o) || ''; } catch (e) {}
+      var nr = o.projektnummer || o.nummer || '';
+      return { o: o, label: lbl, sub: [nr, adr].filter(function(x) { return x && String(x).trim() && String(x).trim() !== lbl.trim(); }).join(' · '),
+               hay: (lbl + ' ' + adr + ' ' + nr + ' ' + (o.name || '') + ' ' + (o.ort || '')).toLowerCase() };
+    });
+    if (!q) return mit.slice(0, 20);
+    return mit.filter(function(x) { return x.hay.indexOf(q) >= 0; }).slice(0, 20);
+  }
+  function _comboDrop(id, q) {
+    var d = document.getElementById(id + '_drop'); if (!d) return;
+    var items = comboTreffer(q);
+    d.setAttribute('data-hi', '-1');
+    d.innerHTML = items.length
+      ? items.map(function(x) {
+          return '<div class="gobj-co-item" data-id="' + _comboEsc(x.o.id) + '" style="padding:8px 11px;cursor:pointer;font-size:13px"'
+            + ' onmousedown="event.preventDefault();GemaObjekte._comboPick(\'' + _comboEsc(id) + '\',\'' + _comboEsc(x.o.id) + '\')">'
+            + '<div style="font-weight:700">' + _comboEsc(x.label) + '</div>'
+            + (x.sub ? '<div style="font-size:11.5px;color:#64748b">' + _comboEsc(x.sub) + '</div>' : '')
+            + '</div>';
+        }).join('')
+      : '<div style="padding:9px 11px;font-size:12.5px;color:#64748b">Kein Projekt gefunden.</div>';
+    d.style.display = '';
+  }
+  function _comboZu(id) { var d = document.getElementById(id + '_drop'); if (d) { d.style.display = 'none'; d.setAttribute('data-hi', '-1'); } }
+  function _comboPick(id, objektId) {
+    var h = document.getElementById(id), t = document.getElementById(id + '_txt');
+    var o = objektId ? getById(objektId) : null;
+    if (h) h.value = objektId || '';
+    if (t) t.value = o ? (displayName(o) || o.name || '') : '';
+    _comboZu(id);
+    if (_comboCb[id]) { try { _comboCb[id](objektId || '', o); } catch (e) {} }
+  }
+  function _comboBlur(id) {
+    setTimeout(function() {
+      _comboZu(id);
+      // Freier Text darf keine halbe Auswahl vortaeuschen: das Feld zeigt
+      // wieder, was wirklich gewaehlt ist. Leert der Nutzer das Feld ganz,
+      // gilt das als «kein Projekt».
+      var h = document.getElementById(id), t = document.getElementById(id + '_txt');
+      if (!h || !t) return;
+      if (!String(t.value || '').trim() && h.value) { h.value = ''; if (_comboCb[id]) { try { _comboCb[id]('', null); } catch (e) {} } return; }
+      var o = h.value ? getById(h.value) : null;
+      t.value = o ? (displayName(o) || o.name || '') : '';
+    }, 160);
+  }
+  function _comboKey(id, ev) {
+    var d = document.getElementById(id + '_drop'); if (!d) return;
+    var items = [].slice.call(d.querySelectorAll('.gobj-co-item'));
+    var hi = parseInt(d.getAttribute('data-hi'), 10); if (isNaN(hi)) hi = -1;
+    function mark() {
+      d.setAttribute('data-hi', hi);
+      items.forEach(function(el, i) {
+        el.style.background = (i === hi) ? '#eff4ff' : '';
+        if (i === hi) el.scrollIntoView({ block: 'nearest' });
+      });
+    }
+    if (ev.key === 'ArrowDown') { ev.preventDefault(); if (d.style.display === 'none') { _comboDrop(id, document.getElementById(id + '_txt').value); return; } hi = Math.min(items.length - 1, hi + 1); mark(); }
+    else if (ev.key === 'ArrowUp') { ev.preventDefault(); hi = Math.max(0, hi - 1); mark(); }
+    else if (ev.key === 'Enter') { if (d.style.display !== 'none' && items.length) { ev.preventDefault(); var el = items[hi >= 0 ? hi : 0]; if (el) _comboPick(id, el.getAttribute('data-id')); } }
+    else if (ev.key === 'Escape') { _comboZu(id); }
+  }
   function renderBeteiligteSelect(selectId, rolle, objektId) {
     var sel = document.getElementById(selectId);
     if (!sel) return;
@@ -885,6 +990,9 @@
     getAnzeigeModus: getAnzeigeModus, setAnzeigeModus: setAnzeigeModus, refreshAnzeigeModus: refreshAnzeigeModus,
     getOrgAnzeigeModus: getOrgAnzeigeModus, setOrgAnzeigeModus: setOrgAnzeigeModus,
     renderObjektSelect: renderObjektSelect, renderBeteiligteSelect: renderBeteiligteSelect,
+    // Objekt-Suchfeld (Combobox) statt <select> mit tausenden Optionen
+    comboHtml: comboHtml, comboBind: comboBind, comboTreffer: comboTreffer,
+    _comboDrop: _comboDrop, _comboPick: _comboPick, _comboBlur: _comboBlur, _comboKey: _comboKey,
     refresh: refresh, reload: reload, ready: _readyPromise,
     persistBlob: persistBlob, upsertObjekt: upsertObjekt,
     storageKey: storageKey, savePerObjekt: savePerObjekt, loadPerObjekt: loadPerObjekt,

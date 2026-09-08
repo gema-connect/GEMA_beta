@@ -1195,12 +1195,47 @@ function buildObjektTree(list){
     (childMap[o.id]||[]).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de')).forEach(c=>walk(c,depth+1));
   }
   roots.sort((a,b)=>(a.name||'').localeCompare(b.name||'','de')).forEach(r=>walk(r,0));
-  // Fallback: Objekte, die weder Root noch Kind waren (z.B. durch Filter verschwundener Parent), anhängen
-  list.forEach(o=>{if(result.indexOf(o)<0){o._depth=0;result.push(o);}});
+  // Fallback: Objekte, die weder Root noch Kind waren (z.B. durch Filter verschwundener Parent), anhängen.
+  // Über ein Set statt indexOf: bei 4 173 Objekten wären das sonst rund
+  // 17 Millionen Vergleiche bei JEDEM Aufbau (auch bei jedem Tastendruck
+  // in der Suche).
+  const drin=new Set(result);
+  list.forEach(o=>{if(!drin.has(o)){o._depth=0;result.push(o);}});
   return result;
 }
+/* Kinderzahl je Objekt: EINMAL je Aufbau gezählt statt je Zeile die ganze
+   Liste zu durchsuchen. Der Index wird zu Beginn von renderObjekte gebaut —
+   die einzigen Aufrufer stehen dort. Ohne Index (Sicherheitsnetz) zählt die
+   Funktion wie früher direkt. */
+let _kindIx=null,_betIx=null;
+function kindIndexBauen(){
+  _kindIx={};_betIx={};
+  (_mem.objekte||[]).forEach(o=>{const p=o&&o.parentObjektId;if(p)_kindIx[p]=(_kindIx[p]||0)+1;});
+  (_mem.beteiligte||[]).forEach(b=>{const k=b&&b.objektId;if(k)_betIx[k]=(_betIx[k]||0)+1;});
+}
 function getChildCount(objektId){
+  if(_kindIx)return _kindIx[objektId]||0;
   return _mem.objekte.filter(o=>o.parentObjektId===objektId).length;
+}
+// Beteiligte je Objekt — aus demselben Grund indexiert wie die Kinderzahl.
+function getBetCount(objektId){
+  if(_betIx)return _betIx[objektId]||0;
+  return (_mem.beteiligte||[]).filter(b=>b.objektId===objektId).length;
+}
+/* Anzeige-Deckel: nach einer ERP-Migration liegen über 4 000 Objekte im
+   Pool. Alle auf einmal zu zeichnen macht die Seite unbedienbar. Was NICHT
+   gezeigt wird, steht darunter — nie stillschweigend weggelassen. */
+const OBJ_LIST_SCHRITT=300;
+let _objListLimit=OBJ_LIST_SCHRITT;
+function objMehrLaden(){_objListLimit+=OBJ_LIST_SCHRITT;renderObjekte();}
+function _objDeckel(arr){
+  const g=arr.length;
+  if(g<=_objListLimit)return {liste:arr,mehr:''};
+  return {liste:arr.slice(0,_objListLimit),
+    mehr:'<div style="grid-column:1/-1;padding:14px;text-align:center;color:var(--mut,#64748b);font-size:13px">'
+      +'<b>'+_objListLimit.toLocaleString('de-CH')+'</b> von <b>'+g.toLocaleString('de-CH')+'</b> angezeigt — '
+      +'<button class="btn btn-ghost" style="margin-left:6px" onclick="objMehrLaden()">Mehr laden</button>'
+      +' <span style="font-size:12px">oder mit der Suche eingrenzen</span></div>'};
 }
 function getObjektBreadcrumb(objektId){
   const names=[];
@@ -1448,6 +1483,7 @@ function renderObjekte(){
 
   // Tenant-Filter: Nicht-Admins sehen nur Objekte ihrer eigenen Org
   const visibleObjekte = _mem.objekte.filter(_objSichtbar);
+  kindIndexBauen();   // Kinderzahl einmal je Aufbau (statt je Zeile)
 
   // Scope-Filter (Meine vs. Büro) — P08
   const myId=(typeof GemaAuth!=='undefined'&&GemaAuth.getCurrentUser)?(GemaAuth.getCurrentUser()?.id):null;
@@ -1578,8 +1614,9 @@ function renderObjekte(){
         const lbl=c.id==='beteiligte'?'👷':esc(c.label);
         return `<th${align}>${lbl}${rsz}</th>`;
       }).join('')+'</tr></thead>';
-      const rows=list.map(o=>{
-        const betCount=_mem.beteiligte.filter(b=>b.objektId===o.id).length;
+      const dkL=_objDeckel(list);
+      const rows=dkL.liste.map(o=>{
+        const betCount=getBetCount(o.id);
         const isActive=o.id===_mem.activeObjektId;
         const depth=(typeof o._depth==='number')?o._depth:0;
         const isChild=depth>0;
@@ -1595,7 +1632,7 @@ function renderObjekte(){
         }).join('');
         return `<tr class="orow${isActive?' active':''}" onclick="selectObjekt('${esc(o.id)}')" oncontextmenu="_objRowCtx(event,'${esc(o.id)}')">${tds}</tr>`;
       }).join('');
-      _tw.innerHTML=lfHtml+`<div style="overflow-x:auto"><table class="obj-table">${colgroup}${thead}<tbody>${rows}</tbody></table></div>`;
+      _tw.innerHTML=lfHtml+`<div style="overflow-x:auto"><table class="obj-table">${colgroup}${thead}<tbody>${rows}</tbody></table></div>`+dkL.mehr;
     }
     return;
   }
@@ -1603,8 +1640,9 @@ function renderObjekte(){
   // ── KARTENANSICHT ──
   if(_tw){_tw.style.display='none';_tw.innerHTML='';}
   $('objGrid').style.display='';
-  $('objGrid').innerHTML=list.map(o=>{
-    const betCount=_mem.beteiligte.filter(b=>b.objektId===o.id).length;
+  const dkK=_objDeckel(list);
+  $('objGrid').innerHTML=dkK.liste.map(o=>{
+    const betCount=getBetCount(o.id);
     const isActive=o.id===_mem.activeObjektId;
     const depth=(typeof o._depth==='number')?o._depth:0;
     const isChild=depth>0;
@@ -1631,9 +1669,10 @@ function renderObjekte(){
         ${isActive?'<span style="font-size:11px;color:var(--acc);font-weight:700;padding:3px 0;margin-left:auto">● Selektiert</span>':'<button class="btn btn-ghost btn-xs" style="margin-left:auto" onclick="event.stopPropagation();setActive(\''+esc(o.id)+'\')">Selektieren</button>'}
       </div>
     </div>`;
-  }).join('');
+  }).join('')+dkK.mehr;
 }
 window.renderObjekte=renderObjekte;
+window.objMehrLaden=objMehrLaden;
 
 function selectObjekt(id){
   // Klick auf ein Objekt setzt es als aktiv — oeffnet NICHT mehr

@@ -1648,7 +1648,12 @@ function normalisiereZeile(row,map,sekId){
       monteur:mMo, sachbearb:mSb, manager:mMan,
       // Leitung schlägt Büro schlägt Monteur; ohne jedes Kennzeichen Monteur
       // (die kleinste Rolle) — nie Administrator. Anpassen in der Verwaltung.
-      rolle:mMan?'role_abteilungsleiter':(mSb?'role_unternehmer':'role_monteur'),
+      /* Rollen des Altsystems → GEMA (Entscheid 2026-09-08): das Büro
+         bekommt die ERP-Rollen, nicht `role_unternehmer` (die gehört dem
+         FREMDEN Unternehmer und kennt weder Objekte noch Termine, Stunden
+         oder Service). Nie Administrator — das bleibt eine bewusste
+         Vergabe in der Verwaltung. */
+      rolle:mMan?'role_erp_abteilungsleiter':(mSb?'role_erp_sachbearbeiter':'role_monteur'),
       rolleAbgeleitet:!(mMan||mSb||mMo),
       eintritt:parseDatum(g('eintritt')), austritt:mAus,
       aktiv:!mAus||mAus>jetzt().slice(0,10),
@@ -3426,6 +3431,25 @@ function anlageSchreiben(z,report,opts){
       if(addMonate(a.letzteWartung,z.intervall)!==s(z.naechsteWartung))
         report.revisionAbweichung=(report.revisionAbweichung||0)+1;
     }
+    /* Anlagen, deren Wartung längst überfällig ist, kommen als INAKTIV herein.
+       sv_service legt beim Öffnen für JEDE aktive Anlage mit fälliger Wartung
+       automatisch einen Serviceauftrag an — ohne diese Regel entstünden am
+       ersten Tag rund 180 Aufträge für Anlagen, die im Altsystem niemand mehr
+       verfolgt hat. Der Grund steht am Datensatz, Reaktivieren ist ein Klick,
+       und die Fälligkeitsrechnung selbst bleibt unangetastet.
+       Dieselbe Basis wie svNextWartung: letzte Wartung, sonst Inbetriebnahme.
+       Ohne Intervall gibt es keinen Termin — solche Anlagen bleiben aktiv. */
+    if(!alt&&opts.anlagenAltInaktiv!==false){
+      var basis=s(a.letzteWartung)||s(a.inbetriebnahme);
+      var ivM=parseInt(a.intervallMonate,10)||0;
+      var faellig=(basis&&ivM>0)?addMonate(basis,ivM):'';
+      if(faellig&&faellig<jetzt().slice(0,10)){
+        a.status='inaktiv';
+        a.importInaktivGrund='Beim Import als inaktiv übernommen: die nächste Revision wäre am '+faellig
+          +' fällig gewesen (letzte '+(s(a.letzteWartung)||'unbekannt')+'). Reaktivieren, sobald die Anlage wieder gewartet wird.';
+        report.anlagenInaktiv=(report.anlagenInaktiv||0)+1;
+      }
+    }
     a.quelle=a.quelle||{typ:'import',system:opts.quelleName||'ERP-Migration',am:jetzt(),extId:s(z.extId)};
     a.updatedAt=jetzt();
     return poolSichern(ANL_POOL,ANL_PREFIX,a,SV_MODULE).then(function(){
@@ -3535,6 +3559,8 @@ function stundenSchreiben(zeilen,report,opts){
         var min=Math.round((z.stunden||0)*60);
         if(!min)return;
         if(z.spesen)spesenSum+=z.spesen;
+        // Der Betrag gehört auch AN DEN EINTRAG: nur so lässt er sich später
+        // je Auftrag auswerten (die Tagessumme allein kann das nicht).
         /* KRITISCH — eine erkannte Absenz ist am TAG abgelegt (oben) und wird
            hier NICHT noch einmal zum Arbeitseintrag. Sonst zählte der Ferientag
            als geleistete Zeit UND senkte das Soll: +8 h Überstunden je Tag. */
@@ -3563,6 +3589,7 @@ function stundenSchreiben(zeilen,report,opts){
             geaendert=true;
           }
           // Was die andere Stufe zusätzlich weiss, wird ergänzt.
+          if(z.spesen&&vor.importSpesen==null){vor.importSpesen=z.spesen;geaendert=true;}
           if(s(z.bemerkung)&&!s(vor.bemerkung)){vor.bemerkung=s(z.bemerkung);geaendert=true;}
           if(s(z.terminId)){
             var evV=evIx[norm(z.terminId)];
@@ -3586,6 +3613,7 @@ function stundenSchreiben(zeilen,report,opts){
         // Arbeitskategorien des Altsystems («Werkstatt», «Büro») bleiben als
         // Vermerk am Eintrag — sie sind Arbeit, keine Absenz.
         if(s(z.absenz))e.importAbsenz=s(z.absenz);
+        if(z.spesen)e.importSpesen=z.spesen;
         if(s(z.bemerkung))e.bemerkung=s(z.bemerkung);
         /* Termin-Bezug: `norm()` vergleicht die GUID ohne Gross-/Kleinschreibung,
            Bindestriche und Klammern — das Format des Exports spielt keine Rolle.

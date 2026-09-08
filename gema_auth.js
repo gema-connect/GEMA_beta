@@ -549,6 +549,37 @@
     {id:'role_spengler',name:'Spengler',color:'#0891b2',gewerke:['spenglerei'],permissions:(function(){var p=_somePerms(['dachbericht','objekte','baustellencheckliste','werkzeugmanagement'],true,true,false);p['goodel']={read:true,write:true,admin:false};p['dachbericht']={read:true,write:true,admin:true};p['objekte']={read:true,write:true,admin:true};p['regierapport']={read:true,write:true,admin:false};p['einsatzplan']={read:true,write:false,admin:false};p['abnahme_sia']={read:true,write:false,admin:false};p['stundenerfassung']={read:true,write:true,admin:false};p['arbeitskleider']={read:true,write:false,admin:false};p['planablage']={read:true,write:false,admin:false};return p;})()},
     {id:'role_architekt',name:'Architekt / GP',color:'#7c3aed',permissions:(function(){var p=_somePerms(['terminplan','besprechungsprotokoll','objekte','abnahme_sia'],true,false,false);p['goodel']={read:true,write:true,admin:false};p['regierapport']={read:true,write:true,admin:false};p['revisionsunterlagen']={read:true,write:false,admin:false};p['behoerden_formulare']={read:true,write:true,admin:false};p['plaene']={read:true,write:true,admin:false};p['planablage']={read:true,write:true,admin:false};return p;})()},
     {id:'role_unternehmer',name:'Unternehmer',color:'#d97706',permissions:(function(){var p=_somePerms(['terminplan','abnahme_sia','werkzeugmanagement','baustellencheckliste','ausschreibungsunterlagen','crbx_offertvergleich','schnellausschreibung','bestellungen'],true,true,false);p['goodel']={read:true,write:true,admin:false};p['legionellen']={read:true,write:true,admin:false};p['spuelmanager']={read:true,write:true,admin:false};p['revisionsunterlagen']={read:true,write:true,admin:false};p['immobilien']={read:true,write:true,admin:false};p['erp']={read:true,write:true,admin:false};p['planablage']={read:true,write:true,admin:false};return p;})()},
+    /* ── ERP-Rollen: das Büro eines Installationsbetriebs ──────────────
+       Entscheid des Auftraggebers (2026-09-08, ERP-Migration): die
+       Mitarbeitenden des Altsystems tragen dort «Sachbearbeiter» bzw.
+       «Leitung». `role_unternehmer` passte für sie nicht — die Rolle ist
+       plattformweit die des FREMDEN Unternehmers (Ausschreibung, Offerte,
+       Bestellung) und kennt weder Objekte noch Termine, Stunden oder
+       Service. Diese zwei Rollen decken die Büroarbeit im eigenen Betrieb
+       ab, ohne die Berechnungsmodule der Planer.
+
+       ERP-Sachbearbeiter: Belege, Disposition, Objekte, Rapporte, Service.
+       ERP-Abteilungsleiter: dasselbe plus Freigaben (Stunden, Prüflisten)
+       und die Betriebsmittel (Werkzeug, Fahrzeuge, Arbeitskleider). */
+    {id:'role_erp_sachbearbeiter',name:'ERP Sachbearbeiter',color:'#0f766e',permissions:(function(){
+      var p=_somePerms(['erp','bestellungen','ausschreibungsunterlagen','crbx_offertvergleich','schnellausschreibung',
+        'objekte','einsatzplan','stundenerfassung','regierapport','service','terminplan','kontakte','visitenkarte',
+        'planablage','abnahme_sia','baustellencheckliste','besprechungsprotokoll','kostenkontrolle','wareneingang',
+        'revisionsunterlagen','goodel','lebensdauer','workspace'],true,true,false);
+      // Betriebsmittel nur einsehen — verwaltet werden sie von der Leitung
+      // bzw. vom Magazin.
+      p['werkzeugmanagement']={read:true,write:false,admin:false};
+      p['fahrzeugmanagement']={read:true,write:false,admin:false};
+      p['arbeitskleider']={read:true,write:false,admin:false};
+      return p;})()},
+    {id:'role_erp_abteilungsleiter',name:'ERP Abteilungsleiter',color:'#7c3aed',permissions:(function(){
+      var p=_somePerms(['erp','bestellungen','ausschreibungsunterlagen','crbx_offertvergleich','schnellausschreibung',
+        'objekte','einsatzplan','stundenerfassung','regierapport','service','terminplan','kontakte','visitenkarte',
+        'planablage','abnahme_sia','baustellencheckliste','besprechungsprotokoll','kostenkontrolle','wareneingang',
+        'revisionsunterlagen','goodel','lebensdauer','workspace','pruefliste','werkzeugmanagement',
+        'fahrzeugmanagement','arbeitskleider','trocknungsgeraete','schadensbericht'],true,true,false);
+      p['objekte']={read:true,write:true,admin:true};
+      return p;})()},
     // ── Lieferanten-Rollen: ZWEI Typen (User-Entscheid) ──
     // ANLAGENLIEFERANT (role_lieferant*): liefert Anlagen fuer die
     // Berechnungsmodule (Enthaertung, Druckerhoehung, Osmose, …) —
@@ -726,18 +757,18 @@
   // null = alle Rollen erlaubt (Fallback fuer 'sonstiges' / ohne Kategorie).
   // role_admin wird separat behandelt (nur Super-Admin vergibt sie).
   var KATEGORIE_ROLLEN = {
-    sanitaerplaner:       ['role_planer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur','role_spengler'],
-    heizungsplaner:       ['role_hlkk_planer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur'],
-    lueftungsplaner:      ['role_lueftung_planer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur'],
-    elektroplaner:        ['role_elektro_planer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur'],
-    sanitaerinstallateur: ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur','role_spengler'],
-    heizungsinstallateur: ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur'],
-    lueftungsinstallateur:['role_unternehmer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur'],
-    elektroinstallateur:  ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur'],
-    klima_kaeltetechnik:  ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur'],
-    msr_gebaeudeautomation:['role_unternehmer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur'],
-    brandschutz:          ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur'],
-    aufzugsbau:           ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur'],
+    sanitaerplaner:       ['role_planer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur','role_spengler','role_erp_abteilungsleiter','role_erp_sachbearbeiter'],
+    heizungsplaner:       ['role_hlkk_planer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur','role_erp_abteilungsleiter','role_erp_sachbearbeiter'],
+    lueftungsplaner:      ['role_lueftung_planer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur','role_erp_abteilungsleiter','role_erp_sachbearbeiter'],
+    elektroplaner:        ['role_elektro_planer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur','role_erp_abteilungsleiter','role_erp_sachbearbeiter'],
+    sanitaerinstallateur: ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur','role_spengler','role_erp_abteilungsleiter','role_erp_sachbearbeiter'],
+    heizungsinstallateur: ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur','role_erp_abteilungsleiter','role_erp_sachbearbeiter'],
+    lueftungsinstallateur:['role_unternehmer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur','role_erp_abteilungsleiter','role_erp_sachbearbeiter'],
+    elektroinstallateur:  ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur','role_erp_abteilungsleiter','role_erp_sachbearbeiter'],
+    klima_kaeltetechnik:  ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur','role_erp_abteilungsleiter','role_erp_sachbearbeiter'],
+    msr_gebaeudeautomation:['role_unternehmer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur','role_erp_abteilungsleiter','role_erp_sachbearbeiter'],
+    brandschutz:          ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur','role_erp_abteilungsleiter','role_erp_sachbearbeiter'],
+    aufzugsbau:           ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur','role_erp_abteilungsleiter','role_erp_sachbearbeiter'],
     architekt:            ['role_architekt'],
     bauherr:              ['role_bauherrschaft'],
     generalunternehmer:   ['role_unternehmer','role_architekt'],

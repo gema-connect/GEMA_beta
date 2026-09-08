@@ -1720,6 +1720,23 @@ Zehntausende Datensätze ausgelegt. Umgesetzt:
 | pm_stunden | importierter Eintrag ohne Uhrzeit nicht speicherbar, Bearbeiten löschte die Import-Marker (→ Dublette beim nächsten Lauf); halber Ferientag zählte ganz | Dauer-Modus im Editor, Marker bleiben; Anteil aus Stunden |
 | Status Tagesrapport | «offen» → ganze Historie zum Einreichen, Freigabe verdoppelte Plantermine | Stufe 3 des Altsystems kommt als «genehmigt» |
 
+### Zweite Runde (Entscheide vom 2026-09-08)
+
+Der Auftraggeber hat die verbliebenen Punkte einzeln entschieden; umgesetzt:
+
+| Entscheid | Umsetzung |
+|---|---|
+| Anlagen ohne künftige Revision inaktiv | `anlageSchreiben` setzt `status:'inaktiv'` samt Grund am Datensatz, wenn die nächste Revision (letzte Wartung bzw. Inbetriebnahme + Intervall) in der Vergangenheit liegt — sonst legte `sv_service` beim ersten Öffnen für rund 180 Altanlagen Serviceaufträge an. Abschaltbar über `opts.anlagenAltInaktiv=false`. |
+| Rechnungen mit Stichtag | Der Auto-Import hat ein Stichtag-Feld (nur sichtbar, wenn eine Rechnungsdatei dabei ist); Belege davor werden als bezahlt übernommen, mit einer Zahlung auf dem Rechnungsdatum und beschriftetem Grund. Leer = alles bleibt «gestellt». |
+| Positionen ab 2025 (Test) | Reine Export-Wahl: `export.ps1 -PositionenAb 2025`. |
+| Objekte-Seite entlasten | Kinderzahl und Beteiligten-Zahl einmal je Aufbau indexiert (statt je Zeile über alle Objekte), `buildObjektTree` ohne `indexOf`-Schleife, Liste auf 300 mit «Mehr laden». |
+| Zentrale Objekt-Suche | `GemaObjekte.comboHtml/comboBind` — ein Suchfeld statt einer Auswahlliste mit tausenden Objekten. Eingebaut in die Zeiterfassung und in sv_service (Anlage, Vertrag); der gewählte Wert liegt weiterhin unter derselben Feld-ID. |
+| Vermerke sichtbar | Beleg: Nachkalkulation des Altsystems (mit aufgelösten Feldnamen), Summenabweichung, Fibu-Schlüssel, Zahlungsstatus; Position: NPK-Herkunft und Kalkulation als 🗂-Marke, importierte Positionsnummer im Editor UND im PDF; Kreditor: eigene Vermerkleiste; Adresse: Konditionen und Fibu-Konten im Dialog. |
+| Rabatt und Skonto wirksam | Der Standard-Rabatt des Kunden kommt beim Kundenwechsel auf den Beleg (nur in ein leeres Feld, Herkunft sichtbar) und rechnet in den Totalen. Skonto ist eine Zahlungskondition: er steht unter dem Total und im PDF («bei Zahlung innert X Tagen»), wird aber nie abgezogen. Ohne hinterlegte Frist sagt die Anzeige genau das. |
+| Spesen im Stundenmodul | Der Betrag liegt jetzt auch am EINTRAG (`importSpesen`), nicht nur am Tag: sichtbar an der Tages-Karte, als eigene Spalte in Monatsauswertung, Jahresdetail und CSV, und als Aufstellung «Spesen aus der App je Auftrag» im Jahresbericht. Er fliesst nie in Mittag/km ein. |
+| Plantafel | Wochenansicht bekommt eine Sammelzeile «ohne Zuordnung» (Termine ohne Person, ausgetretene oder nicht geführte Mitarbeitende); das Ist wird aus dem Stundenpool gerechnet, wenn `ev.ist` fehlt, und als «gerechnet» gekennzeichnet. |
+| Zwei ERP-Rollen | `role_erp_sachbearbeiter` und `role_erp_abteilungsleiter` (gema_auth.js). `role_unternehmer` passte nicht: sie ist plattformweit die Rolle des FREMDEN Unternehmers und kennt weder Objekte noch Termine, Stunden oder Service. Der Importer bildet «Sachbearbeiter» und «Leitung» darauf ab. Die Leitungsrolle steht zusätzlich in den fest verdrahteten Listen (Stunden-Freigabe, Prüflisten-Verwaltung, Benachrichtigungen an die Leitung). |
+
 **Was bleibt: das Volumen der Belege im Browser der ERP-Seite.** `erpdok:`
 wird als Ganzes in den Speicher der pm_erp-Seite geladen (Cloud-first, ein
 Pool). Mit allen Positionen sind das ~230 MB — auf dem Desktop langsam, auf

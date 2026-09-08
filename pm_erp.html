@@ -702,6 +702,15 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px}
       <div class="fld-row">
         <div class="fld"><label>Zahlungsbedingung <span style="font-weight:500;color:var(--mut)">— gilt für alle Rechnungen an diesen Kunden</span></label><select id="k_zahlbed"></select></div>
       </div>
+      <div class="fld-row">
+        <div class="fld"><label>Standard-Rabatt % <span style="font-weight:500;color:var(--mut)">— wird auf neue Belege dieses Kunden übernommen</span></label><input id="k_stdRabattPct" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="0"/></div>
+        <div class="fld"><label>Standard-Skonto %</label><input id="k_stdSkontoPct" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="0"/></div>
+      </div>
+      <div class="fld-row">
+        <div class="fld"><label>E-Mail für Rechnungen</label><input id="k_rechnungEmail" type="text" placeholder="rechnung@…"/></div>
+        <div class="fld"><label>eBill-ID</label><input id="k_eBillId" type="text" placeholder="—"/></div>
+      </div>
+      <div id="k_fibu" style="font-size:11.5px;color:var(--mut);margin:-4px 0 8px"></div>
       <div class="fld"><label>Bemerkungen</label><textarea id="k_bem" rows="2"></textarea></div>
     </div>
     <div class="modal-ft">
@@ -1449,7 +1458,7 @@ function erpSbWahl(uid){
 }
 function erpHas(rid){var u=erpUser();return !!(u&&u.roleIds&&u.roleIds.indexOf(rid)>=0);}
 function erpCanEdit(){
-  if(erpHas('role_admin')||erpHas('role_planer')||erpHas('role_hlkk_planer')||erpHas('role_lueftung_planer')||erpHas('role_elektro_planer')||erpHas('role_abteilungsleiter'))return true;
+  if(erpHas('role_admin')||erpHas('role_planer')||erpHas('role_hlkk_planer')||erpHas('role_lueftung_planer')||erpHas('role_elektro_planer')||erpHas('role_abteilungsleiter')||erpHas('role_erp_abteilungsleiter')||erpHas('role_erp_sachbearbeiter'))return true;
   // Matrix-basiert: jede Rolle mit write auf «erp» darf erstellen/bearbeiten (z.B. Unternehmer)
   try{return !!(typeof GemaAuth!=='undefined'&&GemaAuth.can&&GemaAuth.can('write','erp'));}catch(e){return false;}
 }
@@ -2804,9 +2813,34 @@ function erpKredEdit(id){
   erpKredFields(!ed);
   erpKredBelegWrapRender(ed);
   erpKredFreigeberHint();
-  document.getElementById('kr_verlauf').innerHTML=erpKredVerlaufHtml(k);
+  document.getElementById('kr_verlauf').innerHTML=erpKredVermerkeHtml(k)+erpKredVerlaufHtml(k);
   erpKredFtRender(k);
   document.getElementById('kredModal').classList.add('open');
+}
+/* Vermerke aus dem Altsystem am Kreditor — dieselbe Idee wie am Beleg:
+   Angaben, für die GEMA kein eigenes Feld führt (Fibu-Konto, IBAN, ESR,
+   Restbetrag, Sesam-Nummer), sind importiert und gehören sichtbar an den
+   Datensatz, statt nur im JSON zu liegen. */
+var _ERP_KRED_VERMERKE=[
+  ['importNr',          'Kreditor-Nr. (Altsystem)'],
+  ['importStatusText',  'Status (Altsystem)'],
+  ['importKonto',       'Aufwandkonto'],
+  ['importKostenstelle','Kostenstelle'],
+  ['importIban',        'IBAN'],
+  ['importEsrRef',      'ESR-Referenz'],
+  ['importSesamOpNr',   'Sesam OP-Nr.']
+];
+function erpKredVermerkeHtml(k){
+  if(!k)return '';
+  var zeilen=_ERP_KRED_VERMERKE.filter(function(v){return String(k[v[0]]||'').trim();})
+    .map(function(v){return '<div><span style="color:var(--mut)">'+v[1]+':</span> <b>'+esc(k[v[0]])+'</b></div>';});
+  if(k.importMwstBetrag!=null)zeilen.push('<div><span style="color:var(--mut)">MwSt-Betrag:</span> <b>CHF '+chf(erpNum(k.importMwstBetrag))+'</b></div>');
+  if(k.importRestBetrag!=null)zeilen.push('<div><span style="color:var(--mut)">Restbetrag im Altsystem:</span> <b>CHF '+chf(erpNum(k.importRestBetrag))+'</b></div>');
+  if(k.importZuteilungen>1)zeilen.push('<div style="grid-column:1/-1;color:var(--amber)">⚠ Im Altsystem auf <b>'+k.importZuteilungen+' Aufträge</b> verteilt — GEMA führt einen Kreditor mit einem Auftrag, übernommen ist der erste. Bitte prüfen.</div>');
+  if(!zeilen.length)return '';
+  return '<div style="margin-top:12px;border-top:1px dashed var(--brd);padding-top:8px">'
+    +'<div style="font-weight:800;font-size:11.5px;color:var(--mut);margin-bottom:4px">📎 Aus dem Altsystem</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:3px 16px;font-size:12px">'+zeilen.join('')+'</div></div>';
 }
 function erpKredVerlaufHtml(k){
   if(!k||!(k.verlauf||[]).length)return '';
@@ -3417,8 +3451,59 @@ var _ERP_VERMERKE=[
   ['importMwstCode',        'MwSt-Code'],
   ['importEsrRefRoh',       'ESR-Referenz'],
   ['importAdrId',           'Adress-ID'],
-  ['importPrintInfo',       'Druck-Vermerk']
+  ['importPrintInfo',       'Druck-Vermerk'],
+  ['importZahlStatusText',  'Zahlungsstatus (Altsystem)'],
+  ['importFibuBelegNr',     'Fibu-Belegnummer'],
+  ['importOpDebi',          'OP-Nr. Debitoren'],
+  ['importKostenstelle',    'Kostenstelle'],
+  ['importStunden',         'Stunden (Kalkulation Altsystem)']
 ];
+/* Nachkalkulation des Altsystems: am Auftrag 8448.00 gegen die Maske
+   aufgelöst (Konzept 3.4). Sie wird NICHT eingerechnet — in der Maske waren
+   Lohn- und Gemeinkosten unparametriert, der dortige «Gewinn» ist schlicht
+   Rechnungssumme minus Material. Hier steht sie als Schnappschuss zum
+   Vergleich, GEMA rechnet seine eigene aus Rechnungen, Kreditoren und
+   Stunden. Unbekannte Schlüssel behalten ihren Feldnamen — geraten wird nicht. */
+var _ERP_NK_LBL={
+  nkrnbh:'Verrechnete Stunden (Rechnungen)', nkrmat:'Materialanteil netto',
+  nkrfaktor:'Materialfaktor', nkoffph:'Erzielter Stundenansatz Fr./h',
+  nkofftot:'Offerte Total', nkoffmat:'Offerte Material', nkoffnbh:'Offerte Stunden',
+  nkwstup:'Projektstand Stunden %', nkwmatp:'Projektstand Material %',
+  nkgewp:'Gewinn %', nkbez:'Aufwand Kostenstellen', nkspesen:'Spesen'
+};
+/* Was das Altsystem an EINER Position führte: NPK-Herkunft und Kalkulation.
+   Reiner Vermerk (Tooltip an der 🗂-Marke) — GEMA rechnet damit bewusst
+   nicht, sonst wiche der Betrag vom damals fakturierten ab. */
+var _ERP_POS_KALK_LBL={leitfadenZeit:'Leitfadenzeit',zeitFaktor:'Zeitfaktor',ansatz:'Ansatz',
+  matPreis:'Materialpreis',matFaktor:'Materialfaktor',einkRabatt:'Einkaufsrabatt %',verschnitt:'Verschnitt %'};
+function erpPosAltInfo(p){
+  if(!p)return '';
+  var t=[];
+  var npk=p.importNpk||{};
+  var nk=[npk.kapitel,npk.buch,npk.pos].filter(function(x){return String(x||'').trim();}).join(' · ');
+  if(nk)t.push('NPK '+nk);
+  if(p.importPosNr)t.push('Positions-Nr. '+p.importPosNr);
+  var ik=p.importKalk;
+  if(ik)Object.keys(_ERP_POS_KALK_LBL).forEach(function(k){
+    if(ik[k]!=null&&ik[k]!=='')t.push(_ERP_POS_KALK_LBL[k]+' '+ik[k]);
+  });
+  return t.length?('Aus dem Altsystem (Vermerk, nicht eingerechnet): '+t.join(' · ')):'';
+}
+function erpNkHtml(d){
+  var nk=d&&d.importNachkalk;
+  if(!nk||typeof nk!=='object')return '';
+  if(nk.roh)return '<div style="margin-top:9px;font-size:12.5px"><b>🧮 Nachkalkulation Altsystem</b> <span style="color:var(--mut)">— nicht eingerechnet, Rohwert:</span><div style="font-family:ui-monospace,monospace;font-size:11px;color:var(--mut);word-break:break-all">'+esc(String(nk.roh).slice(0,600))+'</div></div>';
+  var zeilen=Object.keys(nk).filter(function(k){
+    var v=nk[k];return v!=null&&v!==''&&!(typeof v==='number'&&v===0);
+  }).map(function(k){
+    var v=nk[k];
+    return '<div><span style="color:var(--mut)">'+esc(_ERP_NK_LBL[k]||k)+':</span> <b>'+esc(typeof v==='number'?chf(v):String(v))+'</b></div>';
+  });
+  if(!zeilen.length)return '';
+  return '<div style="margin-top:9px;font-size:12.5px"><b>🧮 Nachkalkulation Altsystem</b> '
+    +'<span style="color:var(--mut)">— Schnappschuss, fliesst NICHT in GEMAs Nachkalkulation ein (dort waren Lohn- und Gemeinkosten nicht parametriert)</span>'
+    +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:4px 18px;margin-top:5px">'+zeilen.join('')+'</div></div>';
+}
 var _erpVermerkeOffen=false;
 function erpVermerkeToggle(){
   _erpVermerkeOffen=!_erpVermerkeOffen;
@@ -3433,8 +3518,17 @@ function erpVermerkeHtml(d){
   var q=d.quelle&&d.quelle.typ==='import'?d.quelle:null;
   if(q)zeilen.push('<div><span style="color:var(--mut)">Übernommen am:</span> <b>'+esc(String(q.am||'').slice(0,10))+'</b>'+(q.extId?' <span style="color:var(--mut)">(ID '+esc(q.extId)+')</span>':'')+'</div>');
   if(d.importSumme)zeilen.push('<div><span style="color:var(--mut)">Betrag im Altsystem:</span> <b>CHF '+chf(d.importSumme.brutto||0)+'</b> <span style="color:var(--mut)">(netto '+chf(d.importSumme.netto||0)+')</span></div>');
+  // Abweichung zwischen der Summe der Positionen und dem Betrag des
+  // Altsystems (Belegrabatt, Akonto-Abzug, nachträgliche Änderung) — sie
+  // wurde beim Import gemeldet und gehört auch an den Beleg.
+  if(d.importSummeAbweichung){
+    var ab=d.importSummeAbweichung;
+    zeilen.push('<div style="grid-column:1/-1;color:var(--amber)">⚠ <span style="color:var(--mut)">Summe der Positionen weicht vom Altsystem ab:</span> '
+      +'<b>CHF '+chf(ab.ist||0)+'</b> statt <b>CHF '+chf(ab.soll||0)+'</b> ('+(ab.diff>0?'+':'')+chf(ab.diff||0)+')</div>');
+  }
+  var nkHtml=erpNkHtml(d);
   var hist=erpVerlaufHtml(d);
-  if(!zeilen.length&&!hist)return '';
+  if(!zeilen.length&&!hist&&!nkHtml)return '';
   var h='<div class="infobox" style="background:var(--tint);border:1.5px solid var(--brd2);color:inherit">'
     +'<div style="display:flex;align-items:center;gap:8px;cursor:pointer" onclick="erpVermerkeToggle()">'
     +'<span id="edVermerkeCar">'+(_erpVermerkeOffen?'▾':'▸')+'</span>'
@@ -3445,6 +3539,7 @@ function erpVermerkeHtml(d){
     +'</span></div>'
     +'<div id="edVermerkeBd"'+(_erpVermerkeOffen?'':' style="display:none"')+'>';
   if(zeilen.length)h+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:4px 18px;margin-top:9px;font-size:12.5px">'+zeilen.join('')+'</div>';
+  if(nkHtml)h+=nkHtml;
   if(hist)h+=hist;
   return h+'</div></div>';
 }
@@ -3893,6 +3988,11 @@ function erpRenderPos(){
       }
       if(editable)kalkB+='<span class="kalkb fix" title="'+(erpPosFixiert(p)?'Preis fixiert — Kalkulationsmodelle lassen ihn unverändert. Klick hebt die Fixierung auf.':'Wird mitkalkuliert. Klick fixiert den Preis.')+'" onclick="event.stopPropagation();erpPosFixToggle('+i+')">'+(erpPosFixiert(p)?'🔒':'🔓')+'</span>';
     }
+    // Kalkulation und NPK-Herkunft aus dem Altsystem: Vermerke, die GEMA
+    // NICHT einrechnet (der importierte EP ist der fakturierte). Sie sind
+    // importiert und sollen auffindbar sein, statt nur im Datensatz zu liegen.
+    var altT=erpPosAltInfo(p);
+    if(altT)kalkB+='<span class="kalkb" style="cursor:default;opacity:.75" title="'+esc(altT)+'">🗂</span>';
     var img=erpPosImgSrc(p);
     // Bild UNTER dem Beschrieb (wie im PDF). Der 📷-Aufnahmeknopf ist reines
     // Editor-Chrome und sitzt in der Quelle-Spalte — so kostet er weder
@@ -3913,7 +4013,7 @@ function erpRenderPos(){
       if(c.id==='rabatt') return '<td>'+pcell(p.id,'rabattPct','num',(p.rabattPct?esc(p.rabattPct)+' %':'<span class="mut">–</span>'),inpNum(p.id,'rabattPct',p.rabattPct,'–'),!editableRow)+'</td>';
       return '<td></td>';
     }).join('');
-    h+=trOpen(i,(p.art==='abzug'?'abzug':'')+(istVar?' pos-variante':''))+grip(i)+tdNr(nrPos)
+    h+=trOpen(i,(p.art==='abzug'?'abzug':'')+(istVar?' pos-variante':''))+grip(i)+tdNr(p.importPosNr?esc(p.importPosNr):nrPos)
       +'<td class="bezcell"><div class="bezwrap">'+pcell(p.id,'bez','bezflex',bezAnz,inpRich(p.id,p.bez),!editableRow)+bildHtml+'</div></td>'
       +(hasQ?'<td><div style="display:flex;gap:3px;align-items:center;flex-wrap:wrap">'+src+kalkB+fotoBtn+'</div></td>':'')
       +midHtml
@@ -3944,7 +4044,7 @@ function erpRenderPos(){
       +'</div>';
   }).join('');
   if(sb)sb.innerHTML='<div class="rw"><span>Zwischentotal</span><b>'+chf(t.zwischen)+'</b></div>'
-    +(t.rabatt?'<div class="rw"><span>Rabatt '+(cur.rabattPct||0)+' %</span><b>− '+chf(t.rabatt)+'</b></div>':'')
+    +(t.rabatt?'<div class="rw"><span>Rabatt '+(cur.rabattPct||0)+' %'+(cur.rabattHerkunft==='kunde'?' <span style="font-size:10px;color:var(--mut2)" title="Standard-Rabatt des Kunden — im Beleg änderbar">(Kunde)</span>':'')+'</span><b>− '+chf(t.rabatt)+'</b></div>':'')
     +schlussHtml
     +(editableDoc?'<div style="display:flex;gap:6px;margin:2px 0 4px"><button class="btn ghost" style="min-height:28px;padding:3px 10px;font-size:11.5px" title="Schlussrabatt aufs Netto-Gesamttotal — in % oder pauschal CHF" onclick="erpSchlussAdd(\'rabatt\')">− Schlussrabatt</button><button class="btn ghost" style="min-height:28px;padding:3px 10px;font-size:11.5px" title="Zuschlag aufs Netto-Gesamttotal — in % oder pauschal CHF" onclick="erpSchlussAdd(\'zuschlag\')">＋ Zuschlag</button></div>':'')
     +'<div class="rw"><span>Netto</span><b>'+chf(t.netto)+'</b></div>'
@@ -3952,7 +4052,10 @@ function erpRenderPos(){
     +(Math.abs(t.rundung)>=0.005?'<div class="rw"><span>Rundung</span><b>'+chf(t.rundung)+'</b></div>':'')
     +'<div class="rw tot"'+(editableDoc?' ondblclick="erpTotEdit()" title="Doppelklick: Endsumme direkt eingeben — die Differenz wird automatisch als Schlussrabatt bzw. Zuschlag eingetragen"':'')+'>'
     +'<span>Total CHF'+(editableDoc?' <span style="font-weight:600;font-size:10px;color:var(--mut2)">(Doppelklick)</span>':'')+'</span>'
-    +'<b id="erpTotVal">'+chf(t.brutto)+'</b></div>';
+    +'<b id="erpTotVal">'+chf(t.brutto)+'</b></div>'
+    // Skonto ist eine Zahlungskondition, kein Abzug: er steht UNTER dem Total
+    // und verändert es nicht.
+    +(erpSkontoText(cur)?'<div class="rw" style="border:0;color:var(--mut)"><span style="font-size:11.5px">'+esc(erpSkontoText(cur))+'</span><b style="font-size:11.5px">− '+chf(t.brutto*erpSkonto(cur).pct/100)+'</b></div>':'');
 }
 // Endsumme direkt eingeben: das <b> wird durch ein Eingabefeld ersetzt (kein
 // Re-Render — der wuerde den Fokus sofort wieder wegnehmen). Enter/Verlassen
@@ -6629,8 +6732,42 @@ function erpKundeWahl(id){
   // Zahlungsbedingung des Kunden erben — nur, solange am Beleg keine eigene
   // Wahl steht (eine bewusste Abweichung wird nie überschrieben).
   if(k&&k.zahlbedId&&!cur.zahlbedId)cur.zahlbedId=k.zahlbedId;
+  // Konditionen des Kunden übernehmen — nach demselben Muster: nur in ein
+  // Feld, das am Beleg noch nichts trägt. Der Rabatt RECHNET (er steht in
+  // den Totalen), der Skonto wird ausgewiesen und ist eine Zahlungsbedingung,
+  // kein Abzug — abgezogen wird er erst, wenn der Kunde ihn zieht.
+  if(k&&k.stdRabattPct>0&&!erpNum(cur.rabattPct)){
+    cur.rabattPct=erpNum(k.stdRabattPct);
+    cur.rabattHerkunft='kunde';
+    toast('Rabatt '+erpNum(k.stdRabattPct)+' % vom Kunden übernommen — im Beleg änderbar');
+  }
+  if(k&&k.stdSkontoPct>0&&cur.skontoPct==null){
+    cur.skontoPct=erpNum(k.stdSkontoPct);
+    // Frist: die des gewählten Zahlungsziels, sonst keine — eine Skontofrist
+    // wird nicht erfunden, sie fehlt dann sichtbar im Beleg.
+    var zbK=erpZahlbedById(cur.zahlbedId||(k.zahlbedId||''));
+    if(zbK&&zbK.skontoTage!=null)cur.skontoTage=zbK.skontoTage;
+    cur.skontoHerkunft='kunde';
+  }
   if(cur.typ==='rechnung'&&cur.status==='entwurf')cur.frist=addDays(cur.datum||today(),erpFristTage(cur));
   erpSaveCur(true);erpOpenEditor();
+}
+/* Skonto des Belegs: eigener Wert am Beleg, sonst der der Zahlungsbedingung.
+   Reine Zahlungskondition — nie vom Total abgezogen (ob der Kunde ihn zieht,
+   entscheidet er bei der Zahlung). */
+function erpSkonto(d){
+  d=d||cur;if(!d)return null;
+  if(d.skontoPct>0)return {pct:erpNum(d.skontoPct),tage:(d.skontoTage!=null?d.skontoTage:null),herkunft:d.skontoHerkunft||'beleg'};
+  var zb=erpZahlbedById(d.zahlbedId||'');
+  if(zb&&zb.skontoPct>0)return {pct:erpNum(zb.skontoPct),tage:(zb.skontoTage!=null?zb.skontoTage:null),herkunft:'kondition'};
+  return null;
+}
+function erpSkontoText(d){
+  var sk=erpSkonto(d);
+  if(!sk)return '';
+  return sk.tage!=null
+    ? (sk.pct+' % Skonto bei Zahlung innert '+sk.tage+' Tagen')
+    : (sk.pct+' % Skonto — Frist nicht hinterlegt');
 }
 /* Zahlungsbedingung am Beleg ändern → Frist neu rechnen (solange Entwurf). */
 function erpZahlbedWahl(id){
@@ -6758,6 +6895,23 @@ function _adrFormFuellen(a){
   var zb=document.getElementById('k_zahlbed');
   if(zb)zb.innerHTML='<option value="">– Firmen-Standard: '+erpSettings().fristTage+' Tage –</option>'
     +erpZahlbedListe().map(function(z){return '<option value="'+esc(z.id)+'"'+(z.id===(a.zahlbedId||'')?' selected':'')+'>'+esc(z.label)+'</option>';}).join('');
+  // Konditionen und Fibu-Schlüssel (aus der ERP-Migration oder von Hand).
+  // Rabatt und Skonto wirken: sie kommen beim Kundenwechsel auf den Beleg.
+  var setNum=function(id,v){var el=document.getElementById(id);if(el)el.value=(v==null||v==='')?'':String(v);};
+  setNum('k_stdRabattPct',a.stdRabattPct);
+  setNum('k_stdSkontoPct',a.stdSkontoPct);
+  var setTxt=function(id,v){var el=document.getElementById(id);if(el)el.value=v||'';};
+  setTxt('k_rechnungEmail',a.rechnungEmail);
+  setTxt('k_eBillId',a.eBillId);
+  var fb=document.getElementById('k_fibu');
+  if(fb){
+    var fz=[];
+    if(a.importPkDebi)fz.push('Debitorenkonto '+esc(a.importPkDebi));
+    if(a.importPkKredi)fz.push('Kreditorenkonto '+esc(a.importPkKredi));
+    if(a.importZahlbedKuerzel)fz.push('Kondition im Altsystem «'+esc(a.importZahlbedKuerzel)+'»');
+    if(a.extId)fz.push('Alt-ID '+esc(a.extId));
+    fb.innerHTML=fz.length?('📎 Aus dem Altsystem: '+fz.join(' · ')):'';
+  }
   _adrTypenBox(a.typen||[]);
   var d=document.getElementById('k_delBtn');
   if(d)d.style.display=(a.id&&erpCanEdit())?'':'none';
@@ -6823,6 +6977,19 @@ function erpKundeSave(){
     zahlbedId:(document.getElementById('k_zahlbed')||{}).value||''
   });
   _AK.forEach(function(f){var el=document.getElementById('k_'+f);if(el)k[f]=el.value.trim();});
+  // Konditionen: leeres Feld heisst «keine» → Feld entfernen, nicht 0 setzen
+  // (0 % Rabatt und «kein Rabatt» sind dasselbe, aber ein gespeichertes 0
+  // überschriebe beim Beleg nichts und stünde nur im Weg).
+  [['stdRabattPct','k_stdRabattPct'],['stdSkontoPct','k_stdSkontoPct']].forEach(function(p){
+    var el=document.getElementById(p[1]);if(!el)return;
+    var v=erpNum(el.value);
+    if(String(el.value).trim()&&v>0)k[p[0]]=v;else delete k[p[0]];
+  });
+  [['rechnungEmail','k_rechnungEmail'],['eBillId','k_eBillId']].forEach(function(p){
+    var el=document.getElementById(p[1]);if(!el)return;
+    var v=el.value.trim();
+    if(v)k[p[0]]=v;else delete k[p[0]];
+  });
   // Handelsregister-Bezug nur mitspeichern, solange der Name unverändert
   // zum gewählten Eintrag passt (sonst wäre die UID ein falsches Siegel).
   var hr=_erpHr['k_firma'];
@@ -6913,6 +7080,7 @@ function erpRenderMigration(el){
 // GEMA beides selbst — der Zuordnungs-Schritt entfällt. Er bleibt aber
 // erreichbar («Spalten prüfen»): erkannt heisst nicht ungeprüft.
 var _migAuto=null;      // [{name, sekId, mapping, rows, kopfIdx, blatt, sheets, erkennung, status}]
+var _migAutoBezahltVor='';   // Stichtag für den Rechnungs-Import (leer = keiner)
 
 function _migDropBinden(){
   var z=document.getElementById('migDrop');if(!z||z._geb)return;z._geb=1;
@@ -7005,7 +7173,19 @@ function _migAutoRender(){
     h+='<div style="font-size:12px;color:var(--mut);margin:10px 0 9px">Reihenfolge: '
       +bereit.map(function(d){return GemaErpImport.sektion(d.sekId).ic+' '+esc(GemaErpImport.sektion(d.sekId).label);}).join(' → ')
       +' — so bauen die Belege aufeinander auf.</div>'
-      +'<div style="display:flex;gap:9px;flex-wrap:wrap;align-items:center">'
+    // Stichtag: der Export führt keine Zahlungsdaten (die Spalten des
+    // Altsystems sind leer), «bezahlt» kommt allein aus dem debistatus.
+    // Rechnungen, die dort «offen» oder «in Buchhaltung» stehen, wären sonst
+    // alle überfällig. Der Stichtag ist eine BEWUSSTE Entscheidung des
+    // Anwenders, keine Annahme des Importers — darum steht er hier und ist
+    // leer voreingestellt.
+    if(bereit.some(function(d){return d.sekId==='rechnungen';})){
+      h+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0 4px;padding:9px 11px;border:1.5px solid var(--brd2);border-radius:10px;font-size:12.5px">'
+        +'<span>🧾 Rechnungen <b>vor</b> diesem Datum als bezahlt übernehmen:</span>'
+        +'<input type="date" id="migAutoBez" value="'+esc(_migAutoBezahltVor||'')+'" onchange="_migAutoBezahltVor=this.value" style="padding:7px 9px;border:1.5px solid var(--brd2);border-radius:9px;font-size:12.5px"/>'
+        +'<span style="color:var(--mut)">Leer = alle bleiben «gestellt» und erscheinen als offen. Die Zahlung wird auf das Rechnungsdatum gebucht und als Übernahme beschriftet.</span></div>';
+    }
+    h+='<div style="display:flex;gap:9px;flex-wrap:wrap;align-items:center">'
       +'<button class="btn pri" id="migAutoStartBtn" onclick="erpMigAutoStart()"'+(_migLaeuft()?' disabled':'')+'>Vorschau &amp; übernehmen →</button>'
       +'<button class="btn" onclick="erpMigVerwerfen()">Verwerfen</button>'
       +'<button class="btn red" id="migAutoAbbBtn" style="'+(_migLaeuft()?'':'display:none')+'" onclick="erpMigAbbrechen()">■ Abbrechen</button>'
@@ -7116,7 +7296,7 @@ function erpMigAutoStart(){
       objekteAnlegen:true,
       posAusOfferte:true,
       auftragErgaenzen:true,
-      bezahltVor:'',
+      bezahltVor:_migAutoBezahltVor||'',
       onFortschritt:function(i,n){
         var p=prog();if(p)p.textContent=sek.ic+' '+sek.label+' ('+(k+1)+'/'+offen.length+') — '+i+' von '+n+' …';
       }
@@ -7130,6 +7310,8 @@ function erpMigAutoStart(){
       if(rep.auftragBetrag)t+=', '+rep.auftragBetrag+' leere Aufträge ergänzt';
       if(rep.uebersprungen)t+=', '+rep.uebersprungen+' übersprungen';
       if(rep.terminVerknuepft)t+=', '+rep.terminVerknuepft+' Zeiten mit Termin verknüpft';
+      if(rep.alsBezahlt)t+=', <b>'+rep.alsBezahlt+'</b> per Stichtag als bezahlt übernommen';
+      if(rep.anlagenInaktiv)t+='<br>'+rep.anlagenInaktiv+' Anlagen mit längst überfälliger Wartung als <b>inaktiv</b> übernommen — sie erzeugen keine Serviceaufträge. Im Anlagenregister sichtbar und mit einem Klick reaktivierbar.';
       if(rep.einladungen&&rep.einladungen.length)t+=', <b>'+rep.einladungen.length+'</b> Einladungslinks (siehe Bericht des Assistenten oder Verwaltung)';
       if(rep.offerteFehlt)t+='<br><span style="color:var(--amber)">'+rep.offerteFehlt+' × die angegebene Offerte war nicht gefunden.</span>';
       if(rep.auftragFehlt)t+='<br><span style="color:var(--amber)">'+rep.auftragFehlt+' × der angegebene Auftrag war nicht gefunden.</span>';
@@ -7559,6 +7741,7 @@ function erpMigStart(){
     if(rep.belegBesetzt)txt+='<br><span style="color:var(--amber)">'+rep.belegBesetzt+' Belege führen bereits Positionen und blieben unverändert.</span>';
     if(rep.terminZukunft)txt+=', davon <b>'+rep.terminZukunft+'</b> in der Zukunft';
     if(rep.revisionKuenftig)txt+=', <b>'+rep.revisionKuenftig+'</b> mit anstehender Revision';
+    if(rep.anlagenInaktiv)txt+='<br><span style="color:var(--teal)">'+rep.anlagenInaktiv+' Anlagen mit längst überfälliger Wartung sind als <b>inaktiv</b> übernommen — sie erzeugen keine Serviceaufträge. Sie stehen im Anlagenregister mit dem Grund am Datensatz und lassen sich mit einem Klick reaktivieren.</span>';
     if(rep.stundenTage)txt+=', <b>'+rep.stundenEintraege+'</b> Zeiteinträge auf <b>'+rep.stundenTage+'</b> Tagen';
     if(rep.personen)txt+=', <b>'+rep.personen+'</b> Bezugspersonen ergänzt';
     if(rep.ferienUebertraege)txt+=', <b>'+rep.ferienUebertraege+'</b> Ferien-/Überzeitsalden übernommen';
@@ -7783,7 +7966,7 @@ function erpPdf(){
       return '<td></td>';
     }).join('');
     posRows+='<tr'+(pimg?' class="hasimg'+(istVar?' varirow':'')+'"':(istVar?' class="varirow"':''))+(p.art==='abzug'?' style="color:#92400e"':'')
-      +'>'+pNr(nrPos)+'<td>'+bezPdf+'</td>'+midHtml
+      +'>'+pNr(p.importPosNr?esc(p.importPosNr):nrPos)+'<td>'+bezPdf+'</td>'+midHtml
       +pBtr(istPer?'':istVar?'('+chf(betrag)+')':chf(betrag))+'</tr>';
     // Positionsbild als eigene Zeile unter der Position
     if(pimg)posRows+='<tr class="bildrow">'+(pcNr?'<td></td>':'')+'<td colspan="'+(pcAll-(pcNr?1:0))+'" style="padding:2px 7px 8px"><img src="'+esc(pimg)+'" alt="" style="max-height:40mm;max-width:40mm;border:none;display:block"/></td></tr>';
@@ -7821,6 +8004,14 @@ function erpPdf(){
     +(d.titel?'<div class="titelbar">'+esc(d.titel)+'</div>':'')
     +(d.einleitung?'<p class="intro">'+esc(d.einleitung)+'</p>':'')
     +'<div class="totalrow"><span>Total inkl. '+erpNum(d.mwstPct)+' % MwSt.:</span><b>Fr. '+chf(t.brutto)+'</b></div>'
+    // Skonto ist eine Zahlungskondition und verändert das Total nicht — er
+    // steht als Hinweis darunter, mit Frist, sofern eine hinterlegt ist.
+    +((function(){
+      var sk=erpSkonto(d);
+      if(!sk||sk.tage==null)return '';
+      return '<div style="font-size:9pt;color:#444;margin:-5mm 0 6mm">Bei Zahlung innert '+sk.tage+' Tagen: '
+        +sk.pct+' % Skonto (Fr. '+chf(t.brutto*sk.pct/100)+') — Fr. '+chf(t.brutto*(1-sk.pct/100))+'</div>';
+    })())
     +(d.schlusstext?'<p class="outro">'+esc(d.schlusstext)+'</p>':'')
     +'<p class="gruss">Mit freundlichen Grüssen<br>'+esc(s.name||'')+'</p>'
     +(s.txtKonditionen?'<div class="kleing">'+esc(s.txtKonditionen)+'</div>':'')

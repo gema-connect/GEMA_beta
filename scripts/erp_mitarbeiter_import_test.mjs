@@ -79,8 +79,11 @@ const { plan, rep } = await lauf(I, 'mitarbeiter', K, rows);
   eq('Anna Keller ist neu', plan.zeilen[1].aktion, 'neu');
   eq('Anzeigename Vorname Name (wie die Stunden-Exporte)', z[1].voller, 'Anna Keller');
   eq('Monteur → role_monteur', z[1].rolle, 'role_monteur');
-  eq('Sachbearbeiterin → role_unternehmer', z[4].rolle, 'role_unternehmer');
-  eq('Leitung schlägt Sachbearbeiter → role_abteilungsleiter', z[5].rolle, 'role_abteilungsleiter');
+  // BEWUSST ÜBERSTEUERT (Entscheid 2026-09-08): das Büro bekommt die neuen
+  // ERP-Rollen. `role_unternehmer` ist plattformweit die Rolle des FREMDEN
+  // Unternehmers und kennt weder Objekte noch Termine, Stunden oder Service.
+  eq('Sachbearbeiterin → role_erp_sachbearbeiter', z[4].rolle, 'role_erp_sachbearbeiter');
+  eq('Leitung schlägt Sachbearbeiter → role_erp_abteilungsleiter', z[5].rolle, 'role_erp_abteilungsleiter');
   t('nirgends role_admin', z.every(x => x.rolle !== 'role_admin'));
   eq('41.25 h gegen 40 + 1.25 → 100 %', z[1].pensum.pensum, 100);
   eq('33 h → 80 %', z[2].pensum.pensum, 80);
@@ -117,7 +120,7 @@ console.log('\n═══ 2 — Schreiben: Benutzer ohne Passwort, mit Einladung 
   t('Ausgetretener: inaktiv angelegt, ohne Einladung', !!fritz && fritz.active === false && fritz.einladung === null);
   t('Link führt auf die Einladungs-Seite', rep.einladungen.every(e => /^sys_login\.html\?invite=inv_/.test(e.link)));
   eq('1 × ohne E-Mail gemeldet', rep.ohneEmail, 1);
-  eq('Rollen gezählt', rep.rollen, { role_monteur: 5, role_unternehmer: 1, role_abteilungsleiter: 1 });
+  eq('Rollen gezählt', rep.rollen, { role_monteur: 5, role_erp_sachbearbeiter: 1, role_erp_abteilungsleiter: 1 });
   // Bestehender Benutzer: unverändert (keine Lücke zu füllen)
   const hans = users.find(u => u.id === 'u_meier');
   eq('Hans Meier behält seine Rolle', hans.roleIds, ['role_monteur']);

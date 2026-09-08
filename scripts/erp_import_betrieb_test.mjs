@@ -194,5 +194,61 @@ const KR = ['id', 'nr', 'rapport_nr', 'datum', 'betrifft', 'debistatus_text', 'r
   t('Bereich angelegt mit `name` (so lesen sv_service, Plantafel, Stunden, ERP)', ab.length === 1 && ab[0].name === 'Spenglerei' && !!ab[0].id);
 }
 
+// ═══ 10 — Anlagen mit längst überfälliger Wartung kommen inaktiv ═══
+{
+  console.log('\n═══ 10 — Anlagen: überfällige Wartung → inaktiv (keine Auftragsflut) ═══');
+  const ls = speicher(), sync = syncMock(); const I = ladeImporter(ls, sync, authMock());
+  const KA = ['kom_id', 'kom_name', 'kom_last_rev', 'kom_rev_int', 'ser_strasse', 'ser_plz', 'ser_ort'];
+  const heute = new Date();
+  const kuerzlich = new Date(heute.getTime() - 30 * 86400000).toISOString().slice(0, 10);
+  const rep = await lauf(I, 'anlagen', KA, [
+    ['1', 'Boiler alt', '2015-06-01', '12', 'Weg 1', '4000', 'Basel'],      // Revision 2016 → längst fällig
+    ['2', 'Boiler aktuell', kuerzlich, '12', 'Weg 2', '4000', 'Basel'],     // nächste erst in 11 Monaten
+    ['3', 'Ohne Intervall', '2015-06-01', '', 'Weg 3', '4000', 'Basel']     // kein Termin → bleibt aktiv
+  ], { objekteAnlegen: false });
+  const anl = sync.getCached('gema_sv_anlagen_pool_v1');
+  const alt = anl.find(a => a.name === 'Boiler alt');
+  const neu = anl.find(a => a.name === 'Boiler aktuell');
+  const ohne = anl.find(a => a.name === 'Ohne Intervall');
+  eq('überfällige Anlage ist inaktiv', alt.status, 'inaktiv');
+  t('… mit nachlesbarem Grund am Datensatz', /inaktiv/i.test(alt.importInaktivGrund || '') && /Revision/.test(alt.importInaktivGrund || ''));
+  eq('gemeldet', rep.anlagenInaktiv, 1);
+  eq('Anlage mit künftiger Revision bleibt aktiv', neu.status, 'aktiv');
+  eq('Anlage ohne Intervall bleibt aktiv (sie erzeugt ohnehin keinen Termin)', ohne.status, 'aktiv');
+  // Gegenprobe: Abschalten der Regel lässt alles aktiv
+  const ls2 = speicher(), sync2 = syncMock(); const I2 = ladeImporter(ls2, sync2, authMock());
+  await lauf(I2, 'anlagen', KA, [['1', 'Boiler alt', '2015-06-01', '12', 'Weg 1', '4000', 'Basel']], { objekteAnlegen: false, anlagenAltInaktiv: false });
+  eq('Gegenprobe: mit anlagenAltInaktiv=false bleibt sie aktiv', sync2.getCached('gema_sv_anlagen_pool_v1')[0].status, 'aktiv');
+}
+
+// ═══ 11 — Spesen der App landen am Eintrag (Auswertung je Auftrag) ═══
+{
+  console.log('\n═══ 11 — Spesen am Eintrag, nicht nur am Tag ═══');
+  const ls = speicher(), sync = syncMock(); const I = ladeImporter(ls, sync, authMock());
+  const KS = ['arb_name', 'datum', 'stunden', 'rappnr', 'arbtyp', 'absenz', 'hrs_spesen', 'quelle'];
+  await lauf(I, 'stunden', KS, [
+    ['Hans Meier', '2026-04-01', '4', '8123', 'Montage', '', '12.50', 'erfasst'],
+    ['Hans Meier', '2026-04-01', '4', '8124', 'Montage', '', '7.50', 'erfasst']
+  ]);
+  const tag = sync.getCached('gema_std_pool_v1').find(x => x.datum === '2026-04-01');
+  eq('Tagessumme wie bisher', tag.spesen.importBetrag, 20);
+  eq('Betrag je Eintrag erhalten (für die Auswertung nach Auftrag)',
+    tag.eintraege.map(e => [e.importAuftragNr, e.importSpesen]), [['8123', 12.5], ['8124', 7.5]]);
+}
+
+// ═══ 12 — Rollen des Büros: die neuen ERP-Rollen, nie Administrator ═══
+{
+  console.log('\n═══ 12 — Rollenzuordnung ═══');
+  const ls = speicher(), sync = syncMock(); const A = authMock(); const I = ladeImporter(ls, sync, A);
+  const KM = ['id', 'name1', 'vorname', 'email', 'monteur', 'sachbearb', 'manager', 'eintritt', 'austritt'];
+  const rep = await lauf(I, 'mitarbeiter', KM, [
+    ['1', 'Monteur', 'Max', 'max@x.ch', '1', '0', '0', '2020-01-01', ''],
+    ['2', 'Buero', 'Bea', 'bea@x.ch', '0', '1', '0', '2020-01-01', ''],
+    ['3', 'Leitung', 'Lea', 'lea@x.ch', '0', '1', '1', '2020-01-01', '']
+  ]);
+  eq('Sachbearbeiter → ERP Sachbearbeiter, Leitung → ERP Abteilungsleiter',
+    rep.rollen, { role_monteur: 1, role_erp_sachbearbeiter: 1, role_erp_abteilungsleiter: 1 });
+}
+
 console.log('\n' + (fail ? '✗ ' + fail + ' von ' + n + ' Prüfungen fehlgeschlagen' : '✓ alle ' + n + ' Prüfungen bestanden'));
 process.exit(fail ? 1 : 0);
