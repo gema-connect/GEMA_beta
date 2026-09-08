@@ -1079,10 +1079,16 @@ function erpAuftragStunden(auftragId,einsaetze,tage){
     if(!t||t.typ||!Array.isArray(t.eintraege))return;   // nur Tages-Records (typ-Records = Anträge/Auszahlungen)
     t.eintraege.forEach(function(en){
       if(!en||!en.einsatzId||!ids[en.einsatzId])return;
-      var a=_erpHm(en.von),b=_erpHm(en.bis);
-      if(a==null||b==null)return;
-      if(b<=a)b+=1440;
-      var min=Math.max(0,(b-a)-(parseInt(en.pauseMin,10)||0));
+      var a=_erpHm(en.von),b=_erpHm(en.bis),min;
+      if(a==null||b==null){
+        // Aus dem Altsystem übernommene Einträge führen nur eine DAUER
+        // (dauerMin), keine Uhrzeiten — Regel wie stdEintragMin in pm_stunden.
+        min=Math.max(0,parseInt(en.dauerMin,10)||0);
+        if(!min)return;
+      }else{
+        if(b<=a)b+=1440;
+        min=Math.max(0,(b-a)-(parseInt(en.pauseMin,10)||0));
+      }
       totalMin+=min;
       rows.push({datum:t.datum||'',name:t.userName||'',von:en.von||'',bis:en.bis||'',pauseMin:parseInt(en.pauseMin,10)||0,min:min,taetigkeit:en.taetigkeit||''});
     });
@@ -1679,7 +1685,10 @@ function erpZahlbedKundeHint(d){
 }
 function erpFristTage(d){
   var z=erpZahlbedFuer(d);
-  return z?(z.tage||0):erpSettings().fristTage;
+  // Eine Kondition OHNE Frist (tage leer — etwa aus der Migration, wenn das
+  // Altsystem keine führte) fällt auf den Firmen-Standard zurück. `z.tage||0`
+  // machte daraus null Tage: die Rechnung wäre am Rechnungsdatum fällig.
+  return (z&&z.tage!=null&&z.tage!=='')?z.tage:erpSettings().fristTage;
 }
 var ERP_TXT_DEFAULTS={
   txtOfferteIntro:'Sehr geehrte Damen und Herren\n\nWir danken für Ihre Anfrage und unterbreiten Ihnen gerne folgende Offerte:',

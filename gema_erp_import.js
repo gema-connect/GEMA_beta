@@ -420,7 +420,15 @@ function posArt(roh,zeile){
 function positionenNetto(positionen){
   var n=0;
   (positionen||[]).forEach(function(p){
-    if(!p||p.art==='titel'||p.art==='text')return;
+    if(!p||p.art==='titel'||p.art==='text'||p.art==='seitenumbruch')return;
+    // Zuschlag/Rabatt so rechnen, wie pm_erp sie rechnet: aus `wert`, im
+    // Import immer in CHF. Sonst prüfte die Summenkontrolle gegen eine Summe,
+    // die der Beleg in GEMA nie zeigt.
+    if(p.art==='zuschlag'||p.art==='rabatt'){
+      var w=parseFloat(p.wert)||0;
+      if(p.modus==='chf')n+=(p.art==='rabatt')?-w:w;
+      return;
+    }
     n+=(parseFloat(p.ep)||0)*(parseFloat(p.menge)||0)*(1-((parseFloat(p.rabattPct)||0)/100));
   });
   return Math.round(n*100)/100;
@@ -1963,14 +1971,8 @@ function eigeneOrgId(){var u=null;try{u=GemaAuth.getCurrentUser();}catch(e){}ret
 /* KRITISCH — beide Pools sind org-gescopt und tragen `orgId` auf jedem Record
    (CLAUDE.md §3): ohne den Filter sähe der Import fremde Firmen, ohne den
    Stempel beim Schreiben lehnt RLS den Record ab. */
-function bestehendeKreditoren(){
-  var o=eigeneOrgId();
-  return poolLesen(KRED_POOL).filter(function(k){return k&&(!o||k.orgId===o);});
-}
-function bestehendeKataloge(){
-  var o=eigeneOrgId();
-  return poolLesen(KAT_POOL).filter(function(k){return k&&(!o||k.orgId===o);});
-}
+function bestehendeKreditoren(){return poolEigene(KRED_POOL);}
+function bestehendeKataloge(){return poolEigene(KAT_POOL);}
 function kredSchluessel(k){
   var ext=s(k&&(k.extId||(k.quelle&&k.quelle.extId)));
   if(ext)return 'ext:'+ext.toLowerCase();
@@ -2332,7 +2334,19 @@ function offerteSchreiben(z,adrCtx,report,opts){
    Aussage, «unbekannt» ist keine. */
 function positionRecord(z){
   var p={id:uid('p'), art:z.art, bez:s(z.bez)};
-  if(z.art!=='titel'&&z.art!=='text'){
+  if(z.art==='zuschlag'||z.art==='rabatt'){
+    /* KRITISCH — pm_erp rechnet diese beiden Arten allein aus `wert`/`modus`
+       (erpAufschlagBetrag); `menge`/`ep` wären dort unsichtbar und das
+       Belegtotal zu tief, während die Summenkontrolle des Imports sie
+       mitzählte und nichts merkte. Das Altsystem führt den Zuschlag als
+       Betrag (postyp 27 «Preis ohne Menge»), also modus «chf». Ein negativer
+       Zuschlag ist ein Rabatt — GEMA zieht `rabatt` mit positivem Wert ab. */
+    var wBetrag=(z.ep!=null?z.ep:0)*(z.menge!=null?z.menge:1);
+    p.art=(wBetrag<0)?'rabatt':z.art;
+    p.modus='chf';
+    p.wert=Math.round(Math.abs(wBetrag)*100)/100;
+    if(s(z.einheit))p.importEinheit=s(z.einheit);
+  }else if(z.art!=='titel'&&z.art!=='text'){
     p.menge=z.menge!=null?z.menge:1;
     p.einheit=s(z.einheit)||'Psch';
     p.ep=z.ep!=null?z.ep:0;
@@ -2418,11 +2432,16 @@ function positionenSchreiben(zeilen,report,opts){
    Altsystems, sonst aus den Positionen gerechnet. */
 function belegBrutto(doc){
   if(doc&&doc.importSumme&&doc.importSumme.brutto!=null)return doc.importSumme.brutto;
-  var netto=0;
-  ((doc&&doc.positionen)||[]).forEach(function(p){
-    if(!p||p.art==='titel'||p.art==='text')return;
-    netto+=(parseFloat(p.ep)||0)*(parseFloat(p.menge)||0)*(1-((parseFloat(p.rabattPct)||0)/100));
-  });
+  // Im Browser rechnet pm_erp selbst (Belegrabatt, Schlussblock, Rundung auf
+  // 5 Rp.) — eine eigene Nachbildung wiche genau dort ab. Der Fallback unten
+  // dient den Node-Tests und dem Fall, dass pm_erp nicht geladen ist.
+  try{
+    if(typeof window!=='undefined'&&typeof window.erpDocTotals==='function'){
+      var tt=window.erpDocTotals(doc);
+      if(tt&&isFinite(parseFloat(tt.brutto)))return Math.round(parseFloat(tt.brutto)*100)/100;
+    }
+  }catch(e){}
+  var netto=positionenNetto(doc&&doc.positionen);
   var satz=(doc&&doc.mwstPct!=null)?doc.mwstPct:8.1;
   return Math.round(netto*(1+satz/100)*100)/100;
 }
@@ -2603,7 +2622,10 @@ function zahlbedSchreiben(zeilen,report,opts){
     var kuerzel=s(z.kuerzel);
     var id='alt_'+norm(kuerzel);
     if(da[norm(id)]||da['l:'+norm(z.label)]){report.uebersprungen++;return;}
-    var rec={id:id, label:s(z.label), tage:z.tage!=null?z.tage:30, importKuerzel:kuerzel};
+    // Ohne Frist bleibt `tage` leer — dann gilt für die Belege der
+    // Firmen-Standard, wie es die Vorschau ankündigt. Eine erfundene 30
+    // wäre ein Normwert ohne Beleg.
+    var rec={id:id, label:s(z.label), tage:z.tage!=null?z.tage:null, importKuerzel:kuerzel};
     if(z.skontoPct)rec.skontoPct=z.skontoPct;
     if(z.skontoTage)rec.skontoTage=z.skontoTage;
     if(s(z.fibuCode))rec.importFibuCode=s(z.fibuCode);
@@ -3003,7 +3025,9 @@ function bezugspersonenSchreiben(zeilen,report,opts){
     kette=kette.then(function(){
       var liste=bestehendeObjekte();
       var obj=g.extId
-        ? liste.find(function(o){return objektSchluessel(o)==='ext:'+norm(g.extId);})||null
+        // Beide Seiten über objektSchluessel — der schreibt die Alt-ID klein,
+        // norm() striche zusätzlich Trennzeichen und träfe «OBJ-4984» nie.
+        ? liste.find(function(o){return objektSchluessel(o)===objektSchluessel({extId:g.extId});})||null
         : findeObjekt(g.objekt,liste);
       if(!obj){report.objektFehlt=(report.objektFehlt||0)+1;return;}
       var o=Object.assign({},obj);
