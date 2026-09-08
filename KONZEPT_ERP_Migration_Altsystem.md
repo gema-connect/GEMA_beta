@@ -530,19 +530,24 @@ Ist-Zeit ebenfalls.
 Firmenkalender (`org.settings.stunden.feiertage`), nicht als Abwesenheit. Der
 Termin entsteht als «Abwesend», die Meldung verweist auf den Kalender.
 
-#### Noch offen: die Einheit von `hours.hrs_length`
+#### Geklärt: `hours.hrs_length` ist in Sekunden
 
-Die 296 Absenzzeilen der mobilen Erfassung ergeben `SUM(hrs_length)/60` =
-46 275 — also 9 380 pro Zeile. Als Minuten wären das 156 h für einen einzelnen
-Eintrag, als Sekunden 2.6 h. Sekunden ist damit die einzig plausible Lesart,
-**belegt ist sie nicht**. Der Export in 8.11 reicht `hrs_length` bisher
-ungerechnet als «Stunden» durch.
+Am 2026-09-08 gemessen: 4 709 Zeilen, Werte 900 … 43 200, alle Vielfache von
+900 (Viertelstunden), Summe pro Person und Tag im Schnitt 30 019 = **8.34 h**.
+Der Export in 8.11 teilt jetzt durch 3 600. Die Einheiten-Sperre des
+Importers (über 24 h am Tag = Fehler, ab 16 h Meldung) bleibt als
+Sicherheitsnetz — das Maximum im Bestand sind 22.25 h an einem Tag, die
+Meldung ist dort richtig.
 
-Bis das geklärt ist, weist der Importer jede Zeile über **24 h an einem Tag als
-Fehler zurück** und meldet ab 16 h. Damit kann der Fehler nicht mehr
-unbemerkt durchlaufen; die Umrechnung gehört in den Export, sobald die Einheit
-feststeht (Gegenprobe: eine `hours`-Zeile mit ihrem Termin über
-`hrs_terminguid` vergleichen — `termin.stunden` führt Dezimalstunden).
+#### Noch offen: der Termin-Bezug der mobilen Zeiten
+
+`hours.hrs_terminguid` gegen `termin.guid` liefert **0 Treffer** über den
+ganzen Bestand — die Spalte, über die der Importer Zeit und Termin
+verknüpft, referenziert nichts, was im Termin-Export steht. Die mobilen
+Zeiten entstehen deshalb ohne `einsatzId`; an den Stunden selbst ändert das
+nichts. Kandidat ist `hrs_termin_id` (INT) gegen `termin.id`; Abfrage 8.14b
+klärt es. Trifft sie, muss der Termin-Export `t.id` als Alt-ID mitgeben
+statt nur die GUID.
 
 Der Zahlungsstatus (`debistatus`) ist ausgezählt und vollständig zugeordnet,
 ebenso `postyp`, `module_id` und der Revisionszyklus. Der MwSt-Satz wird aus
@@ -1147,14 +1152,32 @@ ORDER BY n.datum;
 -- Termin-Bezug mit, den Datei 1 nicht kennt
 SELECT TRIM(CONCAT(COALESCE(ad.vorname,''),' ',COALESCE(ad.name1,''))) AS arb_name,
        DATE(h.hrs_datetime) AS datum,
-       h.hrs_length AS stunden, h.hrs_rapportnr AS rappnr,
+       ROUND(h.hrs_length/3600, 2) AS stunden,     -- hrs_length ist in SEKUNDEN
+       h.hrs_rapportnr AS rappnr,
        h.hrs_description AS arbtyp, h.hrs_spesen, h.hrs_comment,
-       h.hrs_terminguid, 'erfasst' AS quelle
+       ab.kurz AS absenz,
+       h.hrs_terminguid, h.hrs_termin_id, 'erfasst' AS quelle
 FROM hours h
 LEFT JOIN arbeiter a  ON a.id  = h.hrs_arb_id
 LEFT JOIN adressen ad ON ad.id = a.adr_id
+LEFT JOIN absenz   ab ON ab.id = h.hrs_absenz_id
 WHERE COALESCE(h.hrs_deleted,0) = 0 AND h.hrs_length <> 0;
 ```
+
+> **`hrs_length` ist in Sekunden — am 2026-09-08 belegt.** 4 709 Zeilen,
+> Werte 900 … 43 200, alle Vielfache von 900 (Viertelstunden); die Summe pro
+> Person und Tag liegt im Schnitt bei 30 019 = **8.34 h**, das Maximum bei
+> 80 100 = 22.25 h. Ohne die Division kämen 28 800 «Stunden» für einen
+> Achtstundentag herein — der Importer weist so etwas seit der Einheiten-
+> Sperre ab, aber richtig wird es erst mit `/3600` im Export.
+
+> **Der Termin-Bezug über die GUID greift nicht.** `hours.hrs_terminguid` =
+> `termin.guid` liefert im ganzen Bestand **0 Treffer**. Der Importer
+> verknüpft Zeit und Termin über genau diese Spalte — die Kette Disposition →
+> Zeit bleibt damit leer, ohne dass etwas fehlschlägt. Kandidat ist die
+> INT-Spalte `hrs_termin_id` gegen `termin.id`; ob sie trifft, ist ungeprüft
+> (Abfrage in 8.14b). Solange das offen ist, entstehen die mobilen Zeiten ohne
+> `einsatzId` — die Stunden selbst sind davon nicht betroffen.
 
 **Vor dem Import prüfen**, ob die Namen überhaupt treffen — sonst merkt man es
 erst an 91 586 personenlosen Zeilen:
@@ -1340,6 +1363,35 @@ FROM arbtyp a ORDER BY termine DESC;
 
 `absenz.paid` sieht aus wie «bezahlt ja/nein», ist es aber nicht — siehe 6.0.
 Beide Bit-Spalten werden mit `+0` abgefragt, sonst kommen sie als `\0`/`\1`.
+
+### 8.14b Termin-Bezug der mobilen Zeiten
+
+Welche Spalte verbindet `hours` mit `termin`? Die GUID tut es nicht (0 Treffer,
+6.0). Diese Abfrage prüft die INT-Spalte und zeigt, wie die beiden GUIDs
+überhaupt aussehen:
+
+```sql
+SELECT '=== A hrs_termin_id gegen termin.id ===' AS x;
+SELECT COUNT(*) AS paare,
+       ROUND(AVG(h.hrs_length/3600),2) AS schnitt_erfasst_h,
+       ROUND(AVG(t.stunden),2)         AS schnitt_termin_h
+FROM hours h JOIN termin t ON t.id = h.hrs_termin_id
+WHERE COALESCE(h.hrs_deleted,0)=0;
+
+SELECT '=== B Wie sind die Bezuege gefuellt? ===' AS x;
+SELECT COUNT(*) AS zeilen,
+       SUM(COALESCE(hrs_termin_id,0)<>0)      AS mit_termin_id,
+       SUM(COALESCE(hrs_terminguid,'')<>'')   AS mit_terminguid,
+       MIN(hrs_terminguid)                    AS guid_beispiel_hours
+FROM hours WHERE COALESCE(hrs_deleted,0)=0;
+SELECT MIN(guid) AS guid_beispiel_termin, COUNT(*) AS termine FROM termin;
+```
+
+Trifft A, wird im Termin-Export (8.9) `t.id` **anstelle von** `t.guid`
+exportiert — nicht zusätzlich: der Importer nimmt für die Alt-ID des Termins
+zuerst `guid`, dann `id`, und liesse die GUID gewinnen. Im Stunden-Export
+bleibt `h.hrs_termin_id` (Alias `hrsterminid` ist bereits hinterlegt). Beides
+ist reine Export-Sache, am Importer ändert sich nichts.
 
 ---
 
