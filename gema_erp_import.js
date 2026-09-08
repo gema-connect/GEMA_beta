@@ -855,14 +855,17 @@ var SEKTIONEN=[
     {id:'ref1',       label:'Externe Referenz 1', alias:['ref1','referenz1','externeref1']},
     {id:'ref2',       label:'Externe Referenz 2', alias:['ref2','referenz2','externeref2']},
     {id:'notiz',      label:'Bemerkungen', alias:['bemerkung','bemerkungen','notiz','notizen']},
-    // «objekt1»/«objekt2» des Altsystems: AM BESTAND GEMESSEN eine zweite
-    // ADRESSE, keine Bezeichnung — `objekt1` trägt Strasse + Nr., `objekt2`
-    // den Ort (am Auftrag «PLZ Ort»). Beleg: 4 417 von 4 547 Objekten gefüllt,
-    // 2 833 verschiedene Strassen, aber nur 176 verschiedene Werte in
-    // `objekt2`. WELCHE Adresse es ist (Objekt oder Verwaltung), ist NICHT
-    // belegt — mehrere hundert Objekte teilen denselben Wert. Sie bleibt
-    // darum ein Vermerk und wird nur dann zur Objektadresse, wenn das Objekt
-    // gar keine hat (dann ist sie besser als nichts, und es wird vermerkt).
+    // «objekt1»/«objekt2» des Altsystems: AM BESTAND GEMESSEN eine ADRESSE,
+    // keine Bezeichnung — `objekt1` trägt Strasse + Nr., `objekt2` den Ort
+    // (am Auftrag «PLZ Ort»). Beleg: 4 417 von 4 547 Objekten gefüllt, 2 833
+    // verschiedene Strassen, aber nur 176 verschiedene Werte in `objekt2`.
+    // Es ist die Adresse der PARTEI hinter dem Objekt, nicht eine zweite
+    // Objektadresse: 52.9 % sind eine Kopie der Objektstrasse, und 338
+    // Objekte in Basel, Münchenstein, Binningen, Dornach … tragen alle
+    // «Aliothstrasse 63». Welche Partei (Verwaltung, Eigentümer,
+    // Auftraggeber), ist noch offen — Konzept 8.17. Sie bleibt darum ein
+    // Vermerk und wird nur dann zur Objektadresse, wenn das Objekt gar keine
+    // hat (33 Objekte ohne Strasse, davon 2 mit `objekt1`).
     {id:'bez1',       label:'Adresse im Altsystem — Strasse', hint:'«objekt1» — Vermerk am Objekt; füllt die Objektadresse nur, wenn diese fehlt', alias:['objekt1','objekttext1','bezeichnung1']},
     {id:'bez2',       label:'Adresse im Altsystem — Ort', hint:'«objekt2» — Vermerk am Objekt; am Auftrag im Format «PLZ Ort»', alias:['objekt2','objekttext2','bezeichnung2']},
     {id:'ordner',     label:'Dokumenten-Ordner (Altsystem)', hint:'«lkdir» — nur der Ordnername, nicht der Pfad. Bleibt als Vermerk am Datensatz, damit der spätere Dokumenten-Import zuordnen kann.', alias:['lkdir','ordner','dokordner','dokumentenordner','verzeichnis']}

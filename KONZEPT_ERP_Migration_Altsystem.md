@@ -1659,8 +1659,12 @@ den Arbeitstext trägt (RTF, «Boilerreinigung», «Spenglerarbeiten …»).
 im Objekt-Dialog unter «📎 Aus dem Altsystem» sichtbar) und legt sich NIE über
 eine vorhandene Objektadresse. Nur wenn das Objekt gar keine Strasse führt,
 wird sie zur Adresse — mit Herkunfts-Vermerk am Datensatz und Zähler im
-Bericht. Ein Objektname wird daraus nicht. Abschnitt 8.17 entscheidet die
-Restfrage endgültig.
+Bericht; das betrifft nach 8.17-A4 genau **2** von 4 547 Objekten. Ein
+Objektname wird daraus nicht. **Zwischenstand 8.17**: für 52.9 % ist das Feld
+eine Kopie der Objektstrasse, und 338 Objekte quer durch die Region tragen
+denselben Wert — es ist die Adresse einer Organisation (Verwaltung,
+Eigentümerschaft, Auftraggeber), nicht eine zweite Objektadresse. Welche
+Partei genau, entscheidet die Nachfassabfrage in 8.17.
 
 **`lkdir` ist nur der ORDNERNAME, kein Pfad.** Damit gilt die im Konzept
 vorgesehene Lesart: die Wurzel steht in der Konfiguration des
@@ -1727,99 +1731,139 @@ SELECT '=== F Fuenf ganze Ordnerpfade zum Anschauen ===' AS x;
 SELECT id, strasse, ort, lkdir FROM obj WHERE COALESCE(lkdir,'')<>'' ORDER BY id DESC LIMIT 5;
 ```
 
-### 8.17 Die zwei Restfragen: Rolle der Adresse und Wurzel des Ordnerpfads
+### 8.17 Zwischenstand: Verwaltungsadresse wahrscheinlich, Wurzel nicht in der DB
 
-Aus 8.16 bleiben genau zwei Fragen offen. Beide beantwortet eine Abfrage.
+Die Abfrage aus 8.17 ist gelaufen. **B ist entschieden, A zur Hälfte** — und
+ein Teil der Messung war unbrauchbar, das steht hier ebenso.
 
-**A — Welche Adresse steht in `objekt1`/`objekt2`?** Der Vergleich gegen die
-Adresse des zugeordneten Kunden entscheidet es: stimmt sie in der Mehrzahl
-mit `knummer` (zahlbar durch) oder `co_knummer` (Korrespondenz) überein, ist
-das Feld eine denormalisierte Kopie der Auftraggeber-/Verwaltungsadresse und
-bleibt für immer ein Vermerk. Trifft sie auf keine der drei Adressen, ist es
-eine echte zweite Objektadresse — dann gehört sie ins Objekt, und die 130
-Objekte ohne eigene Strasse sind nur die Spitze.
+#### A — die Rolle von `objekt1`/`objekt2`
 
-**B — Wo liegt die Wurzel der Dokumentenordner?** Falls das Altsystem sie in
-der Datenbank führt (Konfigurations- oder Lizenztabelle), findet sie die
-Spaltensuche. Findet sie nichts, steht sie in der Client-Installation — dann
-genügt ein Blick in die Einstellungen des Altsystem-Clients oder die
-Netzlaufwerk-Freigabe; die Datenbank ist dann nicht die Quelle.
+| Messung | Wert |
+|---|---|
+| Objekte mit `objekt1` | 4 417 |
+| davon **identisch mit der eigenen Objektstrasse** | **2 337 (52.9 %)** |
+| identisch mit Zahler / Korrespondenz / Eigentümer | 0 / 0 / 0 — **unbrauchbar, s. u.** |
+| Objekte ganz ohne eigene Strasse | **33**, davon 2 mit `objekt1` |
+
+**Die drei Nullen beweisen nichts.** In A2 und A3 kommen `zahler_strasse`
+und `zahler_name` durchweg als NULL zurück — die Verknüpfung
+`adressen.oknummer = obj.knummer` trifft also **nie**. Gemessen wurde damit
+nicht «objekt1 ist nicht die Kundenadresse», sondern «der Schlüssel ist
+falsch». Der richtige Schlüssel ist noch zu finden (Abfrage unten).
+
+Was die Abfrage dagegen **belegt**:
+
+1. Für **52.9 %** ist `objekt1` schlicht eine Kopie der Objektstrasse.
+2. Die abweichende Hälfte zeigt auf **andere Gemeinden** (Objekt
+   «Hafenrainstrasse 10, Oberwil» → Feld «Aliothstrasse 63, Arlesheim»),
+   gelegentlich auf das **Nachbarhaus** (Objekt «Hangstrasse 21» → Feld
+   «Hangstrasse 23», beide Arlesheim).
+3. Entscheidend: die fünf Objekte mit `objekt1` = «Aliothstrasse 63» liegen
+   in **Basel, Münchenstein, Binningen, Dornach** — «Novartis St. Johann»,
+   «Pumpwerkstrasse 21», «Multenweg 72», «Herbstgasse 6», «Hügelweg 21». 338
+   Objekte über die ganze Region zeigen auf **eine** Adresse. Ein Gebäude ist
+   das nicht; das ist die Adresse einer **Organisation** (Verwaltung,
+   Eigentümerschaft oder Auftraggeber).
+
+Damit ist die Lesart «Adresse der Partei hinter dem Objekt» stark gestützt und
+«zweite Objektadresse» praktisch ausgeschlossen. Offen bleibt nur, **welche**
+Partei — das entscheidet die Abfrage unten (C4 nennt die Firma an der
+Aliothstrasse 63 direkt).
+
+**Für den Importer ändert sich vorerst nichts**: das Feld bleibt Vermerk. Die
+Notlösung «fehlt die Strasse, nimm `objekt1`» greift laut A4 bei genau **2**
+Objekten — sie bleibt richtig, ist aber keine tragende Regel. Bestätigt sich
+die Verwaltungsadresse, gehört sie in einen der drei Adress-Slots des Objekts,
+nicht in die Objektadresse.
+
+#### B — die Wurzel der Dokumentenordner: **nicht in der Datenbank**
+
+- **B1**: ausser `lkdir`/`lkmobiledir` auf den zwölf bekannten Tabellen gibt es
+  nur `chapter.picpath`, `chaptermap.picpath`, `extpictures.picpath`,
+  `filesver.verpath`, `progver.verpath`, `pdfforms.path` — Bild-, Versions-
+  und Formularpfade, keine Dokumentenwurzel. Ob dort ein absoluter Pfad steht,
+  klärt D2 unten (er verriete den Server-Namen).
+- **B2**: **kein einziger** `companydata`-Wert enthält einen Backslash.
+- **B3**: die Tabelle `license` ist leer.
+- **B4**: `lkmobiledir` führt **eine Ebene mehr** als `lkdir` —
+  `Sanitär-Service\2026.0522_Goetz_Bruderholzallee_172a_11855` (84 Rechnungen,
+  1 292 Kreditoren). Der Ordnerbaum hat also eine **Kategorie-Ebene**
+  (Abteilung/Sparte) oberhalb des Datensatz-Ordners. Ein absoluter Pfad ist
+  auch das nicht.
+
+**Fazit B**: die Wurzel steht in der Client-Installation des Altsystems
+(Einstellungen bzw. gemapptes Netzlaufwerk), nicht in `dbof`. Für den
+Dokumentenstrang heisst das: Wurzel einmal von Hand feststellen, danach läuft
+die Zuordnung über den Ordnernamen (endet auf die Datensatz-ID) plus die
+Kategorie aus `lkmobiledir`.
+
+#### Nachfassen: der Adress-Schlüssel und die Kategorie-Ebene
 
 ```sql
-SELECT "=== A1 objekt1 gegen die drei Kundenadressen ===" AS x;
+SELECT "=== C1 Wie sehen die Schluessel am Objekt aus? ===" AS x;
+SELECT o.id, o.knummer, o.co_knummer, o.ei_knummer, o.objekt1
+FROM obj o WHERE COALESCE(o.objekt1,"") <> "" ORDER BY o.id DESC LIMIT 5;
+
+SELECT "=== C2 Wie sehen die Schluessel an der Adresse aus? ===" AS x;
+SELECT id, oknummer, name1, strasse, plz, ort FROM adressen ORDER BY id DESC LIMIT 5;
+
+SELECT "=== C3 Spaltentypen beider Seiten ===" AS x;
+SELECT table_name, column_name, column_type FROM information_schema.columns
+WHERE table_schema = "dbof"
+  AND ((table_name = "obj"      AND column_name IN ("knummer","co_knummer","ei_knummer"))
+    OR (table_name = "adressen" AND column_name IN ("id","oknummer","knummer")));
+
+SELECT "=== C4 Wer sitzt an der Aliothstrasse 63? ===" AS x;
+SELECT id, oknummer, name1, name2, strasse, plz, ort FROM adressen
+WHERE strasse LIKE "Aliothstrasse 63%";
+
+SELECT "=== C5 Trifft knummer die adressen.id statt oknummer? ===" AS x;
 SELECT COUNT(*) AS objekte_mit_objekt1,
-       SUM(LOWER(TRIM(o.objekt1)) = LOWER(TRIM(COALESCE(o.strasse,"")))) AS wie_objekt_selbst,
+       SUM((SELECT COUNT(*) FROM adressen a WHERE a.id = o.knummer) > 0) AS knummer_trifft_id,
        SUM(LOWER(TRIM(o.objekt1)) = LOWER(TRIM(COALESCE(
-         (SELECT a.strasse FROM adressen a WHERE a.oknummer = o.knummer    LIMIT 1),"")))) AS wie_zahler,
+         (SELECT a.strasse FROM adressen a WHERE a.id = o.knummer    LIMIT 1),"")))) AS objekt1_wie_zahler,
        SUM(LOWER(TRIM(o.objekt1)) = LOWER(TRIM(COALESCE(
-         (SELECT a.strasse FROM adressen a WHERE a.oknummer = o.co_knummer LIMIT 1),"")))) AS wie_korrespondenz,
+         (SELECT a.strasse FROM adressen a WHERE a.id = o.co_knummer LIMIT 1),"")))) AS objekt1_wie_korrespondenz,
        SUM(LOWER(TRIM(o.objekt1)) = LOWER(TRIM(COALESCE(
-         (SELECT a.strasse FROM adressen a WHERE a.oknummer = o.ei_knummer LIMIT 1),"")))) AS wie_eigentuemer
+         (SELECT a.strasse FROM adressen a WHERE a.id = o.ei_knummer LIMIT 1),"")))) AS objekt1_wie_eigentuemer
 FROM obj o WHERE COALESCE(o.objekt1,"") <> "";
 
-SELECT "=== A2 Zehn Objekte, deren objekt1 auf KEINE dieser Adressen passt ===" AS x;
-SELECT o.id, o.strasse AS objekt_strasse, o.ort AS objekt_ort, o.objekt1, o.objekt2,
-       (SELECT a.strasse FROM adressen a WHERE a.oknummer = o.knummer LIMIT 1) AS zahler_strasse,
-       (SELECT a.name1   FROM adressen a WHERE a.oknummer = o.knummer LIMIT 1) AS zahler_name
-FROM obj o
-WHERE COALESCE(o.objekt1,"") <> ""
-  AND LOWER(TRIM(o.objekt1)) <> LOWER(TRIM(COALESCE(o.strasse,"")))
-  AND LOWER(TRIM(o.objekt1)) <> LOWER(TRIM(COALESCE(
-        (SELECT a.strasse FROM adressen a WHERE a.oknummer = o.knummer    LIMIT 1),"")))
-  AND LOWER(TRIM(o.objekt1)) <> LOWER(TRIM(COALESCE(
-        (SELECT a.strasse FROM adressen a WHERE a.oknummer = o.co_knummer LIMIT 1),"")))
-ORDER BY o.id DESC LIMIT 10;
+SELECT "=== D1 lkmobiledir: Fuellgrad und Beispiel je Tabelle ===" AS x;
+SELECT "obj" AS tabelle, COUNT(*) AS mit_lkdir,
+       SUM(COALESCE(lkmobiledir,"") <> "") AS mit_kategorie,
+       MIN(NULLIF(lkmobiledir,"")) AS beispiel
+FROM obj WHERE COALESCE(lkdir,"") <> ""
+UNION ALL SELECT "rapporte",   COUNT(*), SUM(COALESCE(lkmobiledir,"")<>""), MIN(NULLIF(lkmobiledir,"")) FROM rapporte   WHERE COALESCE(lkdir,"")<>""
+UNION ALL SELECT "rechnungen", COUNT(*), SUM(COALESCE(lkmobiledir,"")<>""), MIN(NULLIF(lkmobiledir,"")) FROM rechnungen WHERE COALESCE(lkdir,"")<>""
+UNION ALL SELECT "offerten",   COUNT(*), SUM(COALESCE(lkmobiledir,"")<>""), MIN(NULLIF(lkmobiledir,"")) FROM offerten   WHERE COALESCE(lkdir,"")<>""
+UNION ALL SELECT "adressen",   COUNT(*), SUM(COALESCE(lkmobiledir,"")<>""), MIN(NULLIF(lkmobiledir,"")) FROM adressen   WHERE COALESCE(lkdir,"")<>""
+UNION ALL SELECT "kreditoren", COUNT(*), SUM(COALESCE(lkmobiledir,"")<>""), MIN(NULLIF(lkmobiledir,"")) FROM kreditoren WHERE COALESCE(lkdir,"")<>""
+UNION ALL SELECT "services",   COUNT(*), SUM(COALESCE(lkmobiledir,"")<>""), MIN(NULLIF(lkmobiledir,"")) FROM services   WHERE COALESCE(lkdir,"")<>"";
 
-SELECT "=== A3 Wer sitzt an der Aliothstrasse 63 (338 Objekte)? ===" AS x;
-SELECT o.id, o.strasse, o.ort,
-       (SELECT a.name1 FROM adressen a WHERE a.oknummer = o.knummer    LIMIT 1) AS zahler,
-       (SELECT a.name1 FROM adressen a WHERE a.oknummer = o.co_knummer LIMIT 1) AS korrespondenz
-FROM obj o WHERE o.objekt1 LIKE "Aliothstrasse 63%" LIMIT 5;
-
-SELECT "=== A4 Objekte ganz ohne eigene Strasse ===" AS x;
-SELECT COUNT(*) AS ohne_strasse,
-       SUM(COALESCE(objekt1,"") <> "") AS davon_mit_objekt1
-FROM obj WHERE COALESCE(strasse,"") = "";
-
-SELECT "=== B1 Spalten, die nach einem Pfad aussehen ===" AS x;
-SELECT table_name, column_name, column_type
-FROM information_schema.columns
-WHERE table_schema = "dbof"
-  AND (column_name LIKE "%dir%"  OR column_name LIKE "%path%"
-    OR column_name LIKE "%pfad%" OR column_name LIKE "%verzeichnis%"
-    OR column_name LIKE "%ordner%" OR column_name LIKE "%root%"
-    OR column_name LIKE "%share%"  OR column_name LIKE "%unc%")
-ORDER BY table_name, column_name;
-
-SELECT "=== B2 Konfigurationswerte, die einen Backslash enthalten ===" AS x;
-SELECT cmd_tablename, cmd_fieldname, LEFT(cmd_string,120) AS wert
-FROM companydata WHERE INSTR(cmd_string, CHAR(92)) > 0 LIMIT 30;
-
-SELECT "=== B3 Lizenztabelle (nur Pfad-verdaechtige Spalten) ===" AS x;
-SELECT lkdir, lkmobiledir FROM license LIMIT 3;
-
-SELECT "=== B4 Fuehrt lkmobiledir den vollen Pfad? ===" AS x;
-SELECT "obj" AS tabelle, COUNT(*) AS gefuellt, MIN(lkmobiledir) AS beispiel
-FROM obj WHERE COALESCE(lkmobiledir,"") <> ""
-UNION ALL SELECT "rechnungen", COUNT(*), MIN(lkmobiledir) FROM rechnungen WHERE COALESCE(lkmobiledir,"") <> ""
-UNION ALL SELECT "kreditoren", COUNT(*), MIN(lkmobiledir) FROM kreditoren WHERE COALESCE(lkmobiledir,"") <> "";
+SELECT "=== D2 Die uebrigen Pfad-Spalten: absolut oder relativ? ===" AS x;
+SELECT "pdfforms.path" AS quelle, COUNT(*) AS zeilen, MIN(NULLIF(path,"")) AS beispiel FROM pdfforms
+UNION ALL SELECT "progver.verpath",     COUNT(*), MIN(NULLIF(verpath,"")) FROM progver
+UNION ALL SELECT "filesver.verpath",    COUNT(*), MIN(NULLIF(verpath,"")) FROM filesver
+UNION ALL SELECT "chapter.picpath",     COUNT(*), MIN(NULLIF(picpath,"")) FROM chapter
+UNION ALL SELECT "extpictures.picpath", COUNT(*), MIN(NULLIF(picpath,"")) FROM extpictures;
 ```
 
-Lesart **A**: gewinnt eine der Kundenspalten deutlich, ist die Sache erledigt —
-das Feld bleibt Vermerk. Bleibt A2 gut gefüllt mit Adressen, die nirgends
-sonst vorkommen, ist es eine echte zweite Objektadresse und wandert ins
-Objekt. Lesart **B**: liefert B1/B2/B3 einen Pfad wie `\\server\freigabe\…`,
-ist die Wurzel gefunden und der Dokumentenstrang kann geplant werden; kommt
-nichts, liegt sie ausserhalb der Datenbank.
+Lesart: **C4** nennt die Firma an der Aliothstrasse 63 — ist es eine
+Immobilienverwaltung, ist die Rolle geklärt und `objekt1/objekt2` gehört auf
+Dauer in den Adress-Slot «Eigentümer» bzw. «Korrespondenz», nicht in die
+Objektadresse. **C5** sagt, ob `knummer` auf `adressen.id` zeigt; trifft es,
+ist die Messung aus dem ersten Lauf endlich verwertbar. **D1** entscheidet, ob
+die Kategorie-Ebene aus `lkmobiledir` breit genug belegt ist, um sie zu
+exportieren. **D2** zeigt, ob eine der übrigen Pfad-Spalten doch einen
+absoluten Pfad führt — dann wäre die Wurzel damit gefunden.
 
 Ausführungshinweise (beide bereits einmal gestolpert): Die Abfrage gehört
 VOLLSTÄNDIG in das `@'…'@` des PowerShell-Blocks — ein Platzhalter oder ein
 `Get-Content` auf eine nicht vorhandene Datei liefert kein SQL und damit eine
 LEERE Ergebnisdatei ohne Fehlermeldung. Und: `objekt1` gegen die Kundenadresse
-läuft über Unterabfragen, nicht über einen JOIN — `adressen.oknummer` ist
-nicht garantiert eindeutig, ein JOIN würde die Zeilen vervielfachen und die
-Zählung verfälschen.
-
+läuft über Unterabfragen, nicht über einen JOIN — der Schlüssel ist nicht
+garantiert eindeutig, ein JOIN würde die Zeilen vervielfachen und die Zählung
+verfälschen.
 ---
 
 ## 9. Datenschutz
