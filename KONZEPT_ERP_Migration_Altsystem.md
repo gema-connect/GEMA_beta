@@ -2079,5 +2079,168 @@ Architekturschritt wäre, Positionen als eigene Records (`erppos:<belegId>`)
 erst beim Öffnen eines Belegs zu laden — das betrifft Editor, Druck, Totale
 und Kennzahlen von pm_erp und ist ein eigenes Vorhaben.
 
-Bewusst nicht Teil der Migration (Kapitel 7.3): die Dokumente auf dem
-Netzlaufwerk (`lkdir`) — ein eigener Strang nach GemaStorage.
+Die Dokumente auf dem Netzlaufwerk (`lkdir`) sind ein eigener Strang — er ist
+in **Kapitel 12** geplant und noch nicht gebaut.
+
+---
+
+## 12. Der Dokumentenstrang — Plan
+
+Bis hierhin migriert GEMA die **Datenbank** des Altsystems. Die eigentlichen
+Dokumente liegen daneben: zu jedem Datensatz führt das Altsystem einen Ordner
+auf einem Netzlaufwerk (`lkdir`, Kapitel 8.16/8.18). Dort stecken die
+eingescannten Lieferantenrechnungen, die PDF-Ausdrucke der eigenen Offerten
+und Rechnungen, Korrespondenz, Pläne, Fotos. Die Datenbank kennt nur den
+Ordnernamen, nie die Dateien darin — **wie viele es sind und wie gross sie
+sind, weiss heute niemand.** Das ist der erste Punkt des Plans.
+
+### 12.1 Was übernommen wird
+
+| Quelle | Ordner | Ziel in GEMA | Anhang heute |
+|---|---|---|---|
+| `kreditoren` | 14 251 | `erpkred:` Kreditor | **nur EIN Beleg** (`k.beleg`) |
+| `rechnungen` | 4 468 | `erpdok:` Rechnung | `dateien[]` ✓ |
+| `offerten` | 2 713 | `erpdok:` Offerte | `dateien[]` ✓ |
+| `obj` | 206 | `objekt:` Objekt | keiner |
+| `rapporte` | 87 | `erpdok:` Auftrag | `dateien[]` ✓ |
+| `adressen` | 22 | `erpkunde:` Adresse | keiner |
+| `services` | 8 | `svanl:` Anlage | keiner |
+| **Summe** | **21 755** | | |
+
+**98.9 % landen in pm_erp** (Kreditoren, Rechnungen, Offerten, Aufträge). Die
+übrigen 236 Ordner sind ein Nachzügler, kein eigenes Vorhaben.
+
+Der Ordnername endet auf die **Datensatz-ID des Altsystems** (belegt in 8.16).
+Die Zuordnung Ordner → GEMA-Datensatz ist damit allein aus dem Ordnernamen
+herstellbar, ohne die Altdatenbank erneut zu befragen. Der volle Pfad lautet:
+
+```
+<Wurzel>\<Kategorie>\<lkdir>\<Datei>
+```
+
+mit der Wurzel `…\OFSoftware\OF_Zugeordnete_Dateien` (aus `pdfforms.path`) und
+der Kategorie aus `lkmobiledir` bzw. dem Ordnerbaum.
+
+### 12.2 Warum ein eigener Strang
+
+Der Browser kann kein Netzlaufwerk lesen. Der Import läuft deshalb wie der
+Datenexport über **PowerShell auf dem Rechner, der die Freigabe sieht**
+(gleiches Muster wie `erp_export/export.ps1`), und übergibt GEMA am Ende eine
+Manifest-Datei. Damit bleibt der Browser-Importer das, was er ist: ein Leser
+von Tabellen.
+
+### 12.3 Vier Stufen
+
+**Stufe 0 — Inventar (nur lesen, nichts bewegen).** `erp_export/inventar.ps1`
+läuft über den Baum und schreibt `dokumente_inventar.tsv`: Kategorie, Ordner,
+Alt-ID, Dateiname, Bytes, Endung, Änderungsdatum. Dazu eine Zusammenfassung:
+Dateien und Bytes je Kategorie, Endungs-Verteilung, die zehn grössten Dateien,
+Ordner ohne Datenbank-Entsprechung und Datensätze mit `lkdir` ohne Ordner.
+**Ohne diese Zahlen ist jede weitere Entscheidung geraten** — der
+Supabase-Plan, die Laufzeit des Uploads und die Frage, ob wirklich alles
+mitkommt, hängen daran.
+
+**Stufe 1 — Umfang festlegen.** Mit den Zahlen aus Stufe 0: alles oder ab
+einem Jahr; alle Endungen oder nur Dokumente (PDF, Bilder, Office); Deckel für
+Einzeldateien. Jede Auslassung wird im Manifest **benannt**, nie still
+weggelassen.
+
+**Stufe 2 — Hochladen.** `erp_export/dokumente.ps1` lädt in den Bucket und
+schreibt `dokumente_manifest.tsv` (Alt-ID, Kategorie, Ordner, Dateiname,
+Bytes, MIME, Storage-Pfad, Status). Eigenschaften:
+- **Wiederaufnehmbar**: ein vorhandenes Manifest wird gelesen, bereits
+  hochgeladene Dateien werden übersprungen. Ein Abbruch kostet nichts.
+- **Wiederholungen** bei Netzfehlern mit wachsender Wartezeit; ein endgültig
+  gescheiterter Upload steht als `fehler` im Manifest, nicht im Nichts.
+- **Löscht nie** etwas auf der Freigabe — sie bleibt das Archiv (12.6).
+- **Kein Service-Key auf dem Arbeitsplatz**: das Skript holt sich ein JWT über
+  die `gema-auth`-Function mit E-Mail und Passwort und lädt damit hoch. Es
+  bekommt exakt die Rechte des angemeldeten Benutzers.
+
+**Stufe 3 — Anhängen.** Ein neuer Importer-Abschnitt «Dokumente» liest das
+Manifest wie jede andere Tabelle und hängt die Dateien an den Datensatz mit
+der passenden Alt-ID. Eine Alt-ID ohne Datensatz wird gezählt und gemeldet
+(die Reihenfolge in `IMPORT_REIHENFOLGE` sorgt dafür, dass die Belege vorher
+da sind). Ein Wiederholungslauf hängt nichts doppelt an — Schlüssel ist der
+Storage-Pfad.
+
+**Stufe 4 — Anzeigen.** pm_erp zeigt `dateien[]` am Beleg bereits an; Kreditor,
+Objekt, Anlage und Adresse bekommen dieselbe Liste. Geöffnet wird über einen
+signierten Link (12.4).
+
+### 12.4 Privater Bucket statt öffentlicher
+
+Der bestehende Bucket `gema-fotos` ist **öffentlich lesbar** — wer die URL
+hat, sieht die Datei ohne Login. Für Baustellenfotos ist das die bewusste
+Entscheidung; für 14 251 Lieferantenrechnungen mit IBAN, Beträgen und
+Kundendaten wäre es die falsche. Der Strang bekommt darum einen eigenen Bucket:
+
+- **`gema-dokumente`, nicht öffentlich.** INSERT nur mit JWT (wie
+  `gema-fotos`), **keine** anonyme SELECT-Policy.
+- **Zugriff über eine neue Function `netlify/functions/storage-sign.js`**:
+  `requireAuth` aus `_jwt.js`, Pfad-Whitelist, **Org-Grenze am zweiten
+  Pfadsegment** — genau die Prüfung, die `storage-delete.js` schon fährt —,
+  dann eine signierte URL mit kurzer Gültigkeit über den Service-Key.
+- **Pfad**: `erp/<orgId>/altsystem/<kategorie>/<altId>/<dateiname>`. Das hält
+  die Org-Grenze und macht die Dateien für `storage-delete.js` aufräumbar.
+- Im Datensatz steht der **`path`**, nicht eine URL: eine private Datei hat
+  keine dauerhafte Adresse. `GemaStorage` bekommt dafür `signedUrl(path)`.
+
+Bestehende Fotos bleiben unangetastet in `gema-fotos`.
+
+### 12.5 Datenmodell — eine Form für alle fünf Zielarten
+
+```js
+dateien: [{
+  id, name, mime, groesse, am, von,
+  bucket:'gema-dokumente', path,       // statt url — privat
+  importOrdner, importKategorie        // Herkunft im Altsystem
+}]
+```
+
+- **Beleg** (`erpdok:`): die Form existiert bereits, sie bekommt nur `path`
+  neben dem bisherigen `url` (Fotos aus dem laufenden Betrieb behalten `url`).
+- **Kreditor** (`erpkred:`): führt heute **genau einen** Beleg (`k.beleg`).
+  Bei 14 251 Ordnern ist das zu wenig — er bekommt `dateien[]`. `k.beleg`
+  bleibt und zeigt auf die erste Datei, damit die bestehende Beleg-Ansicht und
+  der Doppelklick in der Kreditorenliste weiter funktionieren.
+- **Objekt, Anlage, Adresse**: `dateien[]` ist neu, dazu eine schlichte Liste
+  im jeweiligen Dialog. Ohne Anzeige läge die Datei unsichtbar im Datensatz.
+
+### 12.6 Rechtliches (Schweiz)
+
+- **OR 958f**: Geschäftsbücher, Buchungsbelege und Geschäftskorrespondenz sind
+  **zehn Jahre** aufzubewahren; die elektronische Aufbewahrung ist zulässig
+  (GeBüV, SR 221.431).
+- **GeBüV Art. 9**: auf veränderbaren Informationsträgern müssen technische
+  Verfahren die Integrität sichern. Ein Storage-Bucket ist ein veränderbarer
+  Träger. **Die Kopie in GEMA ist eine Zugriffskopie, kein Ersatz des
+  Archivs** — das Netzlaufwerk bleibt bestehen, bis die Fristen abgelaufen
+  sind. Genau darum löscht der Uploader dort nie etwas.
+- **Mehrwertsteuer**: für Unterlagen im Zusammenhang mit unbeweglichen
+  Gegenständen gilt eine **längere** Frist als zehn Jahre. Bevor auf der
+  Freigabe irgendetwas gelöscht wird, gehört das vom Treuhänder bestätigt.
+- **DSG**: die Dokumente enthalten Personendaten. Das Bearbeitungsverzeichnis
+  (Art. 12) ist nachzuführen; Supabase ist Auftragsbearbeiter (Art. 9), und
+  liegt der Serverstandort ausserhalb der Schweiz/EU, greifen zusätzlich die
+  Regeln zur Bekanntgabe ins Ausland. Art. 8 verlangt angemessene
+  Datensicherheit — das ist der zweite Grund für den privaten Bucket.
+
+### 12.7 Guards
+
+- `dokumente_inventar_test` — die Zusammenfassung stimmt mit den Zeilen
+  überein; Ordner ohne erkennbare Alt-ID werden gemeldet, nicht verschluckt.
+- `dokumente_import_test` — Manifest → Anhang am richtigen Datensatz;
+  Wiederholungslauf legt nichts doppelt an; eine Alt-ID ohne Datensatz landet
+  im Bericht; ein Kreditor mit mehreren Dateien behält `k.beleg`.
+- `storage_sign_test` — kein Zugriff ohne JWT, kein Ausbruch aus dem
+  Org-Ordner, kein anderer Bucket, kurze Gültigkeit.
+- `storage_delete_test` — um den neuen Bucket erweitern.
+
+### 12.8 Was noch offen ist
+
+**Das Volumen.** 21 755 Ordner mit unbekanntem Inhalt: bei zwei bis drei
+Dateien je Ordner und einer typischen Scan-Grösse wären das grob 10–20 GB —
+das ist eine Hausnummer, keine Messung. Der Supabase-Plan, die Laufzeit des
+Uploads und die Frage, ob wirklich alles mitkommt, hängen daran. Stufe 0
+beantwortet es an einem Nachmittag.
