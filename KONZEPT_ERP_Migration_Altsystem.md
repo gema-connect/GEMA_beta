@@ -1387,6 +1387,47 @@ FROM arbtyp a ORDER BY termine DESC;
 `absenz.paid` sieht aus wie «bezahlt ja/nein», ist es aber nicht — siehe 6.0.
 Beide Bit-Spalten werden mit `+0` abgefragt, sonst kommen sie als `\0`/`\1`.
 
+### 8.15 Mitarbeitende
+
+Die Mitarbeitenden werden zu GEMA-Benutzern der Firma — ohne Passwort, mit
+Einladungslink (Vorbild `inviteBeteiligter`): jede Person mit E-Mail setzt ihr
+Passwort selbst über `sys_login.html?invite=…`. Der Bericht listet die Links;
+sie sind den Personen zuzustellen. Rollen entstehen aus den Kennzeichen
+(`manager` → Abteilungsleiter, `sachbearb` → Unternehmer, sonst Monteur), nie
+Administrator. Ausgetretene werden **inaktiv** angelegt, damit Stunden und
+Termine der Vergangenheit eine Person haben.
+
+Das Pensum ergibt sich aus dem Wochensoll des Altsystems (Summe `sollmo`…
+`sollfr`) gegen das Firmen-Wochensoll **inklusive Vorholzeit** — das Altsystem
+kannte keine Vorholzeit, sein Tagessoll ist die volle vertragliche Zeit. Ist das
+Firmen-Wochensoll nicht gesetzt oder der Wert unplausibel (etwa Minuten statt
+Stunden), bleibt das Pensum leer und die Zeile wird gemeldet.
+
+```sql
+SELECT a.id, ad.name1, ad.vorname, a.kuerzel,
+       COALESCE(NULLIF(a.email_internal,''), ad.email) AS email,
+       ad.tel1, ad.natel, ab.name1 AS abt_name,
+       a.monteur+0 AS monteur, a.sachbearb+0 AS sachbearb, a.manager+0 AS manager,
+       a.eintritt, a.austritt,
+       COALESCE(a.sollmo,0)+COALESCE(a.solldi,0)+COALESCE(a.sollmi,0)
+         +COALESCE(a.solldo,0)+COALESCE(a.sollfr,0) AS wochensoll,
+       a.ferien AS ferientage, a.ansatz1
+FROM arbeiter a
+LEFT JOIN adressen ad ON ad.id = a.adr_id
+LEFT JOIN abt      ab ON ab.id = a.abt_id
+ORDER BY ad.name1, ad.vorname;
+```
+
+> **Bewusst NICHT exportiert** (Kapitel 9): `ahv`, `gebdat`, `zivilstand`,
+> `anzkinder`, `lohnkonto`, `bankname1/2`, `bankplz/ort/land`, `bc`,
+> `aktivlohn`, `lohnflag`, `passwrd`, `register_key`. Der Import braucht davon
+> nichts, und was nicht exportiert wird, kann nirgends liegen bleiben.
+
+> Die Einheit von `sollmo`…`sollfr` ist nicht belegt. Sind es Stunden (8.25),
+> ergibt sich bei 40 h + 1.25 h Vorholzeit genau 100 %. Wären es Minuten, käme
+> 600 % heraus — das weist der Importer als unplausibel ab und meldet es, statt
+> ein Pensum zu erfinden.
+
 ### 8.14b Termin-Bezug der mobilen Zeiten
 
 Welche Spalte verbindet `hours` mit `termin`? Die GUID tut es nicht (0 Treffer,

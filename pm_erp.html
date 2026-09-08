@@ -7093,6 +7093,8 @@ function erpMigRender(){
       ? '<th>Bezeichnung</th><th>Hersteller / Typ</th><th>Serien-Nr.</th><th>Objekt</th><th>Letzte Rev.</th><th>Nächste Rev.</th><th class="num">Int.</th>'
       : _mig.sekId==='stunden'
       ? '<th>Mitarbeiter</th><th>Datum</th><th class="num">Stunden</th><th>Stufe</th><th>Auftrag</th><th>Tätigkeit</th>'
+      : _mig.sekId==='mitarbeiter'
+      ? '<th>Name</th><th>E-Mail</th><th>Rolle</th><th>Abteilung</th><th>Ein-/Austritt</th><th class="num">Pensum</th>'
       : _mig.sekId==='uebertraege'
       ? '<th>Mitarbeiter</th><th>Stichtag</th><th class="num">Ferien h</th><th class="num">Überzeit h</th><th class="num">Ausbez. h</th><th>Bemerkung</th>'
       : _mig.sekId==='bezugspersonen'
@@ -7196,6 +7198,13 @@ function erpMigRender(){
         +'<td>'+(t.quelle==='erfasst'?'📱 erfasst':'✓ freigegeben')+'</td>'
         +'<td>'+esc(t.auftragNr||'—')+'</td>'
         +'<td>'+esc((t.taetigkeit||'').slice(0,40)||(t.absenz?'Absenz '+esc(t.absenz):'—'))+'</td>';
+    }else if(_mig.sekId==='mitarbeiter'){
+      h3+='<td><b>'+esc(t.voller||'—')+'</b>'+(t.kuerzel?' <span style="color:var(--mut)">'+esc(t.kuerzel)+'</span>':'')+'</td>'
+        +'<td>'+(t.email?esc(t.email):'<span style="color:var(--amber)">keine — kein Login</span>')+'</td>'
+        +'<td>'+esc(String(t.rolle||'').replace('role_',''))+'</td>'
+        +'<td>'+esc(t.abteilung||'—')+'</td>'
+        +'<td>'+esc(t.eintritt||'—')+(t.austritt?' → '+esc(t.austritt)+(t.aktiv?'':' <b style="color:var(--amber)">inaktiv</b>'):'')+'</td>'
+        +'<td class="num">'+(t.pensum&&t.pensum.pensum!=null?t.pensum.pensum+' %':(t.wochenSoll!=null?'<span style="color:var(--amber)">?</span>':'—'))+'</td>';
     }else if(_mig.sekId==='uebertraege'){
       // Minusstunden rot, aber beziffert — ein Saldo von 0.00 ist eine
       // Aussage und wird nie als «—» dargestellt.
@@ -7348,6 +7357,15 @@ function erpMigStart(){
     if(rep.stundenTage)txt+=', <b>'+rep.stundenEintraege+'</b> Zeiteinträge auf <b>'+rep.stundenTage+'</b> Tagen';
     if(rep.personen)txt+=', <b>'+rep.personen+'</b> Bezugspersonen ergänzt';
     if(rep.ferienUebertraege)txt+=', <b>'+rep.ferienUebertraege+'</b> Ferien-/Überzeitsalden übernommen';
+    if(rep.rollen)txt+='<br>Rollen: '+Object.keys(rep.rollen).map(function(r){return '<b>'+rep.rollen[r]+'</b> × '+esc(r.replace('role_',''));}).join(' · ')+' — in der Verwaltung anpassbar, nie Administrator.';
+    if(rep.einladungen&&rep.einladungen.length){
+      txt+='<br><span style="color:var(--teal)"><b>'+rep.einladungen.length+'</b> Einladungslink(s) — bitte den Personen zustellen, sie setzen ihr Passwort selbst:</span>'
+        +'<div style="max-height:220px;overflow:auto;margin-top:6px;font-size:12px">'
+        +rep.einladungen.map(function(e){return '<div>'+esc(e.name)+' &lt;'+esc(e.email)+'&gt; — <a href="'+esc(e.link)+'" target="_blank" rel="noopener">'+esc(e.link)+'</a></div>';}).join('')
+        +'</div>';
+    }
+    if(rep.ohneEmail)txt+='<br><span style="color:var(--amber)">'+rep.ohneEmail+' Person(en) ohne E-Mail — angelegt, aber ohne Login. E-Mail in der Verwaltung ergänzen und dort einladen.</span>';
+    if(rep.pensumOffen)txt+='<br><span style="color:var(--amber)">Bei '+rep.pensumOffen+' Person(en) liess sich das Pensum nicht ableiten — das Wochensoll des Altsystems steht als Vermerk in den Stammdaten (siehe Vorschau-Hinweis).</span>';
     if(rep.absenzen)txt+=', <b>'+rep.absenzen+'</b> Tage als Abwesenheit erfasst';
     if(rep.absenzartenNeu&&rep.absenzartenNeu.length)txt+='<br><span style="color:var(--teal)">'+rep.absenzartenNeu.length+' eigene Absenzart(en) angelegt: <b>'+rep.absenzartenNeu.map(esc).join('</b>, <b>')+'</b> — bitte in den ⚙️-Einstellungen der Stundenerfassung die Regeln setzen (füllt das Tagessoll auf? keine Vorholzeit? beantragbar?). Sie stehen bewusst auf «aus».</span>';
     if(rep.absenzartenOffen&&rep.absenzartenOffen.length)txt+='<br><span style="color:var(--amber)">Absenzart(en) konnten nicht angelegt werden (keine Firma im Kontext): '+rep.absenzartenOffen.map(esc).join(', ')+'. Die Tage sind ohne Absenztyp erfasst.</span>';

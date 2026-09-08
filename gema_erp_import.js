@@ -1088,6 +1088,28 @@ var SEKTIONEN=[
   ]
 },
 {
+  id:'mitarbeiter', label:'Mitarbeitende', ic:'👥', bereit:true,
+  info:'Die Mitarbeitenden des Altsystems werden zu GEMA-Benutzern der Firma — OHNE Passwort: jede Person mit E-Mail bekommt einen Einladungslink und setzt ihr Passwort selbst. Die Rolle entsteht aus den Kennzeichen des Altsystems (Leitung → Abteilungsleiter, Sachbearbeiter → Unternehmer, sonst Monteur) und lässt sich in der Verwaltung anpassen — nie Administrator. Ein-/Austritt, Wochensoll und daraus das Pensum landen in den Stammdaten der Stundenerfassung. Ausgetretene werden INAKTIV angelegt, damit Stunden und Termine der vergangenen Jahre eine Person haben. Nur als Firmen-Admin ausführen.',
+  felder:[
+    {id:'extId',     label:'ID im Altsystem', hint:'Für den Wiederholungs-Import (keine Dubletten)', alias:['id','arbid','arbeiterid','mitarbeiterid']},
+    {id:'name',      label:'Name', pflicht:true, alias:['name1','name','nachname']},
+    {id:'vorname',   label:'Vorname', alias:['vorname']},
+    {id:'kuerzel',   label:'Kürzel', alias:['kuerzel','kurz','kurzzeichen']},
+    {id:'email',     label:'E-Mail', hint:'Wird zum Login-Namen und trägt die Einladung. Ohne E-Mail entsteht der Benutzer ohne Login.', alias:['email','emailinternal','mail']},
+    {id:'tel',       label:'Telefon', alias:['tel1','telefon','tel']},
+    {id:'natel',     label:'Natel', alias:['natel','mobile','handy']},
+    {id:'abteilung', label:'Abteilung', hint:'Wird zum GEMA-Arbeitsbereich', alias:['abtname','abteilung','bereich']},
+    {id:'monteur',   label:'Monteur', hint:'Kennzeichen 1/0 des Altsystems', alias:['monteur','istmonteur']},
+    {id:'sachbearb', label:'Sachbearbeiter', hint:'Kennzeichen 1/0 → Rolle Unternehmer (Büro/ERP)', alias:['sachbearb','sachbearbeiter','buero']},
+    {id:'manager',   label:'Leitung', hint:'Kennzeichen 1/0 → Rolle Abteilungsleiter', alias:['manager','leitung','vorgesetzter']},
+    {id:'eintritt',  label:'Eintritt', alias:['eintritt','eintrittsdatum','seit']},
+    {id:'austritt',  label:'Austritt', hint:'Gesetzt und vergangen = Benutzer inaktiv', alias:['austritt','austrittsdatum']},
+    {id:'wochenSoll',label:'Wochensoll (h)', hint:'Summe der Tagessolls Mo–Fr des Altsystems. Das Pensum wird gegen das Firmen-Wochensoll inkl. Vorholzeit gerechnet und in der Vorschau gezeigt.', alias:['wochensoll','sollwoche','sollstunden']},
+    {id:'ferienTage',label:'Ferien (Tage/Jahr)', hint:'Im Altbestand leer — der Anspruch kommt aus den Firmen-Einstellungen', alias:['ferientage','ferien']},
+    {id:'ansatz',    label:'Verkaufsansatz', hint:'Vermerk in den Stammdaten', alias:['ansatz1','ansatz','stundenansatz']}
+  ]
+},
+{
   id:'termine', label:'Termine', ic:'📅', bereit:true,
   info:'Die Disposition aus dem Altsystem — Aufträge, freie Termine und Abwesenheiten. Termine, die in der Zukunft liegen, sind der wichtigste Teil: sie sind die geplante Arbeit der nächsten Monate. Der Monteur wird über den Namen einer Person der Firma zugeordnet, der Auftrag über seine Nummer.',
   felder:[
@@ -1297,7 +1319,7 @@ function erkenneSektion(headers){
    Davor die Stammdaten (Konditionen, Artikel), danach alles, was einen
    fertigen Beleg braucht: Positionen und Zahlungen hängen sich an Offerte
    bzw. Rechnung, Kreditoren an den Auftrag. */
-var IMPORT_REIHENFOLGE=['zahlbed','artikel','objekte','adressen','bezugspersonen',
+var IMPORT_REIHENFOLGE=['zahlbed','mitarbeiter','artikel','objekte','adressen','bezugspersonen',
                         'offerten','auftraege','rechnungen','positionen','zahlungen',
                         'kreditoren','anlagen','termine','stunden','uebertraege'];
 function sektionRang(sekId){
@@ -1544,6 +1566,26 @@ function normalisiereZeile(row,map,sekId){
       spesen:parseBetrag(g('spesen')), bemerkung:g('bemerkung')
     };
   }
+  if(sekId==='mitarbeiter'){
+    var mFlag=function(v){var x=norm(v);return !!x&&x!=='0'&&x!=='false'&&x!=='nein';};
+    var mAus=parseDatum(g('austritt'));
+    var mMan=mFlag(g('manager')),mSb=mFlag(g('sachbearb')),mMo=mFlag(g('monteur'));
+    var voller=[s(g('vorname')),s(g('name'))].filter(Boolean).join(' ');
+    return {
+      extId:g('extId'), name:g('name'), vorname:g('vorname'), voller:voller, kuerzel:g('kuerzel'),
+      email:s(g('email')).toLowerCase(), tel:g('tel'), natel:g('natel'), abteilung:g('abteilung'),
+      monteur:mMo, sachbearb:mSb, manager:mMan,
+      // Leitung schlägt Büro schlägt Monteur; ohne jedes Kennzeichen Monteur
+      // (die kleinste Rolle) — nie Administrator. Anpassen in der Verwaltung.
+      rolle:mMan?'role_abteilungsleiter':(mSb?'role_unternehmer':'role_monteur'),
+      rolleAbgeleitet:!(mMan||mSb||mMo),
+      eintritt:parseDatum(g('eintritt')), austritt:mAus,
+      aktiv:!mAus||mAus>jetzt().slice(0,10),
+      wochenSoll:parseBetrag(g('wochenSoll')), ferienTage:parseBetrag(g('ferienTage')),
+      ansatz:parseBetrag(g('ansatz')),
+      pensum:pensumAusWochenSoll(parseBetrag(g('wochenSoll')))
+    };
+  }
   if(sekId==='uebertraege'){
     return {
       extId:g('extId'), mitarbeiter:g('mitarbeiter'), datum:parseDatum(g('datum')),
@@ -1703,6 +1745,15 @@ function pruefe(z,sekId){
     if(z.absenzArbeit)hin.push({typ:'info',text:'«'+s(z.absenz)+'» ist Arbeit, keine Absenz — die Zeit zählt als geleistet.'});
     else if(s(z.absenzTyp))hin.push({typ:'info',text:'Absenz «'+s(z.absenz)+'» → GEMA-Typ «'+s(z.absenzTyp)+'» am Tag.'});
     else if(s(z.absenz))hin.push({typ:'info',text:'Absenzart «'+s(z.absenz)+'» kennt GEMA noch nicht — sie wird beim Import als eigene Absenzart angelegt und der Tag als Abwesenheit erfasst (Regeln danach in den ⚙️-Einstellungen setzen).'});
+  }else if(sekId==='mitarbeiter'){
+    if(!s(z.name))hin.push({typ:'fehler',text:'Kein Name — Zeile wird übersprungen.'});
+    if(!s(z.email))hin.push({typ:'warn',text:'Keine E-Mail — der Benutzer entsteht ohne Login und ohne Einladung (Stunden und Termine lassen sich trotzdem zuordnen).'});
+    hin.push({typ:'info',text:'Rolle: '+z.rolle.replace('role_','')+(z.rolleAbgeleitet?' (kein Kennzeichen im Altsystem — kleinste Rolle)':'')+'.'});
+    if(!z.aktiv)hin.push({typ:'info',text:'Ausgetreten am '+s(z.austritt)+' — wird INAKTIV angelegt.'});
+    if(z.wochenSoll!=null){
+      if(z.pensum.pensum!=null)hin.push({typ:'info',text:'Wochensoll '+z.wochenSoll+' h → Pensum '+z.pensum.pensum+' % (gegen '+z.pensum.basis+' h Firmen-Wochensoll inkl. Vorholzeit).'});
+      else hin.push({typ:'warn',text:'Wochensoll '+z.wochenSoll+' h — '+z.pensum.grund+' Das Pensum bleibt leer, der Wert steht als Vermerk in den Stammdaten.'});
+    }
   }else if(sekId==='uebertraege'){
     if(!s(z.mitarbeiter))hin.push({typ:'fehler',text:'Kein Mitarbeiter — Zeile wird übersprungen.'});
     if(!s(z.datum))hin.push({typ:'fehler',text:'Kein Stichtag — Zeile wird übersprungen.'});
@@ -1811,16 +1862,23 @@ function findeObjekt(adr,liste){
 function findeSachbearbeiter(name){
   var t=norm(name);
   if(!t)return null;
-  var users=[];
+  var alle=[];
   try{
     var u=GemaAuth.getCurrentUser();
-    users=(GemaAuth.getUsers()||[]).filter(function(x){return x&&x.active!==false&&(!u||x.orgId===u.orgId);});
+    alle=(GemaAuth.getUsers()||[]).filter(function(x){return x&&(!u||x.orgId===u.orgId);});
   }catch(e){}
-  var hit=users.find(function(x){return norm(x.name)===t;});
-  if(!hit)hit=users.find(function(x){
-    return (s(x.name).split(/\s+/).map(norm).indexOf(t)>=0);
-  });
-  if(!hit)hit=users.find(function(x){return norm(x.name).indexOf(t)>=0&&t.length>=3;});
+  // Aktive zuerst; INAKTIVE (Ausgetretene) danach — die Historie ihrer Stunden
+  // und Termine braucht trotzdem eine Person. Ohne diesen zweiten Durchgang
+  // landeten alle Zeilen einer ausgetretenen Person ohne Zuordnung.
+  function suche(users){
+    var hit=users.find(function(x){return norm(x.name)===t;});
+    if(!hit)hit=users.find(function(x){
+      return (s(x.name).split(/\s+/).map(norm).indexOf(t)>=0);
+    });
+    if(!hit)hit=users.find(function(x){return norm(x.name).indexOf(t)>=0&&t.length>=3;});
+    return hit||null;
+  }
+  var hit=suche(alle.filter(function(x){return x.active!==false;}))||suche(alle);
   return hit?{userId:hit.id,name:hit.name}:{userId:'',name:s(name)};
 }
 /* Abteilung → GEMA-Arbeitsbereich (org.settings.arbeitsbereiche).
@@ -1873,6 +1931,18 @@ function vorbereiten(opts){
   if(sekId==='uebertraege')poolEigene(ST_POOL).filter(function(t){return t.typ==='uebertrag';})
     .forEach(function(t){
       bekannt[uebertragSchluessel(t.datum,t.userName,t.extId||(t.quelle&&t.quelle.extId))]=t;});
+  if(sekId==='mitarbeiter'){
+    var oid=eigeneOrgId();
+    var alleUser=[];try{alleUser=GemaAuth.getUsers()||[];}catch(e){}
+    alleUser.forEach(function(x){
+      if(!x)return;
+      var ex=s(x.quelle&&x.quelle.extId);
+      if(ex&&x.quelle.system==='ERP-Migration')bekannt['m:ext:'+norm(ex)]=x;
+      var em=s(x.username||(x.profile&&x.profile.email)).toLowerCase();
+      if(em&&em.indexOf('@')>0)bekannt['m:mail:'+em]=x;
+      if(x.orgId===oid&&s(x.name))bekannt['m:name:'+norm(x.name)]=x;
+    });
+  }
   if(sekId==='anlagen')poolEigene(ANL_POOL).forEach(function(a){
     var ae=s(a.extId||(a.quelle&&a.quelle.extId));
     bekannt[ae?('ext:'+norm(ae)):('x:'+norm([a.name,a.serienNr,a.objektName].join('|')))]=a;});
@@ -1962,6 +2032,10 @@ function vorbereiten(opts){
         :('x:'+norm([z.name,z.serienNr,z.objekt&&z.objekt.strasse].join('|')));
       if(bekannt[alk]){aktion='aktualisiert';stats.aktualisiert++;}
       else{stats.neu++;bekannt[alk]={};}
+    }else if(sekId==='mitarbeiter'){
+      var mk=mitarbeiterSchluessel(z,bekannt);
+      if(mk){aktion='aktualisiert';stats.aktualisiert++;}
+      else{stats.neu++;bekannt['m:name:'+norm(z.voller)]={};if(z.email)bekannt['m:mail:'+z.email]={};}
     }else if(sekId==='uebertraege'){
       var um=s(z.mitarbeiter)?findeSachbearbeiter(z.mitarbeiter):null;
       var uk=uebertragSchluessel(z.datum,um?um.name:s(z.mitarbeiter),z.extId);
@@ -2852,6 +2926,117 @@ function zahlbedIdFuer(kuerzel){
   return '';
 }
 
+/* ── Mitarbeitende → GEMA-Benutzer + Stammdaten der Stundenerfassung ─────
+   Vorbild ist GemaAuth.inviteBeteiligter: ein Benutzer OHNE Passwort
+   (password:null) mit Einladungs-Token; das Passwort setzt die Person über
+   sys_login.html?invite=<token> selbst, serverseitig (actionActivate). Es
+   wird nie ein Passwort erfunden und nie role_admin vergeben.
+
+   Benutzer werden über die Alt-ID, die E-Mail oder Vorname+Name der eigenen
+   Firma wiedererkannt; Bestehendes wird nur ergänzt, nie überschrieben.
+   Ausgetretene entstehen INAKTIV — findeSachbearbeiter findet auch sie, damit
+   die Historie ihrer Stunden und Termine eine Person hat.
+
+   Das Pensum entsteht aus dem Wochensoll des Altsystems gegen das
+   Firmen-Wochensoll INKLUSIVE Vorholzeit: das Altsystem kannte keine
+   Vorholzeit, sein Tagessoll ist die volle vertragliche Zeit (8.25 h bei
+   40 h + 1.25 h Vorholzeit). Ohne gesetztes Firmen-Wochensoll wird nichts
+   geraten — der Rohwert bleibt als Vermerk und die Zeile wird gemeldet. */
+function pensumAusWochenSoll(wochenSoll){
+  if(wochenSoll==null)return {pensum:null,basis:null,grund:''};
+  var st={};try{st=((GemaAuth.getCurrentOrg()||{}).settings||{}).stunden||{};}catch(e){}
+  var ws=parseFloat(st.wochenSoll),vh=parseFloat(st.vorholProWocheH)||0;
+  if(!(ws>0))return {pensum:null,basis:null,grund:'Das Firmen-Wochensoll ist in der Stundenerfassung nicht gesetzt.'};
+  var basis=Math.round((ws+vh)*100)/100;
+  var p=Math.round(wochenSoll/basis*100);
+  if(!(p>0&&p<=200))return {pensum:null,basis:basis,grund:'Daraus ergäben sich '+p+' % — das ist keine plausible Anstellung (Einheit des Wochensolls prüfen).'};
+  return {pensum:p,basis:basis,grund:''};
+}
+function mitarbeiterSchluessel(z,bekannt){
+  if(s(z.extId)&&bekannt['m:ext:'+norm(z.extId)])return bekannt['m:ext:'+norm(z.extId)];
+  if(z.email&&bekannt['m:mail:'+z.email])return bekannt['m:mail:'+z.email];
+  if(s(z.voller)&&bekannt['m:name:'+norm(z.voller)])return bekannt['m:name:'+norm(z.voller)];
+  return null;
+}
+function mitarbeiterSchreiben(zeilen,report,opts){
+  opts=opts||{};
+  var u=null,org=null;
+  try{u=GemaAuth.getCurrentUser();org=GemaAuth.getCurrentOrg();}catch(e){}
+  if(!u||!org||!org.id)return Promise.reject(new Error('Keine Firma im Kontext — Mitarbeitende brauchen eine Firma.'));
+  var orgId=u.orgId;
+  var users=(GemaAuth.getUsers()||[]).slice();
+  var bekannt={};
+  users.forEach(function(x){
+    if(!x)return;
+    var ex=s(x.quelle&&x.quelle.extId);
+    if(ex&&x.quelle.system==='ERP-Migration')bekannt['m:ext:'+norm(ex)]=x;
+    var em=s(x.username||(x.profile&&x.profile.email)).toLowerCase();
+    if(em&&em.indexOf('@')>0)bekannt['m:mail:'+em]=x;
+    if(x.orgId===orgId&&s(x.name))bekannt['m:name:'+norm(x.name)]=x;
+  });
+  var st=Object.assign({},(org.settings||{}).stunden||{});
+  var mit=Object.assign({},st.mitarbeiter||{});
+  var geaendert=false,stammGeaendert=false,rollen={},links=[];
+  zeilen.forEach(function(zl){
+    var z=zl.ziel;
+    if(!s(z.voller))return;
+    var user=mitarbeiterSchluessel(z,bekannt);
+    if(!user){
+      var token='inv_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,8);
+      user={
+        id:'u_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7),
+        username:z.email||('imp_'+norm(z.voller)+'_'+Math.random().toString(36).slice(2,6)),
+        name:z.voller, password:null, roleIds:[z.rolle], active:!!z.aktiv, orgId:orgId,
+        createdAt:jetzt(),
+        profile:{email:z.email||'',telefon:s(z.tel)||s(z.natel),sprache:'de',benachrichtigungen:true,einheiten:'metrisch'},
+        einladung:z.email?{token:token,eingeladenVon:u.id,eingeladenAm:jetzt(),angenommenAm:null,passwortGesetzt:false}:null,
+        quelle:{typ:'import',system:opts.quelleName||'ERP-Migration',am:jetzt(),extId:s(z.extId)}
+      };
+      users.push(user);
+      bekannt['m:name:'+norm(z.voller)]=user;if(z.email)bekannt['m:mail:'+z.email]=user;
+      if(s(z.extId))bekannt['m:ext:'+norm(z.extId)]=user;
+      geaendert=true;report.neu++;
+      if(z.email)links.push({name:z.voller,email:z.email,link:'sys_login.html?invite='+token});
+      else report.ohneEmail=(report.ohneEmail||0)+1;
+    }else{
+      // Nur Lücken füllen — Rolle, Aktiv-Status und Name eines bestehenden
+      // Benutzers sind Sache der Verwaltung, nicht des Imports.
+      var vorher=JSON.stringify(user);
+      if(!user.profile)user.profile={};
+      if(!s(user.profile.email)&&z.email)user.profile.email=z.email;
+      if(!s(user.profile.telefon)&&(s(z.tel)||s(z.natel)))user.profile.telefon=s(z.tel)||s(z.natel);
+      if(!user.quelle&&s(z.extId))user.quelle={typ:'import',system:opts.quelleName||'ERP-Migration',am:jetzt(),extId:s(z.extId)};
+      if(JSON.stringify(user)!==vorher){geaendert=true;report.aktualisiert++;}
+      else report.uebersprungen++;
+    }
+    rollen[z.rolle]=(rollen[z.rolle]||0)+1;
+    // Stammdaten der Stundenerfassung — ebenfalls nur Lücken füllen.
+    var m=Object.assign({},mit[user.id]||{}),mv=JSON.stringify(m);
+    if(s(z.eintritt)&&!s(m.eintritt))m.eintritt=s(z.eintritt);
+    if(s(z.austritt)&&!s(m.austritt))m.austritt=s(z.austritt);
+    if(z.ferienTage!=null&&m.ferienTage==null)m.ferienTage=z.ferienTage;
+    if(z.wochenSoll!=null&&m.importWochenSoll==null)m.importWochenSoll=z.wochenSoll;
+    if(z.pensum&&z.pensum.pensum!=null&&m.pensum==null)m.pensum=z.pensum.pensum;
+    if(z.wochenSoll!=null&&!(z.pensum&&z.pensum.pensum!=null))report.pensumOffen=(report.pensumOffen||0)+1;
+    if(z.ansatz!=null&&m.importAnsatz==null)m.importAnsatz=z.ansatz;
+    if(s(z.kuerzel)&&!s(m.kuerzel))m.kuerzel=s(z.kuerzel);
+    if(JSON.stringify(m)!==mv){mit[user.id]=m;stammGeaendert=true;}
+    if(s(z.abteilung))findeBereich(z.abteilung);
+  });
+  report.rollen=rollen;report.einladungen=links;
+  var p=Promise.resolve({ok:true});
+  if(geaendert)p=Promise.resolve(GemaAuth.saveUsers(users));
+  return p.then(function(res){
+    if(res&&res.ok===false){
+      report.fehler.push({zeile:0,text:'Benutzer speichern: '+(res.error||'abgelehnt')+(res.denied?' (keine Berechtigung — nur ein Firmen-Admin darf Benutzer anlegen)':'')});
+      return;
+    }
+    if(!stammGeaendert)return;
+    st.mitarbeiter=mit;
+    return Promise.resolve(GemaAuth.updateOrgSettings(org.id,{stunden:st}));
+  });
+}
+
 /* ── Ferien-/Überzeitüberträge → std: mit typ:'uebertrag' ───────────────
    Sie liegen im Stunden-Pool, aber ausserhalb der Tagesrapporte: pm_stunden
    trennt beides über `t.typ` (wie schon bei den Auszahlungen). Ein Übertrag
@@ -3295,6 +3480,7 @@ function ausfuehren(plan,opts){
   // sonst bliebe, was bis dahin gelungen ist, nur im Arbeitsspeicher.
   function abschluss(r){return poolFlush().then(function(){return r;},function(){return r;});}
   if(sekId==='zahlbed')return zahlbedSchreiben(zeilen,report,opts).then(fertig,gescheitert).then(abschluss);
+  if(sekId==='mitarbeiter')return mitarbeiterSchreiben(zeilen,report,opts).then(fertig,gescheitert).then(abschluss);
   if(sekId==='positionen')return positionenSchreiben(zeilen,report,opts).then(fertig,gescheitert).then(abschluss);
   if(sekId==='zahlungen')return zahlungenSchreiben(zeilen,report,opts).then(fertig,gescheitert).then(abschluss);
   if(sekId==='artikel')return artikelSchreiben(zeilen,report,opts).then(fertig,gescheitert).then(abschluss);
