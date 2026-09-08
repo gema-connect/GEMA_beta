@@ -1,5 +1,5 @@
 -- GEMA ERP-Migration — Export «08_auftraege»
--- GENERIERT aus KONZEPT_ERP_Migration_Altsystem.md (Zeile 904) durch scripts/erp_export_gen.mjs.
+-- GENERIERT aus KONZEPT_ERP_Migration_Altsystem.md (Zeile 907) durch scripts/erp_export_gen.mjs.
 -- Nicht von Hand ändern: im Konzept ändern und den Generator laufen lassen.
 -- Liest nur. Läuft gegen die lokale Kopie des Altsystems (erp_export/export.ps1).
 
@@ -9,7 +9,8 @@ SELECT r.id, r.rapport_nr, r.best_datum, r.betrifft, r.arbeit,
        r.name1, r.korr_name, r.anschrift, r.telefon,
        r.strasse, r.strasse2, r.plz, r.ort, r.egid, r.egrid,
        r.schlussel, r.schlu_tel, r.besteller, r.best_tel,
-       r.wohnung, r.wohn_standort, r.wohn_tel, ab.name1 AS abt_name,
+       r.wohnung, r.wohn_standort, r.wohn_tel, r.lkdir AS ordner,
+       ab.name1 AS abt_name,
        TRIM(CONCAT(COALESCE(sad.vorname,''),' ',COALESCE(sad.name1,''))) AS sachb_name,
        JSON_OBJECT('nkrnbh',r.nkrnbh,'nkrmat',r.nkrmat,'nkrfaktor',r.nkrfaktor,
                    'nkbez',r.nkbez,'nkofftot',r.nkofftot,'nkoffmat',r.nkoffmat,

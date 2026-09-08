@@ -606,6 +606,10 @@ table.tbl .cellcap{display:block;max-width:260px;overflow:hidden;text-overflow:e
         </div>
         <input type="hidden" id="objGemeinde"/><input type="hidden" id="objKanton"/>
         <div class="fg"><label>Notizen</label><textarea id="objNotizen" placeholder="Zusätzliche Informationen zum Standort…"></textarea></div>
+        <!-- Vermerke aus der ERP-Migration: Felder, für die GEMA kein eigenes
+             Feld führt. Sie werden nur angezeigt (nie gespeichert von hier) —
+             ohne diesen Block lägen sie unsichtbar im Datensatz. -->
+        <div id="objAltVermerke" style="display:none"></div>
       </div>
 
       <!-- STEP 3: Team -->
@@ -2010,6 +2014,36 @@ function _objWzNext(){
 function _objWzPrev(){if(_objWzStep>1)_objWzGo(_objWzStep-1);}
 window._objWzGo=_objWzGo;window._objWzNext=_objWzNext;window._objWzPrev=_objWzPrev;
 
+/* Vermerke aus der ERP-Migration am Objekt. GEMA führt für diese Felder kein
+   eigenes Feld — ohne diesen Block lägen sie unsichtbar im Datensatz (der
+   Import schreibt sie, niemand zeigte sie). Reine Anzeige, nichts davon wird
+   beim Speichern gelesen: `saveObjekt` legt seine Daten über den bestehenden
+   Datensatz, die Vermerke bleiben damit erhalten.
+
+   «objekt1»/«objekt2» sind am Altbestand gemessen eine ADRESSE, keine
+   Bezeichnung — welche (Objekt oder Verwaltung), ist nicht belegt, darum
+   stehen sie hier als Vermerk statt in den Adressfeldern. */
+const _OBJ_ALT_VERMERKE=[
+  ['importObjekt1','Adresse im Altsystem — Strasse'],
+  ['importObjekt2','Adresse im Altsystem — Ort'],
+  ['externeRef1','Externe Referenz 1'],
+  ['externeRef2','Externe Referenz 2'],
+  ['importOrdner','Dokumenten-Ordner (Altsystem)']
+];
+function _objAltVermerke(o){
+  const box=$('objAltVermerke'); if(!box)return;
+  const zeilen=o?_OBJ_ALT_VERMERKE.filter(v=>String(o[v[0]]||'').trim())
+    .map(v=>'<div><span style="color:var(--mut)">'+v[1]+':</span> <b>'+esc(o[v[0]])+'</b></div>'):[];
+  if(o&&String(o.importAdresseHerkunft||'').trim())
+    zeilen.push('<div style="grid-column:1/-1;color:var(--amber)">⚠ '+esc(o.importAdresseHerkunft)+'</div>');
+  if(!zeilen.length){box.style.display='none';box.innerHTML='';return;}
+  box.style.display='';
+  box.innerHTML='<div style="margin-top:12px;border-top:1px dashed var(--brd);padding-top:8px">'
+    +'<div style="font-weight:800;font-size:11.5px;color:var(--mut);margin-bottom:4px">📎 Aus dem Altsystem</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:3px 16px;font-size:12px">'
+    +zeilen.join('')+'</div></div>';
+}
+
 function openObjektModal(editId){
   const isEdit=!!editId;
   $('objModalTitle').textContent=isEdit?'Objekt bearbeiten':'Neues Objekt';
@@ -2029,13 +2063,14 @@ function openObjektModal(editId){
     $('objAktivePhase').value=o.aktivePhase||'';
     if($('objParentId'))$('objParentId').value=o.parentObjektId||'';
     $('objStatus').value=o.status||'aktiv';$('objNotizen').value=o.notizen||'';
+    _objAltVermerke(o);
     // Object.assign statt Feld-Picking: unbekannte Zusatzfelder eines
     // Beteiligten überleben den Edit-Roundtrip (nichts still verwerfen).
     _objBeteiligte=(o.beteiligte||[]).map(function(b){return Object.assign({},b,{person:b.person||''});});
     _objAdrSlots=Object.assign({},o.adressen||{});
     _objBp=(o.bezugspersonen||[]).map(function(b){return Object.assign({},b);});
   } else {
-    _objBeteiligte=[];_objAdrSlots={};_objBp=[];
+    _objBeteiligte=[];_objAdrSlots={};_objBp=[];_objAltVermerke(null);
     ['objName','objStrasse','objPlz','objOrt','objGemeinde','objKanton','objNotizen','objProjektnummer','objRevision'].forEach(id=>{if($(id))$(id).value='';});
     $('objBauvorhaben').value='Neubau';$('objStatus').value='aktiv';$('objAktivePhase').value='';
     // Übergeordnetes Objekt standardmässig «Kein» (User-Vorgabe 23.07.2026 —

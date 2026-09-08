@@ -25,6 +25,14 @@
 
 function s(v){return v==null?'':String(v).trim();}
 function norm(v){return s(v).toLowerCase().replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss').replace(/[^a-z0-9]+/g,'');}
+/* «4126 Bettingen» → {plz:'4126', ort:'Bettingen'}; «Riehen» → {ort:'Riehen'}.
+   Nur eine vierstellige Zahl am Anfang gilt als PLZ — der Rest bleibt Ort,
+   nichts wird geraten. Das Altsystem schreibt `objekt2` am Objekt als Ort,
+   am Auftrag dagegen als «PLZ Ort». */
+function splitPlzOrt(v){
+  var t=s(v), m=/^(\d{4})\s+(.+)$/.exec(t);
+  return m?{plz:m[1],ort:s(m[2])}:{plz:'',ort:t};
+}
 
 // ── ZIP / XLSX ──────────────────────────────────────────────────────────
 function u16(d,o){return d[o]|(d[o+1]<<8);}
@@ -847,11 +855,17 @@ var SEKTIONEN=[
     {id:'ref1',       label:'Externe Referenz 1', alias:['ref1','referenz1','externeref1']},
     {id:'ref2',       label:'Externe Referenz 2', alias:['ref2','referenz2','externeref2']},
     {id:'notiz',      label:'Bemerkungen', alias:['bemerkung','bemerkungen','notiz','notizen']},
-    // «objekt1»/«objekt2» des Altsystems: zwei Freitextzeilen, deren Bedeutung
-    // im Bestand nicht belegt ist (Bezeichnung? Zusatz?). Sie bleiben als
-    // Vermerk am Objekt — nichts wird geraten, nichts geht verloren.
-    {id:'bez1',       label:'Objekt-Text 1', hint:'Im Altsystem «objekt1» — als Vermerk am Objekt', alias:['objekt1','objekttext1','bezeichnung1']},
-    {id:'bez2',       label:'Objekt-Text 2', hint:'Im Altsystem «objekt2» — als Vermerk am Objekt', alias:['objekt2','objekttext2','bezeichnung2']}
+    // «objekt1»/«objekt2» des Altsystems: AM BESTAND GEMESSEN eine zweite
+    // ADRESSE, keine Bezeichnung — `objekt1` trägt Strasse + Nr., `objekt2`
+    // den Ort (am Auftrag «PLZ Ort»). Beleg: 4 417 von 4 547 Objekten gefüllt,
+    // 2 833 verschiedene Strassen, aber nur 176 verschiedene Werte in
+    // `objekt2`. WELCHE Adresse es ist (Objekt oder Verwaltung), ist NICHT
+    // belegt — mehrere hundert Objekte teilen denselben Wert. Sie bleibt
+    // darum ein Vermerk und wird nur dann zur Objektadresse, wenn das Objekt
+    // gar keine hat (dann ist sie besser als nichts, und es wird vermerkt).
+    {id:'bez1',       label:'Adresse im Altsystem — Strasse', hint:'«objekt1» — Vermerk am Objekt; füllt die Objektadresse nur, wenn diese fehlt', alias:['objekt1','objekttext1','bezeichnung1']},
+    {id:'bez2',       label:'Adresse im Altsystem — Ort', hint:'«objekt2» — Vermerk am Objekt; am Auftrag im Format «PLZ Ort»', alias:['objekt2','objekttext2','bezeichnung2']},
+    {id:'ordner',     label:'Dokumenten-Ordner (Altsystem)', hint:'«lkdir» — nur der Ordnername, nicht der Pfad. Bleibt als Vermerk am Datensatz, damit der spätere Dokumenten-Import zuordnen kann.', alias:['lkdir','ordner','dokordner','dokumentenordner','verzeichnis']}
   ]
 },
 {
@@ -884,7 +898,8 @@ var SEKTIONEN=[
     {id:'pkDebi',    label:'Debitorenkonto (Fibu)', hint:'Schlüssel der Fibu-Anbindung — wandert als Vermerk mit', alias:['pkdebi','debitorenkonto','personenkonto']},
     {id:'pkKredi',   label:'Kreditorenkonto (Fibu)', alias:['pkkredi','kreditorenkonto']},
     {id:'eBillId',   label:'eBill-ID', alias:['ebillid','ebill']},
-    {id:'rechnungEmail',label:'E-Mail für Rechnungen', alias:['rechnungemail','rechnungsemail','invoiceemail']}
+    {id:'rechnungEmail',label:'E-Mail für Rechnungen', alias:['rechnungemail','rechnungsemail','invoiceemail']},
+    {id:'ordner',   label:'Dokumenten-Ordner (Altsystem)', hint:'«lkdir» — nur der Ordnername, nicht der Pfad. Bleibt als Vermerk am Datensatz, damit der spätere Dokumenten-Import zuordnen kann.', alias:['lkdir','ordner','dokordner','dokumentenordner','verzeichnis']}
   ]
 },
 {
@@ -920,7 +935,8 @@ var SEKTIONEN=[
     {id:'egrid',      label:'Objekt: EGRID', alias:['egrid']},
     {id:'ref1',       label:'Externe Referenz 1', alias:['rapportnr','ref1','referenz1']},
     {id:'ref2',       label:'Externe Referenz 2', alias:['ref2','referenz2']},
-    {id:'wohnung',    label:'Wohnung / Standort', alias:['wohnung','wohnstandort','stockwerk']}
+    {id:'wohnung',    label:'Wohnung / Standort', alias:['wohnung','wohnstandort','stockwerk']},
+    {id:'ordner',     label:'Dokumenten-Ordner (Altsystem)', hint:'«lkdir» — nur der Ordnername, nicht der Pfad. Bleibt als Vermerk am Datensatz, damit der spätere Dokumenten-Import zuordnen kann.', alias:['lkdir','ordner','dokordner','dokumentenordner','verzeichnis']}
   ]
 },
 {
@@ -960,7 +976,8 @@ var SEKTIONEN=[
     // (JSON_OBJECT im Export). So bleibt die Nachkalkulation vollständig
     // erhalten, ohne die Zuordnungsmaske mit 16 Zahlenfeldern zu füllen, die
     // nur 1.2 % der Aufträge überhaupt führen.
-    {id:'nachkalk',   label:'Nachkalkulation Altsystem', hint:'JSON aus dem Export — wird unverändert als Vermerk abgelegt. GEMA rechnet seine eigene Nachkalkulation aus Rechnungen, Kreditoren und Stunden.', alias:['nachkalk','nachkalkulation','nkjson','nk']}
+    {id:'nachkalk',   label:'Nachkalkulation Altsystem', hint:'JSON aus dem Export — wird unverändert als Vermerk abgelegt. GEMA rechnet seine eigene Nachkalkulation aus Rechnungen, Kreditoren und Stunden.', alias:['nachkalk','nachkalkulation','nkjson','nk']},
+    {id:'ordner',     label:'Dokumenten-Ordner (Altsystem)', hint:'«lkdir» — nur der Ordnername, nicht der Pfad. Bleibt als Vermerk am Datensatz, damit der spätere Dokumenten-Import zuordnen kann.', alias:['lkdir','ordner','dokordner','dokumentenordner','verzeichnis']}
   ]
 },
 {
@@ -1019,7 +1036,8 @@ var SEKTIONEN=[
     // dieses Feld leer, was richtig ist.
     {id:'fibuBelegNr',label:'Fibu-Belegnummer', hint:'Im Altsystem «belegnr» bzw. «abacbelegnr» — NICHT die Rechnungsnummer', alias:['abacbelegnr','fibubelegnr','belegnrfibu','belegnr']},
     {id:'opDebi',     label:'Offene-Posten-Nr. (Debitor)', alias:['opdebi','opnr','debitorop']},
-    {id:'kostenstelle',label:'Kostenstelle', alias:['kostenstid','kostenstelle']}
+    {id:'kostenstelle',label:'Kostenstelle', alias:['kostenstid','kostenstelle']},
+    {id:'ordner',     label:'Dokumenten-Ordner (Altsystem)', hint:'«lkdir» — nur der Ordnername, nicht der Pfad. Bleibt als Vermerk am Datensatz, damit der spätere Dokumenten-Import zuordnen kann.', alias:['lkdir','ordner','dokordner','dokumentenordner','verzeichnis']}
   ]
 },
 {
@@ -1095,7 +1113,8 @@ var SEKTIONEN=[
     // (259 von 14 287). GEMA führt genau einen Auftrag — der Export liefert
     // den ersten und zählt die Zuteilungen, damit die Aufteilung nicht
     // stillschweigend verloren geht.
-    {id:'zuteilungen',label:'Anzahl Auftrags-Zuteilungen', hint:'Mehr als 1 = im Altsystem auf mehrere Aufträge verteilt; GEMA übernimmt den ersten und meldet es', alias:['zuteilungen','anzahlzuteilungen','zuteilung']}
+    {id:'zuteilungen',label:'Anzahl Auftrags-Zuteilungen', hint:'Mehr als 1 = im Altsystem auf mehrere Aufträge verteilt; GEMA übernimmt den ersten und meldet es', alias:['zuteilungen','anzahlzuteilungen','zuteilung']},
+    {id:'ordner',    label:'Dokumenten-Ordner (Altsystem)', hint:'«lkdir» — nur der Ordnername, nicht der Pfad. Bleibt als Vermerk am Datensatz, damit der spätere Dokumenten-Import zuordnen kann.', alias:['lkdir','ordner','dokordner','dokumentenordner','verzeichnis']}
   ]
 },
 {
@@ -1199,7 +1218,8 @@ var SEKTIONEN=[
     {id:'plz',         label:'Objekt: PLZ', alias:['serplz','plz']},
     {id:'ort',         label:'Objekt: Ort', alias:['serort','ort']},
     {id:'abteilung',   label:'Abteilung', hint:'Wird zum GEMA-Arbeitsbereich', alias:['serabtid','abtname','abteilung','bereich']},
-    {id:'notiz',       label:'Bemerkungen', alias:['serbemerkungen','bemerkung','bemerkungen','notiz','serprotokoll']}
+    {id:'notiz',       label:'Bemerkungen', alias:['serbemerkungen','bemerkung','bemerkungen','notiz','serprotokoll']},
+    {id:'ordner',      label:'Dokumenten-Ordner (Altsystem)', hint:'«lkdir» — nur der Ordnername, nicht der Pfad. Bleibt als Vermerk am Datensatz, damit der spätere Dokumenten-Import zuordnen kann.', alias:['lkdir','ordner','dokordner','dokumentenordner','verzeichnis']}
   ]
 },
 {
@@ -1399,7 +1419,8 @@ function normalisiereZeile(row,map,sekId){
       tel:g('tel'), natel:g('natel'), email:g('email'),
       wohnung:g('wohnung'), bemerkungen:g('bemerkungen'),
       zahlbedKuerzel:g('zahlbedKuerzel'), stdRabatt:pct(g('stdRabatt')), stdSkonto:pct(g('stdSkonto')),
-      pkDebi:g('pkDebi'), pkKredi:g('pkKredi'), eBillId:g('eBillId'), rechnungEmail:g('rechnungEmail')
+      pkDebi:g('pkDebi'), pkKredi:g('pkKredi'), eBillId:g('eBillId'), rechnungEmail:g('rechnungEmail'),
+      ordner:g('ordner')
     };
   }
   if(sekId==='offerten'){
@@ -1434,7 +1455,8 @@ function normalisiereZeile(row,map,sekId){
       zahlbed:g('zahlbed'), bemerkung:g('bemerkung'),
       objekt:{strasse:g('strasse'), strasse2:g('strasse2'), plz:g('plz'), ort:g('ort'),
               egid:g('egid'), egrid:g('egrid')},
-      ref1:g('ref1'), ref2:g('ref2'), wohnung:g('wohnung'), personen:opers
+      ref1:g('ref1'), ref2:g('ref2'), wohnung:g('wohnung'), personen:opers,
+      ordner:g('ordner')
     };
   }
   if(sekId==='rechnungen'){
@@ -1474,7 +1496,8 @@ function normalisiereZeile(row,map,sekId){
       objekt:{strasse:g('strasse'), strasse2:g('strasse2'), plz:g('plz'), ort:g('ort'),
               egid:g('egid'), egrid:g('egrid')},
       ref1:g('ref1'), ref2:g('ref2'), wohnung:g('wohnung'), personen:rpers,
-      fibuBelegNr:g('fibuBelegNr'), opDebi:g('opDebi'), kostenstelle:g('kostenstelle')
+      fibuBelegNr:g('fibuBelegNr'), opDebi:g('opDebi'), kostenstelle:g('kostenstelle'),
+      ordner:g('ordner')
     };
   }
   if(sekId==='auftraege'){
@@ -1501,7 +1524,7 @@ function normalisiereZeile(row,map,sekId){
       objekt:{strasse:g('strasse'), strasse2:g('strasse2'), plz:g('plz'), ort:g('ort'),
               egid:g('egid'), egrid:g('egrid')},
       schluessel:{code:g('schluessel'), info:g('schluesselTel')},
-      wohnung:g('wohnung'), personen:apers,
+      wohnung:g('wohnung'), personen:apers, ordner:g('ordner'),
       nachkalk:parseNachkalk(g('nachkalk'))
     };
   }
@@ -1545,7 +1568,7 @@ function normalisiereZeile(row,map,sekId){
       statusText:g('status'), status:kst.status, statusErkannt:kst.erkannt,
       auftragNr:g('auftragNr'), beschrieb:g('beschrieb'),
       konto:g('konto'), kostenstelle:g('kostenstelle'), iban:g('iban'),
-      esrRef:g('esrRef'), sesamOpNr:g('sesamOpNr'),
+      esrRef:g('esrRef'), sesamOpNr:g('sesamOpNr'), ordner:g('ordner'),
       zuteilungen:(function(){var v=parseInt(s(g('zuteilungen')),10);return isNaN(v)?null:v;})()
     };
   }
@@ -1608,7 +1631,7 @@ function normalisiereZeile(row,map,sekId){
       revBasisModus:!!(aBas&&aBas!=='0'&&norm(aBas)!=='false'&&norm(aBas)!=='nein'),
       revBasis:parseDatum(g('revBasis')),
       revKosten:parseBetrag(g('revKosten')),
-      vertragsNr:g('vertragsNr'), abteilung:g('abteilung'), notiz:g('notiz'),
+      vertragsNr:g('vertragsNr'), abteilung:g('abteilung'), notiz:g('notiz'), ordner:g('ordner'),
       objekt:{strasse:g('strasse'), plz:g('plz'), ort:g('ort')}
     };
   }
@@ -1715,15 +1738,27 @@ function normalisiereZeile(row,map,sekId){
       tel:g('kp'+k+'Tel'), email:g('kp'+k+'Email')
     });
   });
-  var strasse=g('strasse');
+  var strasse=g('strasse'), plz=g('plz'), ort=g('ort'), adrAusAltfeld=false;
+  /* `objekt1`/`objekt2` sind am Bestand gemessen eine ADRESSE (Strasse bzw.
+     Ort), keine Objektbezeichnung. WELCHE Adresse — Objekt oder Verwaltung —
+     ist nicht belegt; sie legt sich deshalb NIE über eine vorhandene
+     Objektadresse. Fehlt die Strasse aber ganz, ist sie besser als ein
+     namenloses Objekt — die Herkunft wird am Objekt vermerkt und gezählt. */
+  if(!strasse&&g('bez1')){
+    strasse=g('bez1');
+    var bo=splitPlzOrt(g('bez2'));
+    if(!plz&&bo.plz)plz=bo.plz;
+    if(!ort&&bo.ort)ort=bo.ort;
+    adrAusAltfeld=true;
+  }
   return {
     extId:g('extId'),
-    name:[strasse,g('strasse2')].filter(Boolean).join(' · ')||[g('plz'),g('ort')].filter(Boolean).join(' '),
-    strasse:strasse, strasse2:g('strasse2'), plz:g('plz'), ort:g('ort'),
+    name:[strasse,g('strasse2')].filter(Boolean).join(' · ')||[plz,ort].filter(Boolean).join(' '),
+    strasse:strasse, strasse2:g('strasse2'), plz:plz, ort:ort,
     egid:g('egid'), egrid:g('egrid'),
     monteur:g('monteur'), sachb:g('sachb'),
     ref1:g('ref1'), ref2:g('ref2'), notiz:g('notiz'),
-    bez1:g('bez1'), bez2:g('bez2'),
+    bez1:g('bez1'), bez2:g('bez2'), ordner:g('ordner'), adrAusAltfeld:adrAusAltfeld,
     slots:slots, personen:personen
   };
 }
@@ -1734,6 +1769,7 @@ function pruefe(z,sekId){
   if(sekId==='objekte'){
     if(!s(z.strasse)&&!s(z.plz)&&!s(z.ort))hin.push({typ:'fehler',text:'Keine Adresse — Zeile wird übersprungen.'});
     if(!s(z.extId))hin.push({typ:'warn',text:'Keine ID aus dem Altsystem — Dubletten werden über Strasse + PLZ erkannt.'});
+    if(z.adrAusAltfeld)hin.push({typ:'info',text:'Keine eigene Strasse — die Adresse stammt aus «objekt1»/«objekt2» des Altsystems.'});
     if(!Object.keys(z.slots||{}).length)hin.push({typ:'info',text:'Keine Adress-Slots erkannt.'});
   }else if(sekId==='offerten'){
     if(!s(z.nr))hin.push({typ:'fehler',text:'Keine Offert-Nr. — Zeile wird übersprungen.'});
@@ -2545,6 +2581,10 @@ function rechnungSchreiben(z,adrCtx,report,opts){
       if(s(z.fibuBelegNr)&&!s(doc.importFibuBelegNr))doc.importFibuBelegNr=s(z.fibuBelegNr);
       if(s(z.opDebi)&&!s(doc.importOpDebi))doc.importOpDebi=s(z.opDebi);
       if(s(z.kostenstelle)&&!s(doc.importKostenstelle))doc.importKostenstelle=s(z.kostenstelle);
+      // Dokumenten-Ordner des Altsystems («lkdir»): nur der ORDNERNAME, kein
+      // Pfad. Er endet auf die Datensatz-ID, damit bleibt die Zuordnung
+      // Ordner → Beleg eindeutig, wenn die Dateien später nachwandern.
+      if(s(z.ordner)&&!s(doc.importOrdner))doc.importOrdner=s(z.ordner);
       // ESR-Referenz: nur eine GÜLTIGE wandert in den Nachdruck-QR
       // (erpRefFuer prüft sie nochmals), der Rohwert bleibt in jedem Fall.
       if(s(z.esrRef)&&!s(doc.importEsrRefRoh))doc.importEsrRefRoh=s(z.esrRef);
@@ -2642,6 +2682,8 @@ function auftragSchreiben(z,adrCtx,report,opts){
       if(s(z.statusText)&&!s(doc.importStatusText))doc.importStatusText=s(z.statusText);
       if(s(z.rechnStatus)&&!s(doc.importRechnungsstatus))doc.importRechnungsstatus=s(z.rechnStatus);
       if(s(z.rechnungNr)&&!s(doc.importRechnungNr))doc.importRechnungNr=s(z.rechnungNr);
+      // Ordnername auf dem Netzlaufwerk des Altsystems («lkdir») — kein Pfad.
+      if(s(z.ordner)&&!s(doc.importOrdner))doc.importOrdner=s(z.ordner);
       if(s(z.bemerkung)&&!s(doc.notiz))doc.notiz=s(z.bemerkung);
       // Nachkalkulation des Altsystems: reiner Schnappschuss zum Vergleichen.
       // Sie fliesst NICHT in GEMAs Zahlen — im Altbestand sind Lohnkosten und
@@ -2736,6 +2778,8 @@ function offerteSchreiben(z,adrCtx,report,opts){
       if(z.stunden!=null&&doc.importStunden==null)doc.importStunden=z.stunden;
       if(s(z.zahlbed)&&!s(doc.importZahlbed))doc.importZahlbed=s(z.zahlbed);
       if(!s(doc.zahlbedId)&&s(z.zahlbed)){var zbO=zahlbedIdFuer(z.zahlbed);if(zbO)doc.zahlbedId=zbO;}
+      // Ordnername auf dem Netzlaufwerk des Altsystems («lkdir») — kein Pfad.
+      if(s(z.ordner)&&!s(doc.importOrdner))doc.importOrdner=s(z.ordner);
       // Sammelposition NUR bei einem noch leeren Dokument — ein bereits
       // erfasstes Leistungsverzeichnis wird beim Wiederholungs-Import
       // niemals überschrieben oder ergänzt.
@@ -2963,7 +3007,8 @@ function kreditorSchreiben(z,report,opts){
   // Vermerke — alles, wofür GEMA kein eigenes Feld führt, bleibt am Datensatz.
   [['importNr',z.nr],['importStatusText',z.statusText],['importKonto',z.konto],
    ['importKostenstelle',z.kostenstelle],['importIban',z.iban],
-   ['importEsrRef',z.esrRef],['importSesamOpNr',z.sesamOpNr]].forEach(function(p){
+   ['importEsrRef',z.esrRef],['importSesamOpNr',z.sesamOpNr],
+   ['importOrdner',z.ordner]].forEach(function(p){
     if(s(p[1])&&!s(k[p[0]]))k[p[0]]=s(p[1]);
   });
   if(k.importMwstBetrag==null&&z.mwstBetrag!=null)k.importMwstBetrag=z.mwstBetrag;
@@ -3406,6 +3451,7 @@ function anlageSchreiben(z,report,opts){
     if(obj&&!s(a.objektId)){a.objektId=obj.id;a.objektName=s(obj.name);}
     if(!s(a.intervallMonate)&&z.intervall!=null)a.intervallMonate=String(z.intervall);
     if(s(z.vertragsNr)&&!s(a.importVertragsNr))a.importVertragsNr=s(z.vertragsNr);
+    if(s(z.ordner)&&!s(a.importOrdner))a.importOrdner=s(z.ordner);
     if(!s(a.garantieBis)&&s(a.inbetriebnahme)&&z.garantie)
       a.garantieBis=addMonate(a.inbetriebnahme,z.garantie);
     [['importToleranzMonate',z.toleranz],['importRevKosten',z.revKosten]].forEach(function(pp){
@@ -3723,6 +3769,7 @@ function adressZusatz(z,rec){
   if(zbId)txt('zahlbedId',zbId);
   txt('importPkDebi',z.pkDebi);
   txt('importPkKredi',z.pkKredi);
+  txt('importOrdner',z.ordner);
   txt('eBillId',z.eBillId);
   txt('rechnungEmail',z.rechnungEmail);
   zahl('stdRabattPct',z.stdRabatt);
@@ -3870,6 +3917,11 @@ function ausfuehren(plan,opts){
         fuelle('notizen',z2.notiz);
         fuelle('importObjekt1',z2.bez1);
         fuelle('importObjekt2',z2.bez2);
+        fuelle('importOrdner',z2.ordner);
+        if(z2.adrAusAltfeld&&!s(o.importAdresseHerkunft)){
+          o.importAdresseHerkunft='Adresse aus «objekt1»/«objekt2» des Altsystems übernommen — das Objekt selbst führte keine Strasse.';
+          report.adresseAusAltfeld=(report.adresseAusAltfeld||0)+1;
+        }
         o.extId=o.extId||z2.extId;
         o.adressen=Object.assign({},o.adressen||{},adressen);
         // Bezugspersonen zusammenführen (nach Name+Vorname)

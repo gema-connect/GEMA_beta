@@ -1,5 +1,5 @@
 -- GEMA ERP-Migration — Export «09_rechnungen»
--- GENERIERT aus KONZEPT_ERP_Migration_Altsystem.md (Zeile 936) durch scripts/erp_export_gen.mjs.
+-- GENERIERT aus KONZEPT_ERP_Migration_Altsystem.md (Zeile 940) durch scripts/erp_export_gen.mjs.
 -- Nicht von Hand ändern: im Konzept ändern und den Generator laufen lassen.
 -- Liest nur. Läuft gegen die lokale Kopie des Altsystems (erp_export/export.ps1).
 
@@ -13,7 +13,7 @@ SELECT r.id, r.nr, r.rapport_nr, r.datum, r.betrifft, r.arbeit,
        r.zahlbedid, r.ausgef, r.belegnr, r.opdebi, r.faelligdatum,
        r.bemerkung, r.wohnung, r.besteller, r.wohn_standort,
        r.post_info_date AS postinfodate, r.print_info AS printinfo,
-       r.kostenst_id AS kostenstid, r.extref1, r.extref2,
+       r.kostenst_id AS kostenstid, r.extref1, r.extref2, r.lkdir AS ordner,
        ab.name1 AS abt_name,
        TRIM(CONCAT(COALESCE(sad.vorname,''),' ',COALESCE(sad.name1,''))) AS sachb_name
 FROM rechnungen r

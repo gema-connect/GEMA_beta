@@ -782,7 +782,10 @@ Klein, aber ohne sie geht Information verloren:
    einen Ordner auf einem Netzlaufwerk. Diese Dokumente — Pläne, Belege,
    Korrespondenz — sind ein **eigener Migrationsstrang** (nach GemaStorage,
    Bucket `gema-fotos`, Pfadmuster `<bereich>/<orgId>/…`) und in den Zahlen
-   dieser Analyse nirgends enthalten.
+   dieser Analyse nirgends enthalten. **Gemessen (8.16): 21 755 Ordner**, und
+   der Wert ist nur der ORDNERNAME, kein Pfad — er endet auf die
+   Datensatz-ID. Der Export führt ihn seit Runde 3 mit (`importOrdner`), damit
+   die Zuordnung ohne die Altdatenbank herstellbar bleibt.
 
 ### 7.4 Kleinigkeiten zu klären
 
@@ -872,7 +875,7 @@ Adress-Export steht vollständig in 8.7.
 SELECT o.id, o.strasse, o.strasse2, o.plz, o.ort, o.egid, o.egrid,
        o.knummer, o.co_knummer, o.ei_knummer, o.korr_name,
        o.objekt1, o.objekt2, o.objmemo AS notiz,
-       o.extref1 AS ref1, o.extref2 AS ref2,
+       o.extref1 AS ref1, o.extref2 AS ref2, o.lkdir AS ordner,
        TRIM(CONCAT(COALESCE(mad.vorname,''),' ',COALESCE(mad.name1,''))) AS monteur_name,
        TRIM(CONCAT(COALESCE(sad.vorname,''),' ',COALESCE(sad.name1,''))) AS sachb_name
 FROM obj o
@@ -890,7 +893,7 @@ SELECT o.id, o.offert_nr, o.datum, o.rdatum, o.betrmemo,
        o.knummer AS kundennummer, o.name1, o.korr_name, o.anschrift, o.banrede,
        o.strasse, o.strasse2, o.plz, o.ort, o.egid, o.egrid,
        o.zahlbedid, o.bemerkung, o.wohnung, o.wohn_standort,
-       o.extref2 AS ref2, ab.name1 AS abt_name,
+       o.extref2 AS ref2, o.lkdir AS ordner, ab.name1 AS abt_name,
        TRIM(CONCAT(COALESCE(sad.vorname,''),' ',COALESCE(sad.name1,''))) AS sachb_name
 FROM offerten o
 LEFT JOIN offstatus st ON st.id = o.status
@@ -909,7 +912,8 @@ SELECT r.id, r.rapport_nr, r.best_datum, r.betrifft, r.arbeit,
        r.name1, r.korr_name, r.anschrift, r.telefon,
        r.strasse, r.strasse2, r.plz, r.ort, r.egid, r.egrid,
        r.schlussel, r.schlu_tel, r.besteller, r.best_tel,
-       r.wohnung, r.wohn_standort, r.wohn_tel, ab.name1 AS abt_name,
+       r.wohnung, r.wohn_standort, r.wohn_tel, r.lkdir AS ordner,
+       ab.name1 AS abt_name,
        TRIM(CONCAT(COALESCE(sad.vorname,''),' ',COALESCE(sad.name1,''))) AS sachb_name,
        JSON_OBJECT('nkrnbh',r.nkrnbh,'nkrmat',r.nkrmat,'nkrfaktor',r.nkrfaktor,
                    'nkbez',r.nkbez,'nkofftot',r.nkofftot,'nkoffmat',r.nkoffmat,
@@ -945,7 +949,7 @@ SELECT r.id, r.nr, r.rapport_nr, r.datum, r.betrifft, r.arbeit,
        r.zahlbedid, r.ausgef, r.belegnr, r.opdebi, r.faelligdatum,
        r.bemerkung, r.wohnung, r.besteller, r.wohn_standort,
        r.post_info_date AS postinfodate, r.print_info AS printinfo,
-       r.kostenst_id AS kostenstid, r.extref1, r.extref2,
+       r.kostenst_id AS kostenstid, r.extref1, r.extref2, r.lkdir AS ordner,
        ab.name1 AS abt_name,
        TRIM(CONCAT(COALESCE(sad.vorname,''),' ',COALESCE(sad.name1,''))) AS sachb_name
 FROM rechnungen r
@@ -1056,6 +1060,7 @@ WHERE zahlungsbetrag IS NOT NULL AND zahlungsbetrag <> 0;
 SELECT k.id, k.nr, k.name1, k.belegnr, k.datum, k.faelligdatum,
        k.betrag, k.mwstbetrag, k.restbetrag, k.kredistatustext,
        k.gkonto, k.kostenst_id, k.iban, k.esr_nr, k.sesam_op_nr, k.bemerkung,
+       k.lkdir AS ordner,
        (SELECT r.rapport_nr FROM kredzut z
           JOIN rapporte r ON r.id = z.rapport_id
          WHERE z.kred_id = k.id ORDER BY z.id LIMIT 1) AS rapport_nr,
@@ -1083,7 +1088,7 @@ SELECT a.oknummer AS knummer, a.name1 AS firma, a.anrede, a.vorname,
        COALESCE(NULLIF(cz.cmd_string,''), NULLIF(a.zahlbedid,'')) AS zahlbedid,
        a.stdrabatt, a.stdskonto,
        COALESCE(NULLIF(cp.cmd_string,''), NULLIF(a.pk_debi,''))   AS pk_debi,
-       a.pk_kredi, a.eBillID, a.Rechnung_Email
+       a.pk_kredi, a.eBillID, a.Rechnung_Email, a.lkdir AS ordner
 FROM adressen a
 LEFT JOIN companydata cz ON cz.cmd_tablename = 'adressen' AND cz.cmd_item_id = a.id AND cz.cmd_fieldname = 'zahlbedid'
 LEFT JOIN companydata cp ON cp.cmd_tablename = 'adressen' AND cp.cmd_item_id = a.id AND cp.cmd_fieldname = 'pk_debi';
@@ -1196,7 +1201,7 @@ SELECT k.id AS kom_id, k.kom_name, k.kom_sernr, k.kom_standort,
        k.kom_last_rev, k.kom_next_rev, k.kom_rev_int, k.kom_rev_toleranz,
        k.kom_calc_with_basis, k.kom_rev_basis, k.kom_rev_kosten,
        s.ser_app_fabrikaservapp, s.ser_app_typ, s.ser_vertragsnr,
-       s.ser_strasse, s.ser_plz, s.ser_ort, s.ser_bemerkungen,
+       s.ser_strasse, s.ser_plz, s.ser_ort, s.ser_bemerkungen, s.lkdir AS ordner,
        ak.app_beschr AS kategorie, ab.name1 AS abt_name
 FROM komponenten k
 LEFT JOIN services s  ON s.id  = k.kom_ser_id
@@ -1624,14 +1629,66 @@ und werden gemeldet (6.0). C: `deleteditems` ist kein Löschbeweis. D: das
 Altsystem führt weder Pensum noch Leitung — beides wird in GEMA gesetzt
 (8.15); die Spalten werden nicht exportiert.
 
-### 8.16 Zwei offene Klärungen: `objekt1`/`objekt2` und die Dokumenten-Ordner
+### 8.16 Geklärt: `objekt1`/`objekt2` sind eine Adresse, `lkdir` ist ein Ordnername
 
-Beides ist keine Export-Abfrage, sondern eine Frage an den Bestand. `objekt1`
-und `objekt2` (VARCHAR 30, auf `obj` UND auf `rapporte`) sind Freitext ohne
-belegte Bedeutung — sie landen heute als `importObjekt1/2` am Objekt. Ist es
-die Objektbezeichnung, gehört sie in den Namen. `lkdir` (zwölf Tabellen)
-zeigt auf den Dokumentenordner des jeweiligen Datensatzes; die Beispielwerte
-sagen, ob dort ein absoluter Netzpfad steht.
+Beides war keine Export-Abfrage, sondern eine Frage an den Bestand. Die
+Abfrage unten ist gelaufen; hier steht, was sie geantwortet hat.
+
+**`objekt1`/`objekt2` ist KEINE Objektbezeichnung, sondern eine zweite
+Adresse.** `objekt1` trägt Strasse und Hausnummer, `objekt2` den Ort — am
+Objekt nackt («Riehen»), am Auftrag mit Postleitzahl («4126 Bettingen»).
+
+| Messung | Wert |
+|---|---|
+| Objekte gesamt | 4 547 |
+| davon mit `objekt1` / `objekt2` | 4 417 / 4 443 |
+| verschiedene Werte `objekt1` | 2 833 (Strassen) |
+| verschiedene Werte `objekt2` | **176** (Ortsnamen) |
+| häufigster Wert `objekt1` | «Aliothstrasse 63» — **338 Objekte** |
+
+Die 176 verschiedenen Orte bei 4 443 Belegungen beweisen den Adresscharakter.
+**Welche** Adresse es ist, beweisen die Daten aber NICHT: mal ist sie mit der
+eigenen Objektadresse identisch (id 5354, 5355), mal völlig verschieden
+(id 5352: Objekt «Engelgasse 30, Basel», Feld «Ey 5, Ittigen bei Bern»), und
+338 Objekte teilen denselben Wert — das Muster einer Verwaltungs- oder
+Auftraggeberadresse, nicht das eines Gebäudes. Am Auftrag (`rapporte`) sieht
+es wieder anders aus: dort steht die Adresse der Baustelle, während `betrifft`
+den Arbeitstext trägt (RTF, «Boilerreinigung», «Spenglerarbeiten …»).
+
+**Konsequenz im Importer** — sie bleibt ein Vermerk (`importObjekt1/2`, jetzt
+im Objekt-Dialog unter «📎 Aus dem Altsystem» sichtbar) und legt sich NIE über
+eine vorhandene Objektadresse. Nur wenn das Objekt gar keine Strasse führt,
+wird sie zur Adresse — mit Herkunfts-Vermerk am Datensatz und Zähler im
+Bericht. Ein Objektname wird daraus nicht. Abschnitt 8.17 entscheidet die
+Restfrage endgültig.
+
+**`lkdir` ist nur der ORDNERNAME, kein Pfad.** Damit gilt die im Konzept
+vorgesehene Lesart: die Wurzel steht in der Konfiguration des
+Altsystem-Clients, nicht in der Datenbank.
+
+| Tabelle | Ordner | Beispiel |
+|---|---|---|
+| `kreditoren` | 14 251 | `000000_A.B.S._Factoring_AG_14997` |
+| `rechnungen` | 4 468 | `2015.0454_Onofri_Antonio_Klybeckstrasse_248_553` |
+| `offerten` | 2 713 | `2015.0048_Stamm_Bau_AG_Fuerfelderstrasse_78` |
+| `obj` | 206 | `Bahnhofstrasse_75_4125_Riehen_Hunziker_Andre_und_Brigitte_3249` |
+| `rapporte` | 87 | `1.00_OF-Software_AG_Muttenzerstrasse_61_1` |
+| `adressen` | 22 | `Arslan__Kerem_Im_Esterli_23_4125_Riehen_5610` |
+| `services` | 8 | `216.0001_Kriemler_Andrea_Unterer_Rheinweg_118_303` |
+| `arbeiter` | 0 | — |
+| **Summe** | **21 755** | |
+
+**Der Ordnername endet auf die Datensatz-ID** des Altsystems (an fünf
+Objekten geprüft: `…_3610`, `…_3399`, `…_3375`, `…_3291`, `…_3249` gegen die
+IDs 3610, 3399, 3375, 3291, 3249). Die Zuordnung Ordner → Datensatz ist damit
+allein aus dem Ordnernamen herstellbar, auch ohne Datenbank — die
+Voraussetzung dafür, dass der Dokumentenstrang später unabhängig läuft.
+
+**Konsequenz im Export**: `lkdir` wandert ab sofort in sieben Abfragen mit
+(Objekte, Adressen, Offerten, Aufträge, Rechnungen, Kreditoren, Anlagen) und
+landet als `importOrdner` am Datensatz — sichtbar am Beleg, am Kreditor, am
+Objekt und an der Anlage. Ohne diesen Faden liesse sich die Zuordnung später
+nur durch erneutes Befragen der Altdatenbank wiederherstellen.
 
 ```sql
 SELECT '=== A objekt1 / objekt2: zehn Beispiele (Objekte) ===' AS x;
@@ -1670,11 +1727,94 @@ SELECT '=== F Fuenf ganze Ordnerpfade zum Anschauen ===' AS x;
 SELECT id, strasse, ort, lkdir FROM obj WHERE COALESCE(lkdir,'')<>'' ORDER BY id DESC LIMIT 5;
 ```
 
-Lesart: zeigt **A/C** Bezeichnungen wie «Sanierung Steigzone», wird `objekt1`
-zum Objektnamen (heute ist er «Strasse · Zusatz»). Zeigt **E/F** absolute
-Pfade (`\\server\freigabe\…`), ist das die Wurzel des Dokumentenstrangs;
-stehen dort nur Ordnernamen, liegt die Wurzel in der Konfiguration des
-Altsystem-Clients, nicht in der Datenbank.
+### 8.17 Die zwei Restfragen: Rolle der Adresse und Wurzel des Ordnerpfads
+
+Aus 8.16 bleiben genau zwei Fragen offen. Beide beantwortet eine Abfrage.
+
+**A — Welche Adresse steht in `objekt1`/`objekt2`?** Der Vergleich gegen die
+Adresse des zugeordneten Kunden entscheidet es: stimmt sie in der Mehrzahl
+mit `knummer` (zahlbar durch) oder `co_knummer` (Korrespondenz) überein, ist
+das Feld eine denormalisierte Kopie der Auftraggeber-/Verwaltungsadresse und
+bleibt für immer ein Vermerk. Trifft sie auf keine der drei Adressen, ist es
+eine echte zweite Objektadresse — dann gehört sie ins Objekt, und die 130
+Objekte ohne eigene Strasse sind nur die Spitze.
+
+**B — Wo liegt die Wurzel der Dokumentenordner?** Falls das Altsystem sie in
+der Datenbank führt (Konfigurations- oder Lizenztabelle), findet sie die
+Spaltensuche. Findet sie nichts, steht sie in der Client-Installation — dann
+genügt ein Blick in die Einstellungen des Altsystem-Clients oder die
+Netzlaufwerk-Freigabe; die Datenbank ist dann nicht die Quelle.
+
+```sql
+SELECT '=== A1 objekt1/objekt2 gegen die drei Kundenadressen ===' AS x;
+SELECT
+  COUNT(*) AS objekte_mit_objekt1,
+  SUM(LOWER(TRIM(o.objekt1)) = LOWER(TRIM(COALESCE(az.strasse,'')))) AS wie_zahler,
+  SUM(LOWER(TRIM(o.objekt1)) = LOWER(TRIM(COALESCE(ak.strasse,'')))) AS wie_korrespondenz,
+  SUM(LOWER(TRIM(o.objekt1)) = LOWER(TRIM(COALESCE(ae.strasse,'')))) AS wie_eigentuemer,
+  SUM(LOWER(TRIM(o.objekt1)) = LOWER(TRIM(COALESCE(o.strasse,'')))) AS wie_objekt_selbst
+FROM obj o
+LEFT JOIN adressen az ON az.oknummer = o.knummer
+LEFT JOIN adressen ak ON ak.oknummer = o.co_knummer
+LEFT JOIN adressen ae ON ae.oknummer = o.ei_knummer
+WHERE COALESCE(o.objekt1,'') <> '';
+
+SELECT '=== A2 Zehn Objekte, deren objekt1 auf KEINE der Adressen passt ===' AS x;
+SELECT o.id, o.strasse AS objekt_strasse, o.ort AS objekt_ort,
+       o.objekt1, o.objekt2, az.strasse AS zahler_strasse, az.name1 AS zahler_name
+FROM obj o
+LEFT JOIN adressen az ON az.oknummer = o.knummer
+LEFT JOIN adressen ak ON ak.oknummer = o.co_knummer
+WHERE COALESCE(o.objekt1,'') <> ''
+  AND LOWER(TRIM(o.objekt1)) <> LOWER(TRIM(COALESCE(o.strasse,'')))
+  AND LOWER(TRIM(o.objekt1)) <> LOWER(TRIM(COALESCE(az.strasse,'')))
+  AND LOWER(TRIM(o.objekt1)) <> LOWER(TRIM(COALESCE(ak.strasse,'')))
+ORDER BY o.id DESC LIMIT 10;
+
+SELECT '=== A3 Wer sitzt an der Aliothstrasse 63? ===' AS x;
+SELECT o.id, o.strasse, o.ort, az.name1 AS zahler, ak.name1 AS korrespondenz
+FROM obj o
+LEFT JOIN adressen az ON az.oknummer = o.knummer
+LEFT JOIN adressen ak ON ak.oknummer = o.co_knummer
+WHERE o.objekt1 LIKE 'Aliothstrasse 63%' LIMIT 5;
+
+SELECT '=== A4 Wie viele Objekte haben gar keine eigene Strasse? ===' AS x;
+SELECT COUNT(*) AS ohne_strasse,
+       SUM(COALESCE(objekt1,'')<>'') AS davon_mit_objekt1
+FROM obj WHERE COALESCE(strasse,'') = '';
+
+SELECT '=== B1 Spalten, die nach einem Pfad aussehen ===' AS x;
+SELECT table_name, column_name, column_type
+FROM information_schema.columns
+WHERE table_schema = 'dbof'
+  AND (column_name LIKE '%dir%' OR column_name LIKE '%path%'
+       OR column_name LIKE '%pfad%' OR column_name LIKE '%verzeichnis%'
+       OR column_name LIKE '%ordner%' OR column_name LIKE '%root%'
+       OR column_name LIKE '%share%' OR column_name LIKE '%unc%')
+ORDER BY table_name, column_name;
+
+SELECT '=== B2 Inhalt der Lizenz-/Konfigurationszeilen ===' AS x;
+SELECT * FROM license LIMIT 3;
+
+SELECT '=== B3 Kandidaten in companydata (Konfiguration je Firma) ===' AS x;
+SELECT cmd_tablename, cmd_fieldname, LEFT(cmd_string,120) AS wert
+FROM companydata
+WHERE cmd_string LIKE '%\\\\%' OR cmd_string LIKE '%:\\%' OR cmd_string LIKE '%/%'
+LIMIT 30;
+
+SELECT '=== B4 Führt lkmobiledir den vollen Pfad? ===' AS x;
+SELECT 'obj' AS tabelle, COUNT(*) AS gefuellt, MIN(lkmobiledir) AS beispiel
+FROM obj WHERE COALESCE(lkmobiledir,'')<>''
+UNION ALL SELECT 'rechnungen', COUNT(*), MIN(lkmobiledir) FROM rechnungen WHERE COALESCE(lkmobiledir,'')<>''
+UNION ALL SELECT 'kreditoren', COUNT(*), MIN(lkmobiledir) FROM kreditoren WHERE COALESCE(lkmobiledir,'')<>'';
+```
+
+Lesart **A**: gewinnt eine der Kundenspalten deutlich, ist die Sache erledigt —
+das Feld bleibt Vermerk. Bleibt A2 gut gefüllt mit Adressen, die nirgends
+sonst vorkommen, ist es eine echte zweite Objektadresse und wandert ins
+Objekt. Lesart **B**: liefert B1/B2/B3 einen Pfad wie `\\server\freigabe\…`,
+ist die Wurzel gefunden und der Dokumentenstrang kann geplant werden; kommt
+nichts, liegt sie ausserhalb der Datenbank.
 
 ---
 

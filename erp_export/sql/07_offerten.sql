@@ -1,5 +1,5 @@
 -- GEMA ERP-Migration — Export «07_offerten»
--- GENERIERT aus KONZEPT_ERP_Migration_Altsystem.md (Zeile 885) durch scripts/erp_export_gen.mjs.
+-- GENERIERT aus KONZEPT_ERP_Migration_Altsystem.md (Zeile 888) durch scripts/erp_export_gen.mjs.
 -- Nicht von Hand ändern: im Konzept ändern und den Generator laufen lassen.
 -- Liest nur. Läuft gegen die lokale Kopie des Altsystems (erp_export/export.ps1).
 
@@ -9,7 +9,7 @@ SELECT o.id, o.offert_nr, o.datum, o.rdatum, o.betrmemo,
        o.knummer AS kundennummer, o.name1, o.korr_name, o.anschrift, o.banrede,
        o.strasse, o.strasse2, o.plz, o.ort, o.egid, o.egrid,
        o.zahlbedid, o.bemerkung, o.wohnung, o.wohn_standort,
-       o.extref2 AS ref2, ab.name1 AS abt_name,
+       o.extref2 AS ref2, o.lkdir AS ordner, ab.name1 AS abt_name,
        TRIM(CONCAT(COALESCE(sad.vorname,''),' ',COALESCE(sad.name1,''))) AS sachb_name
 FROM offerten o
 LEFT JOIN offstatus st ON st.id = o.status

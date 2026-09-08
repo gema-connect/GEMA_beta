@@ -250,5 +250,77 @@ const KR = ['id', 'nr', 'rapport_nr', 'datum', 'betrifft', 'debistatus_text', 'r
     rep.rollen, { role_monteur: 1, role_erp_sachbearbeiter: 1, role_erp_abteilungsleiter: 1 });
 }
 
+// ═══ 13 — «objekt1»/«objekt2» sind eine ADRESSE, keine Bezeichnung ═══
+//
+// Am Altbestand gemessen (Abfrage 8.16): 4 417 von 4 547 Objekten gefüllt,
+// 2 833 verschiedene Werte in `objekt1` (Strassen), aber nur 176 in `objekt2`
+// (Orte). WELCHE Adresse es ist — Objekt oder Verwaltung — ist NICHT belegt,
+// darum darf sie eine vorhandene Objektadresse nie überschreiben. Fehlt die
+// Adresse ganz, ist sie besser als ein namenloses Objekt; das wird gemeldet.
+{
+  console.log('\n═══ 13 — objekt1/objekt2 als Adresse, nur wenn keine da ist ═══');
+  const ls = speicher(), sync = syncMock();
+  const objekte = [];
+  const GO = {
+    getAll: () => objekte.slice(), getAllUnfiltered: () => objekte.slice(),
+    upsertObjekt: (o) => { const i = objekte.findIndex(x => x.id === o.id); if (i >= 0) objekte[i] = o; else objekte.push(o); return Promise.resolve(o); }
+  };
+  const win = { ERP_ZAHLBED_DEFAULT: [] };
+  ['gema_erp_adressen.js', 'gema_erp_import.js'].forEach(f => {
+    const src = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    new Function('window', 'localStorage', 'GemaSync', 'GemaAuth', 'GemaObjekte', 'DOMParser', src)(win, ls, sync, authMock(), GO, undefined);
+    if (win.GemaAdressen) globalThis.GemaAdressen = win.GemaAdressen;
+  });
+  const I = win.GemaErpImport;
+  const KOB = ['id', 'strasse', 'plz', 'ort', 'objekt1', 'objekt2', 'lkdir'];
+  await lauf(I, 'objekte', KOB, [
+    // 1) eigene Adresse vorhanden, objekt1/2 zeigt woandershin → nicht anfassen
+    ['5352', 'Engelgasse 30', '4052', 'Basel', 'Ey 5', 'Ittigen bei Bern', 'Engelgasse_30_4052_Basel_5352'],
+    // 2) keine Strasse → objekt1/objekt2 füllen die Adresse, mit Vermerk
+    ['5360', '', '4402', 'Frenkendorf', 'Kirchweg 4', 'Frenkendorf', ''],
+    // 3) keine Strasse, objekt2 im Auftragsformat «PLZ Ort»
+    ['5361', '', '', '', 'Hauptstrasse 3', '4126 Bettingen', '']
+  ]);
+  const byExt = (e) => objekte.find(o => String(o.extId) === e) || {};
+  const o1 = byExt('5352'), o2 = byExt('5360'), o3 = byExt('5361');
+  eq('vorhandene Objektadresse bleibt unberührt', [o1.strasse, o1.ort], ['Engelgasse 30', 'Basel']);
+  eq('objekt1/2 stehen trotzdem als Vermerk am Objekt', [o1.importObjekt1, o1.importObjekt2], ['Ey 5', 'Ittigen bei Bern']);
+  t('kein Herkunfts-Vermerk, wo nichts übernommen wurde', !o1.importAdresseHerkunft);
+  eq('fehlende Strasse wird aus objekt1 gefüllt', [o2.strasse, o2.plz, o2.ort], ['Kirchweg 4', '4402', 'Frenkendorf']);
+  t('Übernahme wird am Objekt vermerkt (nichts still)', /objekt1/.test(String(o2.importAdresseHerkunft)), o2.importAdresseHerkunft);
+  eq('«4126 Bettingen» wird in PLZ und Ort getrennt', [o3.strasse, o3.plz, o3.ort], ['Hauptstrasse 3', '4126', 'Bettingen']);
+  t('Objektname entsteht aus der übernommenen Adresse', o3.name === 'Hauptstrasse 3', o3.name);
+  eq('Dokumenten-Ordner des Altsystems bleibt am Objekt', o1.importOrdner, 'Engelgasse_30_4052_Basel_5352');
+}
+
+// ═══ 14 — Dokumenten-Ordner («lkdir») geht in keiner Sektion verloren ═══
+//
+// Der Ordnername ist der einzige Faden zwischen Datensatz und den Dateien auf
+// dem Netzlaufwerk (21 755 Ordner). Er endet auf die Datensatz-ID des
+// Altsystems — geht er verloren, ist die Zuordnung später nicht mehr
+// herstellbar, ohne die Datenbank erneut zu befragen.
+{
+  console.log('\n═══ 14 — lkdir wandert an jeden Datensatz ═══');
+  const ls = speicher(), sync = syncMock(); const I = ladeImporter(ls, sync, authMock());
+  const sektionen = I.SEKTIONEN.filter(s => ['objekte', 'adressen', 'offerten', 'auftraege', 'rechnungen', 'kreditoren', 'anlagen'].indexOf(s.id) >= 0);
+  eq('alle sieben Sektionen mit Ordner-Spalte gefunden', sektionen.length, 7);
+  sektionen.forEach(s => {
+    const f = s.felder.find(x => x.id === 'ordner');
+    t(s.id + ': Feld «ordner» vorhanden und auf «lkdir» gemappt', !!f && f.alias.indexOf('lkdir') >= 0);
+    t(s.id + ': Spalte «lkdir» findet das Feld automatisch', I.erkenneMapping(['lkdir'], s.id).ordner != null);
+  });
+  // Am fertigen Datensatz: Beleg und Kreditor tragen den Ordner als Vermerk.
+  const rep = await lauf(I, 'offerten', KO.concat(['lkdir']),
+    [['901', 'O-901', '2026-03-01', 'Umbau', 'Offen', '108.10', '8.10', 'Kunde AG', 'Weg 1', '4000', 'Basel', '', '', '2015.0048_Stamm_Bau_AG_78']],
+    { objekteAnlegen: false });
+  eq('Offerte angelegt', rep.neu, 1);
+  const doc = JSON.parse(sync._cache['gema_erp_dok_pool_v1'] || '[]')[0] || {};
+  eq('Ordner steht am Beleg', doc.importOrdner, '2015.0048_Stamm_Bau_AG_78');
+  const KK = ['id', 'nr', 'name1', 'belegnr', 'datum', 'betrag', 'kredistatustext', 'lkdir'];
+  await lauf(I, 'kreditoren', KK, [['7', '700', 'Sanitär AG', 'R-9', '2026-03-02', '250', 'Offen', '000000_Sanitaer_AG_14997']]);
+  const kred = JSON.parse(sync._cache['gema_erp_kred_pool_v1'] || '[]')[0] || {};
+  eq('Ordner steht am Kreditor', kred.importOrdner, '000000_Sanitaer_AG_14997');
+}
+
 console.log('\n' + (fail ? '✗ ' + fail + ' von ' + n + ' Prüfungen fehlgeschlagen' : '✓ alle ' + n + ' Prüfungen bestanden'));
 process.exit(fail ? 1 : 0);
