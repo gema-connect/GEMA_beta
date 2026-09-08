@@ -920,30 +920,59 @@ function stdJahresAuswertung(tage,jahr,p,opts){
   // zu einem anderen Jahr und wird hier nicht stillschweigend weitergezogen.
   var ubDatum=(ub&&/^\d{4}-\d{2}-\d{2}/.test(String(ub.datum||'')))?String(ub.datum).slice(0,10):'';
   if(ubDatum.slice(0,4)!==String(jahr))ubDatum='';
-  // Überzeit ab dem Stichtag nur in GANZEN Wochen: stdWochenAktivTage rechnet
-  // das Soll aus dem Kalender und nicht aus den vorhandenen Tagen — eine
-  // angebrochene Woche zählte sonst gegen ein volles Wochensoll.
-  var ubWoche=ubDatum?stdWochenStart(ubDatum):'';
-  var wochen={},ferien=0,krank=0,kompH=0,brueckH=0,absTage={};
+  var ubFerienH=(ubDatum&&ub.ferienH!=null&&isFinite(parseFloat(ub.ferienH)))?parseFloat(ub.ferienH):null;
+  var ubUeberzeitH=(ubDatum&&ub.ueberzeitH!=null&&isFinite(parseFloat(ub.ueberzeitH)))?parseFloat(ub.ueberzeitH):null;
+  // Zwei GETRENNTE Zählfenster: ein Übertrag, der nur die Überzeit führt, darf
+  // die Ferienzählung nicht beschneiden — und umgekehrt. Ohne Wert zählt das
+  // jeweilige Konto das ganze Jahr wie ohne Übertrag.
+  var ferienAb=(ubFerienH!=null)?ubDatum:'';
+  var zeitAb=(ubUeberzeitH!=null)?ubDatum:'';
+  var wochen={},byDate={},ferien=0,krank=0,kompH=0,brueckH=0,absTage={};
   (tage||[]).forEach(function(t){
     if(String(t.datum).slice(0,4)!==String(jahr))return;
     var d=String(t.datum).slice(0,10);
-    var ws=stdWochenStart(d);
-    if(!ubWoche||ws>=ubWoche)(wochen[ws]=wochen[ws]||[]).push(t);
-    if(t.absenz&&(!ubDatum||d>=ubDatum)){
+    byDate[d]=t;
+    var ws=stdWochenStart(d);(wochen[ws]=wochen[ws]||[]).push(t);
+    if(t.absenz){
       var a=stdAbsenzAnteil(t);
       absTage[t.absenz.typ]=(absTage[t.absenz.typ]||0)+a;
       var absH=parseFloat(t.absenz.stunden); // stunden-basierte Absenz (Auto-Kompensation) übersteuert anteil×Tagessoll
-      if(t.absenz.typ==='ferien')ferien+=a;
+      // Ferien tagesgenau ab dem Ferien-Stichtag — das Guthaben des Übertrags
+      // gilt ab dort, ein Bezug davor belastete ein Guthaben, das noch nicht galt.
+      if(t.absenz.typ==='ferien'&&(!ferienAb||d>=ferienAb))ferien+=a;
       if(t.absenz.typ==='krank'||t.absenz.typ==='unfall')krank+=a;
       if(t.absenz.typ==='kompensation')kompH+=(isFinite(absH)&&absH>0)?absH:a*ts;
       if(t.absenz.typ==='brueckentag')brueckH+=(isFinite(absH)&&absH>0)?absH:a*ts;
     }
   });
-  var ist=0,soll=0,topfA=0,topfB=0,vorhol=0;
+  /* Ist und Soll TAGESGENAU statt wochenweise — nur über Wochen, die
+     Tagesrapporte haben (Wochen ohne Rapport zählen wie bisher nicht).
+
+     KRITISCH — die Wochenrechnung setzte für die Randwochen des Jahres das
+     volle Wochensoll an, obwohl nur Do/Fr (Jahresanfang) bzw. Mo–Do
+     (Jahresende) im Jahr liegen: ein perfektes Jahr mit exakt 8 h an jedem
+     Werktag ergab −32 h. Und der Stichtag eines Übertrags rundete auf den
+     Montag DAVOR, sodass Tage doppelt zählten, die schon im übernommenen
+     Saldo stecken. Beides fällt weg, wenn jeder Tag für sich zählt.
+     Die Töpfe A/B bleiben wochenweise — das ist die GAV-Regel. */
+  var ist=0,soll=0,topfA=0,topfB=0,vorhol=0,T=stdTagSollH(p),vT=p.vorholProWocheH/5;
   Object.keys(wochen).forEach(function(ws){
     var wa=stdWochenAuswertung(wochen[ws],ws,p);
-    ist+=wa.ist;soll+=wa.soll;topfA+=wa.topfA;topfB+=wa.topfB;vorhol+=wa.vorholWoche;
+    topfA+=wa.topfA;topfB+=wa.topfB;
+    for(var i=0;i<7;i++){
+      var d=stdAddTage(ws,i);
+      if(d.slice(0,4)!==String(jahr))continue;
+      if(zeitAb&&d<zeitAb)continue;
+      var t=byDate[d];
+      if(t){
+        var h=stdTagStunden(t,p),cap=stdTagCapH(t,d,p);
+        ist+=(cap!=null&&h>cap)?cap:h;
+      }
+      if(stdTagTyp(d,p.feiertage)!=='werktag')continue;
+      var abz=t?stdTagAbzugH(t,p):0;
+      soll+=T-abz;
+      vorhol+=(T>0)?vT*(1-abz/T):0;
+    }
   });
   var ausbezahlt=parseFloat(opts.auszahlungH)||0;
   // Das Guthaben steht in STUNDEN (so führt es der GAV und so kam es aus dem
@@ -952,22 +981,18 @@ function stdJahresAuswertung(tage,jahr,p,opts){
   // NICHT stdTagSollH: die Vorholzeit erhöht das Arbeitssoll, nicht den Wert
   // eines Ferientages — sie als Teiler zu nehmen kürzte das Guthaben.
   var tagSoll=ts;
-  var ubFerienH=(ubDatum&&ub.ferienH!=null&&isFinite(parseFloat(ub.ferienH)))?parseFloat(ub.ferienH):null;
-  var ubUeberzeitH=(ubDatum&&ub.ueberzeitH!=null&&isFinite(parseFloat(ub.ueberzeitH)))?parseFloat(ub.ueberzeitH):0;
   var ausUebertrag=(ubFerienH!=null&&tagSoll>0);
   var anspruch=ausUebertrag?(ubFerienH/tagSoll)
     :stdFerienAnspruch(parseFloat(opts.ferienTageJahr)||p.ferienTage,jahr,opts.eintritt,opts.austritt);
-  return {ist:ist,soll:soll,saldo:ubUeberzeitH+(ist-soll),
+  return {ist:ist,soll:soll,saldo:(ubUeberzeitH||0)+(ist-soll),
     saldoJahr:ist-soll,
     topfA:topfA,topfB:topfB,kompensiertH:kompH,topfASaldo:topfA-kompH,
     ausbezahltH:ausbezahlt,topfBOffen:topfB-ausbezahlt,
     vorholEarned:vorhol,brueckentagH:brueckH,vorholSaldo:vorhol-brueckH,
     ferienAnspruch:anspruch,ferienBezogen:ferien,ferienSaldo:anspruch-ferien,
     ferienAusUebertrag:ausUebertrag,
-    uebertragDatum:ubDatum,uebertragFerienH:ubFerienH,uebertragUeberzeitH:ubUeberzeitH,
-    // Ist der Stichtag kein Montag, beginnt die Überzeit-Zählung erst mit der
-    // Folgewoche. Das wird ausgewiesen statt kaschiert.
-    uebertragWocheAb:(ubWoche&&ubWoche!==ubDatum)?ubWoche:'',
+    uebertragDatum:ubDatum,uebertragFerienH:ubFerienH,uebertragUeberzeitH:(ubUeberzeitH||0),
+    uebertragFerienAb:ferienAb,uebertragZeitAb:zeitAb,
     krankTage:krank,absTage:absTage};
 }
 function stdFmtH(h){return (Math.round(h*100)/100).toFixed(2);}
@@ -1189,11 +1214,14 @@ function stFerienDetail(userId,jahr){
   var mi=stMitarbeiterInfo(userId);
   var tage=orgTage().filter(function(t){return t.userId===userId&&String(t.datum).slice(0,4)===String(jahr);});
   var ub=stUebertrag(userId,jahr);
-  // Zählfenster: gibt es einen Übertrag, gilt sein Guthaben AB dem Stichtag —
-  // dann dürfen auch nur die Ferien ab diesem Tag dagegen gerechnet werden.
-  // Ohne diese Klammer belastete ein Bezug aus dem Januar ein Guthaben, das
-  // erst ab Oktober gilt.
-  var ubAb=(ub&&/^\d{4}-\d{2}-\d{2}/.test(String(ub.datum||'')))?String(ub.datum).slice(0,10):'';
+  // Zählfenster: gibt es einen Übertrag MIT Ferienguthaben, gilt es AB dem
+  // Stichtag — dann dürfen auch nur die Ferien ab diesem Tag dagegen gerechnet
+  // werden. Ohne diese Klammer belastete ein Bezug aus dem Januar ein Guthaben,
+  // das erst ab Oktober gilt. Ein Übertrag, der nur die Überzeit führt, lässt
+  // die Ferienzählung unberührt — sonst fiele der Anspruch aufs ganze Jahr
+  // zurück, während der Bezug erst ab Stichtag zählte.
+  var ubFerienH=(ub&&ub.ferienH!=null&&isFinite(parseFloat(ub.ferienH)))?parseFloat(ub.ferienH):null;
+  var ubAb=(ubFerienH!=null&&/^\d{4}-\d{2}-\d{2}/.test(String(ub.datum||'')))?String(ub.datum).slice(0,10):'';
   var bezogen=0,gebucht=[];
   tage.forEach(function(t){
     if(ubAb&&String(t.datum).slice(0,10)<ubAb)return;

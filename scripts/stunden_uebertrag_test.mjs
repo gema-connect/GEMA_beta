@@ -34,7 +34,7 @@ function nah(name, a, b, eps = 0.005) {
 const html = fs.readFileSync(path.join(ROOT, 'pm_stunden.html'), 'utf8');
 const eng = html.split('/*ENGINE-START*/')[1].split('/*ENGINE-END*/')[0];
 const E = new Function(eng + ';return {stdJahresAuswertung,stdFerienAnspruch,stdParams,' +
-  'stdParamsFuerMitarbeiter,stdWochenStart,stdTagSollH};')();
+  'stdParamsFuerMitarbeiter,stdWochenStart,stdTagSollH,stdTagTyp};')();
 
 const p100 = E.stdParams({ wochenSoll: 40, ferienTage: 25, vorholProWocheH: 0 });
 const tag = (d, h) => ({ datum: d, eintraege: [{ von: '08:00', bis: h }], spesen: {} });
@@ -117,17 +117,34 @@ console.log('\n═══ F — Zählfenster ab Stichtag ═══');
   nah('ohne Übertrag zählt das ganze Jahr', ohne.ferienBezogen, 2);
 }
 {
-  // Ist der Stichtag kein Montag, beginnt die Überzeit-Zählung mit der
-  // Folgewoche — sonst zählte eine angebrochene Woche gegen ein volles
-  // Wochensoll (stdWochenAktivTage rechnet aus dem Kalender).
-  const g = E.stdJahresAuswertung([], 2026, p100,
-    { uebertrag: { datum: '2026-10-01', ferienH: 200, ueberzeitH: 0 } });
-  t('abweichender Wochenbeginn wird ausgewiesen',
-    /^\d{4}-\d{2}-\d{2}$/.test(g.uebertragWocheAb));
-  const mo = E.stdJahresAuswertung([], 2026, p100,
-    { uebertrag: { datum: '2026-01-01', ferienH: 200, ueberzeitH: 0 } });
-  t('bei einem Montag-Stichtag gibt es nichts auszuweisen',
-    E.stdWochenStart('2026-01-01') === '2026-01-01' ? mo.uebertragWocheAb === '' : true);
+  // BEWUSST ÜBERSTEUERT (Review 2026-09-08): vorher begann die Zählung am
+  // Montag VOR dem Stichtag — Tage, die schon im übernommenen Saldo stecken,
+  // zählten doppelt (12-h-Tage Mo–Mi + Übertrag 10 → 22 statt 10). Jetzt
+  // zählt jeder Tag für sich, ab dem Stichtag selbst.
+  const tage = [tag('2026-09-28', '20:00'), tag('2026-09-29', '20:00'), tag('2026-09-30', '20:00'),
+                tag('2026-10-01', '16:00'), tag('2026-10-02', '16:00')];
+  const g = E.stdJahresAuswertung(tage, 2026, p100,
+    { uebertrag: { datum: '2026-10-01', ferienH: 200, ueberzeitH: 10 } });
+  nah('Donnerstags-Stichtag: die 12-h-Tage davor zählen NICHT mehr', g.saldo, 10);
+  t('das Zeitfenster beginnt am Stichtag selbst', g.uebertragZeitAb === '2026-10-01');
+  // Ein Übertrag nur mit Ferien lässt die Überzeit ganzjährig zählen.
+  const nurFerien = E.stdJahresAuswertung(tage, 2026, p100,
+    { uebertrag: { datum: '2026-10-01', ferienH: 200 } });
+  nah('nur Ferien im Übertrag → Überzeit ohne Fenster (3×4 h Mehrarbeit)', nurFerien.saldo, 12);
+}
+{
+  // Randwochen-Artefakt: ein perfektes Jahr mit exakt 8 h an jedem Werktag
+  // ergab −32 h, weil die Wochen um Neujahr gegen ein volles Wochensoll
+  // zählten. Diesen Wert hätte der 🧮-Dialog als Startwert ins Folgejahr
+  // geschrieben.
+  const jahr = [];
+  for (let d = new Date(Date.UTC(2026, 0, 1)); d.getUTCFullYear() === 2026; d.setUTCDate(d.getUTCDate() + 1)) {
+    const iso = d.toISOString().slice(0, 10);
+    if (E.stdTagTyp(iso, []) === 'werktag') jahr.push(tag(iso, '16:00'));
+  }
+  const pj = E.stdJahresAuswertung(jahr, 2026, p100, {});
+  nah('perfektes Jahr → Saldo 0 (Gegenprobe: vorher −32)', pj.saldo, 0);
+  nah('Ist = Soll', pj.ist, pj.soll);
 }
 
 console.log('\n═══ G — negative Überzeit (Minusstunden) ═══');
