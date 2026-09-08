@@ -256,9 +256,11 @@ table.t{border-collapse:collapse;width:100%;font-size:12.5px}
     <div style="font-size:12.5px;font-weight:800;color:var(--txt2);margin-bottom:10px" id="ein_datumLbl"></div>
     <div class="fld" id="ein_einsatzWrap" style="display:none"><label>Aus Termin übernehmen</label><select id="ein_einsatz" onchange="stEinsatzPick()"></select></div>
     <div class="fld-row3">
-      <div class="fld"><label>Von *</label><input id="ein_von" type="time"/></div>
-      <div class="fld"><label>Bis *</label><input id="ein_bis" type="time"/></div>
-      <div class="fld"><label>Pause (Min.)</label><input id="ein_pause" type="text" inputmode="numeric" onblur="fixLeadingZero(this)" placeholder="0"/></div>
+      <div class="fld" id="ein_vonWrap"><label>Von *</label><input id="ein_von" type="time"/></div>
+      <div class="fld" id="ein_bisWrap"><label>Bis *</label><input id="ein_bis" type="time"/></div>
+      <div class="fld" id="ein_pauseWrap"><label>Pause (Min.)</label><input id="ein_pause" type="text" inputmode="numeric" onblur="fixLeadingZero(this)" placeholder="0"/></div>
+      <div class="fld" id="ein_dauerWrap" style="display:none"><label>Dauer *</label><div class="g-inp-group"><input id="ein_dauer" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="8"/><span class="g-inp-unit">h</span></div>
+        <div style="font-size:11.5px;color:var(--mut);margin-top:4px">Aus dem Altsystem übernommen: nur die Dauer, keine Uhrzeiten — Nacht- und Wochenendzuschläge entfallen bewusst.</div></div>
     </div>
     <div class="hint" id="ein_pauseHint" style="font-size:10.5px;color:var(--mut);margin:-4px 0 10px"></div>
     <div class="fld"><label>Projekt / Objekt</label><select id="ein_objekt"></select></div>
@@ -639,8 +641,13 @@ function stdAbsenzBezogen(tage,typ,jahr,p){
   });
   return sum;
 }
-function stdAbsenzAnteil(t){
+function stdAbsenzAnteil(t,T){
   if(!t||!t.absenz)return 0;
+  // Stundenbasierte Absenz (Import aus dem Altsystem, Auto-Kompensation):
+  // Anteil am Tagessoll T, gedeckelt bei einem Tag — sonst zählte ein halber
+  // Ferientag im Feriensaldo als ganzer.
+  var st=parseFloat(t.absenz.stunden);
+  if(isFinite(st)&&st>0&&T>0)return Math.min(1,st/T);
   return t.absenz.anteil===0.5?0.5:1;
 }
 // Tagessoll in h (inkl. Vorholzeit-Anteil)
@@ -934,7 +941,7 @@ function stdJahresAuswertung(tage,jahr,p,opts){
     byDate[d]=t;
     var ws=stdWochenStart(d);(wochen[ws]=wochen[ws]||[]).push(t);
     if(t.absenz){
-      var a=stdAbsenzAnteil(t);
+      var a=stdAbsenzAnteil(t,ts);
       absTage[t.absenz.typ]=(absTage[t.absenz.typ]||0)+a;
       var absH=parseFloat(t.absenz.stunden); // stunden-basierte Absenz (Auto-Kompensation) übersteuert anteil×Tagessoll
       // Ferien tagesgenau ab dem Ferien-Stichtag — das Guthaben des Übertrags
@@ -1225,7 +1232,7 @@ function stFerienDetail(userId,jahr){
   var bezogen=0,gebucht=[];
   tage.forEach(function(t){
     if(ubAb&&String(t.datum).slice(0,10)<ubAb)return;
-    if(t.absenz&&t.absenz.typ==='ferien'){bezogen+=stdAbsenzAnteil(t);gebucht.push(t.datum);}
+    if(t.absenz&&t.absenz.typ==='ferien'){bezogen+=stdAbsenzAnteil(t,(parseFloat(p&&p.wochenSoll)||0)/5);gebucht.push(t.datum);}
   });
   var beantragt=0;
   stFerienAntraege().forEach(function(a){
@@ -2511,8 +2518,18 @@ function stRegieQueueUpload(){
 }
 if(_stQ)_stQ.auto(function(){stQueueUpload();});
 if(_stRegieQ)_stRegieQ.auto(function(){stRegieQueueUpload();});
+// Dauer-Modus: importierte Einträge tragen nur `dauerMin` (keine Uhrzeiten).
+// Der Editor zeigt dann ein Dauer-Feld statt Von/Bis — und erfindet beim
+// Speichern keine Uhrzeit.
+var _einDauerModus=false;
+function stEinModus(dauer){
+  _einDauerModus=!!dauer;
+  ['ein_vonWrap','ein_bisWrap','ein_pauseWrap'].forEach(function(id){var el=document.getElementById(id);if(el)el.style.display=dauer?'none':'';});
+  var dw=document.getElementById('ein_dauerWrap');if(dw)dw.style.display=dauer?'':'none';
+}
 function stEinNeu(datum){
   _einDatum=datum;_einId=null;
+  stEinModus(false);
   document.getElementById('einTitle').textContent='Arbeitszeit erfassen';
   document.getElementById('ein_datumLbl').textContent=WOCHENTAGE[(new Date(datum+'T12:00:00Z').getUTCDay()+6)%7]+', '+dfmt(datum);
   document.getElementById('ein_von').value='07:00';
@@ -2554,6 +2571,9 @@ function stEinEdit(datum,einId){
   stEinNeu(datum);
   _einId=einId;
   document.getElementById('einTitle').textContent='Eintrag bearbeiten';
+  var nurDauer=!e.von&&!e.bis&&parseInt(e.dauerMin,10)>0;
+  stEinModus(nurDauer);
+  if(nurDauer)document.getElementById('ein_dauer').value=String(Math.round(parseInt(e.dauerMin,10)/60*100)/100);
   document.getElementById('ein_von').value=e.von;
   document.getElementById('ein_bis').value=e.bis;
   document.getElementById('ein_pause').value=e.pauseMin||'';
@@ -2564,7 +2584,12 @@ function stEinEdit(datum,einId){
 function stEinSave(){
   var u=stUser();if(!u)return;
   var von=document.getElementById('ein_von').value,bis=document.getElementById('ein_bis').value;
-  if(stdMin(von)==null||stdMin(bis)==null){toast('Von/Bis fehlt');return;}
+  var dauerMin=null;
+  if(_einDauerModus){
+    var dh=parseFloat(String(document.getElementById('ein_dauer').value||'').replace(',','.'));
+    if(!(dh>0)||dh>24){toast('Dauer fehlt oder ist unplausibel');return;}
+    dauerMin=Math.round(dh*60);von='';bis='';
+  }else if(stdMin(von)==null||stdMin(bis)==null){toast('Von/Bis fehlt');return;}
   var t=stTagFor(_einDatum,u.id);
   if(t&&!stTagEditable(t)){toast('Tag ist eingereicht — nicht mehr änderbar');return;}
   if(!t)t={id:uid(),orgId:u.orgId,userId:u.id,userName:u.name,datum:_einDatum,eintraege:[],spesen:{},status:'offen',erstelltAm:new Date().toISOString()};
@@ -2572,20 +2597,27 @@ function stEinSave(){
   var e={
     id:_einId||uid(),
     von:von,bis:bis,
-    pauseMin:parseInt(document.getElementById('ein_pause').value,10)||0,
+    pauseMin:_einDauerModus?0:(parseInt(document.getElementById('ein_pause').value,10)||0),
     objektId:objSel.value,
     objektName:objSel.value?(objSel.options[objSel.selectedIndex].textContent||''):'',
     taetigkeit:document.getElementById('ein_taetigkeit').value.trim()
   };
+  if(_einDauerModus)e.dauerMin=dauerMin;
   var einSel=document.getElementById('ein_einsatz');
-  if(document.getElementById('ein_einsatzWrap').style.display!=='none'&&einSel.value)e.einsatzId=einSel.value;
+  var einsatzGesetzt=document.getElementById('ein_einsatzWrap').style.display!=='none'&&!!einSel.value;
+  if(einsatzGesetzt)e.einsatzId=einSel.value;
   var i=(t.eintraege||[]).findIndex(function(x){return x.id===e.id;});
   var neu=i<0;
   if(i>=0){
-    // Rapport-Verknüpfung + Material-Antwort überleben das Bearbeiten (e wird neu aufgebaut)
-    e.rapportId=t.eintraege[i].rapportId;
-    e.rapportNr=t.eintraege[i].rapportNr;
-    e.materialAntwort=t.eintraege[i].materialAntwort;
+    // Alles, was der Editor nicht kennt, überlebt das Bearbeiten: Rapport-
+    // Verknüpfung, Material-Antwort — und die Import-Marker (importKey,
+    // importAuftragNr, importQuelle, importKonflikt, bemerkung …). Ohne sie
+    // legte ein Wiederholungs-Import den Eintrag ein zweites Mal an.
+    var altE=t.eintraege[i];
+    var m=Object.assign({},altE,e);
+    if(!_einDauerModus)delete m.dauerMin;          // Uhrzeiten gesetzt → Dauer wird gerechnet
+    if(!einsatzGesetzt)delete m.einsatzId;          // Auswahl geleert → Bezug weg (wie bisher)
+    e=m;
     t.eintraege[i]=e;
   } else t.eintraege.push(e);
   if(t.status==='zurueck')t.status='offen';
@@ -4530,6 +4562,14 @@ function stFeiertageEinfuegen(){
 // ═══════════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════════
+// Sync-Deckel erreicht → der Stunden-Pool ist unvollständig. Das darf nie
+// still bleiben: Salden und Freigaben wären sonst falsch, ohne dass es
+// jemand merkt (No-silent-caps).
+window.addEventListener('gema-sync-capped',function(ev){
+  var d=(ev&&ev.detail)||{};
+  if(d.moduleKey!=='stundenerfassung')return;
+  try{toast('⚠ Nur die ersten '+(d.rows||0).toLocaleString('de-CH')+' Tagesrapporte geladen — der Bestand ist grösser als der Lade-Deckel. Salden sind unvollständig.');}catch(e){}
+});
 document.addEventListener('DOMContentLoaded',function(){
   var m=location.search.match(/[?&]d=(\d{4}-\d{2}-\d{2})/);
   if(m)_wkStart=stdWochenStart(m[1]);

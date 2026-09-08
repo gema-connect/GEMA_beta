@@ -237,7 +237,9 @@ const erg = await page.evaluate(() => {
     objAnz: objs.length,
     bp: (objs[0].bezugspersonen || []).map(p => ({ name: p.name, typen: p.typen, tel: p.tel, wohnung: p.wohnung })),
     adressen: GemaAdressen.list().map(a => ({ nr: a.nr, firma: a.firma, kontakt: a.kontakt, strasse: a.strasse, strasse2: a.strasse2, plz: a.plz, tel: a.tel })),
-    bereiche: (((GemaAuth.getCurrentOrg() || {}).settings || {}).arbeitsbereiche || []).map(b => b.label)
+    // Form der ⚙️-Einstellungen ist {id, name, farbe} — alle Konsumenten
+    // filtern auf `name` (Prüfbericht 2026-09-08); `label` nur noch Altdaten.
+    bereiche: (((GemaAuth.getCurrentOrg() || {}).settings || {}).arbeitsbereiche || []).map(b => b.name || b.label)
   };
 });
 eq('4 Aufträge angelegt', erg.auf.length, 4);

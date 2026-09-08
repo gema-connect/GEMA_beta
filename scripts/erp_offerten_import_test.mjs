@@ -135,7 +135,10 @@ await page.waitForSelector('#migModal.open');
 await page.setInputFiles('#migFile', OFF_X);
 await page.waitForSelector('.mig-map', { timeout: 10000 });
 const zug = await page.evaluate(() => Object.keys(window._mig.mapping).length);
-t('22 von 26 Spalten automatisch zugeordnet (' + zug + ')', zug === 22);
+// Mindestens 22 — mehr ist besser (2026-09-08 kamen korr_name, zahlbedid,
+// bemerkung, wohn_standort dazu; ein exakt gepinnter Wert blockierte jede
+// weitere Spalte).
+t('mindestens 22 von 26 Spalten automatisch zugeordnet (' + zug + ')', zug >= 22);
 const mapTxt = await page.textContent('#migBody');
 t('Nicht importierte Spalten werden benannt', /nicht importiert/.test(mapTxt));
 t('… und namentlich aufgeführt', /zbetrag/.test(mapTxt) && /mwstbetrag_1/.test(mapTxt));

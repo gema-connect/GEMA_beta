@@ -931,8 +931,12 @@ function erpTotalKorrektur(doc,ziel){
 
 // Fakturierungsstand eines Auftrags über alle zugehörigen Rechnungen (ohne stornierte)
 function erpAuftragFakt(docs,auftragId){
-  var auftrag=docs.find(function(d){return d.id===auftragId;});
-  var rechnungen=docs.filter(function(d){return d.typ==='rechnung'&&d.verknuepfung&&d.verknuepfung.auftragId===auftragId&&d.status!=='storniert';});
+  // `docs` ist bei allen Aufrufern erpDocs() — der Index darauf ist
+  // gemeinsam (erpDocById/erpRechnungenZuAuftrag), sonst wäre jede Liste
+  // quadratisch.
+  var auftrag=(docs===_erpDocsMemo||!docs)?erpDocById(auftragId):docs.find(function(d){return d.id===auftragId;});
+  var rechnungen=(docs===_erpDocsMemo||!docs)?erpRechnungenZuAuftrag(auftragId)
+    :docs.filter(function(d){return d.typ==='rechnung'&&d.verknuepfung&&d.verknuepfung.auftragId===auftragId&&d.status!=='storniert';});
   var auftragNetto=auftrag?erpDocTotals(auftrag).netto:0;
   var verrechnetNetto=0,bezahltBrutto=0;
   rechnungen.forEach(function(r){
@@ -1360,7 +1364,13 @@ function poolSaveP(key,prefix,rec){
   var i=pool.findIndex(function(x){return x.id===rec.id;});
   if(i>=0)pool[i]=rec;else pool.push(rec);
   _memStore[key]=pool;
-  try{localStorage.setItem(key,JSON.stringify(pool));}catch(e){}
+  // Cache-Nachführung über GemaSync (localStorage + Spiegel + IndexedDB):
+  // ein eigenes setItem scheiterte bei grossen Pools still an der Quota, und
+  // getCached lieferte danach den alten Stand — die Bearbeitung war bis zum
+  // Reload unsichtbar, in der Cloud aber da.
+  if(typeof GemaSync!=='undefined'&&GemaSync.setCached){try{GemaSync.setCached(key,pool);}catch(e){}}
+  else{try{localStorage.setItem(key,JSON.stringify(pool));}catch(e2){}}
+  _erpMemoReset();
   if(typeof GemaSync!=='undefined'&&GemaSync.saveRecord)return GemaSync.saveRecord(ERP_MODULE,prefix+rec.id,rec);
   return Promise.resolve();
 }
@@ -1368,10 +1378,44 @@ function poolSave(key,prefix,rec){var p=poolSaveP(key,prefix,rec);if(p&&p.catch)
 function poolDelete(key,prefix,id){
   var pool=poolRead(key).filter(function(x){return x.id!==id;});
   _memStore[key]=pool;
-  try{localStorage.setItem(key,JSON.stringify(pool));}catch(e){}
+  if(typeof GemaSync!=='undefined'&&GemaSync.setCached){try{GemaSync.setCached(key,pool);}catch(e){}}
+  else{try{localStorage.setItem(key,JSON.stringify(pool));}catch(e2){}}
+  _erpMemoReset();
   if(typeof GemaSync!=='undefined'&&GemaSync.deleteRecord)GemaSync.deleteRecord(ERP_MODULE,prefix+id).catch(function(){});
 }
-function erpDocs(){var u=erpUser();return poolRead(DOK_POOL).filter(function(d){return u&&d.orgId===u.orgId;});}
+/* Beleg-Pool EINMAL je Ereignisschleife lesen. getCached parst den ganzen
+   Pool bei jedem Aufruf — bei 26 000 Belegen mit Positionen (230 MB) ist
+   das ein Mehrsekunden-Parse, und die Liste rief ihn je Beleg drei- bis
+   viermal (Kette, Fakturierung, Freigeber). Der Memo lebt bis zum nächsten
+   Makrotask und wird bei jedem Save/Delete sofort verworfen; innerhalb eines
+   synchronen Renders kann sich der Pool nicht ändern. Rückgabe NICHT
+   mutieren (filter/sort auf Kopien arbeiten). */
+var _erpDocsMemo=null,_erpDocIx=null,_erpRechnByAuf=null,_erpMemoTimer=null;
+function _erpMemoReset(){_erpDocsMemo=null;_erpDocIx=null;_erpRechnByAuf=null;}
+function erpDocs(){
+  if(_erpDocsMemo)return _erpDocsMemo;
+  var u=erpUser();
+  _erpDocsMemo=poolRead(DOK_POOL).filter(function(d){return u&&d.orgId===u.orgId;});
+  clearTimeout(_erpMemoTimer);_erpMemoTimer=setTimeout(_erpMemoReset,0);
+  return _erpDocsMemo;
+}
+function erpDocById(id){
+  if(!id)return null;
+  if(!_erpDocIx){_erpDocIx={};erpDocs().forEach(function(d){_erpDocIx[d.id]=d;});}
+  return _erpDocIx[id]||null;
+}
+// Rechnungen je Auftrag (ohne stornierte) — einmal gruppiert statt je Auftrag
+// den ganzen Pool zu filtern (26 000 × 26 000).
+function erpRechnungenZuAuftrag(auftragId){
+  if(!_erpRechnByAuf){
+    _erpRechnByAuf={};
+    erpDocs().forEach(function(d){
+      if(d.typ!=='rechnung'||!d.verknuepfung||!d.verknuepfung.auftragId||d.status==='storniert')return;
+      (_erpRechnByAuf[d.verknuepfung.auftragId]=_erpRechnByAuf[d.verknuepfung.auftragId]||[]).push(d);
+    });
+  }
+  return _erpRechnByAuf[auftragId]||[];
+}
 function erpKunden(){var u=erpUser();return poolRead(KUN_POOL).filter(function(k){return u&&k.orgId===u.orgId;});}
 function erpKataloge(){var u=erpUser();return poolRead(KAT_POOL).filter(function(k){return u&&k.orgId===u.orgId;});}
 function erpVorlagen(){var u=erpUser();return poolRead(VORL_POOL).filter(function(v){return u&&v.orgId===u.orgId;});}
@@ -1472,13 +1516,22 @@ function erpZbRowsCollect(hostId){
   var out=[],taken={};
   var rows=document.querySelectorAll('#'+hostId+' .zb-row');
   rows.forEach(function(r){var id=r.getAttribute('data-id');if(id)taken[id]=1;});
+  var bisher={};erpZahlbedListe().forEach(function(z){if(z&&z.id)bisher[z.id]=z;});
   rows.forEach(function(row){
     var label=row.querySelector('.zb-label').value.trim();
     if(!label)return;
-    var tage=parseInt(row.querySelector('.zb-tage').value,10);
-    var rec={id:row.getAttribute('data-id')||_erpSlug('zb',label,taken),label:label,tage:isNaN(tage)?0:Math.max(0,tage)};
+    var id=row.getAttribute('data-id')||_erpSlug('zb',label,taken);
+    var tageRoh=row.querySelector('.zb-tage').value.trim();
+    var tage=parseInt(tageRoh,10);
+    // Leeres Feld heisst «Firmen-Standard» (null), nicht «0 Tage = sofort».
+    // Importierte Konditionen kommen ohne Frist an, wenn das Altsystem keine
+    // führte — daraus 0 zu machen hätte jeden Beleg sofort fällig gestellt.
+    // Bestehende Felder (importKuerzel, importFibuCode) bleiben erhalten —
+    // der Importer findet die Kondition sonst beim nächsten Lauf nicht mehr.
+    var rec=Object.assign({},bisher[id]||{},{id:id,label:label,tage:tageRoh===''?null:(isNaN(tage)?null:Math.max(0,tage))});
     var sp=erpNum(row.querySelector('.zb-skpct').value),stg=parseInt(row.querySelector('.zb-sktage').value,10);
-    if(sp>0){rec.skontoPct=sp;rec.skontoTage=isNaN(stg)?rec.tage:Math.max(0,stg);}
+    if(sp>0){rec.skontoPct=sp;rec.skontoTage=isNaN(stg)?(rec.tage!=null?rec.tage:0):Math.max(0,stg);}
+    else{delete rec.skontoPct;delete rec.skontoTage;}
     out.push(rec);
   });
   return out;
@@ -2359,6 +2412,10 @@ function erpRenderList(){
     docs=docs.filter(function(d){var sb=erpSb(d);return ((d.nr||'')+' '+(d.titel||'')+' '+erpKundeName(d)+' '+(d.objektName||'')+' '+(sb?sb.name:'')).toLowerCase().indexOf(q)>=0;});
   }
   docs.sort(function(a,b){return String(b.datum||'').localeCompare(String(a.datum||''))||String(b.nr||'').localeCompare(String(a.nr||''));});
+  // Deckel für die Anzeige — nie still: was nicht gezeigt wird, steht drunter.
+  var gesamt=docs.length,limit=_erpListLimit;
+  var mehr=gesamt>limit?erpMehrHtml(gesamt,limit):'';
+  if(gesamt>limit)docs=docs.slice(0,limit);
   if(!docs.length){
     el.innerHTML=(!_erpCloudLoaded&&!poolRead(DOK_POOL).length)
       ?'<div class="empty"><svg width="34" height="34" viewBox="0 0 34 34" style="display:block;margin:0 auto 8px"><circle cx="17" cy="17" r="13" fill="none" stroke="#cbd5e1" stroke-width="3.5" stroke-dasharray="55 28"><animateTransform attributeName="transform" type="rotate" from="0 17 17" to="360 17 17" dur="0.9s" repeatCount="indefinite"/></circle></svg>Wird geladen …</div>'
@@ -2371,13 +2428,13 @@ function erpRenderList(){
     var st=ST[erpStatusOf(d)]||ST.entwurf;
     var t=erpDocTotals(d);
     var chain='';
-    if(d.typ==='offerte'&&d.verknuepfung&&d.verknuepfung.auftragId){var a=erpDocs().find(function(x){return x.id===d.verknuepfung.auftragId;});if(a)chain='→ '+a.nr;}
+    if(d.typ==='offerte'&&d.verknuepfung&&d.verknuepfung.auftragId){var a=erpDocById(d.verknuepfung.auftragId);if(a)chain='→ '+a.nr;}
     if(d.typ==='auftrag'){
       var f=erpAuftragFakt(erpDocs(),d.id);
-      if(d.verknuepfung&&d.verknuepfung.offerteId){var o=erpDocs().find(function(x){return x.id===d.verknuepfung.offerteId;});if(o)chain='aus '+o.nr+' · ';}
+      if(d.verknuepfung&&d.verknuepfung.offerteId){var o=erpDocById(d.verknuepfung.offerteId);if(o)chain='aus '+o.nr+' · ';}
       chain+=f.rechnungen.length+' Rechnung'+(f.rechnungen.length===1?'':'en')+' · '+Math.round(f.pct)+'% fakturiert';
     }
-    if(d.typ==='rechnung'&&d.verknuepfung&&d.verknuepfung.auftragId){var a2=erpDocs().find(function(x){return x.id===d.verknuepfung.auftragId;});if(a2)chain='zu '+a2.nr+(d.rechnungsArt&&d.rechnungsArt!=='einzel'?' · '+({akonto:'Akonto',teil:'Teilrechnung',schluss:'Schlussrechnung'})[d.rechnungsArt]:'');}
+    if(d.typ==='rechnung'&&d.verknuepfung&&d.verknuepfung.auftragId){var a2=erpDocById(d.verknuepfung.auftragId);if(a2)chain='zu '+a2.nr+(d.rechnungsArt&&d.rechnungsArt!=='einzel'?' · '+({akonto:'Akonto',teil:'Teilrechnung',schluss:'Schlussrechnung'})[d.rechnungsArt]:'');}
     return {st:st,brutto:t.brutto,chain:chain,abChip:abChipHtml(d.bereichId),sb:erpSb(d)};
   }
   if(_erpDocView==='liste'){
@@ -2404,32 +2461,35 @@ function erpRenderList(){
     }).join('');
     el.className='';
     el.innerHTML='<div class="dtbl-wrap"><table class="dtbl">'+colgroup+thead+'<tbody>'+body+'</tbody></table>'
-      +'<div class="dtbl-hint">Spalten-Titel ziehen ordnet die Spalten um · Rechtsklick auf die Titelzeile: Spalten ein-/ausblenden · Spaltenrand ziehen: Breite</div></div>';
+      +'<div class="dtbl-hint">Spalten-Titel ziehen ordnet die Spalten um · Rechtsklick auf die Titelzeile: Spalten ein-/ausblenden · Spaltenrand ziehen: Breite</div></div>'+mehr;
     return;
   }
   el.innerHTML=docs.map(function(d){
-    var s=erpStatusOf(d);var st=ST[s]||ST.entwurf;
-    var t=erpDocTotals(d);
-    var chain='';
-    if(d.typ==='offerte'&&d.verknuepfung&&d.verknuepfung.auftragId){var a=erpDocs().find(function(x){return x.id===d.verknuepfung.auftragId;});if(a)chain='→ '+a.nr;}
-    if(d.typ==='auftrag'){
-      var f=erpAuftragFakt(erpDocs(),d.id);
-      if(d.verknuepfung&&d.verknuepfung.offerteId){var o=erpDocs().find(function(x){return x.id===d.verknuepfung.offerteId;});if(o)chain='aus '+o.nr+' · ';}
-      chain+=f.rechnungen.length+' Rechnung'+(f.rechnungen.length===1?'':'en')+' · '+Math.round(f.pct)+'% fakturiert';
-    }
-    if(d.typ==='rechnung'&&d.verknuepfung&&d.verknuepfung.auftragId){var a2=erpDocs().find(function(x){return x.id===d.verknuepfung.auftragId;});if(a2)chain='zu '+a2.nr+(d.rechnungsArt&&d.rechnungsArt!=='einzel'?' · '+({akonto:'Akonto',teil:'Teilrechnung',schluss:'Schlussrechnung'})[d.rechnungsArt]:'');}
-    var abChip=abChipHtml(d.bereichId);
-    var sbD=erpSb(d);
+    var ctx=docCtx(d);var st=ctx.st;
+    var abChip=ctx.abChip;
+    var sbD=ctx.sb;
     return '<div class="card" onclick="erpOpen(\''+d.id+'\')" oncontextmenu="erpDocCtx(event,\''+d.id+'\')">'
       +'<div class="card-bar" style="background:'+st.c+'"></div><div class="card-bd">'
       +'<div class="card-top"><span class="card-nr">'+esc(d.nr||'')+'</span>'+(abChip?'<span style="margin-left:6px">'+abChip+'</span>':'')+'<span class="badge" style="background:'+st.bg+';color:'+st.c+';border:1px solid '+st.bd+';margin-left:auto">'+st.n+'</span></div>'
       +'<div class="card-title">'+esc(d.titel||erpKundeName(d))+'</div>'
       +'<div class="card-meta">👤 '+esc(erpKundeName(d))+(d.objektName?'<br>🏗 '+esc(d.objektName):'')
-      +'<br>📅 '+dfmt(d.datum)+' · <b style="color:var(--txt2)">CHF '+chf(t.brutto)+'</b>'
+      +'<br>📅 '+dfmt(d.datum)+' · <b style="color:var(--txt2)">CHF '+chf(ctx.brutto)+'</b>'
       +(sbD?' · 👔 '+esc(sbD.name):'')
-      +(chain?'<br><span class="chain">🔗 '+esc(chain)+'</span>':'')+'</div></div></div>';
-  }).join('');
+      +(ctx.chain?'<br><span class="chain">🔗 '+esc(ctx.chain)+'</span>':'')+'</div></div></div>';
+  }).join('')+mehr;
 }
+/* Anzeige-Deckel für lange Listen: Belege, Kreditoren, Adressen, Artikel.
+   Nach einer Migration liegen 26 000 Belege im Pool — alle in den DOM zu
+   zeichnen fror die Seite ein. Was fehlt, wird BENANNT (No-silent-caps),
+   «Mehr laden» holt die nächsten, die Suche grenzt ein. */
+var ERP_LIST_SCHRITT=300;
+var _erpListLimit=ERP_LIST_SCHRITT;
+function erpMehrHtml(gesamt,limit){
+  return '<div class="empty" style="grid-column:1/-1;padding:14px"><b>'+limit.toLocaleString('de-CH')+'</b> von <b>'+gesamt.toLocaleString('de-CH')+'</b> angezeigt — '
+    +'<button class="btn" style="margin-left:6px" onclick="erpListMehr()">Mehr laden</button>'
+    +' <span style="font-size:12px;color:var(--mut)">oder mit der Suche eingrenzen</span></div>';
+}
+function erpListMehr(){_erpListLimit+=ERP_LIST_SCHRITT;erpRenderList();}
 // ── Nachkalkulation & Projekterfolg: eine Karte pro Auftrag ──
 var NK_HINWEIS={
   unverrechnet:{ic:'⚠',c:'#d97706',bg:'#fffbeb',bd:'#fcd34d',t:function(b){return 'CHF '+chf(b)+' unverrechnete Regieleistung';}},
@@ -2507,7 +2567,7 @@ var KRED_ST={
   zurueckgewiesen:{n:'Zurückgewiesen',c:'#dc2626',bg:'#fef2f2',bd:'#fca5a5'},
   bezahlt:{n:'Bezahlt',c:'#16a34a',bg:'#f0fdf4',bd:'#bbf7d0'}
 };
-function erpKredAuftrag(k){if(!k||!k.auftragId)return null;return erpDocs().find(function(d){return d.id===k.auftragId;})||null;}
+function erpKredAuftrag(k){if(!k||!k.auftragId)return null;return erpDocById(k.auftragId);}
 // Freigeber = Sachbearbeiter des zugeteilten Auftrags — LIVE aufgelöst (folgt
 // einem SB-Wechsel am Auftrag); der Snapshot k.freigeber ist nur Fallback,
 // falls der Auftrag nicht (mehr) lesbar ist.
@@ -2600,6 +2660,8 @@ function erpRenderKreditoren(el){
   }
   var ord={offen:0,freigegeben:1,zurueckgewiesen:2,bezahlt:3};
   list.sort(function(a,b){return (ord[a.status]||0)-(ord[b.status]||0)||String(b.datum||'').localeCompare(String(a.datum||''));});
+  var kGesamt=list.length,kMehr='';
+  if(kGesamt>_erpListLimit){kMehr=erpMehrHtml(kGesamt,_erpListLimit);list=list.slice(0,_erpListLimit);}
   var h='';
   var meine=ks.filter(function(k){var f=erpKredFreigeber(k);return k.status==='offen'&&f&&f.userId===(u&&u.id);});
   if(meine.length&&!(fst&&fst.value))h+='<div class="infobox warn" style="grid-column:1/-1;margin-bottom:0">🔔 <b>'+meine.length+' Kreditor'+(meine.length===1?'':'en')+' zur Freigabe bei dir</b> — als Sachbearbeiter der zugeteilten Aufträge gibst du die Lieferantenrechnungen frei oder weist sie mit Grund zurück.</div>';
@@ -2609,7 +2671,7 @@ function erpRenderKreditoren(el){
       :'<div class="empty">💳 Noch keine Kreditoren<br><span style="font-size:12.5px">Lieferantenrechnung mit Beleg erfassen und einem Auftrag zuteilen — der Sachbearbeiter des Auftrags gibt sie frei. Doppelklick auf eine Karte öffnet den Beleg.</span></div>');
     return;
   }
-  el.innerHTML=h+list.map(erpKredCardHtml).join('');
+  el.innerHTML=h+list.map(erpKredCardHtml).join('')+kMehr;
 }
 
 // ── Kreditor-Modal (Erfassen/Bearbeiten) ──
@@ -3207,10 +3269,7 @@ function erpOpenEditor(){
   h+='<div class="sec" id="secGrund"'+((_erpGrunddatenOffen||!editable)?'':' style="display:none"')+'><div class="sec-hd"><h3>'+TYP[d.typ].ic+' Grunddaten</h3>'+(editable?'<button class="btn" style="margin-left:auto;min-height:26px;padding:2px 10px;font-size:11.5px" onclick="erpGrunddatenToggle()">▲ Einklappen</button>':'')+'</div><div class="sec-bd">'
     +'<div class="fld-row">'
     +'<div class="fld"><label>Kunde (Rechnungsempfänger) *</label><div style="display:flex;gap:6px">'
-    +'<select id="e_kunde" style="flex:1"'+dis+' onchange="erpKundeWahl(this.value)">'
-    +'<option value="">– Kunde wählen –</option>'
-    +kunden.map(function(k){return '<option value="'+k.id+'"'+(k.id===d.kundeId?' selected':'')+'>'+esc(k.firma)+'</option>';}).join('')
-    +'</select>'
+    +'<div style="flex:1;min-width:0">'+erpKundeComboHtml(d,editable)+'</div>'
     +(editable?'<button class="btn" style="min-width:44px;padding:8px" title="Neuer Kunde / aus Beteiligten" onclick="erpKundeNeu(true)">＋</button>':'')
     +'</div></div>'
     +'<div class="fld"><label>Projekt / Objekt</label>'+erpObjComboHtml(d,editable)+'</div></div>'
@@ -3318,7 +3377,7 @@ function erpOpenEditor(){
 
   // ── Einleitung/Schlusstext/MwSt: zentral in den ⚙️-Einstellungen (beim Erstellen
   //    gestempelt) — auf der Bearbeitungsoberfläche bewusst nicht mehr sichtbar ──
-  h+='<div class="sec"><div class="sec-bd" style="font-size:12px;color:var(--mut)">💬 Einleitungs- und Schlusstext sowie der MwSt.-Satz ('+d.mwstPct+' %) werden zentral in den <b>⚙️ Einstellungen</b> gepflegt und beim Erstellen des Dokuments übernommen.</div></div>';
+  h+='<div class="sec"><div class="sec-bd" style="font-size:12px;color:var(--mut)">💬 Einleitungs- und Schlusstext sowie der MwSt.-Satz ('+erpNum(d.mwstPct)+' %) werden zentral in den <b>⚙️ Einstellungen</b> gepflegt und beim Erstellen des Dokuments übernommen.</div></div>';
 
   document.getElementById('edBody').innerHTML=h;
   erpRenderPos();
@@ -3889,7 +3948,7 @@ function erpRenderPos(){
     +schlussHtml
     +(editableDoc?'<div style="display:flex;gap:6px;margin:2px 0 4px"><button class="btn ghost" style="min-height:28px;padding:3px 10px;font-size:11.5px" title="Schlussrabatt aufs Netto-Gesamttotal — in % oder pauschal CHF" onclick="erpSchlussAdd(\'rabatt\')">− Schlussrabatt</button><button class="btn ghost" style="min-height:28px;padding:3px 10px;font-size:11.5px" title="Zuschlag aufs Netto-Gesamttotal — in % oder pauschal CHF" onclick="erpSchlussAdd(\'zuschlag\')">＋ Zuschlag</button></div>':'')
     +'<div class="rw"><span>Netto</span><b>'+chf(t.netto)+'</b></div>'
-    +'<div class="rw"><span>MwSt. '+cur.mwstPct+' %</span><b>'+chf(t.mwst)+'</b></div>'
+    +'<div class="rw"><span>MwSt. '+erpNum(cur.mwstPct)+' %</span><b>'+chf(t.mwst)+'</b></div>'
     +(Math.abs(t.rundung)>=0.005?'<div class="rw"><span>Rundung</span><b>'+chf(t.rundung)+'</b></div>':'')
     +'<div class="rw tot"'+(editableDoc?' ondblclick="erpTotEdit()" title="Doppelklick: Endsumme direkt eingeben — die Differenz wird automatisch als Schlussrabatt bzw. Zuschlag eingetragen"':'')+'>'
     +'<span>Total CHF'+(editableDoc?' <span style="font-weight:600;font-size:10px;color:var(--mut2)">(Doppelklick)</span>':'')+'</span>'
@@ -5485,7 +5544,12 @@ function erpEigRender(){
     return;
   }
   var q=String((document.getElementById('eigSearch')||{}).value||'').toLowerCase().trim();
-  var arts=(kat.artikel||[]).filter(function(a){return !q||(a.bez+' '+(a.einheit||'')).toLowerCase().indexOf(q)>=0;});
+  var arts=(kat.artikel||[]).filter(function(a){return !q||(a.bez+' '+(a.einheit||'')+' '+(a.artNr||'')+' '+(a.dim||'')).toLowerCase().indexOf(q)>=0;});
+  // Seitenleiste: höchstens 200 Zeilen auf einmal — ein importierter Katalog
+  // hat Hunderte, die Suche grenzt ein. Der Rest wird benannt.
+  var artGesamt=arts.length;
+  if(artGesamt>200)arts=arts.slice(0,200);
+  var artMehr=artGesamt>200?'<div class="side-empty">'+artGesamt.toLocaleString('de-CH')+' Artikel — die ersten 200 gezeigt, bitte über die Suche eingrenzen.</div>':'';
   el.innerHTML=arts.length?arts.map(function(a){
     var img=a.bildUrl||a.bildDataUrl;
     var pos={art:'frei',bez:a.bez,menge:1,einheit:a.einheit||'Stk',ep:a.ep,eigenArtikelId:a.id};
@@ -6371,6 +6435,78 @@ function erpObjKey(e){
 }
 function _erpObjHiApply(items){items.forEach(function(el,i){el.classList.toggle('hi',i===_erpObjHi);if(i===_erpObjHi)el.scrollIntoView({block:'nearest'});});}
 
+// ── Kunden-Wahl als Such-Dropdown — dasselbe Muster wie beim Objekt ──
+// Ein <select> mit allen Kunden war nach der Migration (6 627 Adressen)
+// unbedienbar. Gesucht wird über GemaAdressen.passt (Name, Nummer, Ort,
+// Kontakt …), gezeigt werden die ersten 20 Treffer.
+var _erpKdHi=-1;
+function erpKundeById(id){return id?(erpKunden().find(function(x){return x.id===id;})||null):null;}
+function erpKundeComboHtml(d,editable){
+  var k=(d&&d.kundeId)?erpKundeById(d.kundeId):null;
+  var curName=k?(k.firma||GemaAdressen.anzeigeName(k)):((d&&d.kundeSnapshot&&d.kundeSnapshot.firma)||'');
+  if(!editable)return '<input type="text" value="'+esc(curName)+'" disabled placeholder="– Kunde wählen –"/>';
+  return '<div class="erp-combo" id="e_kundeCombo">'
+    +'<input id="e_kunde" type="text" autocomplete="off" placeholder="Kunde suchen (Name, Nummer, Ort) …" value="'+esc(curName)+'" '
+    +'oninput="erpKdInput(this.value)" onfocus="erpKdOpen()" onkeydown="erpKdKey(event)" onblur="erpKdBlur()"/>'
+    +'<button type="button" id="e_kundeClear" class="erp-combo-clear" title="Kunde entfernen" style="'+(k?'':'display:none')+'" onmousedown="event.preventDefault()" onclick="erpKdClear()">✕</button>'
+    +'<div class="erp-combo-drop" id="e_kundeDrop"></div>'
+    +'</div>';
+}
+function erpKdMatches(q){
+  q=(q||'').trim();
+  var all=erpKunden();
+  var l=q?all.filter(function(a){return GemaAdressen.passt(a,q);}):all.slice();
+  l.sort(function(a,b){return GemaAdressen.anzeigeName(a).localeCompare(GemaAdressen.anzeigeName(b),'de');});
+  return l.slice(0,20);
+}
+function erpKdRenderDrop(q){
+  var drop=document.getElementById('e_kundeDrop');if(!drop)return;
+  var items=erpKdMatches(q);_erpKdHi=-1;
+  if(!items.length){drop.innerHTML='<div class="co-empty">Kein Kunde gefunden — mit «＋» anlegen.</div>';drop.classList.add('open');return;}
+  drop.innerHTML=items.map(function(k){
+    var sub=[k.nr,k.kontakt,[k.strasse,k.plz,k.ort].filter(Boolean).join(' ')].filter(function(x){return x&&String(x).trim();}).join(' · ');
+    return '<div class="co-item" data-id="'+esc(k.id)+'" onmousedown="event.preventDefault();erpKdPick(\''+esc(k.id)+'\')">'
+      +'<div class="co-t">'+esc(k.firma||GemaAdressen.anzeigeName(k))+'</div>'+(sub?'<div class="co-s">'+esc(sub)+'</div>':'')+'</div>';
+  }).join('');
+  drop.classList.add('open');
+}
+function erpKdOpen(){var inp=document.getElementById('e_kunde');erpKdRenderDrop(inp?inp.value:'');}
+function erpKdInput(v){erpKdRenderDrop(v);}
+function erpKdCloseDrop(){var d=document.getElementById('e_kundeDrop');if(d)d.classList.remove('open');_erpKdHi=-1;}
+function erpKdSyncClear(){var b=document.getElementById('e_kundeClear');if(b)b.style.display=(cur&&cur.kundeId)?'':'none';}
+function erpKdPick(id){
+  var k=erpKundeById(id);
+  var inp=document.getElementById('e_kunde');
+  if(inp)inp.value=k?(k.firma||GemaAdressen.anzeigeName(k)):'';
+  erpKdCloseDrop();
+  erpKundeWahl(id);
+  erpKdSyncClear();
+}
+function erpKdClear(){
+  var inp=document.getElementById('e_kunde');if(inp)inp.value='';
+  erpKdCloseDrop();
+  erpKundeWahl('');
+  erpKdSyncClear();
+  if(inp)inp.focus();
+}
+function erpKdBlur(){
+  setTimeout(function(){
+    erpKdCloseDrop();
+    var inp=document.getElementById('e_kunde');if(!inp||!cur)return;
+    var k=erpKundeById(cur.kundeId);
+    inp.value=k?(k.firma||GemaAdressen.anzeigeName(k)):((cur.kundeSnapshot&&cur.kundeSnapshot.firma)||'');
+  },160);
+}
+function erpKdKey(e){
+  var drop=document.getElementById('e_kundeDrop');if(!drop)return;
+  var items=[].slice.call(drop.querySelectorAll('.co-item'));
+  if(e.key==='ArrowDown'){e.preventDefault();if(!drop.classList.contains('open')){erpKdOpen();return;}_erpKdHi=Math.min(items.length-1,_erpKdHi+1);_erpKdHiApply(items);}
+  else if(e.key==='ArrowUp'){e.preventDefault();_erpKdHi=Math.max(0,_erpKdHi-1);_erpKdHiApply(items);}
+  else if(e.key==='Enter'){if(drop.classList.contains('open')&&items.length){e.preventDefault();var el=items[_erpKdHi>=0?_erpKdHi:0];if(el)erpKdPick(el.getAttribute('data-id'));}}
+  else if(e.key==='Escape'){erpKdCloseDrop();}
+}
+function _erpKdHiApply(items){items.forEach(function(el,i){el.classList.toggle('hi',i===_erpKdHi);if(i===_erpKdHi)el.scrollIntoView({block:'nearest'});});}
+
 function erpObjektWahl(id){
   if(!cur)return;
   cur.objektId=id;
@@ -6589,6 +6725,8 @@ function erpRenderAdressen(el){
   if(_adrSuche.trim())l=l.filter(function(a){return GemaAdressen.passt(a,_adrSuche);});
   l.sort(function(a,b){return GemaAdressen.anzeigeName(a).localeCompare(GemaAdressen.anzeigeName(b),'de');});
   if(!l.length){el.innerHTML='<div class="empty">Keine Adresse gefunden.</div>';return;}
+  var aGesamt=l.length,aMehr='';
+  if(aGesamt>_erpListLimit){aMehr=erpMehrHtml(aGesamt,_erpListLimit);l=l.slice(0,_erpListLimit);}
   el.innerHTML=l.map(function(k){
     var zeilen=[k.kontakt,[k.strasse,k.strasse2].filter(Boolean).join(', '),[k.plz,k.ort].filter(Boolean).join(' ')].filter(Boolean);
     var chips=(k.typen||[]).map(function(t){return '<span class="adr-chip">'+esc(GemaAdressen.typLabel(t))+'</span>';}).join('');
@@ -6598,7 +6736,7 @@ function erpRenderAdressen(el){
       +'<div class="card-meta">'+esc(zeilen.join(' · '))+(kon?'<br>'+esc(kon):'')+'</div>'
       +(chips?'<div style="margin-top:5px">'+chips+'</div>':'')
       +'</div></div>';
-  }).join('');
+  }).join('')+aMehr;
 }
 
 function _adrTypenBox(gewaehlt){
@@ -6805,7 +6943,9 @@ function erpMigAutoDateien(files){
       sheets.forEach(function(s,k){if(s.rows.length>best){best=s.rows.length;bl=k;}});
       var kopfIdx=GemaErpImport.findeKopfzeile(sheets[bl].rows);
       var kopf=sheets[bl].rows[kopfIdx]||[];
-      var erk=GemaErpImport.erkenneSektion(kopf);
+      // Dateiname des Export-Pakets («07_offerten.tsv») ist die Zuordnung,
+      // sofern die Pflichtfelder passen — sonst entscheidet die Kopfzeile.
+      var erk=GemaErpImport.erkenneSektion(kopf,f.name);
       var rows=sheets[bl].rows.slice(kopfIdx+1).filter(function(r){
         return r.some(function(c){return String(c==null?'':c).trim();});
       });
@@ -6866,13 +7006,22 @@ function _migAutoRender(){
       +bereit.map(function(d){return GemaErpImport.sektion(d.sekId).ic+' '+esc(GemaErpImport.sektion(d.sekId).label);}).join(' → ')
       +' — so bauen die Belege aufeinander auf.</div>'
       +'<div style="display:flex;gap:9px;flex-wrap:wrap;align-items:center">'
-      +'<button class="btn pri" onclick="erpMigAutoStart()">Vorschau &amp; übernehmen →</button>'
-      +'<button class="btn" onclick="_migAuto=null;_migAutoRender()">Verwerfen</button>'
+      +'<button class="btn pri" id="migAutoStartBtn" onclick="erpMigAutoStart()"'+(_migLaeuft()?' disabled':'')+'>Vorschau &amp; übernehmen →</button>'
+      +'<button class="btn" onclick="erpMigVerwerfen()">Verwerfen</button>'
+      +'<button class="btn red" id="migAutoAbbBtn" style="'+(_migLaeuft()?'':'display:none')+'" onclick="erpMigAbbrechen()">■ Abbrechen</button>'
       +'<span id="migAutoProg" style="font-size:12px;color:var(--mut)"></span></div>';
   } else if(_migAuto.every(function(d){return d.status!=='liest';})){
-    h+='<div style="display:flex;gap:9px;margin-top:8px"><button class="btn" onclick="_migAuto=null;_migAutoRender()">Verwerfen</button></div>';
+    h+='<div style="display:flex;gap:9px;margin-top:8px"><button class="btn" onclick="erpMigVerwerfen()">Verwerfen</button></div>';
   }
+  h+=erpMigBerichteHtml();
   el.innerHTML=h;
+}
+function _migLaeuft(){return !!(typeof GemaErpImport!=='undefined'&&GemaErpImport.laeuft&&GemaErpImport.laeuft());}
+// Verwerfen während eines Laufs hiesse: die Liste ist weg, der Lauf schreibt
+// weiter, und niemand sieht mehr, was passiert. Erst abbrechen, dann verwerfen.
+function erpMigVerwerfen(){
+  if(_migLaeuft()){toast('Der Import läuft noch — zuerst «Abbrechen».');return;}
+  _migAuto=null;_migAutoRender();
 }
 
 // «Spalten prüfen» — öffnet den bekannten Assistenten mit der erkannten
@@ -6894,20 +7043,60 @@ function erpMigAutoPruefen(i){
 // nicht mit — Rechnungen entstehen als «gestellt» (bezahltVor bleibt leer;
 // als bezahlt übernehmen ist eine bewusste Entscheidung und läuft nur über
 // den Assistenten).
+/* Berichte der Läufe bleiben erhalten — ein stundenlanger Import ohne
+   Protokoll wäre nach dem Schliessen des Dialogs weg, und genau dort steht,
+   was gefehlt hat (Offerte nicht gefunden, Person unbekannt, Cloud-Rückstand). */
+var MIG_BERICHT_KEY='gema_erp_migration_berichte_v1';
+function erpMigBerichte(){try{var r=localStorage.getItem(MIG_BERICHT_KEY);var a=r?JSON.parse(r):[];return Array.isArray(a)?a:[];}catch(e){return [];}}
+function erpMigBerichtSichern(titel,html){
+  try{
+    var a=erpMigBerichte();
+    a.unshift({am:new Date().toISOString(),titel:titel,html:html});
+    localStorage.setItem(MIG_BERICHT_KEY,JSON.stringify(a.slice(0,20)));
+  }catch(e){}
+}
+function erpMigBerichteHtml(){
+  var a=erpMigBerichte();if(!a.length)return '';
+  return '<details style="margin-top:14px"><summary style="cursor:pointer;font-weight:800;font-size:13px">🗒 Berichte der letzten Läufe ('+a.length+')</summary>'
+    +a.map(function(b){
+      var d=new Date(b.am);var ds=isNaN(d.getTime())?'':(('0'+d.getDate()).slice(-2)+'.'+('0'+(d.getMonth()+1)).slice(-2)+'.'+d.getFullYear()+' '+('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2));
+      return '<div style="margin-top:8px;padding:8px 10px;border:1px solid var(--brd);border-radius:9px;font-size:12.5px;line-height:1.65"><div style="font-weight:700">'+esc(ds)+' — '+esc(b.titel||'')+'</div>'+b.html+'</div>';
+    }).join('')+'</details>';
+}
+// Cloud-Bilanz eines Laufs als Berichtszeile — ehrlich: eingereiht ist
+// nicht gesendet, gescheitert ist gescheitert.
+function erpMigCloudZeile(rep){
+  var c=rep&&rep.cloud;if(!c)return '';
+  var t='';
+  if(c.eingereiht)t+='<br><span style="color:var(--amber)">'+c.eingereiht+' Datensätze liegen in der Sende-Warteschlange (Verbindung) — sie werden automatisch nachgesendet; bitte die Seite erst schliessen, wenn die Warteschlange leer ist.</span>';
+  if(c.fehler)t+='<br><span style="color:var(--red)">'+c.fehler+' Datensätze konnten NICHT in die Cloud geschrieben werden — Lauf nach Prüfung der Verbindung wiederholen (Dubletten entstehen keine).</span>';
+  if(rep.abgebrochen)t+='<br><span style="color:var(--amber)">Abgebrochen bei Zeile '+rep.abgebrochen.zeile+' — bis dahin Geschriebenes ist gespeichert, der Rest fehlt. Wiederholen ergänzt nur, was fehlt.</span>';
+  if(rep.bezahltOhneDatum)t+='<br>'+rep.bezahltOhneDatum+' Rechnungen sind laut Altsystem bezahlt, ohne Zahlungsdatum — die Zahlung ist auf das Rechnungsdatum datiert und so beschriftet.';
+  if(rep.inaktiv)t+='<br>'+rep.inaktiv+' ausgetretene Person(en) inaktiv angelegt (ohne Einladung).';
+  return t;
+}
+function erpMigAbbrechen(){
+  if(typeof GemaErpImport!=='undefined'&&GemaErpImport.abbrechen){GemaErpImport.abbrechen();toast('Import wird nach dem laufenden Block angehalten …');}
+}
 function erpMigAutoStart(){
   var offen=(_migAuto||[]).filter(_migAutoBereit);
   if(!offen.length)return;
-  var prog=document.getElementById('migAutoProg');
+  if(GemaErpImport.laeuft&&GemaErpImport.laeuft()){toast('Ein Import läuft bereits.');return;}
+  var startBtn=document.getElementById('migAutoStartBtn');if(startBtn)startBtn.disabled=true;
+  var abbBtn=document.getElementById('migAutoAbbBtn');if(abbBtn)abbBtn.style.display='';
+  var prog=function(){return document.getElementById('migAutoProg');};   // per ID: erpRenderAll baut die Liste neu
   var bericht=[];
+  var gestoppt=false;
+  function ende(){
+    var p=prog();if(p)p.innerHTML=gestoppt?'<b style="color:var(--amber)">Abgebrochen</b>':'<b style="color:var(--grn)">✓ Fertig</b>';
+    var html='<div style="font-size:13px;line-height:1.75">'+bericht.join('<br>')+'</div>';
+    erpMigBerichtSichern('Alle Dateien'+(gestoppt?' (abgebrochen)':''),html);
+    _migAutoRender();
+    erpRenderAll();
+    GemaDialog.alert({title:gestoppt?'📥 Migration abgebrochen':'📥 Migration abgeschlossen',html:true,message:html});
+  }
   function naechste(k){
-    if(k>=offen.length){
-      if(prog)prog.innerHTML='<b style="color:var(--grn)">✓ Fertig</b>';
-      _migAutoRender();
-      erpRenderAll();
-      GemaDialog.alert({title:'📥 Migration abgeschlossen',html:true,
-        message:'<div style="font-size:13px;line-height:1.75">'+bericht.join('<br>')+'</div>'});
-      return;
-    }
+    if(k>=offen.length||gestoppt){ende();return;}
     var d=offen[k], sek=GemaErpImport.sektion(d.sekId);
     var plan;
     try{ plan=GemaErpImport.vorbereiten({sektion:d.sekId,rows:d.rows,mapping:d.mapping}); }
@@ -6916,6 +7105,12 @@ function erpMigAutoStart(){
       naechste(k+1);return;
     }
     var anz=plan.zeilen.filter(function(z){return z.aktion!=='fehler';}).length;
+    // Warnungen des Plans (z.B. Dateigrösse) und Fehlerzeilen VOR dem Lauf
+    // sichtbar machen — der Auto-Pfad hat keine Vorschau.
+    var vorab='';
+    if(plan.warnungen&&plan.warnungen.length)vorab+='<br><span style="color:var(--amber)">'+plan.warnungen.map(esc).join('<br>')+'</span>';
+    var fehlZ=plan.zeilen.length-anz;
+    if(fehlZ)vorab+='<br><span style="color:var(--amber)">'+fehlZ+' Zeilen werden wegen fehlender Pflichtangaben übersprungen (Details über «Spalten prüfen»).</span>';
     GemaErpImport.ausfuehren(plan,{
       quelleName:'ERP-Migration',
       objekteAnlegen:true,
@@ -6923,25 +7118,34 @@ function erpMigAutoStart(){
       auftragErgaenzen:true,
       bezahltVor:'',
       onFortschritt:function(i,n){
-        if(prog)prog.textContent=sek.ic+' '+sek.label+' ('+(k+1)+'/'+offen.length+') — '+i+' von '+n+' …';
+        var p=prog();if(p)p.textContent=sek.ic+' '+sek.label+' ('+(k+1)+'/'+offen.length+') — '+i+' von '+n+' …';
       }
     }).then(function(rep){
-      d.status='fertig';
+      d.status=rep.abgebrochen?'unsicher':'fertig';
+      if(rep.abgebrochen)gestoppt=true;
       var t=sek.ic+' <b>'+esc(sek.label)+'</b>: <b>'+rep.neu+'</b> neu, <b>'+rep.aktualisiert+'</b> ergänzt';
       if(rep.adressen)t+=', '+rep.adressen+' Adressen';
       if(rep.objekteNeu)t+=', '+rep.objekteNeu+' Objekte angelegt';
       if(rep.posUebernommen)t+=', '+rep.posUebernommen+' × Positionen aus der Offerte';
       if(rep.auftragBetrag)t+=', '+rep.auftragBetrag+' leere Aufträge ergänzt';
       if(rep.uebersprungen)t+=', '+rep.uebersprungen+' übersprungen';
+      if(rep.terminVerknuepft)t+=', '+rep.terminVerknuepft+' Zeiten mit Termin verknüpft';
+      if(rep.einladungen&&rep.einladungen.length)t+=', <b>'+rep.einladungen.length+'</b> Einladungslinks (siehe Bericht des Assistenten oder Verwaltung)';
       if(rep.offerteFehlt)t+='<br><span style="color:var(--amber)">'+rep.offerteFehlt+' × die angegebene Offerte war nicht gefunden.</span>';
       if(rep.auftragFehlt)t+='<br><span style="color:var(--amber)">'+rep.auftragFehlt+' × der angegebene Auftrag war nicht gefunden.</span>';
+      if(rep.belegFehlt)t+='<br><span style="color:var(--amber)">'+rep.belegFehlt+' × der Beleg war nicht gefunden.</span>';
+      if(rep.personFehlt)t+='<br><span style="color:var(--amber)">'+rep.personFehlt+' × Person ohne GEMA-Benutzer.</span>';
+      if(rep.monteurFehlt)t+='<br><span style="color:var(--amber)">'+rep.monteurFehlt+' Termine ohne zugeordneten Monteur.</span>';
+      if(rep.terminFehlt)t+='<br><span style="color:var(--amber)">'+rep.terminFehlt+' Zeiten nennen einen Termin, der in GEMA nicht liegt.</span>';
+      if(rep.kreditorMehrfach)t+='<br><span style="color:var(--amber)">'+rep.kreditorMehrfach+' Kreditoren waren auf mehrere Aufträge verteilt (importZuteilungen).</span>';
       if(rep.fehler&&rep.fehler.length)t+='<br><span style="color:var(--red)">'+rep.fehler.length+' Zeilen mit Fehler: '
         +esc(rep.fehler.slice(0,3).map(function(f){return 'Zeile '+f.zeile+' — '+f.text;}).join(' · '))+'</span>';
+      t+=vorab+erpMigCloudZeile(rep);
       bericht.push(t);
       naechste(k+1);
     },function(e){
       bericht.push(sek.ic+' <b>'+esc(sek.label)+'</b>: <span style="color:var(--red)">Fehler — '+esc((e&&e.message)||'')+'</span>'
-        +(anz?'<br><span style="color:var(--mut)">'+anz+' Zeilen waren vorbereitet.</span>':''));
+        +(anz?'<br><span style="color:var(--mut)">'+anz+' Zeilen waren vorbereitet.</span>':'')+vorab);
       naechste(k+1);
     });
   }
@@ -6981,6 +7185,7 @@ function _migAutoUebernehmen(){
   d.grund=g.pflichtOk?'':('Pflichtfeld ohne Spalte: '+g.fehlendePflicht.join(', '));
 }
 function erpMigClose(){
+  if(_migLaeuft()){toast('Der Import läuft noch — bitte warten oder abbrechen.');return;}
   _migAutoUebernehmen();
   document.getElementById('migModal').classList.remove('open');_mig=null;erpRenderAll();
 }
@@ -7379,6 +7584,7 @@ function erpMigStart(){
     if(rep.stundenKorrigiert)txt+=', <b>'+rep.stundenKorrigiert+'</b> × die Freigabe hat die mobil erfasste Zeit korrigiert';
     if(rep.stundenKonflikt)txt+='<br><span style="color:var(--amber)">'+rep.stundenKonflikt+' × liefern zwei Zeilen DERSELBEN Stufe unterschiedliche Stunden für Tag und Auftrag. Hier gibt es keine Regel, welche gilt — übernommen wurde die erste, die Abweichung steht am Eintrag unter «importKonflikt».</span>';
     if(rep.terminVerknuepft)txt+=', <b>'+rep.terminVerknuepft+'</b> Zeiteinträge mit ihrem Termin der Plantafel verknüpft';
+    if(rep.kreditorMehrfach)txt+='<br><span style="color:var(--amber)">'+rep.kreditorMehrfach+' Kreditoren waren im Altsystem auf mehrere Aufträge verteilt. GEMA führt einen Kreditor mit einem Auftrag — übernommen ist der erste, die Anzahl steht am Datensatz unter «importZuteilungen». Bitte diese Belege prüfen.</span>';
     if(rep.terminFehlt)txt+='<br><span style="color:var(--amber)">'+rep.terminFehlt+' Zeiteinträge nennen einen Termin, der in GEMA nicht liegt — sie sind erfasst, aber ohne Bezug zur Plantafel; die Termin-ID steht am Eintrag unter «importTerminId». Sind die Termine noch nicht eingelesen: zuerst den Abschnitt «Termine» importieren und den Lauf wiederholen. Im Altsystem gelöschte Termine lassen sich nicht nachholen.</span>';
     if(rep.revisionAbweichung)txt+='<br><span style="color:var(--amber)">Bei '+rep.revisionAbweichung+' Anlagen passt die nächste Revision des Altsystems nicht zu «letzte Wartung + Intervall». GEMA rechnet sie neu; der alte Wert steht unter «importNaechsteRevision».</span>';
     if(rep.revisionBasisModus)txt+='<br><span style="color:var(--amber)">'+rep.revisionBasisModus+' Anlagen rechnen im Altsystem ab einer festen Revisionsbasis statt ab der letzten Revision. GEMA kennt diesen Modus nicht — bitte deren Termin von Hand prüfen (steht am Datensatz unter «importNaechsteRevision»).</span>';
@@ -7389,8 +7595,11 @@ function erpMigStart(){
     if(rep.uebersprungen)txt+=', '+rep.uebersprungen+' übersprungen';
     if(rep.fehler.length)txt+='<br><span style="color:var(--red)">'+rep.fehler.length+' Zeilen mit Fehler: '
       +esc(rep.fehler.slice(0,3).map(function(f){return 'Zeile '+f.zeile+' — '+f.text;}).join(' · '))+'</span>';
-    GemaDialog.alert({title:'📥 Import abgeschlossen',html:true,message:txt});
-    if(_mig)_mig.autoFertig=true;   // aus dem Auto-Lauf geprüft und hier importiert → nicht doppelt
+    txt+=erpMigCloudZeile(rep);
+    var sekT=GemaErpImport.sektion(_mig&&_mig.sekId);
+    erpMigBerichtSichern((sekT?sekT.label:'Import')+(rep.abgebrochen?' (abgebrochen)':''),txt);
+    GemaDialog.alert({title:rep.abgebrochen?'📥 Import abgebrochen':'📥 Import abgeschlossen',html:true,message:txt});
+    if(_mig)_mig.autoFertig=!rep.abgebrochen;   // aus dem Auto-Lauf geprüft und hier importiert → nicht doppelt
     erpMigClose();
   },function(e){
     if(go)go.disabled=false;
@@ -7611,7 +7820,7 @@ function erpPdf(){
     +'<div class="meta">'+metaRows.map(function(r){return '<div class="mrow"><span class="ml">'+r[0]+'</span><span class="mv">'+r[1]+'</span></div>';}).join('')+'</div>'
     +(d.titel?'<div class="titelbar">'+esc(d.titel)+'</div>':'')
     +(d.einleitung?'<p class="intro">'+esc(d.einleitung)+'</p>':'')
-    +'<div class="totalrow"><span>Total inkl. '+d.mwstPct+' % MwSt.:</span><b>Fr. '+chf(t.brutto)+'</b></div>'
+    +'<div class="totalrow"><span>Total inkl. '+erpNum(d.mwstPct)+' % MwSt.:</span><b>Fr. '+chf(t.brutto)+'</b></div>'
     +(d.schlusstext?'<p class="outro">'+esc(d.schlusstext)+'</p>':'')
     +'<p class="gruss">Mit freundlichen Grüssen<br>'+esc(s.name||'')+'</p>'
     +(s.txtKonditionen?'<div class="kleing">'+esc(s.txtKonditionen)+'</div>':'')
@@ -7644,7 +7853,7 @@ function erpPdf(){
        +(t.schluss||[]).map(function(x){var neg=x.betrag<0;return '<tr><td colspan="2">'+esc(x.s.bez||(neg?'Rabatt':'Zuschlag'))+(x.s.modus==='chf'?'':' '+erpNum(x.s.wert)+' %')+'</td><td class="num">'+(neg?'− ':'+ ')+chf(Math.abs(x.betrag))+'</td></tr>';}).join('')
        +'<tr><td colspan="2"><b>Total</b></td><td class="num"><b>'+chf(t.netto)+'</b></td></tr>'
       :'<tr><td colspan="2"><b>Total</b></td><td class="num"><b>'+chf(t.netto)+'</b></td></tr>')
-    +'<tr><td>Mehrwertsteuer '+d.mwstPct+' %</td><td class="num" style="color:#888">'+chf(t.netto)+'</td><td class="num">'+chf(t.mwst)+'</td></tr>'
+    +'<tr><td>Mehrwertsteuer '+erpNum(d.mwstPct)+' %</td><td class="num" style="color:#888">'+chf(t.netto)+'</td><td class="num">'+chf(t.mwst)+'</td></tr>'
     +(Math.abs(t.rundung)>=0.005?'<tr><td colspan="2">Rundung</td><td class="num">'+chf(t.rundung)+'</td></tr>':'')
     +'<tr class="sum"><td colspan="2"><b>Gesamttotal '+(d.typ==='rechnung'?'(Rechnungsbetrag) ':'')+'CHF</b></td><td class="num"><b>'+chf(t.brutto)+'</b></td></tr></table>'
     +'</div>';
@@ -7812,8 +8021,7 @@ document.addEventListener('DOMContentLoaded',function(){
   erpAdrInit();
   erpRenderAll();
   if(typeof GemaSync!=='undefined'&&GemaSync.bindCollection){
-    Promise.race([
-      Promise.all([
+    var binds=Promise.all([
         GemaSync.bindCollection(ERP_MODULE,DOK_POOL,DOK_PREFIX,'id'),
         GemaSync.bindCollection(ERP_MODULE,KUN_POOL,KUN_PREFIX,'id'),
         GemaSync.bindCollection(ERP_MODULE,KAT_POOL,KAT_PREFIX,'id'),
@@ -7822,11 +8030,24 @@ document.addEventListener('DOMContentLoaded',function(){
         GemaSync.bindCollection('regierapport','gema_regie_pool_v1','regie:','id'),
         GemaSync.bindCollection('einsatzplan','gema_einsatz_pool_v1','einsatz:','id'),
         GemaSync.bindCollection('stundenerfassung','gema_std_pool_v1','std:','id')
-      ]),
-      new Promise(function(res){setTimeout(res,6000);})
-    ]).then(function(){_erpCloudLoaded=true;_erpObjFilterInit();erpRenderAll();erpDeepLink();}).catch(function(){_erpCloudLoaded=true;erpRenderAll();});
+      ]);
+    var bindFertig=false;
+    binds.then(function(){bindFertig=true;},function(){bindFertig=true;});
+    Promise.race([binds,new Promise(function(res){setTimeout(res,6000);})])
+      .then(function(){_erpCloudLoaded=true;_erpObjFilterInit();erpRenderAll();erpDeepLink();}).catch(function(){_erpCloudLoaded=true;erpRenderAll();});
+    // Dauert der Pull länger als die 6 s (nach einer Migration: 26 000 Belege
+    // in 27 Seiten), rendert die Seite nach seinem Ende NOCH EINMAL — sonst
+    // stünde «Noch keine Belege» bis zum nächsten Tab-Wechsel.
+    binds.then(function(){if(_erpCloudLoaded){_erpMemoReset();_erpObjFilterInit();erpRenderAll();}},function(){});
   } else {_erpCloudLoaded=true;erpDeepLink();}
   window.addEventListener('gema-objekte-loaded',function(){_erpObjFilterInit();erpRenderAll();});
+  // Sync-Deckel erreicht → die Collection ist unvollständig; das darf nie
+  // still bleiben (No-silent-caps).
+  window.addEventListener('gema-sync-capped',function(ev){
+    var d=(ev&&ev.detail)||{};
+    if(d.moduleKey!==ERP_MODULE&&d.moduleKey!=='stundenerfassung'&&d.moduleKey!=='einsatzplan')return;
+    toast('⚠ Nur die ersten '+(d.rows||0).toLocaleString('de-CH')+' Datensätze von «'+(d.prefix||'')+'» geladen — die Sammlung ist grösser als der Lade-Deckel.');
+  });
   if(typeof GemaFeedback!=='undefined')GemaFeedback.init('erp','Offerten · Aufträge · Rechnungen');
 });
 var _dlDone=false;

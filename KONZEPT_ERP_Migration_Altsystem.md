@@ -427,8 +427,10 @@ diese Tabelle unverzichtbar.
 ## 4. Stand des Importers
 
 `gema_erp_import.js` (**16 Abschnitte**, idempotent über `extId`) liest **nur
-XLSX und CSV** — kein SQL, kein `.frm`. Der Weg bleibt also: Alt-DB → `SELECT`
-mit JOINs → eine flache Datei je Abschnitt → Import-Assistent.
+TSV, CSV und XLSX** — kein SQL, kein `.frm`. Der Weg bleibt also: Alt-DB →
+`SELECT` mit JOINs → eine flache Datei je Abschnitt → Import-Assistent. Das
+Export-Paket (Kapitel 8) erledigt den ersten Schritt für alle Abschnitte in
+einem Lauf.
 
 Ausgangslage waren 5 Abschnitte (Objekte, Adressen, Offerten, Aufträge,
 Rechnungen), alle nur als Kopfdaten. Heute, in Import-Reihenfolge:
@@ -765,10 +767,13 @@ Klein, aber ohne sie geht Information verloren:
 
 ### 7.3 Zwei Punkte, die leicht vergessen gehen
 
-1. **Belegnummern fortführen.** GEMA muss oberhalb der höchsten bestehenden
-   Offert-, Auftrags- und Rechnungsnummer weiterzählen, sonst kollidieren neue
-   Belege mit importierten. Vor dem Import je Nummernkreis das Maximum
-   ermitteln und den Startwert setzen.
+1. **Belegnummern — geprüft, keine Kollision.** GEMA nummeriert
+   `PRÄFIX-JAHR-NNN` (`erpNextNr`: Maximum je Typ und laufendem Jahr + 1).
+   Importierte Nummern wie «8448.00» passen nicht in dieses Muster und werden
+   beim Zählen übergangen — neue Belege beginnen bei `-2026-001`, die alten
+   behalten ihre Nummer. Kundennummern zählen numerisch weiter
+   (`GemaAdressen.nextNrAus`: höchste importierte `knummer` + 1). Es ist
+   nichts zu setzen.
 
 2. **Anhänge liegen im Dateisystem, nicht in der Datenbank.** Zwölf Tabellen
    führen eine Spalte `lkdir` (dazu `lkmobiledir`): `adressen`, `arbeiter`,
@@ -809,13 +814,47 @@ Katalog-Import ins Migrationsprojekt. Ist es die Ausnahme, kann er warten.
 
 ## 8. Export-Abfragen für den Importer
 
-`gema_erp_import.js` liest CSV und XLSX, kein SQL. Der Weg ist je Abschnitt:
-`SELECT` → CSV → Import-Assistent in `pm_erp` («Migration»). Die Spaltennamen
-unten sind so gewählt, dass die automatische Zuordnung greift.
+`gema_erp_import.js` liest TSV, CSV und XLSX, kein SQL. Der Weg ist:
+`SELECT` → Datei → Import-Assistent in `pm_erp` («Migration»). Die
+Spaltennamen unten sind so gewählt, dass die automatische Zuordnung greift —
+und der Guard `scripts/erp_export_test.mjs` prüft das für jede Abfrage:
+jede Spalte findet ein Feld (sonst wäre sie ein stiller Verlust), alle
+Pflichtfelder sind gedeckt, die Automatik erkennt den Abschnitt.
+
+### Das Export-Paket (`erp_export/`)
+
+Niemand kopiert 16 Blöcke von Hand nach PowerShell. Die mit
+`<!-- export: NN_abschnitt -->` markierten Blöcke dieses Kapitels werden mit
+`node scripts/erp_export_gen.mjs` nach `erp_export/sql/` geschrieben (eine
+Quelle, generiert — nicht von Hand ändern), und `erp_export/export.ps1`
+arbeitet sie gegen die lokale Kopie ab:
+
+- startet `mysqld` auf der Kopie (127.0.0.1:3307, wie bei den Analysen),
+- schreibt je Abfrage `Desktop\gema_export\NN_abschnitt.tsv` über
+  `mysql --batch --default-character-set=utf8`, die Umleitung über `cmd.exe`
+  (Bytes unverändert, UTF-8 ohne BOM — über die PowerShell-Pipeline wären
+  Umlaute Glückssache),
+- schneidet Abfragen mit `{{JAHR}}` in Jahresscheiben (Positionen, Jahresliste
+  aus der `.jahre.sql`; `-PositionenAb 2023` lässt ältere Jahre weg),
+- protokolliert Zeilenzahl und Status je Datei (`_protokoll.txt`, Fehler in
+  `.err`), beendet den Server wieder.
+
+`mysql --batch` schreibt `NULL` als Wort und escapt Tab/Zeilenumbruch/
+Backslash als `\t` `\n` `\\`. Der Parser kennt das für die Endung `.tsv`
+(`parseCsv(text,{mysql:true})`, Guard `scripts/erp_parser_test.mjs`). Ein
+Anführungszeichen mitten im Feld («Rohr 1/2"») ist Text — der frühere Parser
+wäre dort in den Quote-Modus gefallen und hätte den Rest der Datei geschluckt.
+
+Der Dateiname ist die Zuordnung: `07_offerten.tsv` importiert als Offerten,
+sofern die Pflichtfelder passen (`erkenneSektion(headers, dateiname)`). Alle
+`.tsv` auf einmal wählen — der Assistent sortiert in die Reihenfolge von
+Abschnitt 5. Dateien über 60 MB (Excel: 20 MB) weist der Importer vor dem
+Lesen ab; der Browser hielte sie nicht.
 
 **CSV statt XLSX exportieren**, wo Kürzel mit führender Null vorkommen — Excel
 macht aus «01» die Zahl 1 und aus «00» eine 0. Der Importer meldet das zwar,
-aber der Umweg kostet einen Durchgang.
+aber der Umweg kostet einen Durchgang. Mit dem Paket stellt sich die Frage
+nicht.
 
 Reihenfolge einhalten (Abschnitt 5): Stammdaten → Adressen/Objekte → Belege →
 Positionen/Zahlungen → Kreditoren.
@@ -828,6 +867,7 @@ Adress-Export steht vollständig in 8.7.
 
 **Objekte** (4 173) — die Bezugspersonen kommen separat über 8.12:
 
+<!-- export: 04_objekte -->
 ```sql
 SELECT o.id, o.strasse, o.strasse2, o.plz, o.ort, o.egid, o.egrid,
        o.knummer, o.co_knummer, o.ei_knummer, o.korr_name,
@@ -842,6 +882,7 @@ LEFT JOIN arbeiter sa ON sa.id = o.sachb_id    LEFT JOIN adressen sad ON sad.id 
 
 **Offerten** (6 321):
 
+<!-- export: 07_offerten -->
 ```sql
 SELECT o.id, o.offert_nr, o.datum, o.rdatum, o.betrmemo,
        st.typ_text AS status_text, ty.typ_text AS offerttyp_text,
@@ -860,6 +901,7 @@ LEFT JOIN arbeiter  sa ON sa.id = o.sachb_id  LEFT JOIN adressen sad ON sad.id =
 
 **Aufträge** (9 723) — inklusive Nachkalkulations-Schnappschuss (siehe 3.4):
 
+<!-- export: 08_auftraege -->
 ```sql
 SELECT r.id, r.rapport_nr, r.best_datum, r.betrifft, r.arbeit,
        ast.typ_text AS astatus_text, rst.typ_text AS rstatus_text,
@@ -891,6 +933,7 @@ LEFT JOIN arbeiter   sa  ON sa.id  = r.sachb_id  LEFT JOIN adressen sad ON sad.i
 
 **Rechnungen** (10 328) — ersetzt 8.8, die Fibu-Spalten sind hier schon drin:
 
+<!-- export: 09_rechnungen -->
 ```sql
 SELECT r.id, r.nr, r.rapport_nr, r.datum, r.betrifft, r.arbeit,
        ty.typ_text  AS typ_text,
@@ -921,6 +964,7 @@ LEFT JOIN arbeiter    sa  ON sa.id  = r.sachb_id  LEFT JOIN adressen sad ON sad.
 
 ### 8.1 Zahlungsbedingungen
 
+<!-- export: 01_zahlbed -->
 ```sql
 SELECT shortcut, description, days_netto, days1, skonto1, fibucode
 FROM paymentterm ORDER BY shortcut;
@@ -928,6 +972,7 @@ FROM paymentterm ORDER BY shortcut;
 
 ### 8.2 Eigener Artikelstamm
 
+<!-- export: 03_artikel -->
 ```sql
 SELECT c.text AS katalog, a.guid, a.artref, a.text, a.unit, a.price, a.dim,
        a.mat_price, a.einkaufs_rabatt, a.verschnitt, a.leitfaden_zeit, a.ansatz
@@ -942,6 +987,7 @@ Die Belegnummer wird mitgeliefert, weil der Importer daran anknüpft. Weil
 `module_id` 2 auf `offerten` und 4 auf `rechnungen` zeigt, braucht es zwei
 Zweige:
 
+<!-- export: 10_positionen -->
 ```sql
 SELECT 2 AS module_id, o.offert_nr AS nr, p.autoid AS sort, p.postyp,
        p.SPos, p.text, p.qty, p.unit, p.price, p.total, p.dim,
@@ -949,7 +995,7 @@ SELECT 2 AS module_id, o.offert_nr AS nr, p.autoid AS sort, p.postyp,
        p.leitfaden_zeit, p.zeit_faktor, p.ansatz,
        p.mat_price, p.mat_faktor, p.einkaufs_rabatt, p.verschnitt
 FROM lvposition p JOIN offerten o ON o.id = p.item_id
-WHERE p.module_id = 2
+WHERE p.module_id = 2 AND COALESCE(YEAR(o.datum), 0) = {{JAHR}}
 UNION ALL
 SELECT 4, r.nr, p.autoid, p.postyp,
        p.SPos, p.text, p.qty, p.unit, p.price, p.total, p.dim,
@@ -957,14 +1003,26 @@ SELECT 4, r.nr, p.autoid, p.postyp,
        p.leitfaden_zeit, p.zeit_faktor, p.ansatz,
        p.mat_price, p.mat_faktor, p.einkaufs_rabatt, p.verschnitt
 FROM lvposition p JOIN rechnungen r ON r.id = p.item_id
-WHERE p.module_id = 4
-ORDER BY 1, 2, 3;
+WHERE p.module_id = 4 AND COALESCE(YEAR(r.datum), 0) = {{JAHR}}
+ORDER BY module_id, nr, sort;
 ```
 
 > **In Jahresscheiben exportieren.** Der Import läuft im Browser; ab etwa
 > 50 000 Zeilen wird er sehr langsam und kann am Arbeitsspeicher scheitern.
-> Der Assistent warnt davor, aber besser gleich schneiden — etwa mit
-> `AND YEAR(o.datum) = 2024` je Zweig.
+> Der Assistent warnt davor. Das Export-Paket schneidet deshalb selbst: der
+> Platzhalter `{{JAHR}}` wird je Jahr ersetzt, die Jahresliste liefert die
+> Abfrage darunter, und Belege ohne Datum landen als Scheibe «ohne_datum»
+> (Jahr 0) — so fällt keine Position still weg.
+
+<!-- export: 10_positionen.jahre -->
+```sql
+SELECT DISTINCT COALESCE(YEAR(o.datum), 0) AS jahr
+FROM lvposition p JOIN offerten o ON o.id = p.item_id WHERE p.module_id = 2
+UNION
+SELECT DISTINCT COALESCE(YEAR(r.datum), 0)
+FROM lvposition p JOIN rechnungen r ON r.id = p.item_id WHERE p.module_id = 4
+ORDER BY jahr;
+```
 
 ### 8.4 Positionen aus dem `nlv`-Modell — entfällt
 
@@ -993,6 +1051,7 @@ WHERE zahlungsbetrag IS NOT NULL AND zahlungsbetrag <> 0;
 
 ### 8.6 Kreditoren
 
+<!-- export: 12_kreditoren -->
 ```sql
 SELECT k.id, k.nr, k.name1, k.belegnr, k.datum, k.faelligdatum,
        k.betrag, k.mwstbetrag, k.restbetrag, k.kredistatustext,
@@ -1015,20 +1074,26 @@ FROM kreditoren k;
 Der bestehende Adress-Export wird um Konditionen und Fibu-Schlüssel ergänzt.
 `adressen.password` und `adrkre.igh_password` bleiben **draussen**:
 
+<!-- export: 05_adressen -->
 ```sql
 SELECT a.oknummer AS knummer, a.name1 AS firma, a.anrede, a.vorname,
        a.name2 AS nachname, a.zuhand AS kontakt,
        a.strasse, a.strasse2, a.plz, a.ort, a.land,
        a.tel1 AS telefon, a.natel, a.email, a.bemerkungen,
-       a.zahlbedid, a.stdrabatt, a.stdskonto,
-       a.pk_debi, a.pk_kredi, a.eBillID, a.Rechnung_Email
-FROM adressen a;
+       COALESCE(NULLIF(cz.cmd_string,''), NULLIF(a.zahlbedid,'')) AS zahlbedid,
+       a.stdrabatt, a.stdskonto,
+       COALESCE(NULLIF(cp.cmd_string,''), NULLIF(a.pk_debi,''))   AS pk_debi,
+       a.pk_kredi, a.eBillID, a.Rechnung_Email
+FROM adressen a
+LEFT JOIN companydata cz ON cz.cmd_tablename = 'adressen' AND cz.cmd_item_id = a.id AND cz.cmd_fieldname = 'zahlbedid'
+LEFT JOIN companydata cp ON cp.cmd_tablename = 'adressen' AND cp.cmd_item_id = a.id AND cp.cmd_fieldname = 'pk_debi';
 ```
 
-> Vor diesem Export den `companydata`-Overlay klären (Abschnitt 6): bei
-> `zahlbedid` ist die Basisspalte bei 6 061 von 6 627 Adressen leer und der
-> gültige Wert steht im Overlay. Der Export muss ihn also mitnehmen —
-> `COALESCE(overlay, a.zahlbedid)`.
+> **Der `companydata`-Overlay ist eingebaut** (Abschnitt 6): bei `zahlbedid`
+> ist die Basisspalte bei 6 061 von 6 627 Adressen leer, der gültige Wert
+> steht im Overlay (1 652 Zeilen), ebenso `pk_debi` (2 046 Zeilen). Die
+> Regel «Overlay vor Basisspalte» steht als `COALESCE` direkt in der Abfrage;
+> für `stdrabatt`/`stdskonto` führt der Overlay keine Zeilen (Zählung 6.0).
 
 ### 8.8 Rechnungen — die Fibu-Schlüssel
 
@@ -1069,6 +1134,7 @@ Importer hält die beiden auseinander (`nr` wird zuerst zugeordnet).
 
 ### 8.9 Termine
 
+<!-- export: 14_termine -->
 ```sql
 SELECT t.guid, t.datum, t.von60, t.bis60, t.arbeit,
        ab.beschr AS absenz, ty.beschr AS arbtyp,
@@ -1123,6 +1189,7 @@ ab. Das gesperrte Rechenfeld sitzt ebenfalls im Komponenten-Formular. 378 der
 379 Anlagen haben genau eine Komponente, eine hat 43; der Export ist deshalb
 1:1 mit einer Ausnahme, die zu 43 GEMA-Anlagen wird.
 
+<!-- export: 13_anlagen -->
 ```sql
 SELECT k.id AS kom_id, k.kom_name, k.kom_sernr, k.kom_standort,
        k.kom_inst_datum, k.kom_garantie,
@@ -1177,8 +1244,10 @@ Spalte `quelle` sagt dem Importer, welche Stufe eine Zeile trägt.
 > Person. Der Join über `adressen` ist deshalb Pflicht, hier und bei Terminen,
 > Objekten und Belegen.
 
+Datei 1: der freigegebene Stand (Hauptbestand, 2016 bis heute):
+
+<!-- export: 15_stunden_freigegeben -->
 ```sql
--- Datei 1: der freigegebene Stand (Hauptbestand, 2016 bis heute)
 SELECT TRIM(CONCAT(COALESCE(ad.vorname,''),' ',COALESCE(ad.name1,''))) AS arb_name,
        n.datum, n.stunden, n.rappnr,
        ty.beschr AS arbtyp, ab.beschr AS absenz,
@@ -1190,16 +1259,20 @@ LEFT JOIN arbtyp   ty ON ty.id = n.arbtyp
 LEFT JOIN absenz   ab ON ab.id = n.absenz
 WHERE n.stunden <> 0
 ORDER BY n.datum;
+```
 
--- Datei 2: die mobile Erfassung — bringt Spesen, Kommentar und den
--- Termin-Bezug mit, den Datei 1 nicht kennt
+Datei 2: die mobile Erfassung — bringt Spesen, Kommentar und den
+Termin-Bezug mit, den Datei 1 nicht kennt:
+
+<!-- export: 15_stunden_erfasst -->
+```sql
 SELECT TRIM(CONCAT(COALESCE(ad.vorname,''),' ',COALESCE(ad.name1,''))) AS arb_name,
        DATE(h.hrs_datetime) AS datum,
        ROUND(h.hrs_length/3600, 2) AS stunden,     -- hrs_length ist in SEKUNDEN
        h.hrs_rapportnr AS rappnr,
        h.hrs_description AS arbtyp, h.hrs_spesen, h.hrs_comment,
        ab.beschr AS absenz,
-       h.hrs_terminguid, h.hrs_termin_id, 'erfasst' AS quelle
+       h.hrs_terminguid, 'erfasst' AS quelle
 FROM hours h
 LEFT JOIN arbeiter a  ON a.id  = h.hrs_arb_id
 LEFT JOIN adressen ad ON ad.id = a.adr_id
@@ -1217,8 +1290,9 @@ WHERE COALESCE(h.hrs_deleted,0) = 0 AND h.hrs_length <> 0;
 > **Der Termin-Bezug über die GUID trifft** — 4 118 von 4 162 GUID-Zeilen
 > finden ihren Termin (8.14c). Die frühere «0 Treffer»-Messung filterte auf
 > `t.stunden > 0`, und diese Spalte ist leer; über die GUID sagte sie nichts.
-> `hrs_termin_id` bleibt im Export als Spur, der Importer liest nur die GUID
-> (das Mapping bevorzugt `hrs_terminguid`, Guard `erp_stunden_writer_test`).
+> `hrs_termin_id` (81 Zeilen) wird nicht exportiert — der Importer liest nur
+> die GUID, und eine exportierte Spalte ohne Feld wäre ein stiller Verlust
+> (Guard `erp_export_test` lässt das nicht zu).
 > 44 Zeilen zeigen auf Termine, die in `termin` nicht mehr liegen: sie werden
 > ohne `einsatzId` importiert, gezählt (`terminFehlt`) und tragen die GUID als
 > `importTerminId` (6.0).
@@ -1256,6 +1330,7 @@ Termine **vor** den Stunden eingelesen werden (so steht es in der Reihenfolge).
 Die Personen hängen über `contact` an Objekt und Beleg, die Rolle liefert
 `contactkrit` → `krit`:
 
+<!-- export: 06_bezugspersonen -->
 ```sql
 SELECT o.id AS obj_id, o.strasse, o.plz, o.ort,
        z.zuhanden, z.vorname, z.tel1, z.natel, z.email,
@@ -1316,6 +1391,7 @@ bekommt Unsinn. Stichtage sind meist der 1. Januar, aber nicht immer
 
 `saldo` und `totspesen` sind seit 2020 NULL und werden nicht übernommen.
 
+<!-- export: 16_uebertraege -->
 ```sql
 SELECT u.id, u.datum, u.totarbeit, u.totferien, u.ausbezst,
        u.zus_stunden, u.bemerkung,
@@ -1442,6 +1518,7 @@ doch ein Wochensoll, rechnet der Importer es gegen das Firmen-Wochensoll
 ab, statt ein Pensum zu erfinden; eine Spalte `pensum` (Prozent) nimmt er
 direkt.
 
+<!-- export: 02_mitarbeiter -->
 ```sql
 SELECT a.id, ad.name1, ad.vorname, a.kuerzel,
        COALESCE(NULLIF(a.email_internal,''), ad.email) AS email,
@@ -1625,3 +1702,34 @@ Drei Konsequenzen, keine davon dramatisch:
 Mit Punkt 2 landet der produktive Bestand bei realistisch **60–120 MB** (je
 nach Punkt 3) — und die Historie bleibt vollständig, nur eben auf Belegebene
 statt auf Positionsebene.
+
+## 11. Betrieb nach der Migration — was gebaut wurde und was bleibt
+
+Vier Prüfungen der Zielmodule (2026-09-08) zeigten: die Datensätze passen,
+aber die Module und die Sync-Schicht waren auf einige hundert, nicht auf
+Zehntausende Datensätze ausgelegt. Umgesetzt:
+
+| Stelle | Vorher | Jetzt |
+|---|---|---|
+| `gema_sync` Seiten-Deckel | 30 000 Rows je Collection, still — 50 000 Tagesrapporte wären zu 40 % nie angekommen | 250 000; erreicht → Event `gema-sync-capped` + `lastCapped()`, pm_erp und pm_stunden melden es |
+| Cache-Nachführung | Module schrieben den Pool selbst nach localStorage; an der Quota still gescheitert → Bearbeitung bis zum Reload unsichtbar, Importer las den Stand VOR dem Lauf (Dubletten, «Offerte nicht gefunden») | `GemaSync.setCached(key, arr)`: localStorage + Spiegel + IndexedDB in einem Zug; Importer (`poolFlush`) und pm_erp nutzen es |
+| IndexedDB-Warm-Cache | jede Seite kopierte beim Start ALLE Collections in den Speicher | Collections über 8 MB erst beim Bind der Seite (`ensureCached`) |
+| Belege im Importer | je Beleg Pool parsen + ein Cloud-Request (26 000 Requests, quadratisch) | Lauf-Speicher wie alle Pools, Blöcke nach Anzahl UND Bytes, Cloud-Bilanz im Bericht |
+| Lauf | zweiter Klick = zweiter Lauf im selben Speicher; kein Abbruch; Seite verlassen ohne Warnung | genau ein Lauf, «Abbrechen», `beforeunload`, Berichte bleiben gespeichert |
+| pm_erp Listen | alle Belege/Kreditoren/Adressen/Artikel in den DOM, Pool je Beleg 3–4× geparst | Memo je Render + Index, 300 je Seite mit «Mehr laden», Kundensuche statt Select mit 6 627 Einträgen |
+| pm_stunden | importierter Eintrag ohne Uhrzeit nicht speicherbar, Bearbeiten löschte die Import-Marker (→ Dublette beim nächsten Lauf); halber Ferientag zählte ganz | Dauer-Modus im Editor, Marker bleiben; Anteil aus Stunden |
+| Status Tagesrapport | «offen» → ganze Historie zum Einreichen, Freigabe verdoppelte Plantermine | Stufe 3 des Altsystems kommt als «genehmigt» |
+
+**Was bleibt: das Volumen der Belege im Browser der ERP-Seite.** `erpdok:`
+wird als Ganzes in den Speicher der pm_erp-Seite geladen (Cloud-first, ein
+Pool). Mit allen Positionen sind das ~230 MB — auf dem Desktop langsam, auf
+dem iPad nicht tragbar. Der Hebel ist die Jahreswahl beim Export
+(`-PositionenAb <Jahr>`, Kapitel 10): Positionen der letzten zwei bis drei
+Jahre ergeben 60–120 MB, ältere Belege behalten Betrag, Adresse und Status
+(Sammelposition) und lassen sich jederzeit nachladen. Der nächste
+Architekturschritt wäre, Positionen als eigene Records (`erppos:<belegId>`)
+erst beim Öffnen eines Belegs zu laden — das betrifft Editor, Druck, Totale
+und Kennzahlen von pm_erp und ist ein eigenes Vorhaben.
+
+Bewusst nicht Teil der Migration (Kapitel 7.3): die Dokumente auf dem
+Netzlaufwerk (`lkdir`) — ein eigener Strang nach GemaStorage.

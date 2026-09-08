@@ -502,7 +502,13 @@
    *              geladen sind (z.B. Retention-Scans).
    */
   var LOAD_PAGE = 1000;      // = PostgREST db-max-rows Default (mehr kommt eh nie)
-  var LOAD_MAX_PAGES = 30;   // Deckel: 30'000 Rows pro Collection-Pull
+  // Deckel: 250'000 Rows pro Collection-Pull. Er war 30'000 — nach einer
+  // ERP-Migration liegen allein ~50'000 Tagesrapporte in EINER Collection,
+  // und ein stiller Deckel haette die neuesten 20'000 Tage einfach
+  // weggelassen (data_key.asc = Erstellreihenfolge). Wird er erreicht,
+  // wird das GEMELDET (Event `gema-sync-capped`, lastCapped()) — nie still.
+  var LOAD_MAX_PAGES = 250;
+  var _capped = {};
   // In-Flight-Dedupe: identische PARALLELE Pulls (gleiches Modul/Prefix/
   // Filter) teilen sich EINE Netzwerk-Anfrage. Beim Seitenstart fragen sonst
   // mehrere Schichten (bindCollection, Modul-Direktaufrufe, Prefetch)
@@ -551,7 +557,12 @@
           var vollePage = rows.length >= LOAD_PAGE;
           if(vollePage && maxRows && out.length >= maxRows) return out;
           if(vollePage && pageNr + 1 >= LOAD_MAX_PAGES){
-            try{ console.warn('[GemaSync] loadCollection: Seiten-Deckel erreicht (' + moduleKey + '/' + prefix + ', ' + out.length + ' Rows) — Ergebnis evtl. unvollstaendig'); }catch(e){}
+            _capped[moduleKey + '/' + prefix] = { moduleKey: moduleKey, prefix: prefix, rows: out.length, at: Date.now() };
+            try{ console.warn('[GemaSync] loadCollection: Seiten-Deckel erreicht (' + moduleKey + '/' + prefix + ', ' + out.length + ' Rows) — Ergebnis UNVOLLSTAENDIG'); }catch(e){}
+            try{
+              if(typeof window !== 'undefined' && window.dispatchEvent && typeof CustomEvent === 'function')
+                window.dispatchEvent(new CustomEvent('gema-sync-capped', { detail: { moduleKey: moduleKey, prefix: prefix, rows: out.length } }));
+            }catch(e){}
             return out;
           }
           if(vollePage) return _page(offset + LOAD_PAGE, pageNr + 1);
@@ -754,13 +765,25 @@
   // Low-Level: schreibt ein fertiges Body-Array (jeder Eintrag traegt sein
   // eigenes payload inkl. _lm). Wird von saveRecord/saveRecords UND vom
   // Outbox-Flush genutzt. Zentrale Stelle fuer Reachability-Buchhaltung.
+  // Ein POST ohne Zeitlimit kann ewig haengen (halboffene Verbindung,
+  // Proxy ohne Antwort) — und blockiert dann jede Kette, die auf ihn wartet
+  // (Importer-Bloecke, Outbox-Flush). Deshalb ein Limit, das mit der
+  // Body-Groesse waechst: 60 s Grundzeit + 30 s je MB, hoechstens 5 Minuten.
+  var POST_TIMEOUT_MS = 60000, POST_TIMEOUT_PER_MB = 30000, POST_TIMEOUT_MAX = 300000;
   function _postRecords(body, opts){
-    return fetch(_sbBase() + '/rest/v1/' + SB_TABLE + '?on_conflict=module_key%2Cdata_key', {
+    var json = JSON.stringify(body);
+    var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var ms = Math.min(POST_TIMEOUT_MAX, POST_TIMEOUT_MS + Math.ceil(json.length / (1024 * 1024)) * POST_TIMEOUT_PER_MB);
+    var timer = ctrl ? setTimeout(function(){ try{ ctrl.abort(); }catch(e){} }, ms) : null;
+    var init = {
       method: 'POST',
       headers: _hdrs({ 'Prefer': 'resolution=merge-duplicates,return=minimal' }),
-      body: JSON.stringify(body),
+      body: json,
       keepalive: !!(opts && opts.keepalive)
-    }).then(function(r){
+    };
+    if(ctrl) init.signal = ctrl.signal;
+    return fetch(_sbBase() + '/rest/v1/' + SB_TABLE + '?on_conflict=module_key%2Cdata_key', init).then(function(r){
+      if(timer) clearTimeout(timer);
       if(r.status === 401) _handle401();
       if(!r.ok){
         // Antwort-Text mitnehmen (PostgREST erklaert den Grund als JSON) —
@@ -772,6 +795,8 @@
       _noteSuccess();
       return true;
     }).catch(function(e){
+      if(timer) clearTimeout(timer);
+      if(e && e.name === 'AbortError') e = new Error('Zeitueberschreitung: keine Antwort nach ' + Math.round(ms / 1000) + ' s');
       _noteFailure(e);
       throw e;
     });
@@ -1044,8 +1069,36 @@
   //   - _idbReady rejected NIE (resolve(false) bei Fehler/Timeout 2.5 s)
   //     — bindCollection wartet darauf, darf aber nie daran haengen.
   //   - Schreiben ist fire-and-forget (best effort).
-  var IDB_NAME = 'gema_sync_cache_v1', IDB_STORE = 'collections';
-  var _idb = null;
+  //   - GROSSE Collections (JSON ueber IDB_EAGER_MAX Zeichen) werden beim
+  //     Seitenstart NICHT mehr in den Speicher kopiert, sondern erst, wenn
+  //     eine Seite sie bindet (bindCollection) oder ausdruecklich anfordert
+  //     (ensureCached). Nach einer ERP-Migration liegen hunderte MB Belege
+  //     im Cache — die muss nicht jede Berechnungsseite beim Start lesen.
+  //     Die Groessen stehen in einem Index-Record (IDB_SIZES_KEY); fehlt er
+  //     (alter Cache), wird wie frueher alles geladen.
+  var IDB_NAME = 'gema_sync_cache_v1', IDB_STORE = 'collections', IDB_SIZES_KEY = '__sizes__';
+  var IDB_EAGER_MAX = 8 * 1024 * 1024;
+  var _idb = null, _idbSizes = {}, _idbLazy = {};
+  function _idbReq(req){
+    return new Promise(function(res, rej){
+      req.onsuccess = function(){ res(req.result); };
+      req.onerror = function(){ rej(req.error); };
+    });
+  }
+  function _inLs(k){
+    try{ return typeof localStorage !== 'undefined' && localStorage.getItem(k) != null; }catch(e){ return false; }
+  }
+  function _idbGet(storageKey){
+    if(!_idb) return Promise.resolve(null);
+    var p;
+    try{ p = _idbReq(_idb.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).get(storageKey)); }
+    catch(e){ return Promise.resolve(null); }
+    return p.then(function(v){
+      if(typeof v === 'string' && _memCache[storageKey] == null && !_inLs(storageKey)) _memCache[storageKey] = v;
+      delete _idbLazy[storageKey];
+      return v;
+    }).catch(function(){ return null; });
+  }
   var _idbReady = (function(){
     if(typeof indexedDB === 'undefined') return Promise.resolve(false);
     return new Promise(function(resolve){
@@ -1059,28 +1112,52 @@
         req.onblocked = function(){ clearTimeout(to); fin(false); };
         req.onsuccess = function(){
           _idb = req.result;
-          try{
-            var tx = _idb.transaction(IDB_STORE, 'readonly');
-            var cur = tx.objectStore(IDB_STORE).openCursor();
-            cur.onsuccess = function(ev){
-              var c = ev.target.result;
-              if(!c){ clearTimeout(to); fin(true); return; }
-              var k = String(c.key);
-              var inLs = false;
-              try{ inLs = typeof localStorage !== 'undefined' && localStorage.getItem(k) != null; }catch(e){}
-              if(!inLs && _memCache[k] == null && typeof c.value === 'string') _memCache[k] = c.value;
-              c.continue();
-            };
-            cur.onerror = function(){ clearTimeout(to); fin(true); };
-          }catch(e){ clearTimeout(to); fin(true); }
+          var sizesP;
+          try{ sizesP = _idbReq(_idb.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).get(IDB_SIZES_KEY)); }
+          catch(e){ sizesP = Promise.resolve(null); }
+          sizesP.then(function(sz){
+            if(sz && typeof sz === 'object') _idbSizes = sz;
+            try{
+              var cur = _idb.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).openKeyCursor();
+              var pend = [];
+              cur.onsuccess = function(ev){
+                var c = ev.target.result;
+                if(!c){
+                  Promise.all(pend).then(function(){ clearTimeout(to); fin(true); }, function(){ clearTimeout(to); fin(true); });
+                  return;
+                }
+                var k = String(c.key);
+                if(k !== IDB_SIZES_KEY && !_inLs(k) && _memCache[k] == null){
+                  var size = _idbSizes[k];
+                  if(typeof size === 'number' && size > IDB_EAGER_MAX) _idbLazy[k] = true;
+                  else pend.push(_idbGet(k));
+                }
+                c.continue();
+              };
+              cur.onerror = function(){ clearTimeout(to); fin(true); };
+            }catch(e){ clearTimeout(to); fin(true); }
+          }, function(){ clearTimeout(to); fin(true); });
         };
       }catch(e){ clearTimeout(to); fin(false); }
     });
   })();
+  // Grosse (beim Start uebersprungene) Collection gezielt in den Speicher
+  // holen — VOR dem Sync, damit der erste Render aus dem Cache kommt und
+  // der Delta-Sync seine Baseline hat.
+  function _ensureCached(storageKey){
+    return _idbReady.then(function(){
+      if(_idbLazy[storageKey] && _memCache[storageKey] == null && !_inLs(storageKey)) return _idbGet(storageKey);
+      return null;
+    });
+  }
   function _idbPut(storageKey, json){
     if(!_idb) return;
-    try{ _idb.transaction(IDB_STORE, 'readwrite').objectStore(IDB_STORE).put(json, storageKey); }
-    catch(e){ /* best effort */ }
+    try{
+      var st = _idb.transaction(IDB_STORE, 'readwrite').objectStore(IDB_STORE);
+      st.put(json, storageKey);
+      _idbSizes[storageKey] = json.length;
+      st.put(_idbSizes, IDB_SIZES_KEY);
+    }catch(e){ /* best effort */ }
   }
 
   function bindCollection(moduleKey, storageKey, prefix, idField, _opts){
@@ -1088,7 +1165,7 @@
     var reg = (_collReg[moduleKey] = _collReg[moduleKey] || []);
     if(!reg.some(function(r){ return r.prefix === prefix; })) reg.push({ storageKey: storageKey, prefix: prefix, idField: idField });
     _bindregNote(moduleKey, storageKey, prefix, idField, !!(_opts && _opts.prefetch));
-    return _idbReady.then(function(){
+    return _ensureCached(storageKey).then(function(){
       return _syncCollection(moduleKey, storageKey, prefix, idField);
     }).then(function(res){
       // Delta-Pfad: nur die geaenderten Rows kamen uebers Netz; res.arr ist
@@ -1589,6 +1666,18 @@
     // vollen Cloud-Satz erhalten muss — verlaesslich auch wenn der
     // localStorage-Cache am Quota gescheitert/entfernt wurde.
     getCached: function(storageKey){ return _readCache(storageKey); },
+    // Schreibt einen kompletten Collection-Stand in den Cache (localStorage
+    // + In-Memory-Spiegel + IndexedDB). Fuer Massen-Schreiber (ERP-Importer),
+    // die viele Records gebuendelt in die Cloud schicken und den lokalen
+    // Stand danach in EINEM Zug nachfuehren — ein eigenes localStorage.setItem
+    // scheiterte still an der Quota, und der Spiegel wusste nichts davon.
+    // Der Aufrufer liefert den VOLLEN Pool (alle Orgs), nie eine Teilsicht.
+    setCached: function(storageKey, arr){ _writeCache(storageKey, Array.isArray(arr) ? arr : []); },
+    // Grosse Collection, die der Seitenstart uebersprungen hat, gezielt
+    // laden (Promise) — fuer Seiten, die nur lesen und nicht binden.
+    ensureCached: _ensureCached,
+    // Welche Pulls den Seiten-Deckel erreicht haben (→ unvollstaendig).
+    lastCapped: function(){ try{ return JSON.parse(JSON.stringify(_capped)); }catch(e){ return {}; } },
 
     // Outbox: nicht synchronisierte Saves manuell nachsenden / Anzahl abfragen.
     flushOutbox: function(opts){ return _outboxFlush(opts); },

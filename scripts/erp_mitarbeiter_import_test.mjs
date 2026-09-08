@@ -109,7 +109,12 @@ console.log('\n═══ 2 — Schreiben: Benutzer ohne Passwort, mit Einladung 
   // Absicht: kein importierter Benutzer trägt ein Passwort (null ODER gar
   // kein Feld — der vorbestehende Hans Meier des Mocks hat keins).
   t('Gegenprobe: kein Benutzer hat ein gesetztes Passwort bekommen', users.filter(u => u.quelle && u.quelle.system === 'ERP-Migration').every(u => u.password == null));
-  eq('5 Einladungslinks (Nora hat keine E-Mail)', rep.einladungen.length, 5);
+  // BEWUSST ÜBERSTEUERT (Prüfbericht 2026-09-08): Ausgetretene bekommen keine
+  // Einladung — der Server lehnt die Aktivierung eines inaktiven Benutzers
+  // ohnehin ab, ein «ungültiger» Link verwirrt nur. Fritz Weg ist ausgetreten.
+  eq('4 Einladungslinks (Nora hat keine E-Mail, Fritz ist ausgetreten)', rep.einladungen.length, 4);
+  eq('Ausgetretener wird als inaktiv gezählt', rep.inaktiv, 1);
+  t('Ausgetretener: inaktiv angelegt, ohne Einladung', !!fritz && fritz.active === false && fritz.einladung === null);
   t('Link führt auf die Einladungs-Seite', rep.einladungen.every(e => /^sys_login\.html\?invite=inv_/.test(e.link)));
   eq('1 × ohne E-Mail gemeldet', rep.ohneEmail, 1);
   eq('Rollen gezählt', rep.rollen, { role_monteur: 5, role_unternehmer: 1, role_abteilungsleiter: 1 });

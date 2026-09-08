@@ -231,6 +231,21 @@ const K = ['arbname', 'datum', 'stunden', 'rappnr', 'arbtyp', 'absenz', 'quelle'
   eq('kein zweiter Eintrag entstanden', pool(ls).find(d => d.datum === '2026-03-18').eintraege.length, 1);
 }
 
+// ═══ 9 — Status: Stufe 3 (Stundenmodul) ist die Freigabe ═══
+{
+  console.log('\n═══ 9 — freigegebene Tage kommen als «genehmigt», mobile als «offen» ═══');
+  const ls = speicher(); const I = ladeImporter(ls);
+  await lauf(I, 'stunden', K, [['Hans Meier', '2026-03-19', '8', '8123', 'Montage', '', 'erfasst']]);
+  eq('nur mobil erfasst → offen', pool(ls).find(d => d.datum === '2026-03-19').status, 'offen');
+  await lauf(I, 'stunden', K, [['Hans Meier', '2026-03-19', '8', '8123', 'Montage', '', 'freigegeben']]);
+  eq('Freigabe-Datei hebt den importierten Tag auf «genehmigt»', pool(ls).find(d => d.datum === '2026-03-19').status, 'genehmigt');
+  // Gegenprobe: ein von Hand geführter Tag behält seinen Status.
+  ls.setItem(ST_POOL, JSON.stringify([{ id: 'std_h', orgId: 'org1', userId: 'u_meier', userName: 'Hans Meier',
+    datum: '2026-03-20', eintraege: [], spesen: {}, status: 'eingereicht' }]));
+  await lauf(I, 'stunden', K, [['Hans Meier', '2026-03-20', '8', '8123', 'Montage', '', 'freigegeben']]);
+  eq('von Hand geführter Tag: Status bleibt', pool(ls).find(d => d.datum === '2026-03-20').status, 'eingereicht');
+}
+
 console.log('\n' + (fail ? '✗ ' + fail + ' von ' + n + ' Prüfungen fehlgeschlagen'
                           : '✓ alle ' + n + ' Prüfungen bestanden'));
 process.exit(fail ? 1 : 0);

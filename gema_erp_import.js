@@ -690,8 +690,20 @@ function blattZuZeilen(dom,xml,shared,dateXf,name){
   return {name:name||'Tabelle',rows:rows};
 }
 
-/* CSV/TSV — Trennzeichen-Erkennung, Quotes, "" als Escape. */
-function parseCsv(text){
+/* CSV/TSV — Trennzeichen-Erkennung, Quotes, "" als Escape.
+
+   Ein Anführungszeichen öffnet ein Feld nur an dessen ANFANG. Mitten im Feld
+   ist es Text — «Rohr 1/2"» kommt im Sanitärhandwerk in jeder zweiten
+   Position vor, und ein Parser, der dort in den Quote-Modus fällt, schluckt
+   den Rest der Datei bis zum nächsten Anführungszeichen.
+
+   opts.mysql — Datei aus `mysql --batch` (Export-Paket erp_export/, Endung
+   .tsv): Tab-getrennt, NIE gequotet, NULL als Wort «NULL», Tab/Zeilenumbruch/
+   Backslash/NUL als \t \n \\ \0 escapt. Beides wird zurückgewandelt; ohne
+   diese Regel käme «NULL» als E-Mail-Adresse und «\n» als Text in die
+   Bemerkungen. Gilt nur, wenn die Datei auch wirklich Tab-getrennt ist. */
+function parseCsv(text,opts){
+  opts=opts||{};
   text=String(text||'').replace(/^﻿/,'');
   var kand=[';','\t',',','|'],best=';',bestN=-1;
   var probe=text.split(/\r?\n/).slice(0,5).join('\n');
@@ -699,23 +711,34 @@ function parseCsv(text){
     var n=probe.split(d).length;
     if(n>bestN){bestN=n;best=d;}
   });
-  var rows=[],row=[],cur='',q=false;
+  var mysql=!!opts.mysql&&best==='\t';
+  function feld(v){return (mysql&&v==='NULL')?'':v;}
+  var rows=[],row=[],cur='',q=false,anfang=true;
   for(var i=0;i<text.length;i++){
     var ch=text[i];
     if(q){
       if(ch==='"'){if(text[i+1]==='"'){cur+='"';i++;}else q=false;}
-      else cur+=ch;
-    }else{
-      if(ch==='"')q=true;
-      else if(ch===best){row.push(cur);cur='';}
-      else if(ch==='\n'){row.push(cur);rows.push(row);row=[];cur='';}
-      else if(ch==='\r'){/* skip */}
-      else cur+=ch;
+      else if(ch!=='\r')cur+=ch;   // Umbrüche im Feld einheitlich als \n
+      continue;
     }
+    if(ch==='"'&&anfang&&!mysql){q=true;anfang=false;continue;}
+    if(mysql&&ch==='\\'){
+      var nx=text[i+1];
+      if(nx==='n'){cur+='\n';i++;}
+      else if(nx==='t'){cur+='\t';i++;}
+      else if(nx==='\\'){cur+='\\';i++;}
+      else if(nx==='0'){i++;}            // NUL hat in Text nichts verloren
+      else cur+=ch;                      // einzelner Backslash bleibt Text
+      anfang=false;continue;
+    }
+    if(ch===best){row.push(feld(cur));cur='';anfang=true;}
+    else if(ch==='\n'){row.push(feld(cur));rows.push(row);row=[];cur='';anfang=true;}
+    else if(ch==='\r'){/* skip */}
+    else{cur+=ch;anfang=false;}
   }
-  if(cur!==''||row.length){row.push(cur);rows.push(row);}
+  if(cur!==''||row.length){row.push(feld(cur));rows.push(row);}
   rows=rows.filter(function(r){return r.some(function(c){return s(c);});});
-  return {typ:'csv',sheets:[{name:'CSV',rows:rows.map(function(r){return r.map(s);})}]};
+  return {typ:'csv',mysql:mysql,sheets:[{name:'CSV',rows:rows.map(function(r){return r.map(s);})}]};
 }
 
 // ── Anschrift-Block parsen ──────────────────────────────────────────────
@@ -823,7 +846,12 @@ var SEKTIONEN=[
     {id:'sachb',      label:'Sachbearbeiter', alias:['sachb','sachbearbeiter','sb']},
     {id:'ref1',       label:'Externe Referenz 1', alias:['ref1','referenz1','externeref1']},
     {id:'ref2',       label:'Externe Referenz 2', alias:['ref2','referenz2','externeref2']},
-    {id:'notiz',      label:'Bemerkungen', alias:['bemerkung','bemerkungen','notiz','notizen']}
+    {id:'notiz',      label:'Bemerkungen', alias:['bemerkung','bemerkungen','notiz','notizen']},
+    // «objekt1»/«objekt2» des Altsystems: zwei Freitextzeilen, deren Bedeutung
+    // im Bestand nicht belegt ist (Bezeichnung? Zusatz?). Sie bleiben als
+    // Vermerk am Objekt — nichts wird geraten, nichts geht verloren.
+    {id:'bez1',       label:'Objekt-Text 1', hint:'Im Altsystem «objekt1» — als Vermerk am Objekt', alias:['objekt1','objekttext1','bezeichnung1']},
+    {id:'bez2',       label:'Objekt-Text 2', hint:'Im Altsystem «objekt2» — als Vermerk am Objekt', alias:['objekt2','objekttext2','bezeichnung2']}
   ]
 },
 {
@@ -869,13 +897,19 @@ var SEKTIONEN=[
     {id:'gueltigBis', label:'Gültig bis', hint:'Im Beispiel-Export «rdatum» — bitte kontrollieren', alias:['rdatum','gueltigbis','gueltig','validbis']},
     {id:'titel',      label:'Projekt / Betreff', alias:['betrmemo','betreff','projekt','memo','bezeichnung','titel']},
     {id:'status',     label:'Status im Altsystem', hint:'z.B. Zuschlag / Absage / Offen', alias:['typtext','status','offertstatus','zustand']},
+    {id:'artText',    label:'Offertart', hint:'Im Altsystem «offerttyp» — bleibt als Vermerk am Beleg', alias:['offerttyptext','offerttyp','offertart']},
+    {id:'stunden',    label:'Stunden (Kalkulation)', hint:'«tostunden» des Altsystems — Vermerk, GEMA rechnet nicht damit', alias:['tostunden','totalstunden','kalkstunden']},
     {id:'nettoBetrag',label:'Betrag exkl. MwSt', hint:'Massgebend für die Sammelposition', alias:['exmwstbetrag','nettobetrag','netto','betragexklmwst']},
     {id:'mwstBetrag', label:'MwSt-Betrag', hint:'Daraus wird der MwSt-Satz je Beleg gerechnet', alias:['mwstbetrag','mwst','mehrwertsteuer']},
     {id:'bruttoBetrag',label:'Betrag inkl. MwSt', alias:['obetrag','bruttobetrag','brutto','total','betrag']},
     {id:'kundeName',  label:'Kunde / Firma', alias:['name1','korrname','kunde','firma','adressname']},
+    {id:'korrName',   label:'Korrespondenz-Name', hint:'Ersatz für den Kundennamen, wenn «name1» leer ist', alias:['korrname','korrespondenzname']},
     {id:'kundeNr',    label:'Kunden-Nr.', alias:['knummer','kundennummer','kdnr','kundennr','debitor']},
     {id:'anschrift',  label:'Anschrift-Block (Freitext)', hint:'Rechnungsadresse — wird automatisch zerlegt', alias:['anschrift','adressblock','rechnungsadresse']},
     {id:'anrede',     label:'Briefanrede', alias:['banrede','anrede','briefanrede']},
+    {id:'zahlbed',    label:'Zahlungsbedingung', hint:'Kürzel des Altsystems — wird der importierten Kondition zugeordnet', alias:['zahlbedid','zahlungsbedingung','zahlbed','kondition']},
+    {id:'bemerkung',  label:'Bemerkung', alias:['bemerkung','bemerkungen','notiz','notizen']},
+    {id:'wohnStandort',label:'Wohnung — Name / Standort', hint:'Wird als Bezugsperson «Bewohner» am Objekt hinterlegt', alias:['wohnstandort','bewohner']},
     {id:'sachb',      label:'Sachbearbeiter', hint:'Wird über den Namen einer Person der Firma zugeordnet', alias:['sachbname','sachbearbeiter','sachb','sb','bearbeiter']},
     {id:'abteilung',  label:'Abteilung', hint:'Wird zum GEMA-Arbeitsbereich (Sanitär, Spenglerei …)', alias:['abtname','abteilung','bereich','gewerk','sparte']},
     {id:'strasse',    label:'Objekt: Strasse / Nr.', hint:'Verknüpft die Offerte mit dem Objekt', alias:['strasse','str','objektstrasse']},
@@ -955,6 +989,8 @@ var SEKTIONEN=[
     {id:'mwstCode',   label:'MwSt-Code', hint:'Nur als Vermerk — der Satz kommt aus den Beträgen', alias:['mwstcode','ustcode']},
     {id:'esrRef',     label:'ESR- / QR-Referenz', hint:'Wird für den Nachdruck übernommen, damit die Zahlung zugeordnet werden kann', alias:['esrref','esr','qrreferenz','referenznr']},
     {id:'zahlbed',    label:'Zahlungsbedingung', hint:'Bestimmt die Zahlungsfrist; unbekannt = Firmen-Standard', alias:['zahlbedid','zahlungsbedingung','zahlbed','kondition']},
+    {id:'faellig',    label:'Fällig am', hint:'Fälligkeitsdatum des Altsystems — wird zur Zahlungsfrist des Belegs (geht der Zahlungsbedingung vor)', alias:['faelligdatum','faellig','faelligam','faelligkeit','duedate']},
+    {id:'bemerkung',  label:'Bemerkung', alias:['bemerkung','bemerkungen','notiz','notizen']},
     {id:'ausgefuehrt',label:'Ausgeführt', hint:'Leistungsdatum/-zeitraum aus dem Altsystem (Freitext)', alias:['ausgef','ausgefuehrt','leistungsdatum','ausfuehrung']},
     {id:'versandtAm', label:'Versandt am', alias:['postinfodate','versandtam','versandt','druckdatum']},
     {id:'printInfo',  label:'Druck-Vermerk', alias:['printinfo','druckinfo']},
@@ -1041,7 +1077,7 @@ var SEKTIONEN=[
     {id:'extId',     label:'ID im Altsystem', hint:'Für den Wiederholungs-Import (keine Dubletten)', alias:['id','kreditorid','kreditorkey']},
     {id:'nr',        label:'Kreditor-Nr.', alias:['nr','nummer','kreditornr']},
     {id:'lieferant', label:'Lieferant', pflicht:true, alias:['name1','lieferant','firma','name','kreditor']},
-    {id:'rechnungsNr',label:'Rechnungs-Nr. des Lieferanten', alias:['belegnr','rechnungnr','rechnungsnr','esrnr']},
+    {id:'rechnungsNr',label:'Rechnungs-Nr. des Lieferanten', alias:['belegnr','rechnungnr','rechnungsnr']},
     {id:'datum',     label:'Belegdatum', alias:['datum','belegdatum','rechnungsdatum']},
     {id:'faellig',   label:'Fällig bis', alias:['faelligdatum','faellig','faelligbis','duedate']},
     {id:'betrag',    label:'Betrag', pflicht:true, hint:'Brutto — GEMA führt den Kreditor mit einem Betrag', alias:['betrag','summe','total','amount']},
@@ -1053,8 +1089,13 @@ var SEKTIONEN=[
     {id:'konto',     label:'Aufwandkonto', hint:'Vermerk für die Fibu', alias:['konto','gkonto','aufwandkonto']},
     {id:'kostenstelle',label:'Kostenstelle', hint:'Vermerk für die Fibu', alias:['kostenstid','kostenstelle','kost']},
     {id:'iban',      label:'IBAN', alias:['iban']},
-    {id:'esrRef',    label:'ESR-Referenz', alias:['esrref','esr','referenz']},
-    {id:'sesamOpNr', label:'Sesam OP-Nr.', hint:'Schlüssel der Fibu-Anbindung — wandert als Vermerk mit', alias:['sesamopnr','opnr']}
+    {id:'esrRef',    label:'ESR-Referenz', alias:['esrref','esrnr','esr','referenz']},
+    {id:'sesamOpNr', label:'Sesam OP-Nr.', hint:'Schlüssel der Fibu-Anbindung — wandert als Vermerk mit', alias:['sesamopnr','opnr']},
+    // Das Altsystem konnte einen Kreditor auf mehrere Aufträge verteilen
+    // (259 von 14 287). GEMA führt genau einen Auftrag — der Export liefert
+    // den ersten und zählt die Zuteilungen, damit die Aufteilung nicht
+    // stillschweigend verloren geht.
+    {id:'zuteilungen',label:'Anzahl Auftrags-Zuteilungen', hint:'Mehr als 1 = im Altsystem auf mehrere Aufträge verteilt; GEMA übernimmt den ersten und meldet es', alias:['zuteilungen','anzahlzuteilungen','zuteilung']}
   ]
 },
 {
@@ -1295,9 +1336,22 @@ function _uniqAlias(){
    mindestens zwei eindeutige Merkmale, und deutlicher Abstand zur Zweiten —
    sonst entscheidet der Mensch. Es wird nie geraten und nie stillschweigend
    importiert; die Oberfläche zeigt das Ergebnis immer an. */
-function erkenneSektion(headers){
+function erkenneSektion(headers,dateiname){
   var uniq=_uniqAlias();
   var hs=(headers||[]).map(function(h){return norm(h);}).filter(Boolean);
+  // Das Export-Paket benennt seine Dateien «NN_<sektion>[_variante].tsv» —
+  // der Name IST die Zuordnung, sofern die Pflichtfelder passen. So braucht
+  // eine Datei mit wenigen Merkmalen (Stunden aus dem Stundenmodul) keine
+  // Nachfrage, und eine falsch benannte Datei fällt trotzdem auf.
+  var mn=/^\d{2}_([a-z]+)/.exec(s(dateiname).toLowerCase());
+  if(mn&&sektion(mn[1])){
+    var mapN=erkenneMapping(headers,mn[1]),gN=mappingGuete(mapN,mn[1]),sekN=sektion(mn[1]);
+    if(gN.pflichtOk){
+      var b0={sekId:mn[1],label:sekN.label,ic:sekN.ic,mapping:mapN,marker:0,erkannt:gN.erkannt,gesamt:gN.gesamt,
+              pflichtOk:true,fehlendePflicht:[],punkte:999,quelle:'dateiname'};
+      return {beste:b0,sicher:true,liste:[b0],quelle:'dateiname'};
+    }
+  }
   var liste=SEKTIONEN.filter(function(sek){return sek.bereit;}).map(function(sek){
     var map=erkenneMapping(headers,sek.id);
     var g=mappingGuete(map,sek.id);
@@ -1364,18 +1418,23 @@ function normalisiereZeile(row,map,sekId){
     if(netto&&mwst!=null&&netto>0)satz=Math.round(mwst/netto*1000)/10;
     var adr=parseAnschrift(g('anschrift')).zahler||null;
     var kunde=Object.assign({firma:'',kontakt:'',strasse:'',plz:'',ort:''},adr||{});
-    if(!kunde.firma)kunde.firma=g('kundeName');
+    if(!kunde.firma)kunde.firma=g('kundeName')||g('korrName');
     if(g('kundeNr'))kunde.nr=g('kundeNr');
+    // Bewohner der Offerte → Bezugsperson am Objekt (wie beim Auftrag).
+    var opers=[];
+    if(s(g('wohnStandort')))opers.push({name:g('wohnStandort'),wohnung:g('wohnung'),typ:'bewohner'});
     return {
       extId:g('extId'), nr:g('nr'),
       datum:parseDatum(g('datum')), gueltigBis:parseDatum(g('gueltigBis')),
       titel:g('titel'), statusText:g('status'), status:st.status, statusErkannt:st.erkannt,
+      artText:g('artText'), stunden:parseBetrag(g('stunden')),
       netto:netto, mwst:mwst, brutto:brutto, mwstPct:satz,
       kunde:kunde, kundeName:g('kundeName')||kunde.firma, anrede:g('anrede'),
       sachb:g('sachb'), abteilung:g('abteilung'),
+      zahlbed:g('zahlbed'), bemerkung:g('bemerkung'),
       objekt:{strasse:g('strasse'), strasse2:g('strasse2'), plz:g('plz'), ort:g('ort'),
               egid:g('egid'), egrid:g('egrid')},
-      ref1:g('ref1'), ref2:g('ref2'), wohnung:g('wohnung')
+      ref1:g('ref1'), ref2:g('ref2'), wohnung:g('wohnung'), personen:opers
     };
   }
   if(sekId==='rechnungen'){
@@ -1411,6 +1470,7 @@ function normalisiereZeile(row,map,sekId){
       versandtAm:g('versandtAm'), printInfo:g('printInfo'),
       kunde:rkunde, kundeName:g('kundeName')||rkunde.firma, adrId:g('adrId'),
       sachb:g('sachb'), abteilung:g('abteilung'),
+      faellig:parseDatum(g('faellig')), bemerkung:g('bemerkung'),
       objekt:{strasse:g('strasse'), strasse2:g('strasse2'), plz:g('plz'), ort:g('ort'),
               egid:g('egid'), egrid:g('egrid')},
       ref1:g('ref1'), ref2:g('ref2'), wohnung:g('wohnung'), personen:rpers,
@@ -1485,7 +1545,8 @@ function normalisiereZeile(row,map,sekId){
       statusText:g('status'), status:kst.status, statusErkannt:kst.erkannt,
       auftragNr:g('auftragNr'), beschrieb:g('beschrieb'),
       konto:g('konto'), kostenstelle:g('kostenstelle'), iban:g('iban'),
-      esrRef:g('esrRef'), sesamOpNr:g('sesamOpNr')
+      esrRef:g('esrRef'), sesamOpNr:g('sesamOpNr'),
+      zuteilungen:(function(){var v=parseInt(s(g('zuteilungen')),10);return isNaN(v)?null:v;})()
     };
   }
   if(sekId==='artikel'){
@@ -1657,6 +1718,7 @@ function normalisiereZeile(row,map,sekId){
     egid:g('egid'), egrid:g('egrid'),
     monteur:g('monteur'), sachb:g('sachb'),
     ref1:g('ref1'), ref2:g('ref2'), notiz:g('notiz'),
+    bez1:g('bez1'), bez2:g('bez2'),
     slots:slots, personen:personen
   };
 }
@@ -1808,11 +1870,25 @@ function findeKopfzeile(rows){
 /* ═══ ENGINE-END ═══ */
 
 // ── Laufzeit: Datei lesen ───────────────────────────────────────────────
+/* Grössen-Sperre: der Import läuft im Browser und braucht ein Vielfaches
+   der Dateigrösse an Arbeitsspeicher (Text + Zeilen + Zellen + Plan). Eine
+   ungeteilte Positionsdatei (632 000 Zeilen, ~200 MB) sprengt jeden Tab —
+   besser vorher stoppen als mitten im Lesen mit «Aw, Snap». Das Export-Paket
+   liefert Positionen darum je Jahr. */
+var DATEI_MAX_TEXT=60*1024*1024, DATEI_MAX_XLSX=20*1024*1024;
 function leseDatei(file){
   if(!file)return Promise.reject(new Error('Keine Datei gewählt.'));
   var nm=(file.name||'').toLowerCase();
+  var istXlsx=/\.xlsx?$|\.xlsm$/.test(nm);
+  var max=istXlsx?DATEI_MAX_XLSX:DATEI_MAX_TEXT;
+  if(file.size>max){
+    return Promise.reject(new Error('«'+(file.name||'Datei')+'» ist '+Math.round(file.size/1048576)+' MB gross — zu viel für den Import im Browser (Grenze '
+      +Math.round(max/1048576)+' MB'+(istXlsx?' bei Excel-Dateien':'')+'). Bitte in Jahresscheiben exportieren (das Export-Paket tut das bei den Positionen selbst) und die Scheiben nacheinander einlesen.'));
+  }
+  // .tsv ist die Endung des Export-Pakets (erp_export/export.ps1, mysql --batch):
+  // Tab-getrennt, NULL als Wort, Sonderzeichen escapt — siehe parseCsv.
   if(/\.(csv|txt|tsv)$/.test(nm)){
-    return file.text().then(function(t){return parseCsv(t);});
+    return file.text().then(function(t){return parseCsv(t,{mysql:/\.tsv$/.test(nm)});});
   }
   if(/\.xlsx?$/.test(nm)||/\.xlsm$/.test(nm)){
     if(/\.xls$/.test(nm))return Promise.reject(new Error('Das alte .xls-Format wird nicht unterstützt. Bitte in Excel als .xlsx oder .csv speichern.'));
@@ -1875,10 +1951,16 @@ function findeSachbearbeiter(name){
   var t=norm(name);
   if(!t)return null;
   var alle=[];
-  try{
-    var u=GemaAuth.getCurrentUser();
-    alle=(GemaAuth.getUsers()||[]).filter(function(x){return x&&(!u||x.orgId===u.orgId);});
-  }catch(e){}
+  // GemaAuth.getUsers() parst den Benutzer-Cache bei jedem Aufruf — bei
+  // 90 000 Stundenzeilen wären das Minuten. Während eines Laufs EINMAL.
+  if(_lauf&&_lauf.users)alle=_lauf.users;
+  else{
+    try{
+      var u=GemaAuth.getCurrentUser();
+      alle=(GemaAuth.getUsers()||[]).filter(function(x){return x&&(!u||x.orgId===u.orgId);});
+    }catch(e){}
+    if(_lauf)_lauf.users=alle;
+  }
   // Aktive zuerst; INAKTIVE (Ausgetretene) danach — die Historie ihrer Stunden
   // und Termine braucht trotzdem eine Person. Ohne diesen zweiten Durchgang
   // landeten alle Zeilen einer ausgetretenen Person ohne Zuordnung.
@@ -1906,10 +1988,14 @@ function findeBereich(label){
       _abCache=((o&&o.settings&&o.settings.arbeitsbereiche)||[]).slice();
     }catch(e){}
   }
-  var hit=_abCache.find(function(b){return norm(b.label||b.name)===norm(lab);});
+  var hit=_abCache.find(function(b){return norm(b.name||b.label)===norm(lab);});
   if(hit)return hit.id;
   var id='ab_'+norm(lab);
-  _abCache.push({id:id,label:lab,farbe:'#64748b'});
+  // Form wie in den ⚙️-Einstellungen: {id, name, farbe}. Alle Konsumenten
+  // (sv_service, pm_einsatzplan, pm_erp, pm_stunden) filtern auf `b.name` —
+  // ein Bereich nur mit `label` wäre überall unsichtbar und beim ersten
+  // Speichern der Anlage verloren gegangen.
+  _abCache.push({id:id,name:lab,farbe:'#64748b'});
   try{
     // KRITISCH: updateOrgSettings(orgId, settings) — die orgId ist das ERSTE
     // Argument. Ohne sie findet die Funktion die Org nicht und gibt still
@@ -2088,22 +2174,35 @@ function adresseSichern(roh,ctx){
 /* Pool-Zugriff für Belege — bewusst bei JEDEM Aufruf frisch gelesen: der
    Auftrags-Import schreibt zwei Dokumente hintereinander (Auftrag + die
    verknüpfte Offerte) und die zweite Schreibung muss die erste sehen. */
-function dokPool(){
-  var pool=[];
-  try{
-    if(typeof GemaSync!=='undefined'&&GemaSync.getCached)pool=GemaSync.getCached(DOK_POOL)||[];
-    if(!pool.length){var r=localStorage.getItem(DOK_POOL);if(r)pool=JSON.parse(r)||[];}
-  }catch(e){}
-  return pool.slice();
+/* Belege laufen über denselben Lauf-Speicher wie alle anderen Pools (siehe
+   unten): während eines Imports liegt der Pool EINMAL im Speicher, die Cloud
+   bekommt Blöcke statt 26 000 Einzel-Requests, und der Cache wird über
+   GemaSync.setCached nachgeführt — ein stilles localStorage-Quota-Versagen
+   liess sonst jeden weiteren Abschnitt den Stand VOR dem Lauf lesen
+   (Aufträge fanden ihre Offerten nicht, Wiederholungen legten Dubletten an). */
+function dokPool(){return poolLesen(DOK_POOL);}
+function dokSichern(doc){return poolSichern(DOK_POOL,DOK_PREFIX,doc,'erp');}
+function dokById(id){
+  var P=_laufPool(DOK_POOL);
+  if(P){var i=P.ix[id];return i!=null?P.arr[i]:null;}
+  return dokPool().find(function(x){return x&&x.id===id;})||null;
 }
-function dokSichern(doc){
-  var pool=dokPool();
-  var i=pool.findIndex(function(x){return x.id===doc.id;});
-  if(i>=0)pool[i]=doc;else pool.push(doc);
-  try{localStorage.setItem(DOK_POOL,JSON.stringify(pool));}catch(e){}
-  var p=(typeof GemaSync!=='undefined'&&GemaSync.saveRecord)
-    ? GemaSync.saveRecord('erp',DOK_PREFIX+doc.id,doc) : Promise.resolve();
-  return p.then(function(){return doc;},function(){return doc;});
+/* Beleg-Nachschlag: während eines Laufs EIN Index über die eigenen Belege
+   (dokSchluessel, typ|nr, typ|ext), bei jedem poolSichern nachgeführt —
+   statt je Beleg den ganzen Pool linear zu durchsuchen (26 000 × 26 000). */
+function _dokKeyFns(){
+  return [
+    function(d){return (d&&d.typ)?dokSchluessel(d.typ,d):'';},
+    function(d){return (d&&d.typ&&s(d.nr))?(d.typ+'|nr:'+norm(d.nr)):'';},
+    function(d){var ext=s(d&&(d.extId||(d.quelle&&d.quelle.extId)));return (d&&d.typ&&ext)?(d.typ+'|ext:'+norm(ext)):'';}
+  ];
+}
+function dokSuche(key){
+  if(!key)return null;
+  var LX=laufIndex(DOK_POOL,'dok',_dokKeyFns());
+  if(LX)return LX.map[key]||null;
+  var fns=_dokKeyFns();
+  return bestehendeDocs().find(function(d){return fns.some(function(f){return f(d)===key;});})||null;
 }
 
 /* Dieselbe Mechanik für die übrigen ERP-Sammlungen: bei JEDEM Aufruf frisch
@@ -2141,9 +2240,28 @@ function poolLesenRoh(key){
    Verhalten für alle Leser bleibt, wie es mit Einzelschreibungen war.
    Ohne laufenden Import (kein laufStart) verhält sich poolSichern wie
    zuvor: sofort schreiben. */
-var _lauf=null;
-var LAUF_FLUSH_ALLE=500, LAUF_CLOUD_BLOCK=200;
-function laufStart(){_lauf={pools:{},index:{},cloud:{},n:0};}
+var _lauf=null, _laufAktiv=false, _abbruch=false;
+var _laufStat={gesendet:0,eingereiht:0,fehler:0};
+var LAUF_FLUSH_ALLE=500, LAUF_CLOUD_BLOCK=200, LAUF_CLOUD_BYTES=2*1024*1024;
+function _laufVerlassenWarnung(ev){
+  // Während eines Laufs die Seite zu verlassen hiesse: laufende Uploads
+  // abgebrochen, der letzte Block nie gesendet. Der Browser fragt nach.
+  ev.preventDefault();ev.returnValue='Der Import läuft noch — Seite wirklich verlassen?';return ev.returnValue;
+}
+function laufStart(){
+  _lauf={pools:{},index:{},cloud:{},n:0};
+  _laufAktiv=true;_abbruch=false;
+  _laufStat={gesendet:0,eingereiht:0,fehler:0};
+  try{if(typeof window!=='undefined'&&window.addEventListener)window.addEventListener('beforeunload',_laufVerlassenWarnung);}catch(e){}
+}
+function laufEnde(){
+  _laufAktiv=false;
+  try{if(typeof window!=='undefined'&&window.removeEventListener)window.removeEventListener('beforeunload',_laufVerlassenWarnung);}catch(e){}
+}
+/* Abbruch durch den Anwender: die Kette hält beim nächsten Atemzug an, das
+   bereits Geschriebene wird geflusht, der Bericht sagt, wo es stoppte. */
+function abbrechen(){_abbruch=true;}
+function laeuft(){return _laufAktiv;}
 function _laufPool(key){
   if(!_lauf)return null;
   var P=_lauf.pools[key];
@@ -2176,7 +2294,8 @@ function laufIndex(key,name,fns){
    geben: die Import-Kette besteht aus Microtasks, ohne setTimeout zeichnet
    der Browser bis zum Ende nichts — auch keine Fortschrittsanzeige. */
 function laufAtem(i,n,opts){
-  if(opts&&opts.onFortschritt){try{opts.onFortschritt(i+1,n);}catch(e){}}
+  if(_abbruch){var e=new Error('Import abgebrochen bei Zeile '+(i+1)+' von '+n);e.abgebrochen=true;e.zeile=i+1;return Promise.reject(e);}
+  if(opts&&opts.onFortschritt){try{opts.onFortschritt(i+1,n);}catch(e2){}}
   if(i%200===199)return new Promise(function(r){setTimeout(r,0);});
   return Promise.resolve();
 }
@@ -2211,27 +2330,50 @@ function poolSichern(key,prefix,rec,mod){
    in GemaSyncs Outbox (saveRecords → _queueOnFail); hier wird nichts
    verschluckt, aber auch nichts wiederholt. */
 function poolFlush(o){
-  if(!_lauf)return Promise.resolve();
+  if(!_lauf){if(!(o&&o.weiter))laufEnde();return Promise.resolve();}
   var L=_lauf;
   if(!(o&&o.weiter))_lauf=null;
   Object.keys(L.pools).forEach(function(key){
     var P=L.pools[key];if(!P.dirty)return;
-    try{localStorage.setItem(key,JSON.stringify(P.arr));}catch(e){}
+    // Cache-Nachführung über GemaSync (localStorage + Spiegel + IndexedDB):
+    // ein eigenes localStorage.setItem scheiterte still an der Quota, und
+    // GemaSync.getCached lieferte danach den Stand VOR dem Lauf.
+    if(typeof GemaSync!=='undefined'&&GemaSync.setCached){try{GemaSync.setCached(key,P.arr);}catch(e){}}
+    else{try{localStorage.setItem(key,JSON.stringify(P.arr));}catch(e2){}}
     P.dirty=false;
   });
   var cloud=L.cloud;L.cloud={};
-  if(typeof GemaSync==='undefined'||!GemaSync.saveRecords)return Promise.resolve();
+  if(typeof GemaSync==='undefined'||!GemaSync.saveRecords){if(!(o&&o.weiter))laufEnde();return Promise.resolve();}
   var kette=Promise.resolve();
   Object.keys(cloud).forEach(function(m){
     var recs=Object.keys(cloud[m]).map(function(k){return cloud[m][k];});
-    for(var a=0;a<recs.length;a+=LAUF_CLOUD_BLOCK){
-      (function(block){
-        kette=kette.then(function(){return Promise.resolve(GemaSync.saveRecords(m,block)).catch(function(){});});
-      })(recs.slice(a,a+LAUF_CLOUD_BLOCK));
+    // Blöcke nach Anzahl UND Bytes — 200 Belege mit je 150 KB Positionen
+    // wären ein 30-MB-Request.
+    var block=[],bytes=0;
+    function senden(){
+      if(!block.length)return;
+      var b=block;block=[];bytes=0;
+      kette=kette.then(function(){
+        return Promise.resolve(GemaSync.saveRecords(m,b)).then(function(){
+          _laufStat.gesendet+=b.length;
+        },function(e){
+          if(e&&e.queued)_laufStat.eingereiht+=b.length;else _laufStat.fehler+=b.length;
+        });
+      });
     }
+    recs.forEach(function(r){
+      var sz=0;try{sz=JSON.stringify(r.data).length;}catch(e){}
+      if(block.length&&(block.length>=LAUF_CLOUD_BLOCK||bytes+sz>LAUF_CLOUD_BYTES))senden();
+      block.push(r);bytes+=sz;
+    });
+    senden();
   });
+  if(!(o&&o.weiter))kette=kette.then(laufEnde,laufEnde);
   return kette;
 }
+/* Cloud-Bilanz des letzten Laufs — für den Bericht (nichts wird als
+   «fertig» gemeldet, was nur in der Outbox liegt oder scheiterte). */
+function laufBilanz(){return {gesendet:_laufStat.gesendet,eingereiht:_laufStat.eingereiht,fehler:_laufStat.fehler};}
 /* Org-gefilterter Lesezugriff — jeder dieser Pools ist org-gescopt. */
 function poolEigene(key){
   var o=eigeneOrgId();
@@ -2251,6 +2393,8 @@ function kredSchluessel(k){
 /* Beleg-Nachschlag für Positionen und Zahlungen: Nummer UND Alt-ID, weil der
    Positions-Export je nach Abfrage das eine oder das andere liefert. */
 function dokIndex(){
+  var LX=laufIndex(DOK_POOL,'dok',_dokKeyFns());
+  if(LX)return LX.map;
   var ix={};
   bestehendeDocs().forEach(function(d){
     if(!d||!d.typ)return;
@@ -2324,13 +2468,10 @@ function rechnungSchreiben(z,adrCtx,report,opts){
   opts=opts||{};
   var u=null;try{u=GemaAuth.getCurrentUser();}catch(e){}
   var orgId=u?u.orgId:'';
-  var docs=bestehendeDocs();
-  var alt=docs.filter(function(d){return d.typ==='rechnung';})
-    .find(function(d){return dokSchluessel('rechnung',d)===dokSchluessel('rechnung',z);})||null;
+  var alt=dokSuche(dokSchluessel('rechnung',z));
   var auf=null;
   if(s(z.auftragNr)){
-    var an=norm(z.auftragNr);
-    auf=docs.find(function(d){return d.typ==='auftrag'&&norm(d.nr)===an;})||null;
+    auf=dokSuche('auftrag|nr:'+norm(z.auftragNr));
     if(!auf)report.auftragFehlt=(report.auftragFehlt||0)+1;
   }
 
@@ -2356,13 +2497,18 @@ function rechnungSchreiben(z,adrCtx,report,opts){
       if(!doc.rechnungsArt)doc.rechnungsArt=z.art;
       if(!doc.bereichId&&bereichId)doc.bereichId=bereichId;
       if(!doc.sachbearbeiter&&sb)doc.sachbearbeiter=sb;
-      if(doc.mwstPct==null&&z.mwstPct!=null&&z.mwstPct>0)doc.mwstPct=z.mwstPct;
+      // Auch 0 % ist eine Aussage (ein Beleg ohne MwSt). Nur ein UNBEKANNTER
+      // Satz bleibt leer — pm_erp zeigte sonst «MwSt. undefined %».
+      if(doc.mwstPct==null&&z.mwstPct!=null)doc.mwstPct=z.mwstPct;
       if(kd&&!doc.kundeId){doc.kundeId=kd.id;doc.kundeSnapshot=GemaAdressen.snapshot(kd);}
       if(obj&&!doc.objektId){doc.objektId=obj.id;doc.objektName=obj.name||'';}
       if(s(z.ref1)&&!s(doc.externeRef1))doc.externeRef1=s(z.ref1);
       if(s(z.ref2)&&!s(doc.externeRef2))doc.externeRef2=s(z.ref2);
       if(s(z.wohnung)&&!s(doc.wohnung))doc.wohnung=s(z.wohnung);
-      // Zahlungsfrist: aus der Zahlungsbedingung, sonst Firmen-Standard.
+      if(s(z.bemerkung)&&!s(doc.notiz))doc.notiz=s(z.bemerkung);
+      // Zahlungsfrist: das Fälligkeitsdatum des Altsystems, wenn es eines
+      // führt; sonst aus der Zahlungsbedingung, sonst Firmen-Standard.
+      if(!s(doc.frist)&&s(z.faellig))doc.frist=s(z.faellig);
       if(!s(doc.frist)&&s(doc.datum)){
         var std=30;
         try{var os=(GemaAuth.getCurrentOrg()||{}).settings||{};std=(os.erp&&os.erp.fristTage)||30;}catch(e){}
@@ -2425,6 +2571,16 @@ function rechnungSchreiben(z,adrCtx,report,opts){
           report.alsBezahlt=(report.alsBezahlt||0)+1;
         }
       }
+      // «Bezahlt» laut Altsystem (debistatus), aber ohne Zahlungsdatum — die
+      // Spalten dafür sind dort durchweg leer. Eine Zahlung über den Brutto-
+      // betrag, auf das Rechnungsdatum datiert und genau so beschriftet:
+      // sonst stünde «Bezahlt» neben «CHF 0.00 von X bezahlt», und die
+      // Debitoren-Kennzahlen zählten den Beleg als offen.
+      if(!alt&&doc.status==='bezahlt'&&!(doc.zahlungen||[]).length&&(z.brutto!=null||z.netto!=null)){
+        doc.zahlungen=[{datum:doc.datum,betrag:(z.brutto!=null?z.brutto:z.netto)||0,
+                        bemerkung:'Bezahlt gemäss Altsystem — Zahlungsdatum dort nicht geführt'}];
+        report.bezahltOhneDatum=(report.bezahltOhneDatum||0)+1;
+      }
       doc.quelle=doc.quelle||{typ:'import',system:opts.quelleName||'ERP-Migration',am:jetzt(),extId:z.extId};
       doc.updatedAt=jetzt();
       return dokSichern(doc).then(function(){if(alt)report.aktualisiert++;else report.neu++;});
@@ -2442,13 +2598,10 @@ function auftragSchreiben(z,adrCtx,report,opts){
   opts=opts||{};
   var u=null;try{u=GemaAuth.getCurrentUser();}catch(e){}
   var orgId=u?u.orgId:'';
-  var docs=bestehendeDocs();
-  var alt=docs.filter(function(d){return d.typ==='auftrag';})
-    .find(function(d){return dokSchluessel('auftrag',d)===dokSchluessel('auftrag',z);})||null;
+  var alt=dokSuche(dokSchluessel('auftrag',z));
   var off=null;
   if(s(z.offertNr)){
-    var on=norm(z.offertNr);
-    off=docs.find(function(d){return d.typ==='offerte'&&norm(d.nr)===on;})||null;
+    off=dokSuche('offerte|nr:'+norm(z.offertNr));
     if(!off)report.offerteFehlt=(report.offerteFehlt||0)+1;
   }
 
@@ -2513,7 +2666,7 @@ function auftragSchreiben(z,adrCtx,report,opts){
         if(alt)report.aktualisiert++;else report.neu++;
         // Gegenrichtung: die Offerte zeigt auf den Auftrag (wie erpZuAuftrag).
         if(!off)return;
-        var akt=dokPool().find(function(x){return x.id===off.id;})||off;
+        var akt=dokById(off.id)||off;
         if(akt.verknuepfung&&akt.verknuepfung.auftragId)return;
         var o2=Object.assign({},akt);
         o2.verknuepfung=Object.assign({},o2.verknuepfung||{});
@@ -2536,8 +2689,7 @@ function offerteSchreiben(z,adrCtx,report,opts){
   opts=opts||{};
   var u=null;try{u=GemaAuth.getCurrentUser();}catch(e){}
   var orgId=u?u.orgId:'';
-  var docs=bestehendeDocs().filter(function(d){return d.typ==='offerte';});
-  var alt=docs.find(function(d){return dokSchluessel('offerte',d)===dokSchluessel('offerte',z);})||null;
+  var alt=dokSuche(dokSchluessel('offerte',z));
 
   // 1) Kunde (Rechnungsempfänger)
   var kundeP=Promise.resolve(null);
@@ -2548,7 +2700,7 @@ function offerteSchreiben(z,adrCtx,report,opts){
   }
   return kundeP.then(function(kd){
     // 2) Objekt — verknüpfen, sonst (auf Wunsch) anlegen
-    return objektFuerBeleg(z.objekt,kd,null,orgId,report,opts).then(function(obj){
+    return objektFuerBeleg(z.objekt,kd,z.personen||null,orgId,report,opts).then(function(obj){
       var sb=findeSachbearbeiter(z.sachb);
       var bereichId=findeBereich(z.abteilung);
       var doc=alt?Object.assign({},alt):{
@@ -2566,12 +2718,19 @@ function offerteSchreiben(z,adrCtx,report,opts){
       if(!doc.status)doc.status=z.status;
       if(!doc.bereichId&&bereichId)doc.bereichId=bereichId;
       if(!doc.sachbearbeiter&&sb)doc.sachbearbeiter=sb;
-      if(doc.mwstPct==null&&z.mwstPct!=null&&z.mwstPct>0)doc.mwstPct=z.mwstPct;
+      if(doc.mwstPct==null&&z.mwstPct!=null)doc.mwstPct=z.mwstPct;
       if(kd&&!doc.kundeId){doc.kundeId=kd.id;doc.kundeSnapshot=GemaAdressen.snapshot(kd);}
       if(obj&&!doc.objektId){doc.objektId=obj.id;doc.objektName=obj.name||'';}
       if(s(z.ref1)&&!s(doc.externeRef1))doc.externeRef1=s(z.ref1);
       if(s(z.ref2)&&!s(doc.externeRef2))doc.externeRef2=s(z.ref2);
       if(s(z.wohnung)&&!s(doc.wohnung))doc.wohnung=s(z.wohnung);
+      if(s(z.bemerkung)&&!s(doc.notiz))doc.notiz=s(z.bemerkung);
+      // Vermerke — Offertart und die Kalkulationsstunden des Altsystems
+      // haben in GEMA kein eigenes Feld und bleiben am Beleg sichtbar.
+      if(s(z.artText)&&!s(doc.importArtText))doc.importArtText=s(z.artText);
+      if(z.stunden!=null&&doc.importStunden==null)doc.importStunden=z.stunden;
+      if(s(z.zahlbed)&&!s(doc.importZahlbed))doc.importZahlbed=s(z.zahlbed);
+      if(!s(doc.zahlbedId)&&s(z.zahlbed)){var zbO=zahlbedIdFuer(z.zahlbed);if(zbO)doc.zahlbedId=zbO;}
       // Sammelposition NUR bei einem noch leeren Dokument — ein bereits
       // erfasstes Leistungsverzeichnis wird beim Wiederholungs-Import
       // niemals überschrieben oder ergänzt.
@@ -2804,10 +2963,15 @@ function kreditorSchreiben(z,report,opts){
   });
   if(k.importMwstBetrag==null&&z.mwstBetrag!=null)k.importMwstBetrag=z.mwstBetrag;
   if(k.importRestBetrag==null&&z.restBetrag!=null)k.importRestBetrag=z.restBetrag;
+  if(z.zuteilungen!=null&&k.importZuteilungen==null){
+    k.importZuteilungen=z.zuteilungen;
+    if(z.zuteilungen>1)report.kreditorMehrfach=(report.kreditorMehrfach||0)+1;
+  }
   if(!alt){
+    // Form wie erpKredLog in pm_erp: {am, von:'Name', text} — ein Objekt in
+    // `von` zeigte dort «[object Object]».
     k.verlauf=(k.verlauf||[]).concat([{
-      am:jetzt(), was:'Übernommen aus dem Altsystem',
-      von:{userId:u?u.id:'',name:u?u.name:''}
+      am:jetzt(), von:u?u.name:'', text:'Übernommen aus dem Altsystem'
     }]);
   }
   k.quelle=k.quelle||{typ:'import',system:opts.quelleName||'ERP-Migration',am:jetzt(),extId:s(z.extId)};
@@ -2819,6 +2983,12 @@ function kreditorSchreiben(z,report,opts){
 
 /* Artikel — gruppiert je Katalog. Bestehende Artikel werden nie überschrieben;
    erkannt werden sie über die Alt-ID, ersatzweise über die Bezeichnung. */
+/* Ein Katalog-Record trägt höchstens KAT_MAX_ARTIKEL Artikel. 15 888 Artikel
+   in EINEM Record wären ~5 MB — zu gross für einen einzelnen Upload und für
+   den Editor. Darum Teil-Kataloge «Name», «Name (2)», … die über
+   `importBasisName` zusammengehören; Dubletten werden über ALLE Teile
+   geprüft. */
+var KAT_MAX_ARTIKEL=400;
 function artikelSchreiben(zeilen,report,opts){
   opts=opts||{};
   var orgId=eigeneOrgId();
@@ -2833,18 +3003,23 @@ function artikelSchreiben(zeilen,report,opts){
   var kette=Promise.resolve();
   reihe.forEach(function(name){
     kette=kette.then(function(){
-      var kat=bestehendeKataloge().find(function(k){return norm(k.name)===norm(name);})||null;
-      var neuKat=!kat;
-      kat=kat?JSON.parse(JSON.stringify(kat)):{
-        id:uid('kat'), orgId:orgId, name:name, artikel:[],
-        erstelltVon:{userId:u?u.id:'',name:u?u.name:''}, erstelltAm:jetzt()
-      };
-      var arts=(kat.artikel||[]).slice(), da={};
-      arts.forEach(function(a){
+      var teile=bestehendeKataloge().filter(function(k){return norm(k.importBasisName||k.name)===norm(name);})
+        .map(function(k){return JSON.parse(JSON.stringify(k));});
+      var da={};
+      teile.forEach(function(k){(k.artikel||[]).forEach(function(a){
         if(s(a.extId))da['ext:'+norm(a.extId)]=1;
         da['bez:'+norm(a.bez)]=1;
-      });
-      var zu=0;
+      });});
+      var dirty={}, neuKat=0, zu=0;
+      function ziel(){
+        var last=teile[teile.length-1];
+        if(last&&(last.artikel||[]).length<KAT_MAX_ARTIKEL)return last;
+        var k={id:uid('kat'), orgId:orgId, name:teile.length?(name+' ('+(teile.length+1)+')'):name,
+               importBasisName:name, artikel:[],
+               erstelltVon:{userId:u?u.id:'',name:u?u.name:''}, erstelltAm:jetzt()};
+        teile.push(k);neuKat++;dirty[k.id]=1;
+        return k;
+      }
       grp[name].forEach(function(z){
         var ek=s(z.extId)?('ext:'+norm(z.extId)):'';
         if(ek&&da[ek])return;
@@ -2858,18 +3033,22 @@ function artikelSchreiben(zeilen,report,opts){
           if(z.kalk&&z.kalk[f]!=null)kal[f]=z.kalk[f];
         });
         if(Object.keys(kal).length)a.importKalk=kal;
-        arts.push(a);
+        var k=ziel();
+        (k.artikel=k.artikel||[]).push(a);dirty[k.id]=1;
         if(ek)da[ek]=1;
         da['bez:'+norm(z.bez)]=1;
         zu++;
       });
-      if(!zu&&!neuKat)return;
-      kat.artikel=arts;
-      kat.updatedAt=jetzt();
       report.artikel=(report.artikel||0)+zu;
       report.neu+=zu;
-      if(neuKat)report.kataloge=(report.kataloge||0)+1;
-      return poolSichern(KAT_POOL,KAT_PREFIX,kat);
+      if(neuKat)report.kataloge=(report.kataloge||0)+neuKat;
+      var k2=Promise.resolve();
+      teile.forEach(function(k){
+        if(!dirty[k.id])return;
+        k.updatedAt=jetzt();
+        k2=k2.then(function(){return poolSichern(KAT_POOL,KAT_PREFIX,k);});
+      });
+      return k2;
     });
   });
   return kette;
@@ -2884,6 +3063,12 @@ function zahlbedSchreiben(zeilen,report,opts){
   if(!org||!org.id)return Promise.reject(new Error('Firma nicht geladen — die Zahlungsbedingungen können nicht gespeichert werden.'));
   var st=org.settings||{};
   var liste=(((st.erp||{}).zahlbed)||[]).slice();
+  // Führt die Firma noch keine eigene Liste, gelten in pm_erp die Vorgaben
+  // (netto30 …). Die importierten Konditionen kommen DAZU — sonst wären die
+  // Vorgaben nach dem Import weg, und jeder Beleg mit «netto30» zeigte ⚠.
+  if(!liste.length&&typeof window!=='undefined'&&Array.isArray(window.ERP_ZAHLBED_DEFAULT)){
+    try{liste=JSON.parse(JSON.stringify(window.ERP_ZAHLBED_DEFAULT));}catch(e){liste=[];}
+  }
   var da={};
   liste.forEach(function(z){da[norm(z.id)]=1;da['l:'+norm(z.label)]=1;});
   var zu=0;
@@ -2988,27 +3173,33 @@ function mitarbeiterSchreiben(zeilen,report,opts){
   });
   var st=Object.assign({},(org.settings||{}).stunden||{});
   var mit=Object.assign({},st.mitarbeiter||{});
-  var geaendert=false,stammGeaendert=false,rollen={},links=[];
+  var geaendert=false,stammGeaendert=false,rollen={},links=[],neue=[];
   zeilen.forEach(function(zl){
     var z=zl.ziel;
     if(!s(z.voller))return;
     var user=mitarbeiterSchluessel(z,bekannt);
     if(!user){
       var token='inv_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,8);
+      // Ausgetretene bekommen KEINE Einladung: der Server lehnt die
+      // Aktivierung eines inaktiven Benutzers ohnehin ab, und ein Link, der
+      // «ungültig» meldet, verwirrt nur. Tritt jemand wieder ein, lädt die
+      // Verwaltung ein.
+      var einladbar=!!(z.email&&z.aktiv);
       user={
         id:'u_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7),
         username:z.email||('imp_'+norm(z.voller)+'_'+Math.random().toString(36).slice(2,6)),
         name:z.voller, password:null, roleIds:[z.rolle], active:!!z.aktiv, orgId:orgId,
         createdAt:jetzt(),
         profile:{email:z.email||'',telefon:s(z.tel)||s(z.natel),sprache:'de',benachrichtigungen:true,einheiten:'metrisch'},
-        einladung:z.email?{token:token,eingeladenVon:u.id,eingeladenAm:jetzt(),angenommenAm:null,passwortGesetzt:false}:null,
+        einladung:einladbar?{token:token,eingeladenVon:u.id,eingeladenAm:jetzt(),angenommenAm:null,passwortGesetzt:false}:null,
         quelle:{typ:'import',system:opts.quelleName||'ERP-Migration',am:jetzt(),extId:s(z.extId)}
       };
-      users.push(user);
+      users.push(user);neue.push(user);
       bekannt['m:name:'+norm(z.voller)]=user;if(z.email)bekannt['m:mail:'+z.email]=user;
       if(s(z.extId))bekannt['m:ext:'+norm(z.extId)]=user;
       geaendert=true;report.neu++;
-      if(z.email)links.push({name:z.voller,email:z.email,link:'sys_login.html?invite='+token});
+      if(einladbar)links.push({name:z.voller,email:z.email,link:'sys_login.html?invite='+token});
+      else if(!z.aktiv)report.inaktiv=(report.inaktiv||0)+1;
       else report.ohneEmail=(report.ohneEmail||0)+1;
     }else{
       // Nur Lücken füllen — Rolle, Aktiv-Status und Name eines bestehenden
@@ -3036,8 +3227,27 @@ function mitarbeiterSchreiben(zeilen,report,opts){
     if(s(z.abteilung))findeBereich(z.abteilung);
   });
   report.rollen=rollen;report.einladungen=links;
+  /* Die Auth-Function nimmt höchstens 200 Records je Anfrage an. saveUsers
+     difft gegen den Cache und schickt nur Neues/Geändertes — also in
+     Tranchen: erst die Bestehenden plus die ersten MIT_TRANCHE neuen, dann
+     plus die nächsten … Jede Tranche muss durch sein, bevor die nächste
+     geht (der Server sähe sonst 220 neue auf einmal und lehnte alles ab). */
+  var MIT_TRANCHE=120;
+  var neuRang={};neue.forEach(function(x,i){neuRang[x.id]=i;});
+  var schritte=Math.max(1,Math.ceil(neue.length/MIT_TRANCHE));
   var p=Promise.resolve({ok:true});
-  if(geaendert)p=Promise.resolve(GemaAuth.saveUsers(users));
+  if(geaendert){
+    for(var k=0;k<schritte;k++){
+      (function(kk){
+        p=p.then(function(res){
+          if(res&&res.ok===false)return res;
+          var grenze=(kk+1)*MIT_TRANCHE;
+          var liste=users.filter(function(x){return neuRang[x.id]==null||neuRang[x.id]<grenze;});
+          return Promise.resolve(GemaAuth.saveUsers(liste));
+        });
+      })(k);
+    }
+  }
   return p.then(function(res){
     if(res&&res.ok===false){
       report.fehler.push({zeile:0,text:'Benutzer speichern: '+(res.error||'abgelehnt')+(res.denied?' (keine Berechtigung — nur ein Firmen-Admin darf Benutzer anlegen)':'')});
@@ -3281,6 +3491,14 @@ function stundenSchreiben(zeilen,report,opts){
       // am Ende genau dann. Ein Zähler «neu» reichte nicht: eine Korrektur an
       // einem bestehenden Eintrag ist kein neuer Eintrag und ging verloren.
       var geaendert=false;
+      /* Stufe 3 des Altsystems (Stundenmodul, «freigegeben») IST die Freigabe —
+         der Tag kommt als «genehmigt» an. Als «offen» stünde die ganze
+         Historie zum Einreichen bereit, und eine Freigabe hängte jedem
+         importierten Termin des Tages die Planzeit noch einmal an (doppelt
+         gezählt). Nur mobil erfasste Tage (Stufe 2) bleiben «offen». Ein von
+         Hand geführter Tag behält seinen Status. */
+      var freigegeben=g.zl.some(function(z){return z.quelle==='freigegeben';});
+      if(freigegeben&&t.status!=='genehmigt'&&(!alt||t.importiert)){t.status='genehmigt';geaendert=true;}
       /* Erkannte Absenz → GEMA-Absenz am TAG (dort führt sie pm_stunden), nicht
          als Arbeitseintrag. Ohne das zählte ein Ferientag als geleistete Zeit
          und gleichzeitig als null bezogene Ferien — der Feriensaldo wäre zu
@@ -3486,6 +3704,10 @@ function adressZusatz(z,rec){
 
 function ausfuehren(plan,opts){
   opts=opts||{};
+  // Ein zweiter Lauf, während der erste noch schreibt, teilte sich mit ihm
+  // den Lauf-Speicher: laufStart() setzte ihn zurück, ungeflushte Blöcke
+  // wären weg, beide schrieben in denselben Pool. Deshalb genau EIN Lauf.
+  if(_laufAktiv)return Promise.reject(new Error('Ein Import läuft bereits — bitte warten, bis er abgeschlossen ist.'));
   var sekId=plan.sektion;
   var report={neu:0,aktualisiert:0,uebersprungen:0,adressen:0,fehler:[]};
   var zeilen=plan.zeilen.filter(function(z){return z.aktion!=='fehler'&&z.gewaehlt!==false;});
@@ -3503,10 +3725,15 @@ function ausfuehren(plan,opts){
      hundertfach hintereinander gespeichert. Sie brauchen auch den
      Adressstamm nicht, darum stehen sie vor dessen Prüfung. */
   function fertig(){return report;}
-  function gescheitert(e){report.fehler.push({zeile:0,text:(e&&e.message)||String(e)});return report;}
+  function gescheitert(e){
+    if(e&&e.abgebrochen){report.abgebrochen={zeile:e.zeile};return report;}
+    report.fehler.push({zeile:0,text:(e&&e.message)||String(e)});return report;
+  }
   // Am Ende JEDES Pfads: Lauf-Speicher schreiben — auch nach einem Fehler,
-  // sonst bliebe, was bis dahin gelungen ist, nur im Arbeitsspeicher.
-  function abschluss(r){return poolFlush().then(function(){return r;},function(){return r;});}
+  // sonst bliebe, was bis dahin gelungen ist, nur im Arbeitsspeicher. Die
+  // Cloud-Bilanz kommt in den Bericht: was nur in der Outbox liegt oder
+  // scheiterte, gilt nicht als «fertig».
+  function abschluss(r){return poolFlush().then(function(){r.cloud=laufBilanz();return r;},function(){r.cloud=laufBilanz();return r;});}
   if(sekId==='zahlbed')return zahlbedSchreiben(zeilen,report,opts).then(fertig,gescheitert).then(abschluss);
   if(sekId==='mitarbeiter')return mitarbeiterSchreiben(zeilen,report,opts).then(fertig,gescheitert).then(abschluss);
   if(sekId==='positionen')return positionenSchreiben(zeilen,report,opts).then(fertig,gescheitert).then(abschluss);
@@ -3541,7 +3768,11 @@ function ausfuehren(plan,opts){
           if(r.aktion==='neu')report.neu++;else report.aktualisiert++;
         });
       }
-      if(sekId==='offerten')return offerteSchreiben(z.ziel,adrCtx,report,opts);
+      // .catch wie bei allen anderen Zeilen-Writern: eine werfende Offerte
+      // riss sonst die Kette ab, der Rest der Datei blieb still liegen.
+      if(sekId==='offerten')return offerteSchreiben(z.ziel,adrCtx,report,opts).catch(function(e){
+        report.fehler.push({zeile:z.nr,text:(e&&e.message)||String(e)});
+      });
       if(sekId==='auftraege')return auftragSchreiben(z.ziel,adrCtx,report,opts).catch(function(e){
         report.fehler.push({zeile:z.nr,text:(e&&e.message)||String(e)});
       });
@@ -3609,6 +3840,8 @@ function ausfuehren(plan,opts){
         fuelle('externeRef1',z2.ref1);
         fuelle('externeRef2',z2.ref2);
         fuelle('notizen',z2.notiz);
+        fuelle('importObjekt1',z2.bez1);
+        fuelle('importObjekt2',z2.bez2);
         o.extId=o.extId||z2.extId;
         o.adressen=Object.assign({},o.adressen||{},adressen);
         // Bezugspersonen zusammenführen (nach Name+Vorname)
@@ -3638,8 +3871,8 @@ function ausfuehren(plan,opts){
     report.adressen=adrCtx.neu;
     return report;
   },function(e){
-    report.fehler.push({zeile:0,text:(e&&e.message)||String(e)});
-    return report;
+    report.adressen=adrCtx.neu;
+    return gescheitert(e);
   }).then(abschluss);
 }
 
@@ -3710,6 +3943,7 @@ window.GemaErpImport={
   belegBrutto:belegBrutto, positionenNetto:positionenNetto, adressZusatz:adressZusatz,
   terminSchluessel:terminSchluessel, uebertragSchluessel:uebertragSchluessel,
   parseZeit:parseZeit, parseNachkalk:parseNachkalk, poolFlush:poolFlush,
+  abbrechen:abbrechen, laeuft:laeuft, laufBilanz:laufBilanz, dokSuche:dokSuche,
   absenzArt:absenzArt, ABSENZ_MAP:ABSENZ_MAP,
   stundenQuelle:stundenQuelle, STUNDEN_RANG:STUNDEN_RANG, addMonate:addMonate,
   MODULE_BELEG:MODULE_BELEG, POSTYP_ART:POSTYP_ART,
