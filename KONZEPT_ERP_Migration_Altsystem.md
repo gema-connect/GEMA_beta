@@ -549,13 +549,24 @@ Meldung ist dort richtig.
 
 #### Noch offen: der Termin-Bezug der mobilen Zeiten
 
-`hours.hrs_terminguid` gegen `termin.guid` liefert **0 Treffer** über den
-ganzen Bestand — die Spalte, über die der Importer Zeit und Termin
-verknüpft, referenziert nichts, was im Termin-Export steht. Die mobilen
-Zeiten entstehen deshalb ohne `einsatzId`; an den Stunden selbst ändert das
-nichts. Kandidat ist `hrs_termin_id` (INT) gegen `termin.id`; Abfrage 8.14b
-klärt es. Trifft sie, muss der Termin-Export `t.id` als Alt-ID mitgeben
-statt nur die GUID.
+Stand 2026-09-08, zweite Messung (8.14b): von 5 071 mobilen Zeilen tragen
+**4 162 eine Termin-GUID** und nur 81 eine `hrs_termin_id`. Die GUIDs treffen
+`termin.guid` **nie** (0 Paare), die 81 IDs treffen `termin.id` — aber deren
+Termine haben kein `stunden`. Der INT-Weg ist damit vom Tisch; der GUID-Weg
+ist der richtige, nur zeigen die GUIDs auf etwas, das in `termin` nicht mehr
+liegt. Zwei Erklärungen sind möglich und beide prüfbar (8.14c):
+
+1. **Die Termine wurden gelöscht** — das Altsystem räumt erledigte Termine
+   weg (`deleteditems` führt gelöschte GUIDs mit Tabellenname). Dann ist der
+   Bezug nicht wiederherstellbar, und das ist in Ordnung: die Stunden selbst
+   sind vollständig, nur die Kette Disposition → Zeit fehlt für die
+   Vergangenheit. Für künftige Termine trifft die GUID.
+2. **Anderes Format** (Gross-/Kleinschreibung, geschweifte Klammern —
+   `cockpitevent.guid` ist CHAR(38), also mit Klammern). Dann trifft ein
+   normalisierter Vergleich, und der Termin-Export normalisiert mit.
+
+Bis dahin entstehen die mobilen Zeiten ohne `einsatzId`; an den Stunden
+ändert das nichts.
 
 Der Zahlungsstatus (`debistatus`) ist ausgezählt und vollständig zugeordnet,
 ebenso `postyp`, `module_id` und der Revisionszyklus. Der MwSt-Satz wird aus
@@ -1471,11 +1482,50 @@ FROM hours WHERE COALESCE(hrs_deleted,0)=0;
 SELECT MIN(guid) AS guid_beispiel_termin, COUNT(*) AS termine FROM termin;
 ```
 
-Trifft A, wird im Termin-Export (8.9) `t.id` **anstelle von** `t.guid`
-exportiert — nicht zusätzlich: der Importer nimmt für die Alt-ID des Termins
-zuerst `guid`, dann `id`, und liesse die GUID gewinnen. Im Stunden-Export
-bleibt `h.hrs_termin_id` (Alias `hrsterminid` ist bereits hinterlegt). Beides
-ist reine Export-Sache, am Importer ändert sich nichts.
+**Ergebnis (2026-09-08):** A trifft 81 von 5 071 Zeilen, B zeigt 4 162 mit
+GUID. Der INT-Weg entfällt; die Klärung läuft über 8.14c.
+
+### 8.14c Wohin zeigen die Termin-GUIDs der mobilen Zeiten?
+
+```sql
+SELECT '=== A Format der Termin-GUIDs in hours ===' AS x;
+SELECT MIN(NULLIF(hrs_terminguid,'')) AS guid_min, MAX(NULLIF(hrs_terminguid,'')) AS guid_max,
+       MIN(LENGTH(NULLIF(hrs_terminguid,''))) AS len_min, MAX(LENGTH(NULLIF(hrs_terminguid,''))) AS len_max,
+       COUNT(DISTINCT NULLIF(hrs_terminguid,'')) AS verschiedene
+FROM hours WHERE COALESCE(hrs_deleted,0)=0;
+
+SELECT '=== B Treffer ohne Ruecksicht auf Gross/Klein und Klammern ===' AS x;
+SELECT COUNT(*) AS paare
+FROM hours h JOIN termin t
+  ON LOWER(REPLACE(REPLACE(t.guid,'{',''),'}','')) = LOWER(REPLACE(REPLACE(h.hrs_terminguid,'{',''),'}',''))
+WHERE COALESCE(h.hrs_deleted,0)=0;
+
+SELECT '=== C Wohin zeigen die GUIDs? (geloeschte Elemente / Journal) ===' AS x;
+SELECT d.dli_tablename, COUNT(DISTINCT h.hrs_terminguid) AS guids
+FROM hours h JOIN deleteditems d ON d.dli_itemguid = h.hrs_terminguid
+WHERE COALESCE(h.hrs_deleted,0)=0
+GROUP BY d.dli_tablename;
+SELECT j.table_name, COUNT(DISTINCT h.hrs_terminguid) AS guids,
+       MIN(j.timestamp) AS von, MAX(j.timestamp) AS bis
+FROM hours h JOIN journal j ON j.record_guid = h.hrs_terminguid
+WHERE COALESCE(h.hrs_deleted,0)=0
+GROUP BY j.table_name;
+
+SELECT '=== D arbeiter: pctn / stdtime / manager (Pensum und Leitung) ===' AS x;
+SELECT pctn, COUNT(*) AS n FROM arbeiter
+WHERE COALESCE(austritt,'0000-00-00')='0000-00-00' GROUP BY pctn ORDER BY n DESC LIMIT 12;
+SELECT stdtime, COUNT(*) AS n FROM arbeiter
+WHERE COALESCE(austritt,'0000-00-00')='0000-00-00' GROUP BY stdtime ORDER BY n DESC LIMIT 8;
+SELECT manager, COUNT(*) AS n FROM arbeiter
+WHERE COALESCE(austritt,'0000-00-00')='0000-00-00' GROUP BY manager ORDER BY n DESC LIMIT 8;
+```
+
+Lesart: trifft **B**, ist es ein Formatproblem — der Termin-Export
+normalisiert die GUID (`LOWER(REPLACE(…))`) und der Bezug ist da. Trifft
+**C** in `deleteditems` mit `dli_tablename = 'termin'`, wurden die Termine
+gelöscht — nicht wiederherstellbar, Stunden bleiben vollständig. **D**
+entscheidet, ob `pctn`/`stdtime` als Pensum und `manager` als Leitung
+exportiert werden dürfen.
 
 ---
 
