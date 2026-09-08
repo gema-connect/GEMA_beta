@@ -1945,7 +1945,7 @@ var KAT_POOL='gema_erp_kat_pool_v1',   KAT_PREFIX='erpkat:';
 var EP_POOL='gema_einsatz_pool_v1',    EP_PREFIX='einsatz:', EP_MODULE='einsatzplan';
 var ST_POOL='gema_std_pool_v1',        ST_PREFIX='std:',     ST_MODULE='stundenerfassung';
 var ANL_POOL='gema_sv_anlagen_pool_v1',ANL_PREFIX='svanl:',  SV_MODULE='service';
-function poolLesen(key){
+function poolLesenRoh(key){
   var pool=[];
   try{
     if(typeof GemaSync!=='undefined'&&GemaSync.getCached)pool=GemaSync.getCached(key)||[];
@@ -1953,14 +1953,113 @@ function poolLesen(key){
   }catch(e){}
   return pool.slice();
 }
+
+/* ── Lauf-Speicher ────────────────────────────────────────────────────────
+   Ein Import schreibt tausende Datensätze in denselben Pool. Vorher las
+   poolSichern für JEDEN davon den ganzen Pool, suchte linear, serialisierte
+   alles neu nach localStorage und schickte einen eigenen Cloud-Request:
+   quadratisch — 30 000 Stunden-Tage hiessen 30 000 × (parse + stringify
+   eines Pools mit bis zu 30 000 Datensätzen) und ein eingefrorener Tab.
+
+   Während eines Laufs (ausfuehren) liegt jeder berührte Pool EINMAL im
+   Speicher, mit Index nach id. Geschrieben wird gebündelt: localStorage je
+   Pool beim Flush (alle 500 Schreibungen und am Ende — ein Absturz mitten
+   im Lauf verliert damit höchstens den letzten Block), die Cloud über
+   saveRecords in Blöcken zu 200. GemaSync.getCached liest localStorage
+   zuerst, der Flush nach localStorage IST also die Cache-Nachführung — das
+   Verhalten für alle Leser bleibt, wie es mit Einzelschreibungen war.
+   Ohne laufenden Import (kein laufStart) verhält sich poolSichern wie
+   zuvor: sofort schreiben. */
+var _lauf=null;
+var LAUF_FLUSH_ALLE=500, LAUF_CLOUD_BLOCK=200;
+function laufStart(){_lauf={pools:{},index:{},cloud:{},n:0};}
+function _laufPool(key){
+  if(!_lauf)return null;
+  var P=_lauf.pools[key];
+  if(!P){
+    var arr=poolLesenRoh(key),ix={};
+    arr.forEach(function(r,i){if(r&&r.id!=null)ix[r.id]=i;});
+    P=_lauf.pools[key]={arr:arr,ix:ix,dirty:false};
+  }
+  return P;
+}
+function poolLesen(key){
+  var P=_laufPool(key);
+  return P?P.arr.slice():poolLesenRoh(key);
+}
+/* Nachschlage-Index für einen Pool während des Laufs: `fns` liefern je Record
+   einen Schlüssel ('' = nicht indexieren). Einmal aus den EIGENEN Records
+   gebaut (org-gescopt wie poolEigene), bei jedem poolSichern nachgeführt.
+   Ohne laufenden Import: null — der Aufrufer sucht dann wie bisher. */
+function laufIndex(key,name,fns){
+  if(!_lauf)return null;
+  var byName=_lauf.index[key]=_lauf.index[key]||{};
+  var LX=byName[name];
+  if(!LX){
+    LX=byName[name]={fns:fns,map:{}};
+    poolEigene(key).forEach(function(r){fns.forEach(function(f){var k=f(r);if(k)LX.map[k]=r;});});
+  }
+  return LX;
+}
+/* Fortschritt melden und der Oberfläche alle 200 Schritte eine Atempause
+   geben: die Import-Kette besteht aus Microtasks, ohne setTimeout zeichnet
+   der Browser bis zum Ende nichts — auch keine Fortschrittsanzeige. */
+function laufAtem(i,n,opts){
+  if(opts&&opts.onFortschritt){try{opts.onFortschritt(i+1,n);}catch(e){}}
+  if(i%200===199)return new Promise(function(r){setTimeout(r,0);});
+  return Promise.resolve();
+}
 function poolSichern(key,prefix,rec,mod){
-  var pool=poolLesen(key);
-  var i=pool.findIndex(function(x){return x.id===rec.id;});
-  if(i>=0)pool[i]=rec;else pool.push(rec);
-  try{localStorage.setItem(key,JSON.stringify(pool));}catch(e){}
-  var p=(typeof GemaSync!=='undefined'&&GemaSync.saveRecord)
-    ? GemaSync.saveRecord(mod||'erp',prefix+rec.id,rec) : Promise.resolve();
-  return p.then(function(){return rec;},function(){return rec;});
+  var P=_laufPool(key);
+  if(!P){
+    // Kein Lauf aktiv (z.B. ein einzelner Aufruf ausserhalb von ausfuehren):
+    // sofort schreiben, wie früher.
+    var pool=poolLesenRoh(key);
+    var j=pool.findIndex(function(x){return x&&x.id===rec.id;});
+    if(j>=0)pool[j]=rec;else pool.push(rec);
+    try{localStorage.setItem(key,JSON.stringify(pool));}catch(e){}
+    var p=(typeof GemaSync!=='undefined'&&GemaSync.saveRecord)
+      ? GemaSync.saveRecord(mod||'erp',prefix+rec.id,rec) : Promise.resolve();
+    return p.then(function(){return rec;},function(){return rec;});
+  }
+  var i=P.ix[rec.id];
+  if(i!=null)P.arr[i]=rec;else{P.ix[rec.id]=P.arr.length;P.arr.push(rec);}
+  P.dirty=true;
+  var byName=_lauf.index[key];
+  if(byName)Object.keys(byName).forEach(function(nm){
+    var LX=byName[nm];LX.fns.forEach(function(f){var k=f(rec);if(k)LX.map[k]=rec;});
+  });
+  var m=mod||'erp';
+  (_lauf.cloud[m]=_lauf.cloud[m]||{})[prefix+rec.id]={key:prefix+rec.id,data:rec};
+  _lauf.n++;
+  if(_lauf.n%LAUF_FLUSH_ALLE===0)return poolFlush({weiter:true}).then(function(){return rec;});
+  return Promise.resolve(rec);
+}
+/* Schreibt alles Ausstehende. {weiter:true} lässt den Lauf offen (Zwischen-
+   Flush), sonst ist der Lauf danach beendet. Fehler eines Cloud-Blocks landen
+   in GemaSyncs Outbox (saveRecords → _queueOnFail); hier wird nichts
+   verschluckt, aber auch nichts wiederholt. */
+function poolFlush(o){
+  if(!_lauf)return Promise.resolve();
+  var L=_lauf;
+  if(!(o&&o.weiter))_lauf=null;
+  Object.keys(L.pools).forEach(function(key){
+    var P=L.pools[key];if(!P.dirty)return;
+    try{localStorage.setItem(key,JSON.stringify(P.arr));}catch(e){}
+    P.dirty=false;
+  });
+  var cloud=L.cloud;L.cloud={};
+  if(typeof GemaSync==='undefined'||!GemaSync.saveRecords)return Promise.resolve();
+  var kette=Promise.resolve();
+  Object.keys(cloud).forEach(function(m){
+    var recs=Object.keys(cloud[m]).map(function(k){return cloud[m][k];});
+    for(var a=0;a<recs.length;a+=LAUF_CLOUD_BLOCK){
+      (function(block){
+        kette=kette.then(function(){return Promise.resolve(GemaSync.saveRecords(m,block)).catch(function(){});});
+      })(recs.slice(a,a+LAUF_CLOUD_BLOCK));
+    }
+  });
+  return kette;
 }
 /* Org-gefilterter Lesezugriff — jeder dieser Pools ist org-gescopt. */
 function poolEigene(key){
@@ -2387,8 +2486,8 @@ function positionenSchreiben(zeilen,report,opts){
     g.pos.push({z:z,i:i});
   });
   var kette=Promise.resolve();
-  grp.forEach(function(g){
-    kette=kette.then(function(){
+  grp.forEach(function(g,gi){
+    kette=kette.then(function(){return laufAtem(gi,grp.length,opts);}).then(function(){
       var akt=dokPool().find(function(x){return x.id===g.doc.id;})||g.doc;
       // Ein echtes Leistungsverzeichnis wird NIE überschrieben.
       if((akt.positionen||[]).length&&!istSammelposition(akt)){
@@ -2461,8 +2560,8 @@ function zahlungenSchreiben(zeilen,report,opts){
     g.zl.push(z);
   });
   var kette=Promise.resolve();
-  grp.forEach(function(g){
-    kette=kette.then(function(){
+  grp.forEach(function(g,gi){
+    kette=kette.then(function(){return laufAtem(gi,grp.length,opts);}).then(function(){
       var akt=dokPool().find(function(x){return x.id===g.doc.id;})||g.doc;
       var doc=Object.assign({},akt);
       var za=(doc.zahlungen||[]).slice(), neu=0;
@@ -2689,10 +2788,9 @@ function uebertragSchreiben(z,report,opts){
   if(!mit||!s(mit.userId))report.personFehlt=(report.personFehlt||0)+1;
   var name=mit?mit.name:s(z.mitarbeiter);
   var key=uebertragSchluessel(z.datum,name,z.extId);
-  var alt=poolEigene(ST_POOL).filter(function(t){return t.typ==='uebertrag';})
-    .find(function(t){
-      return uebertragSchluessel(t.datum,t.userName,t.extId||(t.quelle&&t.quelle.extId))===key;
-    })||null;
+  var ubKey=function(t){return t.typ==='uebertrag'?uebertragSchluessel(t.datum,t.userName,t.extId||(t.quelle&&t.quelle.extId)):'';};
+  var LX=laufIndex(ST_POOL,'uebertrag',[ubKey]);
+  var alt=LX?(LX.map[key]||null):(poolEigene(ST_POOL).find(function(t){return ubKey(t)===key;})||null);
   var rec=alt?JSON.parse(JSON.stringify(alt)):{
     id:uid('std'), orgId:orgId, typ:'uebertrag',
     userId:mit?mit.userId:'', userName:name, datum:s(z.datum),
@@ -2732,9 +2830,9 @@ function terminSchreiben(z,report,opts){
   if(s(z.monteur)&&(!mont||!s(mont.userId)))report.monteurFehlt=(report.monteurFehlt||0)+1;
   var montName=mont?mont.name:s(z.monteur);
   var key=terminSchluessel(z.datum,montName,z.titel,z.extId);
-  var alt=poolEigene(EP_POOL).find(function(e){
-    return terminSchluessel(e.datum,e.monteurName,e.titel,e.extId||(e.quelle&&e.quelle.extId))===key;
-  })||null;
+  var evKey=function(e){return terminSchluessel(e.datum,e.monteurName,e.titel,e.extId||(e.quelle&&e.quelle.extId));};
+  var LX=laufIndex(EP_POOL,'termin',[evKey]);
+  var alt=LX?(LX.map[key]||null):(poolEigene(EP_POOL).find(function(e){return evKey(e)===key;})||null);
   var auf=null;
   if(s(z.auftragNr)){
     var an=norm(z.auftragNr);
@@ -2876,16 +2974,20 @@ function stundenSchreiben(zeilen,report,opts){
     g.zl.push(z);
   });
   var kette=Promise.resolve();
-  grp.forEach(function(g){
-    kette=kette.then(function(){
+  grp.forEach(function(g,gi){
+    kette=kette.then(function(){return laufAtem(gi,grp.length,opts);}).then(function(){
       var uid2=(g.person&&g.person.userId)||'';
       var name=(g.person&&g.person.name)||'';
       // `!t.typ` ist Pflicht: im selben Pool liegen auch Auszahlungen und
       // Ferien-/Überzeitüberträge. Ohne den Filter machte ein Übertrag vom
       // 01.01. aus dem Tagesrapport desselben Tages einen Mischling.
-      var alt=poolEigene(ST_POOL).find(function(t){
+      var tagKeyU=function(t){return (!t.typ&&s(t.userId))?('u:'+t.userId+'|'+s(t.datum)):'';};
+      var tagKeyN=function(t){return !t.typ?('n:'+norm(t.userName)+'|'+s(t.datum)):'';};
+      var TX=laufIndex(ST_POOL,'tag',[tagKeyU,tagKeyN]);
+      var suchKey=uid2?('u:'+uid2+'|'+g.datum):('n:'+norm(name)+'|'+g.datum);
+      var alt=TX?(TX.map[suchKey]||null):(poolEigene(ST_POOL).find(function(t){
         return !t.typ&&s(t.datum)===g.datum&&(uid2?t.userId===uid2:norm(t.userName)===norm(name));
-      })||null;
+      })||null);
       var t=alt?JSON.parse(JSON.stringify(alt)):{
         id:uid('std'), orgId:orgId, userId:uid2, userName:name, datum:g.datum,
         eintraege:[], spesen:{}, status:'offen', erstelltAm:jetzt()
@@ -2923,10 +3025,10 @@ function stundenSchreiben(zeilen,report,opts){
       // Kette Disposition → Zeit auch in GEMA erhalten.
       var evIx={};
       if(g.zl.some(function(z){return s(z.terminId);})){
-        poolEigene(EP_POOL).forEach(function(ev){
-          var e2=s(ev.extId||(ev.quelle&&ev.quelle.extId));
-          if(e2)evIx[norm(e2)]=ev;
-        });
+        var extKey=function(ev){var e2=s(ev.extId||(ev.quelle&&ev.quelle.extId));return e2?norm(e2):'';};
+        var EX=laufIndex(EP_POOL,'ext',[extKey]);
+        if(EX)evIx=EX.map;
+        else poolEigene(EP_POOL).forEach(function(ev){var k=extKey(ev);if(k)evIx[k]=ev;});
       }
       var neu=0,spesenSum=0;
       g.zl.forEach(function(z){
@@ -3021,8 +3123,8 @@ function bezugspersonenSchreiben(zeilen,report,opts){
     g.pers.push(z);
   });
   var kette=Promise.resolve();
-  grp.forEach(function(g){
-    kette=kette.then(function(){
+  grp.forEach(function(g,gi){
+    kette=kette.then(function(){return laufAtem(gi,grp.length,opts);}).then(function(){
       var liste=bestehendeObjekte();
       var obj=g.extId
         // Beide Seiten über objektSchluessel — der schreibt die Alt-ID klein,
@@ -3091,6 +3193,7 @@ function ausfuehren(plan,opts){
   var zeilen=plan.zeilen.filter(function(z){return z.aktion!=='fehler'&&z.gewaehlt!==false;});
   report.uebersprungen=plan.zeilen.length-zeilen.length;
   zahlbedAusOrgLaden();
+  laufStart();
 
   /* Abschnitte, die GRUPPIERT schreiben: viele Zeilen treffen dasselbe Ziel
      (alle Positionen eines Belegs, alle Konditionen der Firma). Sie laufen
@@ -3099,12 +3202,15 @@ function ausfuehren(plan,opts){
      Adressstamm nicht, darum stehen sie vor dessen Prüfung. */
   function fertig(){return report;}
   function gescheitert(e){report.fehler.push({zeile:0,text:(e&&e.message)||String(e)});return report;}
-  if(sekId==='zahlbed')return zahlbedSchreiben(zeilen,report,opts).then(fertig,gescheitert);
-  if(sekId==='positionen')return positionenSchreiben(zeilen,report,opts).then(fertig,gescheitert);
-  if(sekId==='zahlungen')return zahlungenSchreiben(zeilen,report,opts).then(fertig,gescheitert);
-  if(sekId==='artikel')return artikelSchreiben(zeilen,report,opts).then(fertig,gescheitert);
-  if(sekId==='stunden')return stundenSchreiben(zeilen,report,opts).then(fertig,gescheitert);
-  if(sekId==='bezugspersonen')return bezugspersonenSchreiben(zeilen,report,opts).then(fertig,gescheitert);
+  // Am Ende JEDES Pfads: Lauf-Speicher schreiben — auch nach einem Fehler,
+  // sonst bliebe, was bis dahin gelungen ist, nur im Arbeitsspeicher.
+  function abschluss(r){return poolFlush().then(function(){return r;},function(){return r;});}
+  if(sekId==='zahlbed')return zahlbedSchreiben(zeilen,report,opts).then(fertig,gescheitert).then(abschluss);
+  if(sekId==='positionen')return positionenSchreiben(zeilen,report,opts).then(fertig,gescheitert).then(abschluss);
+  if(sekId==='zahlungen')return zahlungenSchreiben(zeilen,report,opts).then(fertig,gescheitert).then(abschluss);
+  if(sekId==='artikel')return artikelSchreiben(zeilen,report,opts).then(fertig,gescheitert).then(abschluss);
+  if(sekId==='stunden')return stundenSchreiben(zeilen,report,opts).then(fertig,gescheitert).then(abschluss);
+  if(sekId==='bezugspersonen')return bezugspersonenSchreiben(zeilen,report,opts).then(fertig,gescheitert).then(abschluss);
 
   if(typeof GemaAdressen==='undefined')return Promise.reject(new Error('Adressstamm nicht geladen.'));
   // Adressbestand EINMAL lesen und über den ganzen Lauf mitführen.
@@ -3115,8 +3221,7 @@ function ausfuehren(plan,opts){
 
   var kette=Promise.resolve();
   zeilen.forEach(function(z,idx){
-    kette=kette.then(function(){
-      if(opts.onFortschritt)opts.onFortschritt(idx+1,zeilen.length);
+    kette=kette.then(function(){return laufAtem(idx,zeilen.length,opts);}).then(function(){
       if(sekId==='adressen'){
         var roh=Object.assign({},z.ziel);
         roh.typen=(roh.typen||[]).map(function(t){return GemaAdressen.typIdFuerLabel(t,true);}).filter(Boolean);
@@ -3229,7 +3334,10 @@ function ausfuehren(plan,opts){
   return kette.then(function(){
     report.adressen=adrCtx.neu;
     return report;
-  });
+  },function(e){
+    report.fehler.push({zeile:0,text:(e&&e.message)||String(e)});
+    return report;
+  }).then(abschluss);
 }
 
 /* Nachlauf des Rechnungs-Imports: LEERE Aufträge mit dem fakturierten Betrag
@@ -3298,7 +3406,7 @@ window.GemaErpImport={
   istSammelposition:istSammelposition, positionRecord:positionRecord,
   belegBrutto:belegBrutto, positionenNetto:positionenNetto, adressZusatz:adressZusatz,
   terminSchluessel:terminSchluessel, uebertragSchluessel:uebertragSchluessel,
-  parseZeit:parseZeit, parseNachkalk:parseNachkalk,
+  parseZeit:parseZeit, parseNachkalk:parseNachkalk, poolFlush:poolFlush,
   absenzArt:absenzArt, ABSENZ_MAP:ABSENZ_MAP,
   stundenQuelle:stundenQuelle, STUNDEN_RANG:STUNDEN_RANG, addMonate:addMonate,
   MODULE_BELEG:MODULE_BELEG, POSTYP_ART:POSTYP_ART,
