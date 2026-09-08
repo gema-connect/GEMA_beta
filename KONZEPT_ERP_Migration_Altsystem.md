@@ -547,26 +547,32 @@ Importers (über 24 h am Tag = Fehler, ab 16 h Meldung) bleibt als
 Sicherheitsnetz — das Maximum im Bestand sind 22.25 h an einem Tag, die
 Meldung ist dort richtig.
 
-#### Noch offen: der Termin-Bezug der mobilen Zeiten
+#### Geklärt: der Termin-Bezug der mobilen Zeiten trifft
 
-Stand 2026-09-08, zweite Messung (8.14b): von 5 071 mobilen Zeilen tragen
-**4 162 eine Termin-GUID** und nur 81 eine `hrs_termin_id`. Die GUIDs treffen
-`termin.guid` **nie** (0 Paare), die 81 IDs treffen `termin.id` — aber deren
-Termine haben kein `stunden`. Der INT-Weg ist damit vom Tisch; der GUID-Weg
-ist der richtige, nur zeigen die GUIDs auf etwas, das in `termin` nicht mehr
-liegt. Zwei Erklärungen sind möglich und beide prüfbar (8.14c):
+Stand 2026-09-08, dritte Messung (8.14c): von 5 071 mobilen Zeilen tragen
+4 162 eine Termin-GUID, und **4 118 davon treffen `termin.guid`**. Ein
+Formatproblem war es nie — beide Seiten sind 36 Zeichen lang und
+kleingeschrieben (4 089 verschiedene GUIDs). Die frühere Messung «0 Treffer»
+war ein Artefakt der eigenen Abfrage: sie filterte auf `t.stunden > 0`, und
+`termin.stunden` ist leer (bei allen 81 gemessenen Terminen NULL — die
+geplante Dauer steckt in `von60`/`bis60`). Der INT-Weg über `hrs_termin_id`
+(81 Zeilen) ist damit überflüssig; der Importer liest nur die GUID und
+vergleicht sie ohnehin ohne Rücksicht auf Schreibweise und Klammern.
 
-1. **Die Termine wurden gelöscht** — das Altsystem räumt erledigte Termine
-   weg (`deleteditems` führt gelöschte GUIDs mit Tabellenname). Dann ist der
-   Bezug nicht wiederherstellbar, und das ist in Ordnung: die Stunden selbst
-   sind vollständig, nur die Kette Disposition → Zeit fehlt für die
-   Vergangenheit. Für künftige Termine trifft die GUID.
-2. **Anderes Format** (Gross-/Kleinschreibung, geschweifte Klammern —
-   `cockpitevent.guid` ist CHAR(38), also mit Klammern). Dann trifft ein
-   normalisierter Vergleich, und der Termin-Export normalisiert mit.
+Die restlichen **44 Zeilen** nennen Termine, die in `termin` nicht mehr
+liegen. `deleteditems` taugt dafür nicht als Beweis: 895 der GUIDs stehen dort
+unter `termin`, mindestens 851 davon existieren in `termin` trotzdem weiter —
+was die Tabelle protokolliert, ist nicht belegt (vermutlich den Abgleich mit
+den Handys), das endgültige Löschen ist es nicht. `journal` führt 470 der
+GUIDs, alle zwischen 2026-08-10 und 2026-09-05; es reicht nur rund vier Wochen
+zurück und sagt über ältere Termine nichts.
 
-Bis dahin entstehen die mobilen Zeiten ohne `einsatzId`; an den Stunden
-ändert das nichts.
+Für die 44 Zeilen gilt: die Stunden werden vollständig importiert, nur ohne
+`einsatzId`. Der Importer zählt sie (`terminFehlt`, im Bericht benannt) und
+lässt die GUID als `importTerminId` am Eintrag stehen; ein späterer Lauf nach
+dem Termin-Import füllt die Lücke, falls der Termin bis dahin da ist. Die
+4 118 verknüpften zählt er ebenfalls (`terminVerknuepft`) — so ist nach dem
+Import sichtbar, dass die Kette Disposition → Zeit steht.
 
 Der Zahlungsstatus (`debistatus`) ist ausgezählt und vollständig zugeordnet,
 ebenso `postyp`, `module_id` und der Revisionszyklus. Der MwSt-Satz wird aus
@@ -1093,6 +1099,13 @@ ORDER BY t.datum;
 > sondern legt sie als `importZeitRoh` ab und meldet die Zeilen. Betroffen
 > wären 6 924 der 7 000 Termine.
 
+> **`t.guid` ist der Schlüssel, über den die mobilen Zeiten (8.11) ihren
+> Termin finden** — 4 118 von 4 162 treffen (8.14c). Unverändert exportieren;
+> der Importer vergleicht format-tolerant. **`t.stunden` ist leer** (bei allen
+> 81 gemessenen Terminen NULL): die geplante Dauer ergibt sich aus
+> `von60`/`bis60`, die Spalte wird nur als `importStunden` mitgeführt, falls
+> sie doch einmal gefüllt ist.
+
 > **Zuerst die künftigen exportieren** (`WHERE t.datum >= CURDATE()`) — das ist
 > die geplante Arbeit und der Teil, der beim Wechsel wirklich fehlen würde.
 > Die Historie kann danach folgen.
@@ -1144,7 +1157,8 @@ Zwei Befunde aus der Verifikation:
 **Die drei Tabellen sind keine Generationen, sondern drei Stufen desselben
 Ablaufs** (Auskunft des Betriebs, den Daten nicht anzusehen):
 
-1. **`termin.stunden`** — die Annahme aus der Disposition.
+1. **`termin`** — die Annahme aus der Disposition (Zeitfenster
+   `von60`/`bis60`; die Spalte `stunden` ist im Bestand leer).
 2. **`hours`** — was der Monteur auf dem Handy erfasst, mit dem Termin als
    Vorlage; er korrigiert dort bei Bedarf und trägt seine Spesen ein
    (`hrs_termin_id`, `hrs_spesen`, `hrs_comment`). Läuft erst seit 2025-12,
@@ -1200,13 +1214,14 @@ WHERE COALESCE(h.hrs_deleted,0) = 0 AND h.hrs_length <> 0;
 > Achtstundentag herein — der Importer weist so etwas seit der Einheiten-
 > Sperre ab, aber richtig wird es erst mit `/3600` im Export.
 
-> **Der Termin-Bezug über die GUID greift nicht.** `hours.hrs_terminguid` =
-> `termin.guid` liefert im ganzen Bestand **0 Treffer**. Der Importer
-> verknüpft Zeit und Termin über genau diese Spalte — die Kette Disposition →
-> Zeit bleibt damit leer, ohne dass etwas fehlschlägt. Kandidat ist die
-> INT-Spalte `hrs_termin_id` gegen `termin.id`; ob sie trifft, ist ungeprüft
-> (Abfrage in 8.14b). Solange das offen ist, entstehen die mobilen Zeiten ohne
-> `einsatzId` — die Stunden selbst sind davon nicht betroffen.
+> **Der Termin-Bezug über die GUID trifft** — 4 118 von 4 162 GUID-Zeilen
+> finden ihren Termin (8.14c). Die frühere «0 Treffer»-Messung filterte auf
+> `t.stunden > 0`, und diese Spalte ist leer; über die GUID sagte sie nichts.
+> `hrs_termin_id` bleibt im Export als Spur, der Importer liest nur die GUID
+> (das Mapping bevorzugt `hrs_terminguid`, Guard `erp_stunden_writer_test`).
+> 44 Zeilen zeigen auf Termine, die in `termin` nicht mehr liegen: sie werden
+> ohne `einsatzId` importiert, gezählt (`terminFehlt`) und tragen die GUID als
+> `importTerminId` (6.0).
 
 **Vor dem Import prüfen**, ob die Namen überhaupt treffen — sonst merkt man es
 erst an 91 586 personenlosen Zeilen:
@@ -1412,15 +1427,20 @@ Die Mitarbeitenden werden zu GEMA-Benutzern der Firma — ohne Passwort, mit
 Einladungslink (Vorbild `inviteBeteiligter`): jede Person mit E-Mail setzt ihr
 Passwort selbst über `sys_login.html?invite=…`. Der Bericht listet die Links;
 sie sind den Personen zuzustellen. Rollen entstehen aus den Kennzeichen
-(`manager` → Abteilungsleiter, `sachbearb` → Unternehmer, sonst Monteur), nie
+(`sachbearb` → Unternehmer, sonst Monteur; ein echtes `manager = 1` gäbe
+Abteilungsleiter, die Spalte ist im Bestand aber bei allen leer), nie
 Administrator. Ausgetretene werden **inaktiv** angelegt, damit Stunden und
 Termine der Vergangenheit eine Person haben.
 
-Das Pensum ergibt sich aus dem Wochensoll des Altsystems (Summe `sollmo`…
-`sollfr`) gegen das Firmen-Wochensoll **inklusive Vorholzeit** — das Altsystem
-kannte keine Vorholzeit, sein Tagessoll ist die volle vertragliche Zeit. Ist das
-Firmen-Wochensoll nicht gesetzt oder der Wert unplausibel (etwa Minuten statt
-Stunden), bleibt das Pensum leer und die Zeile wird gemeldet.
+Ein Pensum führt das Altsystem nicht: `sollmo`…`sollfr` sind 0, `pctn` ist
+leer, `stdtime` ist 0 (8.14c, alle 46 Aktiven). Der Export liefert deshalb
+kein Wochensoll, der Importer legt alle Personen mit 100 % an, und Teilzeit
+wird in den ⚙️-Stammdaten der Stundenerfassung je Person gesetzt (das Pensum
+skaliert dort Tagessoll und Ferienanspruch). Käme aus einer anderen Quelle
+doch ein Wochensoll, rechnet der Importer es gegen das Firmen-Wochensoll
+**inklusive Vorholzeit** (das Altsystem kannte keine) und weist Unplausibles
+ab, statt ein Pensum zu erfinden; eine Spalte `pensum` (Prozent) nimmt er
+direkt.
 
 ```sql
 SELECT a.id, ad.name1, ad.vorname, a.kuerzel,
@@ -1437,33 +1457,24 @@ LEFT JOIN abt      ab ON ab.id = a.abt_id
 ORDER BY ad.name1, ad.vorname;
 ```
 
-> **Gemessen am 2026-09-08:** `sollmo`…`sollfr` sind bei allen 46 Aktiven
-> **0.00** — das Altsystem führt kein Tagessoll, deshalb `NULLIF(…,0)`: ohne
-> Wert entsteht kein Pensum und keine Meldung; GEMA rechnet mit 100 %,
-> anpassbar in den ⚙️-Stammdaten. Ob `pctn` (VARCHAR 12) oder `stdtime` (INT)
-> ein Pensum führen, ist **unbelegt** — Abfrage 8.14c. Ist es belegt, wird die
-> Spalte als `pensum` exportiert; der Importer nimmt sie dann direkt.
-
-> **`manager` ist INT, kein Bit** — möglicherweise die ID des Vorgesetzten.
-> Die Spalte wird erst exportiert, wenn 8.14c zeigt, dass sie 0/1 enthält;
-> der Importer zählt ohnehin nur ein echtes «1» als Leitung. Bis dahin
-> bekommen Leitungspersonen ihre Rolle in der Verwaltung.
+> **Gemessen am 2026-09-08 (8.14c):** `sollmo`…`sollfr` sind bei allen 46
+> Aktiven **0.00**, `pctn` ist NULL oder leer, `stdtime` ist 0, `manager` ist
+> NULL. Das Altsystem führt weder Pensum noch Leitung — deshalb `NULLIF(…,0)`
+> (ohne Wert entsteht kein Pensum und keine Meldung) und keine der drei
+> Spalten im Export. Teilzeit und Abteilungsleitung werden in GEMA gesetzt;
+> der Importer zählte ohnehin nur ein echtes «1» in `manager` als Leitung.
 
 > **Bewusst NICHT exportiert** (Kapitel 9): `ahv`, `gebdat`, `zivilstand`,
 > `anzkinder`, `lohnkonto`, `bankname1/2`, `bankplz/ort/land`, `bc`,
 > `aktivlohn`, `lohnflag`, `passwrd`, `register_key`. Der Import braucht davon
 > nichts, und was nicht exportiert wird, kann nirgends liegen bleiben.
 
-> Die Einheit von `sollmo`…`sollfr` ist nicht belegt. Sind es Stunden (8.25),
-> ergibt sich bei 40 h + 1.25 h Vorholzeit genau 100 %. Wären es Minuten, käme
-> 600 % heraus — das weist der Importer als unplausibel ab und meldet es, statt
-> ein Pensum zu erfinden.
-
 ### 8.14b Termin-Bezug der mobilen Zeiten
 
-Welche Spalte verbindet `hours` mit `termin`? Die GUID tut es nicht (0 Treffer,
-6.0). Diese Abfrage prüft die INT-Spalte und zeigt, wie die beiden GUIDs
-überhaupt aussehen:
+Welche Spalte verbindet `hours` mit `termin`? Die erste Messung hatte für die
+GUID 0 Treffer gezeigt — wie 8.14c ergab, nur wegen ihres Filters
+`t.stunden > 0`. Diese Abfrage prüfte die INT-Spalte und zeigte, wie die
+beiden GUIDs überhaupt aussehen:
 
 ```sql
 SELECT '=== A hrs_termin_id gegen termin.id ===' AS x;
@@ -1520,12 +1531,21 @@ SELECT manager, COUNT(*) AS n FROM arbeiter
 WHERE COALESCE(austritt,'0000-00-00')='0000-00-00' GROUP BY manager ORDER BY n DESC LIMIT 8;
 ```
 
-Lesart: trifft **B**, ist es ein Formatproblem — der Termin-Export
-normalisiert die GUID (`LOWER(REPLACE(…))`) und der Bezug ist da. Trifft
-**C** in `deleteditems` mit `dli_tablename = 'termin'`, wurden die Termine
-gelöscht — nicht wiederherstellbar, Stunden bleiben vollständig. **D**
-entscheidet, ob `pctn`/`stdtime` als Pensum und `manager` als Leitung
-exportiert werden dürfen.
+**Ergebnis (2026-09-08):**
+
+| Teil | Befund |
+|---|---|
+| A | GUIDs in `hours`: 36 Zeichen, kleingeschrieben, 4 089 verschiedene — dasselbe Format wie `termin.guid` |
+| B | **4 118 Paare** von 4 162 GUID-Zeilen |
+| C | 895 GUIDs in `deleteditems` unter `termin`, 470 im `journal` (2026-08-10 … 2026-09-05); mindestens 851 der 895 liegen weiterhin in `termin` |
+| D | `pctn`: 35 × NULL, 11 × leer · `stdtime`: 46 × 0 · `manager`: 46 × NULL |
+
+B trifft, A zeigt aber gleiches Format auf beiden Seiten: es war kein
+Formatproblem, sondern der Filter `t.stunden > 0` der ersten Abfrage
+(`termin.stunden` ist leer). Die 44 Zeilen ohne Treffer bleiben ohne Termin
+und werden gemeldet (6.0). C: `deleteditems` ist kein Löschbeweis. D: das
+Altsystem führt weder Pensum noch Leitung — beides wird in GEMA gesetzt
+(8.15); die Spalten werden nicht exportiert.
 
 ---
 

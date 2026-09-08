@@ -1167,7 +1167,7 @@ var SEKTIONEN=[
   felder:[
     {id:'mitarbeiter',label:'Mitarbeiter', pflicht:true, hint:'Wird über den Namen einer Person der Firma zugeordnet', alias:['arbname','mitarbeiter','name1','arbeiter','kuerzel','monteur']},
     {id:'datum',     label:'Datum', pflicht:true, alias:['datum','date','tag']},
-    {id:'stunden',   label:'Stunden', pflicht:true, hint:'Dezimal — 7.5 statt 7:30. ACHTUNG bei der mobilen Erfassung: «hrs_length» ist im Altsystem ein Zähler, dessen Einheit nicht belegt ist — im Export umrechnen, sonst werden Zeilen über 24 h übersprungen.', alias:['stunden','hrslength','dauer','h','anzahl']},
+    {id:'stunden',   label:'Stunden', pflicht:true, hint:'Dezimal — 7.5 statt 7:30. ACHTUNG bei der mobilen Erfassung: «hrs_length» ist im Altsystem in SEKUNDEN (belegt) — im Export durch 3600 teilen, sonst werden Zeilen über 24 h abgewiesen.', alias:['stunden','hrslength','dauer','h','anzahl']},
     {id:'quelle',    label:'Stufe', hint:'«freigegeben» (Stundenmodul, korrigiert) oder «erfasst» (Handy des Monteurs). Ohne Angabe gilt «freigegeben».', alias:['quelle','stufe','herkunft','source']},
     {id:'auftragNr', label:'Auftrags-Nr.', hint:'Ordnet die Zeit dem importierten Auftrag zu', alias:['rappnr','rapportnr','hrsrapportnr','auftragnr','auftragsnr']},
     {id:'terminId',  label:'Termin-ID', hint:'Verknüpft die Zeit mit dem importierten Termin (im Export «hrs_terminguid»)', alias:['hrsterminguid','terminguid','terminid','hrsterminid']},
@@ -3346,8 +3346,15 @@ function stundenSchreiben(zeilen,report,opts){
           }
           // Was die andere Stufe zusätzlich weiss, wird ergänzt.
           if(s(z.bemerkung)&&!s(vor.bemerkung)){vor.bemerkung=s(z.bemerkung);geaendert=true;}
-          if(s(z.terminId)&&!s(vor.einsatzId)&&evIx[norm(z.terminId)]){
-            vor.einsatzId=evIx[norm(z.terminId)].id;geaendert=true;
+          if(s(z.terminId)){
+            var evV=evIx[norm(z.terminId)];
+            if(evV){
+              if(!s(vor.einsatzId)){vor.einsatzId=evV.id;geaendert=true;}
+              report.terminVerknuepft=(report.terminVerknuepft||0)+1;
+            }else{
+              report.terminFehlt=(report.terminFehlt||0)+1;
+              if(!s(vor.importTerminId)){vor.importTerminId=s(z.terminId);geaendert=true;}
+            }
           }
           if(!vor.importKey){vor.importKey=k2;geaendert=true;}
           return;
@@ -3362,7 +3369,16 @@ function stundenSchreiben(zeilen,report,opts){
         // Vermerk am Eintrag — sie sind Arbeit, keine Absenz.
         if(s(z.absenz))e.importAbsenz=s(z.absenz);
         if(s(z.bemerkung))e.bemerkung=s(z.bemerkung);
-        if(s(z.terminId)&&evIx[norm(z.terminId)]){e.einsatzId=evIx[norm(z.terminId)].id;e.ausPlan=true;}
+        /* Termin-Bezug: `norm()` vergleicht die GUID ohne Gross-/Kleinschreibung,
+           Bindestriche und Klammern — das Format des Exports spielt keine Rolle.
+           Was nicht trifft (Termin nicht importiert oder im Altsystem gelöscht),
+           wird GEZÄHLT und bleibt als Vermerk am Eintrag; ein späterer Lauf
+           nach dem Termin-Import füllt die Lücke (siehe oben, `vor`-Pfad). */
+        if(s(z.terminId)){
+          var evN=evIx[norm(z.terminId)];
+          if(evN){e.einsatzId=evN.id;e.ausPlan=true;report.terminVerknuepft=(report.terminVerknuepft||0)+1;}
+          else{e.importTerminId=s(z.terminId);report.terminFehlt=(report.terminFehlt||0)+1;}
+        }
         ein.push(e); da[k2]=e; neu++; geaendert=true;
       });
       /* Spesen: GEMA führt am Tag «Mittag auswärts» und «km». Der Betrag aus

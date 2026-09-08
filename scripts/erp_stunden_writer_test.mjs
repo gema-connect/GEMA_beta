@@ -12,6 +12,10 @@
 //   3. Reine Korrektur → return vor dem Speichern, Änderung weg.
 //   4. Person ohne GEMA-Benutzer: Übertrag mit leerer userId gespeichert und
 //      nie gemeldet (findeSachbearbeiter liefert nie null).
+//   5. Termin-Bezug (Messung 8.14c: 4 118 von 4 162 GUIDs treffen, 44 zeigen
+//      auf gelöschte Termine): die GUID muss unabhängig von Schreibweise und
+//      Klammern treffen, die INT-Spalte darf das Mapping nicht kapern, und
+//      was nicht trifft, wird gezählt statt still weggelassen.
 //
 // Aufruf:  node scripts/erp_stunden_writer_test.mjs
 import fs from 'fs';
@@ -184,6 +188,47 @@ const K = ['arbname', 'datum', 'stunden', 'rappnr', 'arbtyp', 'absenz', 'quelle'
   eq('krank bleibt krank', pool(ls)[0].absenz.typ, 'krank');
   eq('nichts angehängt', (pool(ls)[0].eintraege || []).length, 0);
   eq('der Tag gilt als übersprungen', rep.uebersprungen, 1);
+}
+
+// ═══ 8 — Termin-Bezug: GUID trifft (auch in anderem Format), Fehlendes wird gemeldet ═══
+{
+  console.log('\n═══ 8 — Termin-Bezug: GUID trifft format-tolerant, nicht Auflösbares wird gezählt ═══');
+  const ls = speicher(); const I = ladeImporter(ls);
+  const EP_POOL = 'gema_einsatz_pool_v1';
+  const KT = ['guid', 'datum', 'von60', 'arbeit', 'arbname'];
+  await lauf(I, 'termine', KT, [['000c2001-4207-4a68-817b-4c527b7db9fb', '2026-03-17', '07:00', 'Boiler', 'Hans Meier']]);
+  const ev = pool(ls, EP_POOL)[0];
+  t('Termin liegt im Einsatz-Pool mit seiner GUID', !!ev && ev.extId === '000c2001-4207-4a68-817b-4c527b7db9fb');
+  // Der Export 8.11 führt BEIDE Spalten. Die GUID muss das Mapping bekommen,
+  // nicht die INT-Spalte (81 von 5 071 gefüllt, sonst 0).
+  const KS = ['arbname', 'datum', 'stunden', 'rappnr', 'arbtyp', 'absenz', 'hrs_terminguid', 'hrs_termin_id', 'quelle'];
+  const map = I.erkenneMapping(KS, 'stunden');
+  eq('Termin-ID kommt aus hrs_terminguid, nicht aus hrs_termin_id', map.terminId, KS.indexOf('hrs_terminguid'));
+  const rep = await lauf(I, 'stunden', KS, [
+    // Grossschreibung + geschweifte Klammern: anderes Format, derselbe Termin
+    ['Hans Meier', '2026-03-17', '8', '8123', 'Boiler', '', '{000C2001-4207-4A68-817B-4C527B7DB9FB}', '0', 'erfasst'],
+    // GUID eines Termins, der in GEMA (noch) nicht liegt
+    ['Hans Meier', '2026-03-18', '8', '8124', 'Montage', '', 'ffe6513f-f451-49d3-83f9-80cd98d51508', '0', 'erfasst']
+  ]);
+  const tag17 = pool(ls).find(d => d.datum === '2026-03-17');
+  const tag18 = pool(ls).find(d => d.datum === '2026-03-18');
+  eq('GUID trifft trotz Grossschreibung und Klammern', tag17.eintraege[0].einsatzId, ev.id);
+  t('der Eintrag gilt als «aus Plan»', tag17.eintraege[0].ausPlan === true);
+  eq('nicht auflösbarer Termin: keine einsatzId', tag18.eintraege[0].einsatzId, '');
+  eq('… aber die GUID bleibt als Vermerk am Eintrag', tag18.eintraege[0].importTerminId, 'ffe6513f-f451-49d3-83f9-80cd98d51508');
+  eq('Bericht: 1 × verknüpft', rep.terminVerknuepft, 1);
+  eq('Bericht: 1 × nicht auflösbar — gezählt, nicht still', rep.terminFehlt, 1);
+  // Gegenprobe: der fehlende Termin kommt nach, der zweite Stunden-Lauf füllt die Lücke.
+  await lauf(I, 'termine', KT, [['ffe6513f-f451-49d3-83f9-80cd98d51508', '2026-03-18', '07:00', 'Montage', 'Hans Meier']]);
+  const rep2 = await lauf(I, 'stunden', KS, [
+    ['Hans Meier', '2026-03-18', '8', '8124', 'Montage', '', 'ffe6513f-f451-49d3-83f9-80cd98d51508', '0', 'erfasst']
+  ]);
+  const ev2 = pool(ls, EP_POOL).find(e => e.extId === 'ffe6513f-f451-49d3-83f9-80cd98d51508');
+  t('der nachgeholte Termin liegt im Pool', !!ev2);
+  eq('zweiter Lauf verknüpft den nachgeholten Termin', pool(ls).find(d => d.datum === '2026-03-18').eintraege[0].einsatzId, ev2 && ev2.id);
+  t('zweiter Lauf meldet nichts Fehlendes mehr', !rep2.terminFehlt);
+  eq('zweiter Lauf zählt die Verknüpfung', rep2.terminVerknuepft, 1);
+  eq('kein zweiter Eintrag entstanden', pool(ls).find(d => d.datum === '2026-03-18').eintraege.length, 1);
 }
 
 console.log('\n' + (fail ? '✗ ' + fail + ' von ' + n + ' Prüfungen fehlgeschlagen'
