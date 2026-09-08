@@ -1746,67 +1746,63 @@ genügt ein Blick in die Einstellungen des Altsystem-Clients oder die
 Netzlaufwerk-Freigabe; die Datenbank ist dann nicht die Quelle.
 
 ```sql
-SELECT '=== A1 objekt1/objekt2 gegen die drei Kundenadressen ===' AS x;
-SELECT
-  COUNT(*) AS objekte_mit_objekt1,
-  SUM(LOWER(TRIM(o.objekt1)) = LOWER(TRIM(COALESCE(az.strasse,'')))) AS wie_zahler,
-  SUM(LOWER(TRIM(o.objekt1)) = LOWER(TRIM(COALESCE(ak.strasse,'')))) AS wie_korrespondenz,
-  SUM(LOWER(TRIM(o.objekt1)) = LOWER(TRIM(COALESCE(ae.strasse,'')))) AS wie_eigentuemer,
-  SUM(LOWER(TRIM(o.objekt1)) = LOWER(TRIM(COALESCE(o.strasse,'')))) AS wie_objekt_selbst
-FROM obj o
-LEFT JOIN adressen az ON az.oknummer = o.knummer
-LEFT JOIN adressen ak ON ak.oknummer = o.co_knummer
-LEFT JOIN adressen ae ON ae.oknummer = o.ei_knummer
-WHERE COALESCE(o.objekt1,'') <> '';
+SELECT "=== A1 objekt1 gegen die drei Kundenadressen ===" AS x;
+SELECT COUNT(*) AS objekte_mit_objekt1,
+       SUM(LOWER(TRIM(o.objekt1)) = LOWER(TRIM(COALESCE(o.strasse,"")))) AS wie_objekt_selbst,
+       SUM(LOWER(TRIM(o.objekt1)) = LOWER(TRIM(COALESCE(
+         (SELECT a.strasse FROM adressen a WHERE a.oknummer = o.knummer    LIMIT 1),"")))) AS wie_zahler,
+       SUM(LOWER(TRIM(o.objekt1)) = LOWER(TRIM(COALESCE(
+         (SELECT a.strasse FROM adressen a WHERE a.oknummer = o.co_knummer LIMIT 1),"")))) AS wie_korrespondenz,
+       SUM(LOWER(TRIM(o.objekt1)) = LOWER(TRIM(COALESCE(
+         (SELECT a.strasse FROM adressen a WHERE a.oknummer = o.ei_knummer LIMIT 1),"")))) AS wie_eigentuemer
+FROM obj o WHERE COALESCE(o.objekt1,"") <> "";
 
-SELECT '=== A2 Zehn Objekte, deren objekt1 auf KEINE der Adressen passt ===' AS x;
-SELECT o.id, o.strasse AS objekt_strasse, o.ort AS objekt_ort,
-       o.objekt1, o.objekt2, az.strasse AS zahler_strasse, az.name1 AS zahler_name
+SELECT "=== A2 Zehn Objekte, deren objekt1 auf KEINE dieser Adressen passt ===" AS x;
+SELECT o.id, o.strasse AS objekt_strasse, o.ort AS objekt_ort, o.objekt1, o.objekt2,
+       (SELECT a.strasse FROM adressen a WHERE a.oknummer = o.knummer LIMIT 1) AS zahler_strasse,
+       (SELECT a.name1   FROM adressen a WHERE a.oknummer = o.knummer LIMIT 1) AS zahler_name
 FROM obj o
-LEFT JOIN adressen az ON az.oknummer = o.knummer
-LEFT JOIN adressen ak ON ak.oknummer = o.co_knummer
-WHERE COALESCE(o.objekt1,'') <> ''
-  AND LOWER(TRIM(o.objekt1)) <> LOWER(TRIM(COALESCE(o.strasse,'')))
-  AND LOWER(TRIM(o.objekt1)) <> LOWER(TRIM(COALESCE(az.strasse,'')))
-  AND LOWER(TRIM(o.objekt1)) <> LOWER(TRIM(COALESCE(ak.strasse,'')))
+WHERE COALESCE(o.objekt1,"") <> ""
+  AND LOWER(TRIM(o.objekt1)) <> LOWER(TRIM(COALESCE(o.strasse,"")))
+  AND LOWER(TRIM(o.objekt1)) <> LOWER(TRIM(COALESCE(
+        (SELECT a.strasse FROM adressen a WHERE a.oknummer = o.knummer    LIMIT 1),"")))
+  AND LOWER(TRIM(o.objekt1)) <> LOWER(TRIM(COALESCE(
+        (SELECT a.strasse FROM adressen a WHERE a.oknummer = o.co_knummer LIMIT 1),"")))
 ORDER BY o.id DESC LIMIT 10;
 
-SELECT '=== A3 Wer sitzt an der Aliothstrasse 63? ===' AS x;
-SELECT o.id, o.strasse, o.ort, az.name1 AS zahler, ak.name1 AS korrespondenz
-FROM obj o
-LEFT JOIN adressen az ON az.oknummer = o.knummer
-LEFT JOIN adressen ak ON ak.oknummer = o.co_knummer
-WHERE o.objekt1 LIKE 'Aliothstrasse 63%' LIMIT 5;
+SELECT "=== A3 Wer sitzt an der Aliothstrasse 63 (338 Objekte)? ===" AS x;
+SELECT o.id, o.strasse, o.ort,
+       (SELECT a.name1 FROM adressen a WHERE a.oknummer = o.knummer    LIMIT 1) AS zahler,
+       (SELECT a.name1 FROM adressen a WHERE a.oknummer = o.co_knummer LIMIT 1) AS korrespondenz
+FROM obj o WHERE o.objekt1 LIKE "Aliothstrasse 63%" LIMIT 5;
 
-SELECT '=== A4 Wie viele Objekte haben gar keine eigene Strasse? ===' AS x;
+SELECT "=== A4 Objekte ganz ohne eigene Strasse ===" AS x;
 SELECT COUNT(*) AS ohne_strasse,
-       SUM(COALESCE(objekt1,'')<>'') AS davon_mit_objekt1
-FROM obj WHERE COALESCE(strasse,'') = '';
+       SUM(COALESCE(objekt1,"") <> "") AS davon_mit_objekt1
+FROM obj WHERE COALESCE(strasse,"") = "";
 
-SELECT '=== B1 Spalten, die nach einem Pfad aussehen ===' AS x;
+SELECT "=== B1 Spalten, die nach einem Pfad aussehen ===" AS x;
 SELECT table_name, column_name, column_type
 FROM information_schema.columns
-WHERE table_schema = 'dbof'
-  AND (column_name LIKE '%dir%' OR column_name LIKE '%path%'
-       OR column_name LIKE '%pfad%' OR column_name LIKE '%verzeichnis%'
-       OR column_name LIKE '%ordner%' OR column_name LIKE '%root%'
-       OR column_name LIKE '%share%' OR column_name LIKE '%unc%')
+WHERE table_schema = "dbof"
+  AND (column_name LIKE "%dir%"  OR column_name LIKE "%path%"
+    OR column_name LIKE "%pfad%" OR column_name LIKE "%verzeichnis%"
+    OR column_name LIKE "%ordner%" OR column_name LIKE "%root%"
+    OR column_name LIKE "%share%"  OR column_name LIKE "%unc%")
 ORDER BY table_name, column_name;
 
-SELECT '=== B2 Inhalt der Lizenz-/Konfigurationszeilen ===' AS x;
-SELECT * FROM license LIMIT 3;
-
-SELECT '=== B3 Kandidaten in companydata (Konfiguration je Firma) ===' AS x;
+SELECT "=== B2 Konfigurationswerte, die einen Backslash enthalten ===" AS x;
 SELECT cmd_tablename, cmd_fieldname, LEFT(cmd_string,120) AS wert
-FROM companydata
-WHERE cmd_string LIKE '%\\\\%' OR cmd_string LIKE '%:\\%' OR cmd_string LIKE '%/%'
-LIMIT 30;
+FROM companydata WHERE INSTR(cmd_string, CHAR(92)) > 0 LIMIT 30;
 
-SELECT '=== B4 Führt lkmobiledir den vollen Pfad? ===' AS x;
-SELECT 'obj' AS tabelle, COUNT(*) AS gefuellt, MIN(lkmobiledir) AS beispiel
-FROM obj WHERE COALESCE(lkmobiledir,'')<>''
-UNION ALL SELECT 'rechnungen', COUNT(*), MIN(lkmobiledir) FROM rechnungen WHERE COALESCE(lkmobiledir,'')<>''
-UNION ALL SELECT 'kreditoren', COUNT(*), MIN(lkmobiledir) FROM kreditoren WHERE COALESCE(lkmobiledir,'')<>'';
+SELECT "=== B3 Lizenztabelle (nur Pfad-verdaechtige Spalten) ===" AS x;
+SELECT lkdir, lkmobiledir FROM license LIMIT 3;
+
+SELECT "=== B4 Fuehrt lkmobiledir den vollen Pfad? ===" AS x;
+SELECT "obj" AS tabelle, COUNT(*) AS gefuellt, MIN(lkmobiledir) AS beispiel
+FROM obj WHERE COALESCE(lkmobiledir,"") <> ""
+UNION ALL SELECT "rechnungen", COUNT(*), MIN(lkmobiledir) FROM rechnungen WHERE COALESCE(lkmobiledir,"") <> ""
+UNION ALL SELECT "kreditoren", COUNT(*), MIN(lkmobiledir) FROM kreditoren WHERE COALESCE(lkmobiledir,"") <> "";
 ```
 
 Lesart **A**: gewinnt eine der Kundenspalten deutlich, ist die Sache erledigt —
@@ -1815,6 +1811,14 @@ sonst vorkommen, ist es eine echte zweite Objektadresse und wandert ins
 Objekt. Lesart **B**: liefert B1/B2/B3 einen Pfad wie `\\server\freigabe\…`,
 ist die Wurzel gefunden und der Dokumentenstrang kann geplant werden; kommt
 nichts, liegt sie ausserhalb der Datenbank.
+
+Ausführungshinweise (beide bereits einmal gestolpert): Die Abfrage gehört
+VOLLSTÄNDIG in das `@'…'@` des PowerShell-Blocks — ein Platzhalter oder ein
+`Get-Content` auf eine nicht vorhandene Datei liefert kein SQL und damit eine
+LEERE Ergebnisdatei ohne Fehlermeldung. Und: `objekt1` gegen die Kundenadresse
+läuft über Unterabfragen, nicht über einen JOIN — `adressen.oknummer` ist
+nicht garantiert eindeutig, ein JOIN würde die Zeilen vervielfachen und die
+Zählung verfälschen.
 
 ---
 
