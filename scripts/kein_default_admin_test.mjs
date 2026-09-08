@@ -93,9 +93,15 @@ console.log('■ Repo-Scan (.js/.html/.mjs)');
   const treffer = [];
   for (const f of files) {
     const txt = readFileSync(f, 'utf8');
+    // Ein Guard-Script, das eine Umgebungsvariable mit einem Fantasiewert
+    // belegt, um zu prüfen, dass der Wert NIE gemeldet wird (zefix_firma_test),
+    // ist ein Fixture — nicht ausgeliefert und kein Zugang. Nur diese eine
+    // Form (`process.env.X = '…'` in scripts/*_test.mjs) ist ausgenommen.
+    const istTestScript = /[\\/]scripts[\\/][^\\/]+_test\.mjs$/.test(f);
     txt.split('\n').forEach((z, i) => {
       // Zugangsdaten-Muster: password/passwort mit Literal-Wert. Test-Fixtures
       // (Fake-JWTs) und Feldnamen sind bewusst NICHT gemeint.
+      if (istTestScript && /^\s*process\.env\.[A-Z0-9_]+\s*=\s*['"][^'"]*['"]\s*;?\s*$/.test(z)) return;
       if (/(password|passwort|passwd)\s*[:=]\s*['"][^'"]{3,}['"]/i.test(z)
           && !/type\s*=|placeholder|autocomplete|['"]password['"]\s*[,)\]]|name:|label|\.value/i.test(z)) {
         treffer.push(f.slice(ROOT.length + 1) + ':' + (i + 1) + ' → ' + z.trim().slice(0, 100));
