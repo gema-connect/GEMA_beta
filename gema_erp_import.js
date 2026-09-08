@@ -293,12 +293,93 @@ var ABSENZ_MAP={
 };
 function absenzArt(text){
   var t=norm(text);
-  if(!t||t==='0')return {typ:'',arbeit:false,feiertag:false,erkannt:false,leer:true};
+  if(!t||t==='0')return {typ:'',arbeit:false,feiertag:false,erkannt:false,leer:true,eigen:false};
   var m=ABSENZ_MAP[t];
-  if(m==='#arbeit')  return {typ:'',arbeit:true, feiertag:false,erkannt:true, leer:false};
-  if(m==='#feiertag')return {typ:'',arbeit:false,feiertag:true, erkannt:true, leer:false};
-  if(m)              return {typ:m, arbeit:false,feiertag:false,erkannt:true, leer:false};
-  return {typ:'',arbeit:false,feiertag:false,erkannt:false,leer:false};
+  if(m==='#arbeit')  return {typ:'',arbeit:true, feiertag:false,erkannt:true, leer:false,eigen:false};
+  if(m==='#feiertag')return {typ:'',arbeit:false,feiertag:true, erkannt:true, leer:false,eigen:false};
+  if(m)              return {typ:m, arbeit:false,feiertag:false,erkannt:true, leer:false,eigen:false};
+  // Eigene Absenzarten der Firma (⚙️ der Stundenerfassung) — auch die, die
+  // ein früherer Import angelegt hat.
+  var e=_eigeneAbsenz[t];
+  if(e)              return {typ:e, arbeit:false,feiertag:false,erkannt:true, leer:false,eigen:true};
+  return {typ:'',arbeit:false,feiertag:false,erkannt:false,leer:false,eigen:false};
+}
+
+/* ── Eigene Absenzarten ─────────────────────────────────────────────────
+   Entscheid des Betriebs: jede Absenzart des Altsystems, die GEMA nicht
+   kennt (Kurs, Arztbesuch, Privat, «Bezahlte Absenzen» …), wird beim Import
+   als EIGENE Absenzart in der Stundenerfassung angelegt — statt still
+   wegzufallen oder als Ferien durchzugehen. Die Regeln (füllt das Tagessoll
+   auf? keine Vorholzeit?) bleiben bewusst auf «aus»: das ist eine
+   Personalentscheidung und wird im Bericht als offen benannt. */
+var _eigeneAbsenz={};   // norm(Name) und norm(id) → id
+function absenzartenAusOrgLaden(){
+  _eigeneAbsenz={};
+  try{
+    var st=((GemaAuth.getCurrentOrg()||{}).settings||{}).stunden||{};
+    (st.eigeneAbsenzen||[]).forEach(function(e){
+      if(!e||!e.id)return;
+      if(s(e.name))_eigeneAbsenz[norm(e.name)]=e.id;
+      _eigeneAbsenz[norm(e.id)]=e.id;
+    });
+  }catch(e){}
+}
+/* Slug wie stEaSlug in pm_stunden — dieselbe ID-Form, damit ein von Hand
+   angelegter und ein importierter Typ nicht zweierlei sind. */
+function absenzSlug(name,vergeben){
+  var sl='ea_'+String(name).toLowerCase()
+    .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/é|è|ê/g,'e')
+    .replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,24);
+  if(sl==='ea_'||sl==='ea')sl='ea_typ';
+  var b=sl,i=2;
+  while(vergeben[sl])sl=b+'_'+(i++);
+  vergeben[sl]=1;
+  return sl;
+}
+/* Legt die noch unbekannten Absenzarten der Zeilen als eigene Typen an und
+   löst danach `absenzTyp` an den Zeilen nach. Läuft VOR dem Schreiben von
+   Stunden und Terminen. Schreibt org.settings.stunden über updateOrgSettings
+   (derselbe Weg wie die Zahlungsbedingungen). */
+function absenzartenSicherstellen(zeilen,report){
+  var neu={},reihenfolge=[];
+  zeilen.forEach(function(zl){
+    var z=zl.ziel,roh=s(z&&z.absenz);
+    if(!roh)return;
+    var a=absenzArt(roh);
+    if(a.leer||a.arbeit||a.feiertag||a.typ)return;
+    var k=norm(roh);
+    if(!neu[k]){neu[k]=roh;reihenfolge.push(k);}
+  });
+  var fertig=Promise.resolve();
+  if(reihenfolge.length){
+    var org=null;try{org=GemaAuth.getCurrentOrg();}catch(e){}
+    if(org&&org.id){
+      var st=Object.assign({},(org.settings||{}).stunden||{});
+      var liste=(st.eigeneAbsenzen||[]).slice();
+      var vergeben={};liste.forEach(function(e){if(e&&e.id)vergeben[e.id]=1;});
+      reihenfolge.forEach(function(k){
+        var name=neu[k];
+        var id=absenzSlug(name,vergeben);
+        liste.push({id:id,name:name,ic:'📌',fuelltAuf:false,keineVorholzeit:false,
+                    beantragbar:false,nurUserIds:null,importiert:true,importQuelle:'ERP-Migration'});
+        _eigeneAbsenz[k]=id;_eigeneAbsenz[norm(id)]=id;
+        (report.absenzartenNeu=report.absenzartenNeu||[]).push(name);
+      });
+      st.eigeneAbsenzen=liste;
+      fertig=Promise.resolve(GemaAuth.updateOrgSettings(org.id,{stunden:st})).then(function(){},function(){});
+    }else{
+      // Ohne Firma lässt sich nichts anlegen — benennen, nicht verschweigen.
+      reihenfolge.forEach(function(k){(report.absenzartenOffen=report.absenzartenOffen||[]).push(neu[k]);});
+    }
+  }
+  return fertig.then(function(){
+    // Nachlösen: Zeilen, die in der Vorschau noch ohne Typ waren.
+    zeilen.forEach(function(zl){
+      var z=zl.ziel;if(!z||!s(z.absenz)||s(z.absenzTyp)||z.absenzArbeit||z.absenzFeiertag)return;
+      var a=absenzArt(z.absenz);
+      if(a.typ){z.absenzTyp=a.typ;z.absenzErkannt=true;}
+    });
+  });
 }
 
 /* Gültige 27-stellige ESR-/QR-Referenz? (Mod10 rekursiv, wie erpMod10)
@@ -1600,7 +1681,7 @@ function pruefe(z,sekId){
     if(z.typ==='auftrag'&&s(z.auftragNr))hin.push({typ:'info',text:'Wird mit Auftrag '+s(z.auftragNr)+' verknüpft (sofern importiert).'});
     if(z.absenzArbeit)hin.push({typ:'info',text:'«'+s(z.absenz)+'» ist im Altsystem als Absenzart erfasst, aber Arbeit — der Termin bleibt ein Einsatz.'});
     else if(z.absenzFeiertag)hin.push({typ:'warn',text:'«'+s(z.absenz)+'» ist ein Feiertag. GEMA führt Feiertage im Firmenkalender, nicht als Abwesenheit — bitte dort eintragen; der Termin entsteht als «Abwesend».'});
-    else if(s(z.absenz)&&!z.absenzErkannt)hin.push({typ:'warn',text:'Absenzart «'+s(z.absenz)+'» ist GEMA unbekannt — der Termin entsteht als «Abwesend», bekommt aber keinen Absenztyp. Bei Bedarf in den ⚙️-Einstellungen der Stundenerfassung als eigene Absenzart anlegen.'});
+    else if(s(z.absenz)&&!z.absenzErkannt)hin.push({typ:'info',text:'Absenzart «'+s(z.absenz)+'» kennt GEMA noch nicht — sie wird beim Import als eigene Absenzart angelegt (Regeln danach in den ⚙️-Einstellungen der Stundenerfassung setzen).'});
     else if(z.typ==='ferien')hin.push({typ:'info',text:'Abwesenheit «'+s(z.absenz)+'» → GEMA-Typ «'+s(z.absenzTyp)+'», wird als «Abwesend» geplant.'});
     if(s(z.zeitRoh))hin.push({typ:'warn',text:'Zeit «'+s(z.zeitRoh)+'» ist keine Uhrzeit — der Termin entsteht ohne Zeit, der Wert bleibt als Vermerk. Im Altsystem die Spalten «von60»/«bis60» exportieren.'});
   }else if(sekId==='anlagen'){
@@ -1621,7 +1702,7 @@ function pruefe(z,sekId){
     else if(z.stunden>16)hin.push({typ:'warn',text:z.stunden+' h an einem Tag — bitte prüfen, ob die Spalte wirklich Stunden führt.'});
     if(z.absenzArbeit)hin.push({typ:'info',text:'«'+s(z.absenz)+'» ist Arbeit, keine Absenz — die Zeit zählt als geleistet.'});
     else if(s(z.absenzTyp))hin.push({typ:'info',text:'Absenz «'+s(z.absenz)+'» → GEMA-Typ «'+s(z.absenzTyp)+'» am Tag.'});
-    else if(s(z.absenz))hin.push({typ:'warn',text:'Absenzart «'+s(z.absenz)+'» ist GEMA unbekannt — der Tag entsteht als normale Arbeitszeit mit Vermerk, NICHT als Abwesenheit. Bei Bedarf als eigene Absenzart anlegen und erneut einlesen.'});
+    else if(s(z.absenz))hin.push({typ:'info',text:'Absenzart «'+s(z.absenz)+'» kennt GEMA noch nicht — sie wird beim Import als eigene Absenzart angelegt und der Tag als Abwesenheit erfasst (Regeln danach in den ⚙️-Einstellungen setzen).'});
   }else if(sekId==='uebertraege'){
     if(!s(z.mitarbeiter))hin.push({typ:'fehler',text:'Kein Mitarbeiter — Zeile wird übersprungen.'});
     if(!s(z.datum))hin.push({typ:'fehler',text:'Kein Stichtag — Zeile wird übersprungen.'});
@@ -1772,6 +1853,10 @@ function findeBereich(label){
 /* Baut den Plan: was würde passieren? Ohne jeden Schreibzugriff. */
 function vorbereiten(opts){
   var sekId=opts.sektion, rows=opts.rows||[], map=opts.mapping||{};
+  // Eigene Absenzarten der Firma schon für die Vorschau kennen — sonst
+  // meldete ein zweiter Lauf «kennt GEMA noch nicht» für Typen, die der
+  // erste angelegt hat.
+  absenzartenAusOrgLaden();
   var zeilen=[],stats={neu:0,aktualisiert:0,unveraendert:0,fehler:0,adressenNeu:0};
   var bestand=sekId==='objekte'?bestehendeObjekte():[];
   var bekannt={};
@@ -2863,7 +2948,7 @@ function terminSchreiben(z,report,opts){
     if(!s(ev.objektId)&&s(auf.objektId)){ev.objektId=auf.objektId;ev.objektName=s(auf.objektName);}
     if(!s(ev.kunde)&&auf.kundeSnapshot)ev.kunde=s(auf.kundeSnapshot.firma);
   }else if(s(z.auftragNr)&&!s(ev.auftragNr))ev.auftragNr=s(z.auftragNr);
-  [['importArbtyp',z.arbtyp],['importAbsenz',z.absenz],
+  [['importArbtyp',z.arbtyp],['importAbsenz',z.absenz],['importAbsenzTyp',z.absenzTyp],
    ['importStandort',z.standort],['importSerie',z.serie],
    ['importZeitRoh',z.zeitRoh]].forEach(function(pp){
     if(s(pp[1])&&!s(ev[pp[0]]))ev[pp[0]]=s(pp[1]);
@@ -3193,7 +3278,11 @@ function ausfuehren(plan,opts){
   var zeilen=plan.zeilen.filter(function(z){return z.aktion!=='fehler'&&z.gewaehlt!==false;});
   report.uebersprungen=plan.zeilen.length-zeilen.length;
   zahlbedAusOrgLaden();
+  absenzartenAusOrgLaden();
   laufStart();
+  // Unbekannte Absenzarten VOR dem Schreiben anlegen — Stunden und Termine
+  // brauchen den Typ am Datensatz.
+  var vorlauf=(sekId==='stunden'||sekId==='termine')?absenzartenSicherstellen(zeilen,report):Promise.resolve();
 
   /* Abschnitte, die GRUPPIERT schreiben: viele Zeilen treffen dasselbe Ziel
      (alle Positionen eines Belegs, alle Konditionen der Firma). Sie laufen
@@ -3209,7 +3298,7 @@ function ausfuehren(plan,opts){
   if(sekId==='positionen')return positionenSchreiben(zeilen,report,opts).then(fertig,gescheitert).then(abschluss);
   if(sekId==='zahlungen')return zahlungenSchreiben(zeilen,report,opts).then(fertig,gescheitert).then(abschluss);
   if(sekId==='artikel')return artikelSchreiben(zeilen,report,opts).then(fertig,gescheitert).then(abschluss);
-  if(sekId==='stunden')return stundenSchreiben(zeilen,report,opts).then(fertig,gescheitert).then(abschluss);
+  if(sekId==='stunden')return vorlauf.then(function(){return stundenSchreiben(zeilen,report,opts);}).then(fertig,gescheitert).then(abschluss);
   if(sekId==='bezugspersonen')return bezugspersonenSchreiben(zeilen,report,opts).then(fertig,gescheitert).then(abschluss);
 
   if(typeof GemaAdressen==='undefined')return Promise.reject(new Error('Adressstamm nicht geladen.'));
@@ -3219,7 +3308,7 @@ function ausfuehren(plan,opts){
   var bestand={};
   bestehendeObjekte().forEach(function(o){bestand[objektSchluessel(o)]=o;});
 
-  var kette=Promise.resolve();
+  var kette=vorlauf;
   zeilen.forEach(function(z,idx){
     kette=kette.then(function(){return laufAtem(idx,zeilen.length,opts);}).then(function(){
       if(sekId==='adressen'){

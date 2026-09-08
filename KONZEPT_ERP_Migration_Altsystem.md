@@ -1045,7 +1045,8 @@ Importer hält die beiden auseinander (`nr` wird zuerst zugeordnet).
 ### 8.9 Termine
 
 ```sql
-SELECT t.guid, t.datum, t.von60, t.bis60, t.arbeit, t.absenz, t.arbtyp,
+SELECT t.guid, t.datum, t.von60, t.bis60, t.arbeit,
+       ab.beschr AS absenz, ty.beschr AS arbtyp,
        t.stunden, t.location, t.serie_id, t.private_text,
        TRIM(CONCAT(COALESCE(ad.vorname,''),' ',COALESCE(ad.name1,''))) AS arb_name,
        r.rapport_nr
@@ -1053,8 +1054,17 @@ FROM termin t
 LEFT JOIN arbeiter a  ON a.id  = t.arb_id
 LEFT JOIN adressen ad ON ad.id = a.adr_id
 LEFT JOIN rapporte r  ON r.id  = t.rapp_id
+LEFT JOIN absenz   ab ON ab.id = t.absenz
+LEFT JOIN arbtyp   ty ON ty.id = t.arbtyp
 ORDER BY t.datum;
 ```
+
+> **`t.absenz` und `t.arbtyp` sind Zahlen** (Fremdschlüssel). Ohne die beiden
+> Joins käme «6» statt «Schule» an, und der Importer meldete jede Absenz als
+> unbekannt. Exportiert wird `beschr` (der Klartext), nicht `kurz`: unbekannte
+> Arten werden als eigene GEMA-Absenzart angelegt, und die soll «Arztbesuch»
+> heissen, nicht «ar».
+
 
 > **`von60`/`bis60`, nicht `von`/`bis`.** Die Tabelle führt zwei Zeitpaare, und
 > die naheliegend benannten sind die falschen: `von60`/`bis60` tragen die
@@ -1138,7 +1148,7 @@ Spalte `quelle` sagt dem Importer, welche Stufe eine Zeile trägt.
 -- Datei 1: der freigegebene Stand (Hauptbestand, 2016 bis heute)
 SELECT TRIM(CONCAT(COALESCE(ad.vorname,''),' ',COALESCE(ad.name1,''))) AS arb_name,
        n.datum, n.stunden, n.rappnr,
-       ty.beschr AS arbtyp, ab.kurz AS absenz,
+       ty.beschr AS arbtyp, ab.beschr AS absenz,
        'freigegeben' AS quelle
 FROM nstunden n
 LEFT JOIN arbeiter a  ON a.id  = n.arb_id
@@ -1155,7 +1165,7 @@ SELECT TRIM(CONCAT(COALESCE(ad.vorname,''),' ',COALESCE(ad.name1,''))) AS arb_na
        ROUND(h.hrs_length/3600, 2) AS stunden,     -- hrs_length ist in SEKUNDEN
        h.hrs_rapportnr AS rappnr,
        h.hrs_description AS arbtyp, h.hrs_spesen, h.hrs_comment,
-       ab.kurz AS absenz,
+       ab.beschr AS absenz,
        h.hrs_terminguid, h.hrs_termin_id, 'erfasst' AS quelle
 FROM hours h
 LEFT JOIN arbeiter a  ON a.id  = h.hrs_arb_id
@@ -1320,11 +1330,24 @@ an: Ferienrest + Anspruch der neuen Periode → Startguthaben auf den 1. Januar,
 Überzeitsaldo mit. Fehlt für ein Jahr ein Übertrag, obwohl ein älterer besteht,
 wird das in der Tabelle gemeldet statt still auf null gesetzt.
 
-Ein Punkt bleibt bewusst offen: **Stichtage, die nicht der 1. Januar sind**,
-mischen im GEMA-Jahr zwei Perioden. Der Import übernimmt sie mit ihrem Datum,
-die Ferien werden tagesgenau ab dem Stichtag gezählt, die Überzeit erst ab der
-Folgewoche (das Wochensoll kommt aus dem Kalender, eine angebrochene Woche
-zählte sonst voll) — beides wird ausgewiesen statt kaschiert.
+**Stichtage, die nicht der 1. Januar sind** (im Bestand u.a. 31.10.2025)
+übernimmt der Import mit ihrem Datum. Ferien und Überzeit zählen **tagesgenau
+ab dem Stichtag** — jedes Konto nur, wenn der Übertrag dafür einen Wert führt
+(ein Übertrag allein mit Überzeit lässt die Ferienzählung ganzjährig). Die
+Jahresbilanz rechnet dafür Ist und Soll je Werktag statt je Woche; das
+beseitigt auch ein älteres Artefakt, bei dem die Wochen um Neujahr gegen ein
+volles Wochensoll zählten (ein perfektes Jahr ergab −32 h).
+
+**Vorholzeit.** Sie stört den Import nicht, im Gegenteil: GEMA führt sie
+getrennt vom Wochensoll (`vorholProWocheH`, z.B. 0.25 h/Tag = 1.25 h/Woche).
+Ein Ferientag ist `wochenSoll/5` wert — also 8 h bei 40 h, nicht 8.25 — genau
+so rechnet der Übertrag das Guthaben in Tage um (200 h → 25 Tage). Die
+Überzeit des Altsystems (`totarbeit`) entspricht GEMAs Saldo «Ist minus
+Soll inklusive Vorholzeit». Einziger Unterschied: das **Vorhol-Konto**
+(Brückentage) startet in GEMA bei null, weil das Altsystem keines führte.
+Voraussetzung ist nur, dass das Wochensoll das reine Soll ist (40) und die
+Vorholzeit separat steht — nicht 41.25 mit eingerechneter Vorholzeit, sonst
+wäre ein Ferientag 8.25 h wert und 200 h ergäben 24.2 Tage.
 
 ---
 
@@ -1460,12 +1483,14 @@ Drei Konsequenzen, keine davon dramatisch:
    nur eben ohne Einzelzeilen. Für den Rückblick auf 2015 reicht das meist;
    der Positions-Import lässt sich später jederzeit nachholen, weil er genau
    diese Sammelposition ersetzt und ein echtes LV nie anfasst.
-3. **Option «Positionen aus der Offerte übernehmen» bewusst setzen.** Sie ist
-   im Assistenten standardmässig an und kopiert das LV der Offerte in den
-   Auftrag — das verdoppelt den Positionsbestand auf bis zu 460 MB. Für die
-   Migration einer Historie gehört sie ausgeschaltet; die Offerte trägt die
-   Positionen bereits und der Auftrag ist mit ihr verknüpft.
+3. **Option «Positionen aus der Offerte übernehmen» ist eine Wahl, kein
+   Verbot.** Sie bleibt möglich (Entscheid des Betriebs) und ist im
+   Assistenten an. Nur wissen: sie kopiert das LV der Offerte in jeden
+   verknüpften Auftrag und verdoppelt damit den Positionsbestand — bis zu
+   460 MB, wenn alle Jahre mit Positionen importiert werden. In Kombination
+   mit Punkt 2 (Positionen nur für die jüngeren Jahre) bleibt das gut
+   tragbar.
 
-Mit Punkt 2 und 3 landet der produktive Bestand bei realistisch **60–100 MB** —
-und die Historie bleibt vollständig, nur eben auf Belegebene statt auf
-Positionsebene.
+Mit Punkt 2 landet der produktive Bestand bei realistisch **60–120 MB** (je
+nach Punkt 3) — und die Historie bleibt vollständig, nur eben auf Belegebene
+statt auf Positionsebene.

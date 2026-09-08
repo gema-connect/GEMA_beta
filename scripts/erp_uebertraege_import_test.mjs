@@ -335,8 +335,11 @@ console.log('\n═══ F — Absenzarten: nicht jede ist eine Abwesenheit ═�
     ['g4', '2026-03-05', '07:00', '', 'Muster', 'Kurs', '']).ziel;
   eq('Unbekanntes gilt als abwesend (so heisst die Spalte)', unbek.typ, 'ferien');
   eq('aber ohne erfundenen Typ', unbek.absenzTyp, '');
-  t('und wird gemeldet',
-    I.pruefe(unbek, 'termine').some(h => h.typ === 'warn' && /unbekannt/i.test(h.text)));
+  // BEWUSST ÜBERSTEUERT (Entscheid 2026-09-08): unbekannte Arten werden beim
+  // Import als eigene Absenzart angelegt — die Vorschau kündigt das an,
+  // statt zu warnen. Das Anlegen selbst prüft erp_absenzarten_test.mjs.
+  t('und die Vorschau kündigt die eigene Absenzart an',
+    I.pruefe(unbek, 'termine').some(h => h.typ === 'info' && /eigene Absenzart/.test(h.text)));
 }
 {
   // Stunden-Ebene: eine erkannte Absenz wird zur GEMA-Absenz am Tag, eine

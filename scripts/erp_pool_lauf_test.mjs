@@ -161,7 +161,9 @@ console.log('\n═══ 5 — ohne laufenden Import schreibt poolSichern sofort
   const src = fs.readFileSync(path.join(ROOT, 'gema_erp_import.js'), 'utf8');
   t('Sofort-Pfad vorhanden (kein Lauf → saveRecord wie früher)',
     /if\(!P\)\{[\s\S]{0,600}GemaSync\.saveRecord\(mod\|\|'erp',prefix\+rec\.id,rec\)/.test(src));
-  t('ausfuehren startet den Lauf', /zahlbedAusOrgLaden\(\);\s*\n\s*laufStart\(\);/.test(src));
+  // Absicht: der Lauf beginnt in ausfuehren, vor jedem Schreiben — nicht,
+  // welche Vorbereitungszeile direkt davor steht.
+  t('ausfuehren startet den Lauf', /function ausfuehren\(plan,opts\)\{[\s\S]{0,900}laufStart\(\);/.test(src));
   t('jeder Rückgabepfad flusht', (src.match(/\.then\(abschluss\)/g) || []).length >= 7);
 }
 
