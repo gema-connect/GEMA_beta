@@ -82,6 +82,19 @@ ok(!/type="checkbox"[^>]*onchange="abMlItemToggle/.test(AB),
   'in der Abarbeitungs-Liste steckt keine Checkbox mehr');
 ok(/kommentarVerantwortlicher bleibt STEHEN/.test(AB),
   'die Begründung einer Zurückweisung wird beim Neu-Setzen NICHT gelöscht');
+ok(/function abMaengelStand[\s\S]{0,1800}r\.fertig = r\.total>0 && r\.erledigt===r\.total/.test(AB),
+  'Mängelstand ist EIN Rechner für Bildschirm, Ausdruck und PDF');
+ok(/head:\[\['Nr\.','Typ','Ort\/Raum','Mangel \/ Pendenz','Foto','Akzept\.','Erledigen bis','Durch wen','Status \/ Erledigt'\]\]/.test(AB),
+  'die PDF-Tabelle hat eine Status-Spalte (vorher nur «Erledigt»)');
+ok(/const AB_SP=\{nr:22,typ:40,ort:72,mangel:98,foto:AB_THUMB\+8,akz:38,frist:50,wer:63,erl:78\}/.test(AB)
+   && (22+40+72+98+54+38+50+63+78) === 515,
+  'die Spaltenbreiten summieren sich weiterhin exakt auf 515 pt');
+ok(/function _abMaengelFertigPruefen[\s\S]{0,900}if\(state\.maengelFertigAm\) return;/.test(AB),
+  'die Fertig-Meldung feuert genau einmal (Stempel am Protokoll)');
+ok(/function _abMaengelFertigPruefen[\s\S]{0,900}uid!==me\.id/.test(AB),
+  'wer den letzten Haken selbst setzt, bekommt keine Meldung');
+ok(/@media print\{[\s\S]{0,200}\.stand-box\{/.test(AB),
+  'der Stand-Block hat eigene Druckregeln');
 
 // ══════════════════════════════════════════════════════════════════
 // Gemeinsame gemockte Cloud + zwei Kontexte
@@ -125,6 +138,17 @@ const USERS = [
 ];
 CLOUD.set('objekte|objekt:obj1', { data:{ id:'obj1', name:'MFH Musterweg 3', bezeichnung:'MFH Musterweg 3', strasse:'Musterweg 3', plz:'8000', ort:'Zürich', status:'aktiv', orgId:'org_p' }, _lm:'2026-09-01T08:00:00Z' });
 
+// Lokale Kopien der beiden PDF-Bibliotheken (npm i --no-save jspdf@2.5.1
+// jspdf-autotable@3.8.2). Fehlen sie, laufen die PDF-Checks nicht — das wird
+// gemeldet statt still übersprungen.
+const VENDOR = {};
+try {
+  VENDOR['jspdf.umd.min.js'] = await readFile(join(ROOT, 'node_modules/jspdf/dist/jspdf.umd.min.js'), 'utf8');
+  VENDOR['jspdf.plugin.autotable.min.js'] = await readFile(join(ROOT, 'node_modules/jspdf-autotable/dist/jspdf.plugin.autotable.min.js'), 'utf8');
+} catch (e) {
+  console.log('  ! jsPDF fehlt lokal — «npm i --no-save jspdf@2.5.1 jspdf-autotable@3.8.2» ausführen; die PDF-Checks schlagen sonst fehl.');
+}
+
 const browser = await chromium.launch({ executablePath: CHROME });
 async function ctxFor(user, extraSeed) {
   const ctx = await browser.newContext();
@@ -133,6 +157,10 @@ async function ctxFor(user, extraSeed) {
     if (u.startsWith(BASE)) return route.continue();
     if (u.indexOf('/rest/v1/') >= 0 || u.indexOf('/sb/') >= 0 || u.indexOf('supabase') >= 0) return handleSb(route);
     if (u.indexOf('/.netlify/functions/') >= 0) return route.fulfill({ contentType:'application/json', body:'{}' });
+    // jsPDF + autoTable lokal aus node_modules bedienen — das PDF wird
+    // wirklich erzeugt, statt den Export-Zweig zu überspringen.
+    const lib = VENDOR[Object.keys(VENDOR).find(k => u.indexOf(k) >= 0)];
+    if (lib) return route.fulfill({ contentType: 'text/javascript', body: lib });
     return route.abort();
   });
   await ctx.addInitScript(s => { for (const [k, v] of Object.entries(s)) localStorage.setItem(k, JSON.stringify(v)); },
@@ -425,6 +453,177 @@ ok(leer.protos >= 1 && leer.items.indexOf('Wichtiger Mangel') >= 0,
 await Pleer.waitForTimeout(1500);
 ok([...CLOUD.keys()].some(k => k.startsWith('abnahme|abproto:')),
   'stattdessen wird der lokale Stand hochgeschrieben', [...CLOUD.keys()]);
+
+// ══════════════════════════════════════════════════════════════════
+// E) Aktueller Stand in Bildschirm, Ausdruck und PDF
+// ══════════════════════════════════════════════════════════════════
+console.log('— E1) Stand-Block auf dem Bildschirm und im Ausdruck —');
+const cE = await ctxFor('u_plan');
+const E = await open(cE, 'planer-stand');
+await E.evaluate(() => {
+  const st = _abState();
+  st.abnahme = st.abnahme || {}; st.abnahme.bauobjekt = 'MFH Musterweg 3';
+  st.items.length = 0;
+  st.items.push(_abCreateItem({ ort: 'Bad EG', mangel: 'Silikonfuge undicht' }));
+  st.items.push(_abCreateItem({ ort: 'Küche', mangel: 'Eckventil tropft' }));
+  st.items.push(_abCreateItem({ ort: 'WC', mangel: 'Spülkasten' }));
+  st.items[0].erledigt = '08.09.2026 / RJ';
+  _abRender();
+});
+await E.waitForTimeout(400);
+// In den Mängel-Tab wechseln — gedruckt wird die sichtbare Ansicht.
+await E.evaluate(() => { try { window.setTab && setTab('maengel'); } catch (e) {} });
+await E.waitForTimeout(300);
+const standOffen = await E.evaluate(() => {
+  const b = document.getElementById('maengelStand');
+  return { txt: b.innerText.replace(/\s+/g, ' ').trim(), fertig: b.classList.contains('fertig') };
+});
+ok(/1 von 3 erledigt/.test(standOffen.txt) && !standOffen.fertig,
+  'der Block nennt den Teilstand «1 von 3 erledigt»', standOffen.txt);
+ok(/2 offen/.test(standOffen.txt), 'offene Punkte werden beziffert, nicht weggelassen', standOffen.txt);
+
+// Im Ausdruck GEMESSEN: der Stand bleibt sichtbar, die Fusszeile geht weg.
+await E.emulateMedia({ media: 'print' });
+await E.waitForTimeout(200);
+const druck = await E.evaluate(() => {
+  const b = document.getElementById('maengelStand');
+  const f = document.querySelector('.footer-bar');
+  return { stand: getComputedStyle(b).display, standH: b.getBoundingClientRect().height,
+           footer: f ? getComputedStyle(f).display : '—',
+           toolbar: getComputedStyle(document.querySelector('.maengel-toolbar')).display };
+});
+ok(druck.stand !== 'none' && druck.standH > 10, 'der Stand-Block steht auch im Ausdruck', druck);
+ok(druck.footer === 'none' && druck.toolbar === 'none', 'Fusszeile und Toolbar bleiben im Ausdruck weg (Regression)', druck);
+await E.emulateMedia({ media: 'screen' });
+
+console.log('— E2) «Fertig» ist erkennbar, sobald alles erledigt ist —');
+const fertigSicht = await E.evaluate(() => {
+  const st = _abState();
+  st.items.forEach(i => { i.erledigt = '09.09.2026 / RJ'; });
+  st.items[0].erledigt = '08.09.2026 / RJ';
+  _abRender();
+  const b = document.getElementById('maengelStand');
+  return { txt: b.innerText.replace(/\s+/g, ' ').trim(), fertig: b.classList.contains('fertig') };
+});
+ok(fertigSicht.fertig && /Fertig/.test(fertigSicht.txt) && /alle 3 Punkte erledigt/.test(fertigSicht.txt),
+  'bei Vollstand steht «Fertig — alle 3 Punkte erledigt»', fertigSicht.txt);
+ok(/09\.09\.2026/.test(fertigSicht.txt), 'die jüngste Erledigung wird als Stand ausgewiesen', fertigSicht.txt);
+
+console.log('— E3) PDF: Deckblatt, Kachel, Status-Spalte —');
+/* Erzeugt das PDF wirklich und liest zurück, was drinsteht:
+   - `tab`  = die an autoTable übergebenen Kopf-/Body-Zeilen
+   - `roh`  = der Byte-Inhalt des fertigen PDFs (Nicht-ASCII auf «.» normiert,
+              damit Umlaute die Suche nicht sprengen)
+   save und autoTable liegen auf jsPDF.API (werden beim Konstruieren auf die
+   Instanz kopiert) — ein Patch am Prototyp greift dort nicht. */
+async function pdfTexte(page) {
+  await page.evaluate(() => {
+    window.__pdfTab = []; window.__pdfSaved = false; window.__pdfRoh = '';
+    const A = window.jspdf.jsPDF.API;
+    if (!A.__gemaPatched) {
+      const oA = A.autoTable;
+      A.save = function () {
+        window.__pdfSaved = true;
+        try {
+          const b = new Uint8Array(this.output('arraybuffer'));
+          let s = ''; for (let i = 0; i < b.length; i++) s += (b[i] > 31 && b[i] < 127) ? String.fromCharCode(b[i]) : '.';
+          window.__pdfRoh = s;
+        } catch (e) { window.__pdfRoh = 'ERR ' + e.message; }
+        return this;
+      };
+      A.autoTable = function (o) { try { window.__pdfTab.push({ head: o.head, body: o.body }); } catch (e) {} return oA.apply(this, arguments); };
+      A.__gemaPatched = true;
+    }
+  });
+  await page.click('#exportPdfSaveBtn');
+  await page.waitForFunction(() => window.__pdfSaved === true, null, { timeout: 30000 }).catch(() => {});
+  return page.evaluate(() => ({ roh: window.__pdfRoh, tab: window.__pdfTab, saved: window.__pdfSaved }));
+}
+const pdfFertig = await pdfTexte(E);
+ok(pdfFertig.saved, 'das PDF wurde erzeugt', pdfFertig.saved);
+ok(/FERTIG - alle 3 M.ngel und Pendenzen erledigt/.test(pdfFertig.roh),
+  'die Fortschritts-Kachel sagt im fertigen PDF ausdrücklich «FERTIG»', (pdfFertig.roh.match(/FERTIG[^)\\]{0,60}/) || [''])[0]);
+ok(/M.ngelstand/.test(pdfFertig.roh) && /Alle 3 Punkte erledigt/.test(pdfFertig.roh),
+  'schon das Deckblatt nennt den Mängelstand', (pdfFertig.roh.match(/Alle 3 Punkte[^)\\]{0,40}/) || [''])[0]);
+const tabF = pdfFertig.tab.find(t => t.head && /Status \/ Erledigt/.test(JSON.stringify(t.head)));
+ok(!!tabF, 'die Mängeltabelle trägt die Spalte «Status / Erledigt»');
+ok(tabF && tabF.body.every(r => /09\.09\.2026|08\.09\.2026/.test(r[8])),
+  'jede Zeile trägt ihr Erledigt-Visum', tabF && tabF.body.map(r => r[8]));
+
+console.log('— E4) PDF bei laufender Behebung: Live-Stand je Punkt —');
+const pdfOffen = await E.evaluate(async () => {
+  const st = _abState();
+  st.items[0].erledigt = '08.09.2026 / RJ';
+  st.items[1].erledigt = ''; st.items[2].erledigt = '';
+  // zwei Punkte an einen Monteur übergeben, einer davon behoben, einer in Arbeit
+  const ml = { id: 'ml_pdf', orgId: 'org_p', objektId: 'obj1', objektName: 'MFH', protoId: _abActiveProtoId(),
+    monteurUserId: 'u_mont', monteurName: 'Max Monteur', monteurFirma: 'Montage GmbH', extern: true,
+    verantwortlich: { userId: 'u_plan', name: 'Peter Planer' }, status: 'offen', erstelltAm: new Date().toISOString(),
+    items: [ { id: 'p1', itemId: st.items[1].id, ort: 'Küche', mangel: 'x', status: 'erledigt', erledigtAm: '2026-09-09T10:00:00Z', fixFotos: [] },
+             { id: 'p2', itemId: st.items[2].id, ort: 'WC', mangel: 'y', status: 'in_arbeit', fixFotos: [] } ] };
+  _abPoolSave('gema_abnahme_ml_pool_v1', 'abml:', ml);
+  _abRender();
+  await new Promise(r => setTimeout(r, 300));
+  return { stand: document.getElementById('maengelStand').innerText.replace(/\s+/g, ' ').trim() };
+});
+ok(/1 von 3 erledigt/.test(pdfOffen.stand) && /Freigabe offen/.test(pdfOffen.stand) && /in Arbeit/.test(pdfOffen.stand),
+  'der Bildschirm-Stand weist «behoben – Freigabe offen» und «in Arbeit» getrennt aus', pdfOffen.stand);
+const pdf2 = await pdfTexte(E);
+const tab2 = pdf2.tab.find(t => t.head && /Status \/ Erledigt/.test(JSON.stringify(t.head)));
+ok(!!tab2 && /behoben - Freigabe offen/.test(tab2.body[1][8]),
+  'im PDF steht beim übergebenen, behobenen Punkt «behoben - Freigabe offen»', tab2 && tab2.body.map(r => r[8]));
+ok(!!tab2 && /in Arbeit/.test(tab2.body[2][8]), 'und beim laufenden Punkt «in Arbeit»', tab2 && tab2.body[2][8]);
+ok(!!tab2 && tab2.body.every(r => String(r[8]).trim().length > 0),
+  'keine Zelle bleibt leer — offen wird als «offen» benannt', tab2 && tab2.body.map(r => r[8]));
+ok(/Fortschritt: 1 \/ 3 erledigt/.test(pdf2.roh) && /davon 1 beim Unternehmer behoben/.test(pdf2.roh),
+  'die Kachel zeigt den Fortschritt samt Live-Stand', (pdf2.roh.match(/Fortschritt[^)\\]{0,40}/) || [''])[0]);
+ok(/1 von 3 erledigt/.test(pdf2.roh), 'auch das Deckblatt trägt den Zwischenstand', (pdf2.roh.match(/\d von 3 erledigt[^)\\]{0,60}/) || [''])[0]);
+
+console.log('— E5) Meldung «alle Pendenzen erledigt» an die verantwortliche Seite —');
+const meldung = await E.evaluate(async () => {
+  window.__n = []; if (!window.GemaNotify) window.GemaNotify = {};
+  window.GemaNotify.push = function (n) { window.__n.push(n); return Promise.resolve(); };
+  const st = _abState();
+  st.maengelFertigAm = '';
+  // Die Liste gehört einem ANDEREN Verantwortlichen — sonst würde nicht gemeldet
+  const ml = (_abPoolRead('gema_abnahme_ml_pool_v1') || []).find(r => r.id === 'ml_pdf');
+  ml.verantwortlich = { userId: 'u_andere', name: 'Andere Planerin' };
+  _abPoolSave('gema_abnahme_ml_pool_v1', 'abml:', ml);
+  st.items.forEach(i => { i.erledigt = '09.09.2026 / RJ'; });
+  _abRender();
+  await new Promise(r => setTimeout(r, 200));
+  const n1 = window.__n.length;
+  _abRender();                                   // zweites Rendern darf NICHT erneut melden
+  await new Promise(r => setTimeout(r, 200));
+  const n2 = window.__n.length;
+  // einen Punkt wieder öffnen und erneut schliessen → wieder EINE Meldung
+  st.items[1].erledigt = ''; _abRender();
+  await new Promise(r => setTimeout(r, 150));
+  const stempelWeg = !_abState().maengelFertigAm;
+  st.items[1].erledigt = '10.09.2026 / RJ'; _abRender();
+  await new Promise(r => setTimeout(r, 200));
+  return { n1, n2, n3: window.__n.length, stempelWeg, letzte: window.__n[window.__n.length - 1] || null };
+});
+ok(meldung.n1 === 1, 'genau EINE Meldung, sobald alle Punkte erledigt sind', meldung.n1);
+ok(meldung.n2 === 1, 'ein weiterer Render meldet nicht erneut', meldung.n2);
+ok(meldung.stempelWeg, 'wird ein Punkt wieder geöffnet, fällt der Stempel weg', meldung.stempelWeg);
+ok(meldung.n3 === 2, 'die erneute Fertigstellung meldet wieder — genau einmal', meldung.n3);
+ok(meldung.letzte && meldung.letzte.empfaengerUserId === 'u_andere' && /Alle Pendenzen erledigt/.test(meldung.letzte.titel || ''),
+  'die Meldung geht an die verantwortliche Person, nicht an den Auslöser', meldung.letzte && meldung.letzte.empfaengerUserId);
+const keineSelbst = await E.evaluate(async () => {
+  window.__n = [];
+  const st = _abState();
+  st.maengelFertigAm = '';
+  const ml = (_abPoolRead('gema_abnahme_ml_pool_v1') || []).find(r => r.id === 'ml_pdf');
+  ml.verantwortlich = { userId: 'u_plan', name: 'Peter Planer' };   // ich selbst
+  _abPoolSave('gema_abnahme_ml_pool_v1', 'abml:', ml);
+  st.items[0].erledigt = ''; _abRender();
+  await new Promise(r => setTimeout(r, 150));
+  st.items[0].erledigt = '10.09.2026 / RJ'; _abRender();
+  await new Promise(r => setTimeout(r, 250));
+  return window.__n.length;
+});
+ok(keineSelbst === 0, 'wer selbst abschliesst, benachrichtigt sich nicht', keineSelbst);
 
 ok(errs.length === 0, 'keine JS-Fehler in beiden Kontexten', errs.slice(0, 3));
 
