@@ -66,8 +66,16 @@ ok(/function abPoolSave[\s\S]{0,900}GemaSync\.setCached\(key,pool\)/.test(AB),
   'Pool-Write läuft über GemaSync.setCached (localStorage + Spiegel + IndexedDB)');
 ok(/NUR LESEND: `it\.erledigt` im Protokoll wird hier NIE gesetzt/.test(AB),
   'die Absicht «kein stiller Rückschrieb» ist am Code dokumentiert');
-ok(/if\(mi\.status!=='erledigt'\) return;\s*\/\/ offen\/zurückgewiesen bleibt offen/.test(AB),
-  'Freigabe übernimmt NUR abgehakte Punkte');
+ok(/function _abMlAkzeptieren[\s\S]{0,900}if\(x\.status!=='erledigt'\) return false;/.test(AB),
+  'gegenbestätigt werden NUR Punkte, die der Abarbeiter als erledigt gemeldet hat');
+ok(/function _abMlPunktAusProtokoll[\s\S]{0,600}p\.beweisMlItem===marke/.test(AB),
+  'eine Rückmeldung nimmt Visum UND die kopierten Beweisfotos exakt wieder zurück');
+ok(/window\.abMlRueckmeldung[\s\S]{0,1400}it\.status='in_arbeit';\s*\/\/ ausdrücklich: wieder in Arbeit/.test(AB),
+  'eine Rückmeldung setzt den Punkt automatisch zurück auf «in Arbeit»');
+ok(/window\.abMlAkzeptierenAuswahl/.test(AB) && /window\.abMlAkzeptierenAlle/.test(AB) && /window\.abMlAkzeptieren=/.test(AB),
+  'einzeln, ausgewählte und alle bestätigen sind je ein eigener Weg');
+ok(/if\(it\.status==='akzeptiert'\)\{ toast\('✓ Bereits vom Planer akzeptiert'\); return; \}/.test(AB),
+  'der Abarbeiter kann einen bestätigten Punkt nicht mehr umstellen');
 ok(/_abAdopting=true;\s*\n\s*try\{ render\(\); \} finally \{ _abAdopting=false; \}/.test(AB),
   'der Render nach dem Cloud-Pull löst keinen Protokoll-Save aus');
 ok(/function scheduleSave[\s\S]{0,400}ab-nur-maengel'\)\) return;/.test(AB),
@@ -95,6 +103,16 @@ ok(/function _abMaengelFertigPruefen[\s\S]{0,900}uid!==me\.id/.test(AB),
   'wer den letzten Haken selbst setzt, bekommt keine Meldung');
 ok(/@media print\{[\s\S]{0,200}\.stand-box\{/.test(AB),
   'der Stand-Block hat eigene Druckregeln');
+ok(/const _mangelFotos = it => \(it\.photos\|\|\[\]\)\.filter\(p=>p && !p\.beweis\)/.test(AB),
+  'der Foto-Anhang zeigt nur Mangel-Aufnahmen — Beweisfotos haben ihren eigenen Nachweis');
+ok(/beweis:true, beweisMlItem:ml\.id\+'\|'\+mi\.id,[\s\S]{0,200}beweisVon:\(ml\.monteurName\|\|''\)/.test(AB),
+  'übernommene Beweisfotos behalten Herkunft, Datum und Kommentar');
+ok(/_abBand\(doc,br,M,yb,'Beweisfotos zur Mängelbehebung'\)/.test(AB),
+  'das PDF hat einen eigenen Abschnitt «Beweisfotos zur Mängelbehebung»');
+ok(/const bwIntro=doc\.splitTextToSize\(/.test(AB),
+  'die Einleitung wird umbrochen statt in den Rand zu laufen');
+ok(/\.mangel-card > \.ab-mlinfo\{display:none\}/.test(AB) && /\.mangel-card\.karte-offen > \.ab-mlinfo\{display:block\}/.test(AB),
+  'der Nachweis hängt an der Karte, nicht im aufklappbaren Detail (sonst fehlt er im Ausdruck)');
 
 // ══════════════════════════════════════════════════════════════════
 // Gemeinsame gemockte Cloud + zwei Kontexte
@@ -145,8 +163,12 @@ const VENDOR = {};
 try {
   VENDOR['jspdf.umd.min.js'] = await readFile(join(ROOT, 'node_modules/jspdf/dist/jspdf.umd.min.js'), 'utf8');
   VENDOR['jspdf.plugin.autotable.min.js'] = await readFile(join(ROOT, 'node_modules/jspdf-autotable/dist/jspdf.plugin.autotable.min.js'), 'utf8');
+  // pdf.js liest das ERZEUGTE PDF wieder aus — nur so lässt sich seitenweise
+  // prüfen, dass keine Überschrift ohne ihr Bild am Seitenende hängt.
+  VENDOR['pdf.worker.min.js'] = await readFile(join(ROOT, 'node_modules/pdfjs-dist/build/pdf.worker.min.js'), 'utf8');
+  VENDOR['pdf.min.js'] = await readFile(join(ROOT, 'node_modules/pdfjs-dist/build/pdf.min.js'), 'utf8');
 } catch (e) {
-  console.log('  ! jsPDF fehlt lokal — «npm i --no-save jspdf@2.5.1 jspdf-autotable@3.8.2» ausführen; die PDF-Checks schlagen sonst fehl.');
+  console.log('  ! PDF-Bibliotheken fehlen lokal — «npm i --no-save jspdf@2.5.1 jspdf-autotable@3.8.2 pdfjs-dist@3.11.174»; die PDF-Checks schlagen sonst fehl.');
 }
 
 const browser = await chromium.launch({ executablePath: CHROME });
@@ -159,7 +181,9 @@ async function ctxFor(user, extraSeed) {
     if (u.indexOf('/.netlify/functions/') >= 0) return route.fulfill({ contentType:'application/json', body:'{}' });
     // jsPDF + autoTable lokal aus node_modules bedienen — das PDF wird
     // wirklich erzeugt, statt den Export-Zweig zu überspringen.
-    const lib = VENDOR[Object.keys(VENDOR).find(k => u.indexOf(k) >= 0)];
+    // Reihenfolge: der längere Schlüssel zuerst, sonst schluckt «pdf.min.js»
+    // die Worker-Anfrage «pdf.worker.min.js» nicht — aber umgekehrt schon.
+    const lib = VENDOR[Object.keys(VENDOR).sort((a, b) => b.length - a.length).find(k => u.indexOf(k) >= 0)];
     if (lib) return route.fulfill({ contentType: 'text/javascript', body: lib });
     return route.abort();
   });
@@ -241,7 +265,9 @@ const teil = await P.evaluate(() => {
     detail: !!c.querySelector('.ab-mlinfo')
   }));
   return { tasks: (host ? host.innerText : '').replace(/\s+/g, ' ').trim(), karten,
-           freiBtn: !!(host && host.querySelector('button[onclick*="abMlFreigeben"]')),
+           akzBtn: (host ? host.querySelectorAll('button[onclick*="abMlAkzeptieren("]').length : 0),
+           alleBtn: (host ? (host.querySelector('button[onclick*="abMlAkzeptierenAlle"]') || {}).textContent || '' : ''),
+           auswahl: (host ? host.querySelectorAll('input[type=checkbox][onchange*="abMlSelToggle"]').length : 0),
            proto: (_abState().items || []).map(i => i.erledigt) };
 });
 ok(/Übergeben/.test(teil.tasks) && /1\/2 erledigt/.test(teil.tasks),
@@ -250,7 +276,12 @@ ok(/Vom Monteur erledigt/.test(teil.karten[0].badges || '') && teil.karten[0].de
   'der abgehakte Punkt trägt im Protokoll den Live-Stand', teil.karten[0]);
 ok(!/Vom Monteur erledigt/.test(teil.karten[1].badges || '') && /Beim Monteur/.test(teil.karten[1].badges || ''),
   'der noch offene Punkt zeigt «Beim Monteur», nicht «erledigt»', teil.karten[1]);
-ok(teil.freiBtn === false, 'der Freigeben-Knopf erscheint erst, wenn alles abgehakt ist', teil.freiBtn);
+/* Feedback 09.09.2026 übersteuert die frühere Regel «Freigeben erst, wenn
+   alles abgehakt ist»: der Planer bestätigt jetzt EINZELNE Punkte, sobald sie
+   gemeldet sind — auf die restlichen muss er nicht warten. */
+ok(teil.akzBtn === 1, 'genau der eine gemeldete Punkt hat einen «Akzeptieren»-Knopf', teil.akzBtn);
+ok(/Alle 1 bestätigen/.test(teil.alleBtn), 'die Sammelaktion nennt die Zahl der bestätigbaren Punkte', teil.alleBtn);
+ok(teil.auswahl === 1, 'nur gemeldete Punkte sind für die Sammelbestätigung markierbar', teil.auswahl);
 
 console.log('— B2b) Drei Status-Knöpfe statt Checkbox —');
 const seg = await M.evaluate(() => {
@@ -329,7 +360,7 @@ P = await open(cP, 'planer2b');
 const arbeitSicht = await P.evaluate(() => ({
   tasks: (document.getElementById('abTasks') || {}).innerText?.replace(/\s+/g, ' ').trim() || '',
   badge: document.querySelector('#items .mangel-status-col')?.innerText.replace(/\s+/g, ' ').trim() || '',
-  freiBtn: !!document.querySelector('#abTasks button[onclick*="abMlFreigeben"]')
+  freiBtn: !!document.querySelector('#abTasks button[onclick*="abMlAkzeptierenAlle"]')
 }));
 ok(/in Arbeit/.test(arbeitSicht.tasks), 'der Planer sieht «in Arbeit» in der Kopfzeile', arbeitSicht.tasks.slice(0, 120));
 ok(/In Arbeit/.test(arbeitSicht.badge), 'der Protokollpunkt zeigt «In Arbeit»', arbeitSicht.badge);
@@ -369,10 +400,11 @@ await M.waitForTimeout(1200);
 await P.close();
 P = await open(cP, 'planer3');
 const voll = await P.evaluate(() => ({
-  tasks: (document.getElementById('abTasks') || {}).innerText?.replace(/\s+/g, ' ').trim() || ''
+  tasks: (document.getElementById('abTasks') || {}).innerText?.replace(/\s+/g, ' ').trim() || '',
+  alleBtn: !!document.querySelector('#abTasks button[onclick*="abMlAkzeptierenAlle"]')
 }));
-ok(/2\/2 erledigt/.test(voll.tasks) && /Freigeben/.test(voll.tasks),
-  'bei Vollstand bietet der Planer die Freigabe an, obwohl der Monteur nicht fertiggemeldet hat', voll.tasks.slice(0, 160));
+ok(/2\/2 erledigt/.test(voll.tasks) && voll.alleBtn,
+  'bei Vollstand bietet der Planer die Gegenbestätigung an, obwohl der Monteur nicht fertiggemeldet hat', voll.tasks.slice(0, 160));
 
 console.log('— B4) Freigeben übernimmt die Punkte ins Protokoll —');
 const frei = await P.evaluate(async () => {
@@ -527,7 +559,7 @@ async function pdfTexte(page) {
         try {
           const b = new Uint8Array(this.output('arraybuffer'));
           let s = ''; for (let i = 0; i < b.length; i++) s += (b[i] > 31 && b[i] < 127) ? String.fromCharCode(b[i]) : '.';
-          window.__pdfRoh = s;
+          window.__pdfRoh = s; window.__pdfRohBytes = b;
         } catch (e) { window.__pdfRoh = 'ERR ' + e.message; }
         return this;
       };
@@ -538,6 +570,31 @@ async function pdfTexte(page) {
   await page.click('#exportPdfSaveBtn');
   await page.waitForFunction(() => window.__pdfSaved === true, null, { timeout: 30000 }).catch(() => {});
   return page.evaluate(() => ({ roh: window.__pdfRoh, tab: window.__pdfTab, saved: window.__pdfSaved }));
+}
+
+// Das zuletzt erzeugte PDF mit pdf.js wieder aufmachen: Text + Bildzahl je
+// Seite. Gemessen statt aus dem Rohstrom geraten.
+async function pdfSeiten(ctx, page) {
+  const bytes = await page.evaluate(() => { const b = []; const r = window.__pdfRohBytes || []; for (let i = 0; i < r.length; i++) b.push(r[i]); return b; });
+  const v = await ctx.newPage();
+  await v.setContent('<body><script src="https://vendor/pdf.min.js"></script></body>');
+  await v.waitForFunction(() => typeof window.pdfjsLib !== 'undefined', null, { timeout: 20000 }).catch(() => {});
+  const out = await v.evaluate(async (roh) => {
+    if (typeof window.pdfjsLib === 'undefined') return null;
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://vendor/pdf.worker.min.js';
+    const pdf = await pdfjsLib.getDocument({ data: Uint8Array.from(roh) }).promise;
+    const res = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const pg = await pdf.getPage(i);
+      const tc = await pg.getTextContent();
+      const ops = await pg.getOperatorList();
+      res.push({ text: tc.items.map(x => x.str).join(' ').replace(/\s+/g, ' '),
+                 bilder: ops.fnArray.filter(f => f === pdfjsLib.OPS.paintImageXObject || f === pdfjsLib.OPS.paintJpegXObject).length });
+    }
+    return res;
+  }, bytes);
+  await v.close();
+  return out;
 }
 const pdfFertig = await pdfTexte(E);
 ok(pdfFertig.saved, 'das PDF wurde erzeugt', pdfFertig.saved);
@@ -570,14 +627,113 @@ ok(/1 von 3 erledigt/.test(pdfOffen.stand) && /Freigabe offen/.test(pdfOffen.sta
   'der Bildschirm-Stand weist «behoben – Freigabe offen» und «in Arbeit» getrennt aus', pdfOffen.stand);
 const pdf2 = await pdfTexte(E);
 const tab2 = pdf2.tab.find(t => t.head && /Status \/ Erledigt/.test(JSON.stringify(t.head)));
-ok(!!tab2 && /behoben - Freigabe offen/.test(tab2.body[1][8]),
-  'im PDF steht beim übergebenen, behobenen Punkt «behoben - Freigabe offen»', tab2 && tab2.body.map(r => r[8]));
+ok(!!tab2 && /behoben - Bestätigung offen/.test(tab2.body[1][8]),
+  'im PDF steht beim übergebenen, behobenen Punkt «behoben - Bestätigung offen»', tab2 && tab2.body.map(r => r[8]));
 ok(!!tab2 && /in Arbeit/.test(tab2.body[2][8]), 'und beim laufenden Punkt «in Arbeit»', tab2 && tab2.body[2][8]);
 ok(!!tab2 && tab2.body.every(r => String(r[8]).trim().length > 0),
   'keine Zelle bleibt leer — offen wird als «offen» benannt', tab2 && tab2.body.map(r => r[8]));
 ok(/Fortschritt: 1 \/ 3 erledigt/.test(pdf2.roh) && /davon 1 beim Unternehmer behoben/.test(pdf2.roh),
   'die Kachel zeigt den Fortschritt samt Live-Stand', (pdf2.roh.match(/Fortschritt[^)\\]{0,40}/) || [''])[0]);
 ok(/1 von 3 erledigt/.test(pdf2.roh), 'auch das Deckblatt trägt den Zwischenstand', (pdf2.roh.match(/\d von 3 erledigt[^)\\]{0,60}/) || [''])[0]);
+
+console.log('— F) Beweisfotos im PDF: Vorher/Nachher, sauberer Umbruch —');
+/* Zwei erkennbare Testbilder je Mängelpunkt (Quer- und Hochformat), damit
+   das PDF wirklich Bilder einbettet und die Rahmen beide Formate fassen. */
+const bild = (w, h, txt, farbe) => 'data:image/svg+xml;base64,' + Buffer.from(
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="100%" height="100%" fill="${farbe}"/><text x="50%" y="50%" font-size="${Math.round(w / 7)}" fill="#fff" text-anchor="middle" font-family="sans-serif">${txt}</text></svg>`).toString('base64');
+const rasterBilder = await E.evaluate(async (liste) => {
+  const out = {};
+  for (const [k, src] of Object.entries(liste)) {
+    out[k] = await new Promise(res => { const i = new Image(); i.onload = () => { const c = document.createElement('canvas'); c.width = i.width; c.height = i.height; c.getContext('2d').drawImage(i, 0, 0); res(c.toDataURL('image/jpeg', 0.8)); }; i.onerror = () => res(''); i.src = src; });
+  }
+  return out;
+}, { m1: bild(1200, 900, 'MANGEL', '#b91c1c'), f1: bild(1200, 900, 'BEHOBEN', '#15803d'),
+     m2: bild(900, 1200, 'MANGEL2', '#b45309'), f2a: bild(900, 1200, 'FIX2A', '#0f766e'), f2b: bild(1200, 900, 'FIX2B', '#1d4ed8') });
+
+await E.evaluate((B) => {
+  const st = _abState();
+  st.maengelFertigAm = '';
+  st.items.forEach(i => { i.erledigt = ''; i.photos = []; });
+  st.items[0].photos = [{ name: 'm1.jpg', dataUrl: B.m1, type: 'image/jpeg' }];
+  st.items[1].photos = [{ name: 'm2.jpg', dataUrl: B.m2, type: 'image/jpeg' }];
+  const ml = { id: 'ml_bw', orgId: 'org_p', objektId: 'obj1', objektName: 'MFH', protoId: _abActiveProtoId(),
+    monteurUserId: 'u_mont', monteurName: 'Max Monteur', monteurFirma: 'Montage GmbH', extern: true,
+    verantwortlich: { userId: 'u_plan', name: 'Peter Planer' }, status: 'offen', erstelltAm: new Date().toISOString(),
+    items: [ { id: 'x1', itemId: st.items[0].id, ort: 'Bad EG', mangel: 'a', status: 'erledigt', erledigtAm: '2026-09-09T10:00:00Z',
+               kommentar: 'Alte Fuge entfernt und neu abgedichtet.', fixFotos: [{ name: 'f1.jpg', dataUrl: B.f1 }] },
+             { id: 'x2', itemId: st.items[1].id, ort: 'Küche', mangel: 'b', status: 'erledigt', erledigtAm: '2026-09-09T11:00:00Z',
+               kommentar: 'Eckventil ersetzt.', fixFotos: [{ name: 'f2a.jpg', dataUrl: B.f2a }, { name: 'f2b.jpg', dataUrl: B.f2b }] },
+             { id: 'x3', itemId: st.items[2].id, ort: 'WC', mangel: 'c', status: 'in_arbeit', fixFotos: [] } ] };
+  _abPoolSave('gema_abnahme_ml_pool_v1', 'abml:', ml);
+  _abRender();
+}, rasterBilder);
+await E.waitForTimeout(500);
+const pdfBw = await pdfTexte(E);
+ok(pdfBw.saved, 'das PDF mit Beweisfotos wurde erzeugt');
+ok(/Beweisfotos zur M.ngelbehebung/.test(pdfBw.roh), 'der Abschnitt «Beweisfotos zur Mängelbehebung» steht im PDF');
+ok(/Vorher - Mangel/.test(pdfBw.roh) && /Nachher - Behebung/.test(pdfBw.roh),
+  'jedes Bild ist als «Vorher - Mangel» bzw. «Nachher - Behebung» beschriftet');
+ok(/Behoben von: Max Monteur/.test(pdfBw.roh) && /am 09\.09\.2026/.test(pdfBw.roh),
+  'der Nachweis nennt die ausführende Person und das Datum');
+ok(/Kommentar: Alte Fuge entfernt/.test(pdfBw.roh), 'der Kommentar des Abarbeiters steht dabei');
+ok(/weitere Beweisfotos/.test(pdfBw.roh), 'ein zweites Beweisfoto bekommt eine beschriftete Folgezeile');
+
+// Seitenweise nachlesen: keine Überschrift ohne ihre Bilder am Seitenende.
+const seiten = await (async () => {
+  const v = await cE.newPage();
+  await v.setContent('<body><script src="https://vendor/pdf.min.js"></script></body>');
+  await v.waitForFunction(() => typeof window.pdfjsLib !== 'undefined', null, { timeout: 20000 }).catch(() => {});
+  const out = await v.evaluate(async (roh) => {
+    if (typeof window.pdfjsLib === 'undefined') return null;
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://vendor/pdf.worker.min.js';
+    const pdf = await pdfjsLib.getDocument({ data: Uint8Array.from(roh) }).promise;
+    const res = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const pg = await pdf.getPage(i);
+      const tc = await pg.getTextContent();
+      const ops = await pg.getOperatorList();
+      const bilder = ops.fnArray.filter(f => f === pdfjsLib.OPS.paintImageXObject || f === pdfjsLib.OPS.paintJpegXObject).length;
+      res.push({ text: tc.items.map(x => x.str).join(' ').replace(/\s+/g, ' '), bilder: bilder });
+    }
+    return res;
+  }, await E.evaluate(() => { const b = []; for (let i = 0; i < window.__pdfRohBytes.length; i++) b.push(window.__pdfRohBytes[i]); return b; }));
+  await v.close();
+  return out;
+})();
+ok(!!seiten, 'das erzeugte PDF liess sich mit pdf.js wieder öffnen');
+if (seiten) {
+  const bwSeiten = seiten.filter(s => /Vorher - Mangel|Nachher - Behebung|weitere Beweisfotos/.test(s.text));
+  ok(bwSeiten.length > 0, 'der Beweis-Abschnitt liegt auf mindestens einer Seite', bwSeiten.length);
+  ok(bwSeiten.every(s => s.bilder > 0),
+    'jede Seite mit einer Beweis-Überschrift trägt auch Bilder — keine verwaiste Überschrift',
+    bwSeiten.map(s => s.bilder));
+  const kopfOhneBild = seiten.filter(s => /Behoben von:/.test(s.text) && s.bilder === 0);
+  ok(kopfOhneBild.length === 0, 'kein Kopfblock ohne die zugehörigen Aufnahmen', kopfOhneBild.length);
+  ok(seiten.every(s => s.bilder <= 6), 'keine Seite wird mit Bildern überladen', seiten.map(s => s.bilder));
+}
+
+// Ausdruck GEMESSEN: bei ZUGEKLAPPTER Karte muss der Nachweis samt Fotos
+// sichtbar sein — auf dem Bildschirm bleibt er es nicht.
+await E.evaluate(() => { document.querySelectorAll('.mangel-card.karte-offen').forEach(c => c.classList.remove('karte-offen')); });
+const nwSchirm = await E.evaluate(() => {
+  const n = document.querySelector('.mangel-card > .ab-mlinfo');
+  return n ? { d: getComputedStyle(n).display, h: n.getBoundingClientRect().height } : null;
+});
+ok(nwSchirm && nwSchirm.d === 'none', 'auf dem Bildschirm bleibt der Nachweis in der zugeklappten Karte verborgen', nwSchirm);
+await E.emulateMedia({ media: 'print' });
+await E.waitForTimeout(200);
+const nwDruck = await E.evaluate(() => {
+  const n = document.querySelector('.mangel-card > .ab-mlinfo');
+  const img = n && n.querySelector('img');
+  const hint = n && n.querySelector('.ab-mlinfo-hint');
+  return { d: n ? getComputedStyle(n).display : '—', h: n ? Math.round(n.getBoundingClientRect().height) : 0,
+           imgB: img ? Math.round(img.getBoundingClientRect().width) : 0,
+           hint: hint ? getComputedStyle(hint).display : '—' };
+});
+ok(nwDruck.d === 'block' && nwDruck.h > 20, 'im Ausdruck steht er trotzdem da', nwDruck);
+ok(nwDruck.imgB >= 100, 'die Beweisfotos sind auf Papier gross genug, um etwas zu erkennen', nwDruck.imgB);
+ok(nwDruck.hint === 'none', 'der Bedien-Hinweis wandert nicht mit aufs Papier', nwDruck.hint);
+await E.emulateMedia({ media: 'screen' });
 
 console.log('— E5) Meldung «alle Pendenzen erledigt» an die verantwortliche Seite —');
 const meldung = await E.evaluate(async () => {
@@ -624,6 +780,333 @@ const keineSelbst = await E.evaluate(async () => {
   return window.__n.length;
 });
 ok(keineSelbst === 0, 'wer selbst abschliesst, benachrichtigt sich nicht', keineSelbst);
+
+// ══════════════════════════════════════════════════════════════════
+// G) Gegenbestätigung des Planers (einzeln / mehrere / alle) + Rückmeldung
+// ══════════════════════════════════════════════════════════════════
+console.log('— G) Gegenbestätigung und Rückmeldung —');
+CLOUD.clear();
+const cG = await ctxFor('u_plan');
+const G = await open(cG, 'planer-gb');
+const gAufbau = await G.evaluate(async () => {
+  const st = _abState();
+  st.abnahme = st.abnahme || {}; st.abnahme.bauobjekt = 'MFH Musterweg 3';
+  st.maengelFertigAm = '';
+  st.items.length = 0;
+  ['Bad EG|Fuge', 'Küche|Ventil', 'WC|Spülkasten'].forEach(s => { const [o, m] = s.split('|'); st.items.push(_abCreateItem({ ort: o, mangel: m })); });
+  const ml = { id: 'ml_gb', orgId: 'org_p', objektId: 'obj1', objektName: 'MFH Musterweg 3', protoId: _abActiveProtoId(),
+    monteurUserId: 'u_mont', monteurName: 'Max Monteur', monteurFirma: 'Montage GmbH', extern: true, monteurEmail: 'mont@m.ch',
+    verantwortlich: { userId: 'u_plan', name: 'Peter Planer' }, status: 'offen', erstelltAm: new Date().toISOString(),
+    items: st.items.map((it, i) => ({ id: 'g' + i, itemId: it.id, ort: it.ort, mangel: it.mangel, status: 'erledigt',
+      erledigtAm: '2026-09-09T10:0' + i + ':00Z', kommentar: 'behoben ' + i,
+      fixFotos: [{ name: 'b' + i + '.jpg', dataUrl: 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AVN//2Q==' }] })) };
+  _abPoolSave('gema_abnahme_ml_pool_v1', 'abml:', ml);
+  _abRender();
+  await new Promise(r => setTimeout(r, 300));
+  window.__n = []; if (!window.GemaNotify) window.GemaNotify = {};
+  window.GemaNotify.push = function (n) { window.__n.push(n); return Promise.resolve(); };
+  return { items: ml.items.length };
+});
+ok(gAufbau.items === 3, 'drei gemeldete Punkte zur Gegenbestätigung', gAufbau.items);
+
+// Ohne die Bedienung sind G1-G5 gegenstandslos: die Gegenprobe soll sie sauber
+// als rot melden statt an einem 'is not a function' abzustuerzen.
+const gFehlt = await G.evaluate(() => ['abMlAkzeptieren', 'abMlAkzeptierenAuswahl', 'abMlAkzeptierenAlle',
+  'abMlRueckmeldung', 'abMlSelToggle'].filter(n => typeof window[n] !== 'function'));
+ok(gFehlt.length === 0, 'die Gegenbestätigung ist überhaupt bedienbar', gFehlt);
+if (gFehlt.length) { ok(false, 'G1-G5 übersprungen — ohne Gegenbestätigung nicht prüfbar'); }
+else {
+
+console.log('  G1) einen einzelnen Punkt bestätigen');
+const g1 = await G.evaluate(async () => {
+  const ml0 = _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_gb');
+  window.abMlAkzeptieren('ml_gb', ml0.items[0].id);
+  await new Promise(r => setTimeout(r, 400));
+  const ml = _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_gb');
+  const st = _abState();
+  return { stati: ml.items.map(i => i.status), mlStatus: ml.status,
+           visum: st.items[0].erledigt, fotos: (st.items[0].photos || []).filter(p => p.beweis).length,
+           andere: st.items[1].erledigt, notif: window.__n.length };
+});
+ok(g1.stati.join(',') === 'akzeptiert,erledigt,erledigt', 'nur der gewählte Punkt ist bestätigt', g1.stati);
+ok(g1.visum && /Max Monteur/.test(g1.visum), 'der bestätigte Punkt trägt sein Visum im Protokoll', g1.visum);
+ok(g1.fotos === 1, 'das Beweisfoto ist ins Protokoll übernommen', g1.fotos);
+ok(!g1.andere, 'die übrigen Punkte bleiben unangetastet', g1.andere);
+ok(g1.mlStatus === 'offen', 'die Liste bleibt offen, solange nicht alles bestätigt ist', g1.mlStatus);
+ok(g1.notif === 1, 'der Abarbeiter wird über die Bestätigung informiert', g1.notif);
+
+console.log('  G2) Rückmeldung nimmt die Bestätigung zurück und öffnet den Punkt');
+const g2 = await G.evaluate(async () => {
+  window.GemaDialog.prompt = () => Promise.resolve('Fuge weiterhin undicht');
+  const ml0 = _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_gb');
+  window.abMlRueckmeldung('ml_gb', ml0.items[0].id);
+  await new Promise(r => setTimeout(r, 500));
+  const ml = _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_gb');
+  const st = _abState();
+  return { status: ml.items[0].status, komm: ml.items[0].kommentarVerantwortlicher,
+           visum: st.items[0].erledigt, fotos: (st.items[0].photos || []).filter(p => p.beweis).length,
+           erlAm: ml.items[0].erledigtAm, letzte: window.__n[window.__n.length - 1] || null };
+});
+ok(g2.status === 'in_arbeit', 'der Punkt steht automatisch wieder «in Arbeit»', g2.status);
+ok(g2.komm === 'Fuge weiterhin undicht', 'die Begründung hängt am Punkt', g2.komm);
+ok(!g2.visum, 'das Visum im Protokoll ist wieder weg', g2.visum);
+ok(g2.fotos === 0, 'auch die übernommenen Beweisfotos sind wieder entfernt', g2.fotos);
+ok(!g2.erlAm, 'der Erledigt-Stempel des Abarbeiters ist zurückgesetzt', g2.erlAm);
+ok(g2.letzte && g2.letzte.empfaengerUserId === 'u_mont' && /Rückmeldung/.test(g2.letzte.titel || ''),
+  'der Abarbeiter bekommt die Rückmeldung als Meldung', g2.letzte && g2.letzte.titel);
+
+console.log('  G3) mehrere auf einmal bestätigen');
+const g3 = await G.evaluate(async () => {
+  window.GemaDialog.confirm = () => Promise.resolve(true);
+  const ml0 = _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_gb');
+  window.abMlSelToggle('ml_gb', ml0.items[1].id, true);
+  window.abMlSelToggle('ml_gb', ml0.items[2].id, true);
+  await new Promise(r => setTimeout(r, 200));
+  const nSel = _abMlSelN('ml_gb');
+  window.abMlAkzeptierenAuswahl('ml_gb');
+  await new Promise(r => setTimeout(r, 500));
+  const ml = _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_gb');
+  const st = _abState();
+  return { nSel, stati: ml.items.map(i => i.status), mlStatus: ml.status,
+           proto: st.items.map(i => !!(i.erledigt || '').trim()), selDanach: _abMlSelN('ml_gb') };
+});
+ok(g3.nSel === 2, 'zwei Punkte ausgewählt', g3.nSel);
+ok(g3.stati.join(',') === 'in_arbeit,akzeptiert,akzeptiert', 'beide ausgewählten Punkte sind bestätigt', g3.stati);
+ok(g3.proto.join(',') === 'false,true,true', 'genau sie stehen im Protokoll', g3.proto);
+ok(g3.mlStatus === 'offen', 'die Liste bleibt offen — ein Punkt ist ja wieder in Arbeit', g3.mlStatus);
+ok(g3.selDanach === 0, 'die Auswahl ist nach der Bestätigung wieder leer', g3.selDanach);
+
+console.log('  G4) der Abarbeiter sieht Bestätigung und Rückmeldung');
+await G.waitForTimeout(1200);
+const cGM = await ctxFor('u_mont');
+const GM = await open(cGM, 'monteur-gb');
+const g4 = await GM.evaluate(() => {
+  const host = document.getElementById('abTasks');
+  const txt = host.innerText.replace(/\s+/g, ' ');
+  return { txt: txt,
+           rueck: !!host.querySelector('.ml-rueck'),
+           best: host.querySelectorAll('.ml-best').length,
+           segs: host.querySelectorAll('.ml-seg').length };
+});
+ok(g4.rueck && /Fuge weiterhin undicht/.test(g4.txt),
+  'die Rückmeldung des Planers steht beim Abarbeiter am Punkt', g4.txt.slice(0, 160));
+ok(/wieder in Arbeit/.test(g4.txt), 'mit dem Hinweis, dass der Punkt wieder in Arbeit ist');
+ok(g4.best === 2 && g4.segs === 1,
+  'bestätigte Punkte zeigen «Vom Planer bestätigt» statt der Schalter', { best: g4.best, segs: g4.segs });
+const g4b = await GM.evaluate(async () => {
+  const ml = _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_gb');
+  window.abMlItemStatus('ml_gb', ml.items[1].id, 'offen');      // bestätigten Punkt umstellen
+  await new Promise(r => setTimeout(r, 250));
+  return _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_gb').items[1].status;
+});
+ok(g4b === 'akzeptiert', 'ein bestätigter Punkt lässt sich vom Abarbeiter nicht mehr umstellen', g4b);
+
+console.log('  G5) alles bestätigt → Liste abgeschlossen');
+const g5 = await G.evaluate(async () => {
+  const ml0 = _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_gb');
+  window.abMlItemStatus('ml_gb', ml0.items[0].id, 'erledigt');   // Nacharbeit gemeldet
+  await new Promise(r => setTimeout(r, 250));
+  window.GemaDialog.confirm = () => Promise.resolve(true);
+  window.abMlAkzeptierenAlle('ml_gb');
+  await new Promise(r => setTimeout(r, 500));
+  const ml = _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_gb');
+  const st = _abState();
+  return { mlStatus: ml.status, stati: ml.items.map(i => i.status),
+           proto: st.items.every(i => (i.erledigt || '').trim().length > 0),
+           komm: ml.items[0].kommentarVerantwortlicher, freigegebenVon: ml.freigegebenVon };
+});
+ok(g5.stati.every(s => s === 'akzeptiert'), 'alle Punkte sind bestätigt', g5.stati);
+ok(g5.mlStatus === 'freigegeben', 'die Liste schliesst sich automatisch', g5.mlStatus);
+ok(g5.proto, 'alle Punkte stehen im Protokoll');
+ok(!g5.komm, 'die erledigte Rückmeldung wird beim Bestätigen aufgeräumt', g5.komm);
+ok(!!g5.freigegebenVon, 'die freigebende Person ist festgehalten', g5.freigegebenVon);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// H) Ein unbrauchbares Beweisfoto (verwackelt) einzeln entfernen
+// ══════════════════════════════════════════════════════════════════
+console.log('— H) Beweisfoto löschen —');
+CLOUD.clear();
+const cH = await ctxFor('u_plan');
+const H = await open(cH, 'planer-fotodel');
+const JPG = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AVN//2Q==';
+const hAufbau = await H.evaluate(async (jpg) => {
+  const st = _abState();
+  st.abnahme = st.abnahme || {}; st.abnahme.bauobjekt = 'MFH Musterweg 3';
+  st.maengelFertigAm = ''; st.items.length = 0;
+  const it = _abCreateItem({ ort: 'Bad EG', mangel: 'Fuge' });
+  it.photos = [{ name: 'mangel.jpg', dataUrl: jpg }];   // Aufnahme des Planers
+  st.items.push(it);
+  const ml = { id: 'ml_fd', orgId: 'org_p', objektId: 'obj1', objektName: 'MFH Musterweg 3', protoId: _abActiveProtoId(),
+    monteurUserId: 'u_mont', monteurName: 'Max Monteur', monteurFirma: 'Montage GmbH', extern: true, monteurEmail: 'mont@m.ch',
+    verantwortlich: { userId: 'u_plan', name: 'Peter Planer' }, status: 'offen', erstelltAm: new Date().toISOString(),
+    items: [{ id: 'f1', itemId: it.id, ort: it.ort, mangel: it.mangel, status: 'erledigt',
+      erledigtAm: '2026-09-09T10:00:00Z', kommentar: 'behoben',
+      fotos: [{ name: 'mangel.jpg', dataUrl: jpg }],
+      fixFotos: [{ name: 'scharf.jpg', dataUrl: jpg + '#a' }, { name: 'verwackelt.jpg', dataUrl: jpg + '#b' }] }] };
+  _abPoolSave('gema_abnahme_ml_pool_v1', 'abml:', ml);
+  _abRender();
+  await new Promise(r => setTimeout(r, 300));
+  return { fix: ml.items[0].fixFotos.length };
+}, JPG);
+ok(hAufbau.fix === 2, 'ein erledigter Punkt mit zwei Beweisfotos', hAufbau.fix);
+
+console.log('  H0) Statik: kein nativer Dialog beim Foto-Löschen, Protokoll schlägt die Liste');
+const src = AB;   // Quelle wurde oben schon gelesen
+const delFn = src.slice(src.indexOf('window.deletePhoto'), src.indexOf('window.deletePhoto') + 900);
+ok(!/[^.\w]confirm\(/.test(delFn), 'das Foto-Löschen im Protokoll fragt nicht mehr nativ nach');
+ok(/GemaDialog\.confirm\(\{title:'Foto löschen'/.test(delFn), 'sondern über GemaDialog mit eigenem Titel');
+ok(/danger:true/.test(delFn), 'Löschen ist als solches gekennzeichnet');
+
+// Ohne die Bedienung sind H1-H5 gegenstandslos: die Gegenprobe soll sie sauber
+// als rot melden statt an einem 'is not a function' abzustuerzen.
+const hFehlt = await H.evaluate(() => typeof window.abMlFotoLoeschen !== 'function');
+ok(!hFehlt, 'ein Beweisfoto lässt sich überhaupt einzeln entfernen');
+if (hFehlt) { ok(false, 'H1-H5 übersprungen — ohne Löschweg nicht prüfbar'); }
+else {
+
+console.log('  H1) der Abarbeiter verwirft sein unscharfes Bild');
+const cHM = await ctxFor('u_mont');
+const HM = await open(cHM, 'monteur-fotodel');
+const h1 = await HM.evaluate(async () => {
+  window.GemaDialog.confirm = () => Promise.resolve(true);
+  const host = document.getElementById('abTasks');
+  // Zählt NUR die Löschknöpfe an den Beweisfotos — die Mangel-Aufnahme
+  // des Planers darf hier keinen bekommen.
+  const knoepfe = host.querySelectorAll('.ml-foto-del').length;
+  const bilder = host.querySelectorAll('.ml-fotos img').length;
+  window.abMlFotoLoeschen('ml_fd', 'f1', 1);          // das verwackelte
+  await new Promise(r => setTimeout(r, 400));
+  const ml = _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_fd');
+  return { knoepfe, bilder, namen: ml.items[0].fixFotos.map(f => f.name),
+           danach: document.getElementById('abTasks').querySelectorAll('.ml-foto-del').length };
+});
+ok(h1.knoepfe === 2, 'genau die zwei eigenen Beweisfotos tragen ein ✕', h1.knoepfe);
+ok(h1.bilder === 3, 'die Mangel-Aufnahme des Planers steht daneben — ohne ✕', h1.bilder);
+ok(h1.namen.join(',') === 'scharf.jpg', 'nur das gewählte Bild ist weg', h1.namen);
+ok(h1.danach === 1, 'die Ansicht zeigt danach noch ein löschbares Bild', h1.danach);
+
+console.log('  H2) nach der Gegenbestätigung ist das Bild für ihn gesperrt');
+// Frische Seite: sie zieht den Stand des Monteurs (ein Bild weniger) aus der
+// gemockten Cloud, bevor der Planer gegenbestätigt.
+await HM.waitForTimeout(1200);
+const H2 = await open(cH, 'planer-fotodel-2');
+const h2 = await H2.evaluate(async () => {
+  window.GemaDialog.confirm = () => Promise.resolve(true);
+  const vorher = (_abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_fd').items[0].fixFotos || []).length;
+  window.abMlAkzeptieren('ml_fd', 'f1');
+  await new Promise(r => setTimeout(r, 600));
+  const st = _abState();
+  return { vorher, proto: (st.items[0].photos || []).filter(p => p.beweis).length,
+           gesamt: (st.items[0].photos || []).length };
+});
+ok(h2.vorher === 1, 'der Planer sieht den bereinigten Nachweis', h2.vorher);
+ok(h2.proto === 1, 'das verbliebene Beweisfoto steht im Protokoll', h2.proto);
+ok(h2.gesamt === 2, 'die Mangel-Aufnahme bleibt daneben bestehen', h2.gesamt);
+
+await H2.waitForTimeout(1200);
+const HM2 = await open(cHM, 'monteur-fotodel-2');
+const h2b = await HM2.evaluate(async () => {
+  window.GemaDialog.confirm = () => Promise.resolve(true);
+  const knoepfe = document.getElementById('abTasks').querySelectorAll('.ml-foto-del').length;
+  window.abMlFotoLoeschen('ml_fd', 'f1', 0);          // Versuch trotz Sperre
+  await new Promise(r => setTimeout(r, 500));
+  const ml = _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_fd');
+  return { knoepfe, fix: (ml.items[0].fixFotos || []).length };
+});
+ok(h2b.knoepfe === 0, 'am bestätigten Punkt bietet der Abarbeiter kein ✕ mehr an', h2b.knoepfe);
+ok(h2b.fix === 1, 'und ein direkter Aufruf ändert nichts', h2b.fix);
+
+console.log('  H3) die verantwortliche Seite räumt auch die Protokoll-Kopie mit weg');
+const h3 = await H2.evaluate(async () => {
+  window.GemaDialog.confirm = () => Promise.resolve(true);
+  window.abMlFotoLoeschen('ml_fd', 'f1', 0);
+  await new Promise(r => setTimeout(r, 700));
+  const ml = _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_fd');
+  const st = _abState();
+  return { fix: (ml.items[0].fixFotos || []).length,
+           beweis: (st.items[0].photos || []).filter(p => p.beweis).length,
+           mangel: (st.items[0].photos || []).filter(p => !p.beweis).length,
+           visum: !!(st.items[0].erledigt || '').trim() };
+});
+ok(h3.fix === 0, 'der Nachweis ist leer', h3.fix);
+ok(h3.beweis === 0, 'die Kopie im Protokoll ist mitgegangen — nicht im PDF stehengeblieben', h3.beweis);
+ok(h3.mangel === 1, 'die Mangel-Aufnahme des Planers ist unangetastet', h3.mangel);
+ok(h3.visum, 'das Visum der Gegenbestätigung bleibt bestehen', h3.visum);
+
+console.log('  H4) Statik: kein nativer Dialog, ✕ nicht auf dem Papier');
+// Sichtbarkeit MESSEN statt am Markup ablesen — auch fürs Papier.
+const hDruck = await H2.evaluate(async () => {
+  const w = document.createElement('span'); w.className = 'ml-foto';
+  const b = document.createElement('button'); b.className = 'ml-foto-del';
+  w.appendChild(b); document.body.appendChild(w);
+  return getComputedStyle(b).display;
+});
+ok(hDruck !== 'none', 'auf dem Bildschirm ist das ✕ da', hDruck);
+await H2.emulateMedia({ media: 'print' });
+const hDruck2 = await H2.evaluate(() => getComputedStyle(document.querySelector('.ml-foto .ml-foto-del')).display);
+await H2.emulateMedia({ media: 'screen' });
+ok(hDruck2 === 'none', 'im Ausdruck fällt es gemessen weg', hDruck2);
+
+}
+
+console.log('  H5) der Weg des Planers: Protokoll-Foto weg = auch im PDF weg');
+CLOUD.clear();
+const cH5 = await ctxFor('u_plan');
+const H5 = await open(cH5, 'planer-pdfdel');
+// Ein echtes, dekodierbares JPEG — ein Platzhalter kommt im PDF gar nicht an,
+// dann waere die Messung gegenstandslos (Muster wie in Abschnitt F).
+const h5Bild = await H5.evaluate(async (svg) => await new Promise(res => {
+  const i2 = new Image();
+  i2.onload = () => { const c = document.createElement('canvas'); c.width = i2.width; c.height = i2.height;
+    c.getContext('2d').drawImage(i2, 0, 0); res(c.toDataURL('image/jpeg', 0.8)); };
+  i2.onerror = () => res('');
+  i2.src = svg;
+}), 'data:image/svg+xml;base64,' + Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600"><rect width="100%" height="100%" fill="#15803d"/></svg>').toString('base64'));
+ok(!!h5Bild, 'Testbild für den PDF-Vergleich erzeugt');
+const h5auf = await H5.evaluate(async (jpg) => {
+  window.GemaDialog.confirm = () => Promise.resolve(true);
+  const st = _abState();
+  st.abnahme = st.abnahme || {}; st.abnahme.bauobjekt = 'MFH Musterweg 3';
+  st.maengelFertigAm = ''; st.items.length = 0;
+  ['Bad EG|Fuge', 'Küche|Ventil'].forEach(x => { const [o, m] = x.split('|'); st.items.push(_abCreateItem({ ort: o, mangel: m })); });
+  const ml = { id: 'ml_pd', orgId: 'org_p', objektId: 'obj1', objektName: 'MFH Musterweg 3', protoId: _abActiveProtoId(),
+    monteurUserId: 'u_mont', monteurName: 'Max Monteur', monteurFirma: 'Montage GmbH', extern: true,
+    verantwortlich: { userId: 'u_plan', name: 'Peter Planer' }, status: 'offen', erstelltAm: new Date().toISOString(),
+    items: st.items.map((it, i) => ({ id: 'p' + i, itemId: it.id, ort: it.ort, mangel: it.mangel, status: 'erledigt',
+      erledigtAm: '2026-09-09T10:0' + i + ':00Z', kommentar: 'behoben ' + i,
+      fixFotos: [{ name: 'b' + i + '.jpg', dataUrl: jpg }] })) };
+  _abPoolSave('gema_abnahme_ml_pool_v1', 'abml:', ml);
+  // Nur den ERSTEN Punkt gegenbestätigen: die Liste bleibt offen, damit die
+  // laufende Liste und das Protokoll gleichzeitig Quellen wären.
+  window.abMlAkzeptieren('ml_pd', 'p0');
+  await new Promise(r => setTimeout(r, 600));
+  return { beweis: (_abState().items[0].photos || []).filter(p => p.beweis).length,
+           offenNoch: _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_pd').status };
+}, h5Bild);
+ok(h5auf.beweis === 1, 'der bestätigte Punkt trägt sein Beweisfoto im Protokoll', h5auf.beweis);
+ok(h5auf.offenNoch === 'offen', 'die Liste ist noch offen — beide Quellen wären aktiv', h5auf.offenNoch);
+
+await pdfTexte(H5);
+const h5a = await pdfSeiten(cH5, H5);
+ok(!!h5a, 'das PDF mit dem bestätigten Beweisfoto liess sich lesen');
+const bwA = (h5a || []).reduce((n, s2) => n + s2.bilder, 0);
+const h5del = await H5.evaluate(async () => {
+  window.GemaDialog.confirm = () => Promise.resolve(true);
+  const st = _abState();
+  const pi = (st.items[0].photos || []).findIndex(p => p && p.beweis);
+  window.deletePhoto(st.items[0].id, pi);
+  await new Promise(r => setTimeout(r, 400));
+  return { rest: (_abState().items[0].photos || []).filter(p => p.beweis).length };
+});
+ok(h5del.rest === 0, 'der Planer entfernt das Bild im Protokoll', h5del.rest);
+await pdfTexte(H5);
+const h5s = await pdfSeiten(cH5, H5);
+const bwB = (h5s || []).reduce((n, s2) => n + s2.bilder, 0);
+ok(bwB < bwA, 'im PDF ist es danach wirklich weg — die laufende Liste holt es nicht zurück',
+   { vorher: bwA, nachher: bwB });
+ok((h5s || []).some(s2 => /Beweisfotos zur M.ngelbehebung|Nachher - Behebung/.test(s2.text)),
+   'der Nachweis-Abschnitt bleibt für den zweiten Punkt bestehen');
 
 ok(errs.length === 0, 'keine JS-Fehler in beiden Kontexten', errs.slice(0, 3));
 

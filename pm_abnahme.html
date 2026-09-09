@@ -303,17 +303,49 @@ body.ab-nur-maengel #view_maengel button{pointer-events:none !important}
 .ml-seg button.on-arbeit{background:var(--amb,#d97706);color:#fff}
 .ml-seg button.on-erledigt{background:var(--grn);color:#fff}
 /* Rechte Spalte einer Mängelzeile: Status-Schalter oben, Foto-Aktionen darunter. */
+/* Sammelbestätigung im Kontroll-Panel */
+.ml-bestleiste{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 11px;margin-bottom:10px;border:1.5px solid var(--brd2);border-radius:10px;background:var(--bg2)}
+.ml-selall{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;color:var(--txt2);cursor:pointer;margin-right:auto}
+.ml-selall input{width:19px;height:19px;cursor:pointer}
+.ml-bestleiste .act-btn[disabled]{opacity:.45;cursor:not-allowed}
+.act-btn.ok{background:var(--grn-bg);color:var(--grn);border-color:var(--grn-bd)}
+.ml-best{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 14px;border-radius:10px;border:1.5px solid var(--grn-bd);background:var(--grn-bg);color:var(--grn);font-size:12.5px;font-weight:800;white-space:nowrap;min-height:38px}
+/* Rückmeldung des Planers beim Abarbeiter — die auffälligste Zeile der Karte. */
+.ml-rueck{margin-top:7px;padding:9px 11px;border:1.5px solid #fecaca;background:#fef2f2;border-radius:9px;font-size:12.5px;color:#991b1b;line-height:1.5}
+.ml-rueck b{color:#b91c1c}
 .ml-actcol{display:flex;flex-direction:column;gap:7px;align-items:flex-end;flex:0 1 auto;min-width:0}
 .ml-actcol .ml-fotos{display:flex;gap:5px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+/* Beweisfoto einzeln verwerfen (verwackelt, falscher Ausschnitt): das ✕ liegt
+   auf dem Daumennagel, im Ausdruck ist es weg. */
+.ml-foto{position:relative;display:inline-block;flex-shrink:0;line-height:0}
+.ml-foto-del{position:absolute;top:-5px;right:-5px;width:19px;height:19px;padding:0;border-radius:50%;border:1.5px solid #fff;background:rgba(15,23,42,.78);color:#fff;font-size:10px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.ml-foto-del:hover{background:#dc2626}
+@media print{ .ml-foto-del{display:none!important} }
 @media(max-width:640px){
   /* Auf dem Phone volle Breite — drei Daumenflächen nebeneinander. */
   .ml-actcol{flex:1 1 100%;align-items:stretch}
   .ml-seg{width:100%}
   .ml-seg button{flex:1;min-height:44px;padding:8px 4px;font-size:12px}
 }
-.ab-mlinfo{margin-top:10px;padding:10px 12px;border:1.5px solid #bfdbfe;background:#f8fbff;border-radius:10px;font-size:12.5px;line-height:1.5}
+/* Der Behebungs-Nachweis hängt direkt an der Karte (nicht im aufklappbaren
+   Detail): auf dem Bildschirm zeigt ihn die geöffnete Karte, im AUSDRUCK
+   steht er immer — sonst fehlten die Beweisfotos auf dem Papier komplett. */
+.ab-mlinfo{margin:10px 16px 0;padding:10px 12px;border:1.5px solid #bfdbfe;background:#f8fbff;border-radius:10px;font-size:12.5px;line-height:1.5}
+.mangel-card > .ab-mlinfo{display:none}
+.mangel-card.karte-offen > .ab-mlinfo{display:block}
 .ab-mlinfo-hd{font-weight:800;color:#1d4ed8;margin-bottom:3px}
 .ab-mlinfo img{width:52px;height:52px;object-fit:cover;border-radius:7px;border:1px solid var(--brd2);cursor:zoom-in}
+.ab-mlinfo-hint{color:var(--mut);margin-top:5px}
+/* NACH den Basisregeln — eine gleich spezifische Regel weiter oben würde
+   von der späteren Basisregel wieder überschrieben. */
+@media print{
+  .mangel-card > .ab-mlinfo{display:block;break-inside:avoid}
+  /* Auf Papier grösser: die Beweisfotos sollen erkennen lassen, WAS gemacht
+     wurde — als 52-px-Kachel ist das nicht möglich. */
+  .ab-mlinfo img{width:120px;height:120px}
+  /* Bedien-Hinweis ist Bildschirm-Führung, nicht Dokumentation. */
+  .ab-mlinfo-hint{display:none}
+}
 
 /* mangel detail */
 .mangel-detail{border-top:1.5px dashed var(--brd2);background:var(--bg2);padding:14px 16px;display:none}
@@ -1346,7 +1378,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       const isOpen=openItemId===it.id;
 
       const card=document.createElement('div');
-      card.className='mangel-card '+(done?'done':'open-card');
+      card.className='mangel-card '+(done?'done':'open-card')+(isOpen?' karte-offen':'');
       card.dataset.id=it.id;
 
       // Fotos RECHTS in der Schnellaktionen-Spalte: grösser, 2-spaltig,
@@ -1375,7 +1407,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
           ${mlSt.kommentar?`<div>💬 ${esc(mlSt.kommentar)}</div>`:''}
           ${mlSt.kommentarVerantwortlicher?`<div style="color:#b91c1c">↩ ${esc(mlSt.kommentarVerantwortlicher)}</div>`:''}
           ${mlSt.fixFotos.length?`<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">${mlSt.fixFotos.map(f=>{const src=_abFotoSrc(f);return src?`<img src="${esc(src)}" alt="Beweisfoto" onclick="openLightbox(this.src);event.stopPropagation()"/>`:'';}).join('')}</div>`:''}
-          <div style="color:var(--mut);margin-top:5px">Das Protokoll wird erst beim Freigeben aktualisiert — unten unter «Aufgaben».</div>
+          <div class="ab-mlinfo-hint">Das Protokoll wird erst beim Freigeben aktualisiert — unten unter «Aufgaben».</div>
         </div>` : '';
 
       card.innerHTML=`
@@ -1392,6 +1424,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
             ${it.erledigungBis?`<span class="status-badge sb-mut" style="font-size:11px">bis ${esc(it.erledigungBis)}</span>`:''}
           </div>
         </div>
+        ${mlInfo}
         <div class="mangel-detail ${isOpen?'open':''}">
           <div class="detail-grid">
             <div class="card" style="padding:14px;background:var(--sur)">
@@ -1428,7 +1461,6 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
                 <button class="act-btn" data-action="insertBelow">+ Zeile</button>
                 <button class="act-btn danger" data-action="delete">🗑 Löschen</button>
               </div>
-              ${mlInfo}
             </div>
             <div class="card" style="padding:14px;background:var(--sur)">
               <div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--mut);margin-bottom:12px">Fotos</div>
@@ -1567,9 +1599,17 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
 
   // ── DELETE PHOTO ──
   window.deletePhoto = (itemId, pi) => {
-    if(!confirm('Foto löschen?'))return;
-    const it=state.items.find(x=>x.id===itemId);
-    if(it){ it.photos.splice(pi,1); render(); }
+    const it0=state.items.find(x=>x.id===itemId);
+    const ph=it0&&(it0.photos||[])[pi];
+    if(!ph){ toast('⚠ Foto nicht gefunden — Ansicht ist veraltet'); render(); return; }
+    GemaDialog.confirm({title:'Foto löschen',
+      message:ph.beweis?'Das Beweisfoto wird aus dem Protokoll entfernt. Beim Abarbeiter bleibt es als Nachweis bestehen.':'Foto wirklich entfernen?',
+      confirmLabel:'Löschen',danger:true}).then(function(ok){
+      if(!ok)return;
+      const it=state.items.find(x=>x.id===itemId);
+      if(!it||!(it.photos||[])[pi])return;
+      it.photos.splice(pi,1); render(); persistAll();
+    });
   };
 
   // ── LIGHTBOX ──
@@ -3863,8 +3903,13 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       // und Mängelliste). Nur so stehen die beiden Foto-Slots über die volle
       // Seitenhöhe zur Verfügung; an einer halb gefüllten Seite angehängt
       // blieben je Slot wenige Zentimeter und die Fotos würden Briefmarken.
+      /* Mangel-Aufnahmen vs. Beweisfotos: die Behebungs-Nachweise stehen in
+         einem eigenen Abschnitt (mit Vorher/Nachher, Monteur und Datum) —
+         hier würden sie sonst anonym zwischen den Mangel-Bildern liegen und
+         niemand sähe, was gemacht wurde. */
+      const _mangelFotos = it => (it.photos||[]).filter(p=>p && !p.beweis);
       let y2=doc.lastAutoTable.finalY+20;
-      if(state.items.some(it=>it.photos?.length)){
+      if(state.items.some(it=>_mangelFotos(it).length)){
         doc.addPage(); y2=56;
         y2=_abBand(doc,br,M,y2,'Foto-Anhang'); y2+=6;
         doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.text('Fotos pro Mängelpunkt — zwei Aufnahmen je Seite.',M,y2); y2+=14;
@@ -3878,13 +3923,13 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
            Konstruktion nicht mehr von ihm getrennt werden. */
         const fotos=[];
         for(let i=0;i<state.items.length;i++){
-          const it=state.items[i]; if(!it.photos?.length) continue;
+          const it=state.items[i]; const _mf=_mangelFotos(it); if(!_mf.length) continue;
           let erst=true;
-          for(let p=0;p<it.photos.length;p++){
+          for(let p=0;p<_mf.length;p++){
             // Ausgelagerte Fotos (nur url) fuer den PDF-Embed zurueck zu
             // DataURL holen — jsPDF braucht Base64 (gleiche Kette wie die
             // Vorschaubilder in der Mängelzeile).
-            const _src=await _abFotoDataUrl(it.photos[p]);
+            const _src=await _abFotoDataUrl(_mf[p]);
             if(!_src) continue;
             const info=await new Promise(res=>{ const img=new Image(); img.onload=()=>res({w:img.width,h:img.height}); img.onerror=()=>res({w:4,h:3}); img.src=_src; });
             fotos.push({src:_src,info:info,erst:erst,nr:i+1,ort:(it.ort||'-').slice(0,60),mangel:(it.mangel||'-').slice(0,140)});
@@ -3918,6 +3963,131 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
           // horizontal zentriert — ein Hochformat hing sonst am linken Rand
           if(w>0&&h>0){ try{ doc.addImage(f.src,'JPEG',M+(515-w)/2,yy,w,h); }catch(e){} }
           slot++;
+        }
+        doc.setFontSize(10);
+      }
+
+      /* ══ BEWEISFOTOS ZUR MÄNGELBEHEBUNG ══════════════════════════════
+         Feedback 09.09.2026: «die Beweisbilder sollen auch aufgeführt werden
+         und so dargestellt sein, dass man erkennen kann, was gemacht wurde».
+         Darum VORHER/NACHHER nebeneinander: links die Mangel-Aufnahme, rechts
+         die Behebung — mit Monteur, Datum und seinem Kommentar darüber.
+         Quellen: die laufende Mängelliste (abMlIdx) UND bereits ins Protokoll
+         übernommene, als `beweis` markierte Fotos. Beides zusammen, damit der
+         Nachweis vor UND nach der Freigabe im Dokument steht.
+         Layout: alles wird zuerst in ZEILEN à zwei Bildern flach gelegt; der
+         Kopfblock hängt an der ersten Zeile seines Punktes und kann per
+         Konstruktion nicht von ihr getrennt werden (Muster Foto-Anhang) —
+         so entstehen keine verwaisten Überschriften am Seitenende. */
+      const bwZeilen=[];
+      {
+        const idx=abMlIdx();
+        const BW_MAX=1000;                    // Beweisfotos verkleinern (PDF-Grösse)
+        for(let i=0;i<state.items.length;i++){
+          const it=state.items[i];
+          const live=idx[it.id];
+          const uebernommen=(it.photos||[]).filter(p=>p&&p.beweis);
+          /* Ist der Punkt schon ins Protokoll übernommen, ist das Protokoll die
+             Wahrheit: die laufende Liste würde dieselben Bilder ein zweites Mal
+             liefern — und ein hier gelöschtes Bild über die Liste wieder
+             auferstehen lassen. Die Liste füllt nur, was noch nicht drin ist. */
+          const roh=uebernommen.length?uebernommen
+            :((live&&Array.isArray(live.fixFotos))?live.fixFotos:[]);
+          if(!roh.length) continue;
+          // Kopfangaben — laufende Liste zuerst, sonst aus dem übernommenen Foto
+          const q=uebernommen[0]||{};
+          const von=(live&&live.monteurName)||q.beweisVon||'';
+          const firma=(live&&live.monteurFirma)||q.beweisFirma||'';
+          const am=((live&&live.erledigtAm)||q.beweisAm||'').slice(0,10).split('-').reverse().join('.');
+          const komm=(live&&live.kommentar)||q.beweisKommentar||'';
+          let stand=live?abItemStandText(it):String(it.erledigt||'').trim();
+          if(stand) stand=stand.charAt(0).toUpperCase()+stand.slice(1);
+          // Vorher-Bild = erste Mangel-Aufnahme des Punktes (falls vorhanden)
+          let vorher=null;
+          const mf=(it.photos||[]).filter(p=>p&&!p.beweis)[0];
+          if(mf){ const s0=await _abFotoDataUrl(mf); if(s0) vorher=await _abThumb(s0,BW_MAX); }
+          // Nachher-Bilder
+          const nach=[];
+          for(let p=0;p<roh.length;p++){
+            const s1=await _abFotoDataUrl(roh[p]); if(!s1) continue;
+            const t=await _abThumb(s1,BW_MAX); if(t) nach.push(t);
+          }
+          if(!nach.length) continue;
+          const kopf={nr:i+1,ort:(it.ort||'-').slice(0,60),mangel:(it.mangel||'-').slice(0,160),
+                      von:von,firma:firma,am:am,komm:komm,stand:stand};
+          // Erste Zeile: Vorher | Nachher 1 — gibt es kein Vorher-Bild, stehen
+          // die ersten beiden Nachher-Bilder nebeneinander.
+          if(vorher) bwZeilen.push({kopf:kopf,zellen:[{bild:vorher,lbl:'Vorher - Mangel'},{bild:nach[0],lbl:'Nachher - Behebung'}]});
+          else       bwZeilen.push({kopf:kopf,zellen:[{bild:nach[0],lbl:'Nachher - Behebung'},nach[1]?{bild:nach[1],lbl:'Nachher - Behebung 2'}:null].filter(Boolean)});
+          let ab=vorher?1:2;
+          for(let p=ab;p<nach.length;p+=2){
+            const z=[{bild:nach[p],lbl:'Nachher - Behebung '+(p+1)}];
+            if(nach[p+1]) z.push({bild:nach[p+1],lbl:'Nachher - Behebung '+(p+2)});
+            bwZeilen.push({kopf:null,fort:kopf,zellen:z});
+          }
+        }
+      }
+      if(bwZeilen.length){
+        doc.addPage(); let yb=56;
+        yb=_abBand(doc,br,M,yb,'Beweisfotos zur Mängelbehebung'); yb+=6;
+        doc.setFont('helvetica','normal'); doc.setFontSize(9);
+        // Umbrechen statt in den Rand laufen lassen — der Satz ist länger als
+        // die Satzbreite und wurde sonst rechts abgeschnitten.
+        const bwIntro=doc.splitTextToSize('Vorher/Nachher je Mängelpunkt, eingereicht von der ausführenden Firma. Links die Mangel-Aufnahme zum Vergleich (in Originalgrösse im Foto-Anhang), rechts der Nachweis der Behebung.',515);
+        bwIntro.forEach((t,i2)=>doc.text(t,M,yb+i2*11));
+        yb+=bwIntro.length*11+5;
+        /* 250 x 150 pt je Bild (ca. 8.8 x 5.3 cm) - zwei nebeneinander füllen
+           die Satzbreite aus und lassen eine Zeile mit Kopfblock plus eine
+           Folgezeile auf dieselbe Seite. Grösser gewählt hätte jede
+           Folgezeile eine eigene, fast leere Seite bekommen. */
+        const SP_W=250, SP_GAP=15, BILD_H=150, LBL_H=12, ZEILE_ABST=14, BOT=784;
+        const kopfH=k=>{
+          doc.setFontSize(9);
+          const mL=doc.splitTextToSize('Mangel: '+k.mangel,515).slice(0,2).length;
+          const kL=k.komm?doc.splitTextToSize('Kommentar: '+k.komm,515).slice(0,2).length:0;
+          return 14+mL*11+11+(kL?kL*11:0)+6;      // Titel + Mangel + Meta + Kommentar
+        };
+        for(const z of bwZeilen){
+          const kH=z.kopf?kopfH(z.kopf):13;
+          const zH=kH+LBL_H+BILD_H+ZEILE_ABST;
+          if(yb+zH>BOT){ doc.addPage(); yb=56; }
+          if(z.kopf){
+            const k=z.kopf;
+            doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(0,0,0);
+            doc.text(`Nr. ${k.nr} - ${k.ort}`,M,yb+9);
+            if(k.stand){
+              doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(br.acc.r,br.acc.g,br.acc.b);
+              doc.text(k.stand,M+515,yb+9,{align:'right'}); doc.setTextColor(0,0,0);
+            }
+            yb+=14;
+            doc.setFont('helvetica','normal'); doc.setFontSize(9);
+            const mL=doc.splitTextToSize('Mangel: '+k.mangel,515).slice(0,2);
+            mL.forEach((t,i2)=>doc.text(t,M,yb+8+i2*11)); yb+=mL.length*11;
+            doc.setFontSize(8.5); doc.setTextColor(110,120,135);
+            const meta=['Behoben von: '+(k.von||'-')+(k.firma?' ('+k.firma+')':''), k.am?'am '+k.am:''].filter(Boolean).join('  ·  ');
+            doc.text(meta,M,yb+8); yb+=11;
+            if(k.komm){
+              const kL=doc.splitTextToSize('Kommentar: '+k.komm,515).slice(0,2);
+              kL.forEach((t,i2)=>doc.text(t,M,yb+8+i2*11)); yb+=kL.length*11;
+            }
+            doc.setTextColor(0,0,0); yb+=6;
+          } else {
+            doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(110,120,135);
+            doc.text(`Nr. ${z.fort.nr} - ${z.fort.ort} (weitere Beweisfotos)`,M,yb+8); doc.setTextColor(0,0,0); yb+=13;
+          }
+          // Bildzeile: feste Spalten, Bild im Rahmen zentriert — gleiche
+          // Grundlinie für beide Seiten, egal ob Hoch- oder Querformat.
+          z.zellen.forEach((c,ci)=>{
+            const x=M+ci*(SP_W+SP_GAP);
+            doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(br.acc.r,br.acc.g,br.acc.b);
+            doc.text(c.lbl,x,yb+8); doc.setTextColor(0,0,0);
+            const by=yb+LBL_H;
+            doc.setDrawColor(206,212,222); doc.setLineWidth(0.5); doc.rect(x,by,SP_W,BILD_H); doc.setLineWidth(0.2);
+            const s=Math.min((SP_W-8)/c.bild.w,(BILD_H-8)/c.bild.h);
+            const w=Math.round(c.bild.w*s), h=Math.round(c.bild.h*s);
+            if(w>0&&h>0){ try{ doc.addImage(c.bild.dataUrl,'JPEG',x+(SP_W-w)/2,by+(BILD_H-h)/2,w,h); }catch(e){} }
+          });
+          yb+=LBL_H+BILD_H+ZEILE_ABST;
         }
         doc.setFontSize(10);
       }
@@ -4215,7 +4385,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       else r.offen++;
       var st=idx[it.id];
       if(!st) return;
-      if(st.status==='erledigt') r.mlBehoben++;
+      if(st.status==='erledigt'||st.status==='akzeptiert') r.mlBehoben++;
       else if(st.status==='in_arbeit') r.mlArbeit++;
       else if(st.status==='zurueckgewiesen') r.mlZurueck++;
       else r.mlOffen++;
@@ -4230,7 +4400,8 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     if(fertig) return fertig;
     var st=abMlIdx()[it.id];
     if(st){
-      if(st.status==='erledigt')        return 'behoben - Freigabe offen';
+      if(st.status==='akzeptiert')      return 'bestätigt';
+      if(st.status==='erledigt')        return 'behoben - Bestätigung offen';
       if(st.status==='in_arbeit')       return 'in Arbeit';
       if(st.status==='zurueckgewiesen') return 'zurückgewiesen';
       return 'beim Unternehmer';
@@ -4257,8 +4428,10 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
   // Mangel-Karte und im Panel des Verantwortlichen.
   function abMlStandLabel(st){
     if(!st) return null;
+    if(st.status==='akzeptiert') return {ic:'✓',txt:'Bestätigt',cls:'sb-mlok',
+      tip:'Vom Verantwortlichen gegenbestätigt und ins Protokoll übernommen'};
     if(st.status==='erledigt') return {ic:'✅',txt:'Vom Monteur erledigt',cls:'sb-mlok',
-      tip:(st.monteurName||'Monteur')+' hat den Punkt abgehakt — noch nicht ins Protokoll übernommen'};
+      tip:(st.monteurName||'Monteur')+' hat den Punkt abgehakt — wartet auf Gegenbestätigung'};
     if(st.status==='in_arbeit') return {ic:'🛠',txt:'In Arbeit',cls:'sb-mlarb',
       tip:(st.monteurName||'Monteur')+' arbeitet an diesem Punkt'};
     if(st.status==='zurueckgewiesen') return {ic:'↩',txt:'Zurückgewiesen',cls:'sb-mlzur',
@@ -4483,11 +4656,28 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
   // Die drei Knöpfe der Liste rufen das direkt auf; «Offen» ist damit auch
   // der Weg zurück (Feedback 09.09.2026). Ein zurückgewiesener Punkt wird
   // durch jeden Klick wieder zu einem der drei Stände.
+  /* Ein Mängelpunkt einer übergebenen Liste durchläuft:
+       offen → in_arbeit → erledigt (Monteur meldet behoben)
+             → akzeptiert (GEGENBESTÄTIGUNG des Planers, Punkt geht ins Protokoll)
+             → zurück auf in_arbeit, wenn der Planer eine Rückmeldung gibt
+     `akzeptiert` setzt NUR die verantwortliche Seite, die drei anderen nur
+     der Abarbeiter. `zurueckgewiesen` ist der Altwert vor dem 09.09.2026 —
+     er wird weiterhin gelesen, aber nicht mehr gesetzt. */
   var AB_ML_STATI={offen:1,in_arbeit:1,erledigt:1};
+  function _abMlFertig(x){ return !!x && (x.status==='erledigt'||x.status==='akzeptiert'); }
+  // ISO-Zeitstempel → «09.09.2026». Leer bleibt leer (kein erfundenes Datum).
+  function _abDatKurz(iso){
+    var d=String(iso||'').slice(0,10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d.split('-').reverse().join('.') : '';
+  }
+  function _abMlOffenZahl(ml){ return ((ml&&ml.items)||[]).filter(function(x){return !_abMlFertig(x);}).length; }
   window.abMlItemStatus=function(mlId,itemId,status){
     if(!AB_ML_STATI[status]) return;
     var ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});if(!ml)return;
     var it=(ml.items||[]).find(function(x){return x.id===itemId;});if(!it)return;
+    // Gegenbestätigte Punkte stehen im Protokoll — der Abarbeiter kann sie
+    // nicht mehr umstellen (die Rückmeldung des Planers öffnet sie wieder).
+    if(it.status==='akzeptiert'){ toast('✓ Bereits vom Planer akzeptiert'); return; }
     if(it.status===status){ abRenderTasks(); return; }
     it.status=status;
     it.erledigtAm=(status==='erledigt')?new Date().toISOString():'';
@@ -4498,7 +4688,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     // Seite EINE Meldung — auch ohne das formelle «Alle abgearbeitet». Genau
     // dieser Fall war bisher unsichtbar. Der Stempel verhindert, dass ein
     // Aus-/Wieder-Anhaken erneut meldet.
-    var offen=(ml.items||[]).filter(function(x){return x.status!=='erledigt';}).length;
+    var offen=_abMlOffenZahl(ml);
     var meldenAn=(!offen&&ml.status==='offen'&&!ml.alleErledigtAm&&ml.verantwortlich&&ml.verantwortlich.userId)?ml.verantwortlich.userId:'';
     if(!offen&&!ml.alleErledigtAm) ml.alleErledigtAm=new Date().toISOString();
     abPoolSave(ML_POOL,ML_PREFIX,ml);
@@ -4515,6 +4705,9 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
   };
   // Markup des Status-Schalters — EINE Wahrheit für die Abarbeitungs-Liste.
   function abMlSegHtml(mlId,itemId,status){
+    // Gegenbestätigt = im Protokoll eingetragen: kein Schalter mehr, sondern
+    // eine klare Aussage. Nur eine Rückmeldung des Planers öffnet den Punkt.
+    if(status==='akzeptiert') return '<span class="ml-best">✓ Vom Planer bestätigt</span>';
     var st=[['offen','🔴 Offen','on-offen'],['in_arbeit','🛠 In Arbeit','on-arbeit'],['erledigt','✅ Erledigt','on-erledigt']];
     return '<span class="ml-seg" role="group" aria-label="Status">'+st.map(function(s){
       return '<button type="button" class="'+(status===s[0]?s[2]:'')+'" aria-pressed="'+(status===s[0]?'true':'false')+'" '
@@ -4548,7 +4741,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
   };
   window.abMlFertigmelden=function(mlId){
     var ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});if(!ml)return;
-    var offen=(ml.items||[]).filter(function(x){return x.status!=='erledigt';}).length;
+    var offen=_abMlOffenZahl(ml);
     if(offen){toast('⚠ Noch '+offen+' Punkt(e) offen — Ihr Zwischenstand ist beim Verantwortlichen aber bereits sichtbar');return;}
     ml.status='abgearbeitet';ml.abgearbeitetAm=new Date().toISOString();
     abPoolSave(ML_POOL,ML_PREFIX,ml);
@@ -4569,74 +4762,173 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     if(ml.monteurEmail&&mails.indexOf(String(ml.monteurEmail).toLowerCase())>=0)return false;
     return (ml.verantwortlich&&ml.verantwortlich.userId)===u.id||ml.orgId===u.orgId;
   }
-  window.abMlZurueckweisen=function(mlId,itemId){
+  /* ══ GEGENBESTÄTIGUNG DES PLANERS ═══════════════════════════════════
+     Feedback 09.09.2026: «es soll eine Gegenbestätigung geben vom Planer,
+     sodass er bestätigen kann, dass diese erledigten Punkte so akzeptiert
+     werden. Er soll einzelne akzeptieren können oder alle auf einmal oder
+     mehrere und entsprechend auch noch eine Rückmeldung geben, falls etwas
+     nicht in Ordnung wäre. Das soll dann wieder beim Monteur auftauchen …
+     und der Status automatisch wieder auf in Arbeit gesetzt werden.»
+
+     Akzeptieren schreibt den Punkt SOFORT ins Protokoll (Visum + Beweisfotos);
+     eine Rückmeldung nimmt genau das wieder zurück und stellt den Punkt auf
+     «in Arbeit» — so steht nie ein Punkt als erledigt im Protokoll, dem der
+     Planer widersprochen hat. */
+
+  // Ein akzeptierter Punkt wandert ins Protokoll. Die Kopien tragen die
+  // Herkunft (beweisMlItem), damit eine spätere Rückmeldung GENAU sie wieder
+  // entfernt und keine fremden Bilder mitreisst.
+  function _abMlPunktInsProtokoll(ml,mi,target){
+    var it=(target.items||[]).find(function(x){return x.id===mi.itemId;});
+    if(!it) return false;
+    var visum=(mi.erledigtAm||new Date().toISOString()).slice(0,10).split('-').reverse().join('.')+' / '+(ml.monteurName||'');
+    it.erledigt=visum;
+    mi.protokollVisum=visum;
+    (mi.fixFotos||[]).forEach(function(ff){
+      it.photos=it.photos||[];
+      // Als BEWEISFOTO kennzeichnen: im PDF steht es damit weiterhin
+      // im Behebungs-Nachweis (mit Monteur, Datum und Kommentar) und
+      // nicht anonym zwischen den Mangel-Aufnahmen.
+      var kopie={name:ff.name||'beweis.jpg',url:ff.url||'',dataUrl:ff.url?'':(ff.dataUrl||''),type:'image/jpeg',
+        beweis:true, beweisMlItem:ml.id+'|'+mi.id,
+        beweisVon:(ml.monteurName||''), beweisFirma:(ml.monteurFirma||''),
+        beweisAm:(mi.erledigtAm||''), beweisKommentar:(mi.kommentar||'')};
+      if(!kopie.url && !kopie.dataUrl && ff.pendingId){
+        var du=_abQ?_abQ.get(ff.pendingId):'';
+        if(du) kopie.dataUrl=du; else kopie.pendingId=ff.pendingId;   // fremdes Gerät → Platzhalter bis Upload
+      }
+      it.photos.push(kopie);
+    });
+    if(mi.kommentar) it.notizen=[it.notizen,mi.kommentar].filter(Boolean).join(' · ');
+    return true;
+  }
+  // Rücknahme: exakt das rückgängig machen, was das Akzeptieren geschrieben
+  // hat — das Visum nur, wenn es unverändert von uns stammt (sonst hat
+  // jemand von Hand etwas anderes eingetragen und das bleibt stehen).
+  function _abMlPunktAusProtokoll(ml,mi,target){
+    var it=(target.items||[]).find(function(x){return x.id===mi.itemId;});
+    if(!it) return;
+    if(mi.protokollVisum && String(it.erledigt||'')===mi.protokollVisum) it.erledigt='';
+    var marke=ml.id+'|'+mi.id;
+    if(Array.isArray(it.photos)) it.photos=it.photos.filter(function(p){ return !(p&&p.beweisMlItem===marke); });
+    mi.protokollVisum='';
+  }
+  function _abMlZielState(ml){
+    if(ml.protoId===activeProtocolId) return state;
+    var proto=protocols.find(function(p){return p.id===ml.protoId;});
+    return (proto&&proto.state)||null;
+  }
+
+  /* Kern der Gegenbestätigung — nimmt EINE oder MEHRERE Punkt-IDs.
+     `ids` leer/weggelassen = alle erledigten Punkte der Liste. */
+  function _abMlAkzeptieren(mlId,ids){
+    var _ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});
+    if(!abMlDarfKontrollieren(_ml)){toast('⚠ Nur die verantwortliche Seite kann bestätigen');return 0;}
+    var ml=_ml;
+    var kandidaten=(ml.items||[]).filter(function(x){
+      if(x.status!=='erledigt') return false;
+      return (!ids||!ids.length)?true:ids.indexOf(x.id)>=0;
+    });
+    if(!kandidaten.length){ toast('Keine erledigten Punkte zum Bestätigen'); return 0; }
+    var u=abUser()||{};
+    var target=_abMlZielState(ml);
+    kandidaten.forEach(function(mi){
+      mi.status='akzeptiert';
+      mi.akzeptiertAm=new Date().toISOString();
+      mi.akzeptiertVon=u.name||'';
+      mi.kommentarVerantwortlicher='';          // eine frühere Rückmeldung ist erledigt
+      if(target) _abMlPunktInsProtokoll(ml,mi,target);
+    });
+    // Liste geschlossen, sobald JEDER Punkt gegenbestätigt ist
+    var offen=(ml.items||[]).filter(function(x){return x.status!=='akzeptiert';}).length;
+    ml.status=offen?'offen':'freigegeben';
+    if(!offen){ ml.freigegebenAm=new Date().toISOString(); ml.freigegebenVon=u.name||''; }
+    abPoolSave(ML_POOL,ML_PREFIX,ml);
+    if(target){
+      if(ml.protoId===activeProtocolId) render();
+      persistAll();
+    }
+    if(ml.monteurUserId) abNotify({eventKey:'abnahme_maengel_abgearbeitet',empfaengerUserId:ml.monteurUserId,modul:'abnahme',typ:'erfolg',
+      titel:offen?'Punkte bestätigt':'Mängelbehebung vollständig bestätigt',
+      text:(ml.objektName||'')+' — '+kandidaten.length+' Punkt(e) von '+((ml.verantwortlich&&ml.verantwortlich.name)||'der Bauleitung')+' akzeptiert'
+        +(offen?'; '+offen+' Punkt(e) noch offen.':'. Danke!'),link:'pm_abnahme.html'});
+    _abMlSelLeeren(mlId);
+    abRenderTasks();
+    toast('✓ '+kandidaten.length+' Punkt(e) bestätigt'+(offen?'':' — Liste abgeschlossen'));
+    return kandidaten.length;
+  }
+  window.abMlAkzeptieren=function(mlId,itemId){ _abMlAkzeptieren(mlId,itemId?[itemId]:null); };
+  window.abMlAkzeptierenAlle=function(mlId){
+    var ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});
+    var n=((ml&&ml.items)||[]).filter(function(x){return x.status==='erledigt';}).length;
+    if(!n){ toast('Keine erledigten Punkte zum Bestätigen'); return; }
+    GemaDialog.confirm({title:'Alle erledigten Punkte bestätigen',
+      message:n+' Punkt(e) als erledigt akzeptieren und ins Protokoll übernehmen?',confirmLabel:'Bestätigen'})
+      .then(function(ok){ if(ok) _abMlAkzeptieren(mlId,null); });
+  };
+  window.abMlAkzeptierenAuswahl=function(mlId){
+    var ids=Object.keys((_abMlSel[mlId]||{})).filter(function(k){return _abMlSel[mlId][k];});
+    if(!ids.length){ toast('Zuerst Punkte auswählen'); return; }
+    GemaDialog.confirm({title:'Ausgewählte Punkte bestätigen',
+      message:ids.length+' ausgewählte(r) Punkt(e) akzeptieren und ins Protokoll übernehmen?',confirmLabel:'Bestätigen'})
+      .then(function(ok){ if(ok) _abMlAkzeptieren(mlId,ids); });
+  };
+
+  /* Rückmeldung statt Bestätigung: der Punkt geht MIT Begründung zurück an
+     den Abarbeiter und steht dort wieder auf «in Arbeit» — ausdrücklicher
+     Wunsch, damit er nicht als vermeintlich erledigt liegen bleibt. */
+  window.abMlRueckmeldung=function(mlId,itemId){
     var _ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});
     if(!abMlDarfKontrollieren(_ml)){toast('⚠ Nur die verantwortliche Seite kann kontrollieren');return;}
-    GemaDialog.prompt({title:'Punkt zurückweisen — Begründung',placeholder:'z.B. Silikonfuge weiterhin undicht'}).then(function(v){
+    GemaDialog.prompt({title:'Rückmeldung an den Abarbeiter',
+      placeholder:'z.B. Silikonfuge weiterhin undicht — bitte nacharbeiten'}).then(function(v){
       if(v===null)return;
       var ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});if(!ml)return;
       var it=(ml.items||[]).find(function(x){return x.id===itemId;});if(!it)return;
-      it.status='zurueckgewiesen';it.kommentarVerantwortlicher=v||'';
+      var u=abUser()||{};
+      // War der Punkt schon gegenbestätigt, wird die Übernahme ins Protokoll
+      // exakt zurückgenommen — sonst stünde er dort weiter als erledigt.
+      var target=_abMlZielState(ml);
+      if(it.status==='akzeptiert'&&target) _abMlPunktAusProtokoll(ml,it,target);
+      it.status='in_arbeit';                    // ausdrücklich: wieder in Arbeit
+      it.kommentarVerantwortlicher=v||'';
+      it.rueckmeldungAm=new Date().toISOString();
+      it.rueckmeldungVon=u.name||'';
+      it.erledigtAm='';
       ml.status='offen';
+      ml.alleErledigtAm='';                     // Vollstand-Meldung darf erneut feuern
       abPoolSave(ML_POOL,ML_PREFIX,ml);
+      if(target){ if(ml.protoId===activeProtocolId) render(); persistAll(); }
       abNotify({eventKey:'abnahme_maengel_zugewiesen',empfaengerUserId:ml.monteurUserId,modul:'abnahme',typ:'warnung',
-        titel:'Mängelpunkt zurückgewiesen',text:(it.ort?it.ort+': ':'')+(it.mangel||'')+(v?' — «'+v+'»':''),link:'pm_abnahme.html'});
-      abRenderTasks();toast('↩ Punkt zurückgewiesen — Monteur benachrichtigt');
+        titel:'Rückmeldung zu einem Mängelpunkt',
+        text:(it.ort?it.ort+': ':'')+(it.mangel||'')+(v?' — «'+v+'»':'')+' · Punkt steht wieder in Arbeit.',
+        link:'pm_abnahme.html'});
+      abRenderTasks();toast('↩ Rückmeldung gesendet — Punkt steht wieder in Arbeit');
     });
   };
-  window.abMlFreigeben=function(mlId){
-    var _ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});
-    if(!abMlDarfKontrollieren(_ml)){toast('⚠ Nur die verantwortliche Seite kann kontrollieren');return;}
-    // Der Dialog sagt VORHER, was passiert — nicht erst hinterher: sind noch
-    // Punkte offen, wandern nur die erledigten ins Protokoll und die Liste
-    // bleibt bestehen.
-    var _off=((_ml&&_ml.items)||[]).filter(function(x){return x.status!=='erledigt';}).length;
-    GemaDialog.confirm({title:'Mängelbehebung freigeben',
-      message:_off
-        ? _off+' Punkt(e) sind noch nicht abgehakt. Es werden NUR die erledigten Punkte ins Protokoll übernommen — die Liste bleibt offen. Fortfahren?'
-        : 'Alle Punkte akzeptieren und als erledigt ins Protokoll übernehmen?',
-      confirmLabel:'Freigeben'}).then(function(ok){
-      if(!ok)return;
-      var ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});if(!ml)return;
-      // Sicherheitsnetz: NUR abgehakte Punkte wandern ins Protokoll. Ein noch
-      // offener oder zurückgewiesener Punkt darf nie als «erledigt» im
-      // Protokoll landen, nur weil die Liste freigegeben wurde.
-      var nichtFertig=(ml.items||[]).filter(function(x){return x.status!=='erledigt';}).length;
-      ml.status=nichtFertig?'offen':'freigegeben';
-      if(!nichtFertig){ ml.freigegebenAm=new Date().toISOString(); var u=abUser();ml.freigegebenVon=u?u.name:''; }
-      abPoolSave(ML_POOL,ML_PREFIX,ml);
-      // Rückschreiben ins Protokoll: beim AKTIVEN Protokoll in den Live-State
-      // (der Snapshot in protocols[] kann älter sein), sonst in den Snapshot.
-      var proto=protocols.find(function(p){return p.id===ml.protoId;});
-      var target=ml.protoId===activeProtocolId?state:(proto&&proto.state);
-      if(target){
-        (ml.items||[]).forEach(function(mi){
-          if(mi.status!=='erledigt') return;      // offen/zurückgewiesen bleibt offen
-          var it=(target.items||[]).find(function(x){return x.id===mi.itemId;});
-          if(it){
-            it.erledigt=(mi.erledigtAm||new Date().toISOString()).slice(0,10).split('-').reverse().join('.')+' / '+(ml.monteurName||'');
-            (mi.fixFotos||[]).forEach(function(ff){
-              it.photos=it.photos||[];
-              var kopie={name:ff.name||'beweis.jpg',url:ff.url||'',dataUrl:ff.url?'':(ff.dataUrl||''),type:'image/jpeg'};
-              if(!kopie.url && !kopie.dataUrl && ff.pendingId){
-                var du=_abQ?_abQ.get(ff.pendingId):'';
-                if(du) kopie.dataUrl=du; else kopie.pendingId=ff.pendingId;   // fremdes Gerät → Platzhalter bis Upload
-              }
-              it.photos.push(kopie);
-            });
-            if(mi.kommentar)it.notizen=[it.notizen,mi.kommentar].filter(Boolean).join(' · ');
-          }
-        });
-        if(ml.protoId===activeProtocolId)render();
-        persistAll();
-      }
-      abNotify({eventKey:'abnahme_maengel_abgearbeitet',empfaengerUserId:ml.monteurUserId,modul:'abnahme',typ:'erfolg',
-        titel:nichtFertig?'Mängelbehebung teilweise freigegeben':'Mängelbehebung freigegeben',
-        text:(ml.objektName||'')+(nichtFertig?' — die erledigten Punkte sind akzeptiert, '+nichtFertig+' bleiben offen.':' — alle Punkte akzeptiert. Danke!'),link:'pm_abnahme.html'});
-      abRenderTasks();
-      toast(nichtFertig?('✅ Erledigte Punkte übernommen — '+nichtFertig+' bleiben offen'):('✅ Freigegeben'+(proto?' — Protokoll aktualisiert':'')));
-    });
+  // Alter Name (Markup/Deep-Links/Tests) — gleiche Wirkung.
+  window.abMlZurueckweisen=function(mlId,itemId){ window.abMlRueckmeldung(mlId,itemId); };
+
+  // Sammelbestätigung der ganzen Liste (alter Knopf «Freigeben»).
+  window.abMlFreigeben=function(mlId){ window.abMlAkzeptierenAlle(mlId); };
+
+  // ── Mehrfachauswahl im Kontroll-Panel ────────────────────────────────
+  var _abMlSel={};
+  function _abMlSelLeeren(mlId){ if(mlId) delete _abMlSel[mlId]; else _abMlSel={}; }
+  window.abMlSelToggle=function(mlId,itemId,an){
+    _abMlSel[mlId]=_abMlSel[mlId]||{};
+    if(an) _abMlSel[mlId][itemId]=true; else delete _abMlSel[mlId][itemId];
+    abRenderTasks();
   };
+  window.abMlSelAlle=function(mlId,an){
+    var ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});
+    _abMlSel[mlId]={};
+    if(an) ((ml&&ml.items)||[]).forEach(function(x){ if(x.status==='erledigt') _abMlSel[mlId][x.id]=true; });
+    abRenderTasks();
+  };
+  function _abMlSelN(mlId){ return Object.keys(_abMlSel[mlId]||{}).length; }
+  window._abMlSelN=_abMlSelN;
+
   window.abMlErneutAbnahme=function(mlId){
     var _ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});
     if(!abMlDarfKontrollieren(_ml)){toast('⚠ Nur die verantwortliche Seite kann kontrollieren');return;}
@@ -4649,12 +4941,71 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       abRenderTasks();toast('📋 Erneute Abnahme vormerkt');
     });
   };
-  function abMlFotoThumbs(fotos,klein){
-    return (fotos||[]).map(function(f){
+  /* `del` = {mlId,itemId} blendet je Bild ein ✕ ein. Ohne die Marke bleibt
+     das Markup exakt wie bisher (Mangel-Aufnahmen des Planers sind hier
+     nicht löschbar — die gehören dem Protokoll und werden dort gepflegt). */
+  function abMlFotoThumbs(fotos,klein,del){
+    var kant=klein?34:46;
+    return (fotos||[]).map(function(f,i){
       var src=_abFotoSrc(f);if(!src)return '';
-      return '<img src="'+esc(src)+'" style="width:'+(klein?34:46)+'px;height:'+(klein?34:46)+'px;object-fit:cover;border-radius:7px;border:1px solid var(--brd2);cursor:zoom-in" onclick="openLightbox(this.src)"/>';
+      var img='<img src="'+esc(src)+'" style="width:'+kant+'px;height:'+kant+'px;object-fit:cover;border-radius:7px;border:1px solid var(--brd2);cursor:zoom-in" onclick="openLightbox(this.src)"/>';
+      if(!del) return img;
+      return '<span class="ml-foto">'+img
+        +'<button class="ml-foto-del" title="Beweisfoto löschen" aria-label="Beweisfoto löschen" onclick="event.stopPropagation();abMlFotoLoeschen(\''+del.mlId+'\',\''+del.itemId+'\','+i+')">✕</button></span>';
     }).join('');
   }
+
+  /* Ein unbrauchbares Beweisfoto (verwackelt, falscher Ausschnitt) muss
+     einzeln weg können. Wer den Punkt bearbeiten darf, darf auch dessen
+     Nachweisbilder aufräumen: die verantwortliche Seite immer, der
+     Abarbeiter solange sein Punkt nicht gegenbestätigt ist. */
+  function _abMlFotoDarf(ml,it){
+    if(!ml||!it) return false;
+    if(abMlDarfKontrollieren(ml)) return true;
+    return abIstMeineMl(ml) && it.status!=='akzeptiert';
+  }
+  function _abMlFotoDel(ml,it){ return _abMlFotoDarf(ml,it)?{mlId:ml.id,itemId:it.id}:null; }
+  /* War das Bild schon ins Protokoll übernommen, verschwindet dort GENAU
+     diese Kopie mit — sonst stünde das verworfene Bild weiter im PDF.
+     Erkannt an der Herkunftsmarke UND der Quelle; fremde Aufnahmen und
+     von Hand eingefügte Bilder bleiben unangetastet. */
+  function _abBeweisKopieWeg(ml,mi,ff,target){
+    var it=target&&(target.items||[]).find(function(x){return x.id===mi.itemId;});
+    if(!it||!Array.isArray(it.photos)) return;
+    var marke=ml.id+'|'+mi.id, weg=false;
+    it.photos=it.photos.filter(function(p){
+      if(weg||!p||p.beweisMlItem!==marke) return true;
+      var gleich=(ff.url&&p.url===ff.url)||(ff.dataUrl&&p.dataUrl===ff.dataUrl)||(ff.pendingId&&p.pendingId===ff.pendingId);
+      if(!gleich) return true;
+      weg=true;return false;
+    });
+  }
+  window.abMlFotoLoeschen=function(mlId,itemId,idx){
+    var ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});
+    var it=ml&&(ml.items||[]).find(function(x){return x.id===itemId;});
+    if(!_abMlFotoDarf(ml,it)){ toast('⚠ Dieses Beweisfoto lässt sich hier nicht entfernen'); return; }
+    if(!((it.fixFotos||[])[idx])){ toast('⚠ Foto nicht gefunden — Ansicht ist veraltet'); abRenderTasks(); return; }
+    GemaDialog.confirm({title:'Beweisfoto löschen',
+      message:'Das Bild wird aus dem Nachweis entfernt'+(it.status==='akzeptiert'?' — auch aus dem Protokoll.':'.'),
+      confirmLabel:'Löschen',danger:true}).then(function(ok){
+      if(!ok)return;
+      // Frisch lesen: zwischen Dialog-Öffnen und Bestätigen kann die Cloud
+      // einen neueren Stand geliefert haben.
+      var m=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});if(!m)return;
+      var mi=(m.items||[]).find(function(x){return x.id===itemId;});if(!mi)return;
+      // Erneut prüfen: hat die verantwortliche Seite den Punkt inzwischen
+      // gegenbestätigt, ist der Nachweis für den Abarbeiter geschlossen.
+      if(!_abMlFotoDarf(m,mi)){ toast('⚠ Der Punkt wurde inzwischen bestätigt — der Nachweis ist geschlossen'); abRenderTasks(); return; }
+      var ff=(mi.fixFotos||[])[idx];
+      if(!ff){ toast('⚠ Foto war bereits entfernt'); abRenderTasks(); return; }
+      var target=_abMlZielState(m);
+      if(target) _abBeweisKopieWeg(m,mi,ff,target);
+      mi.fixFotos.splice(idx,1);
+      abPoolSave(ML_POOL,ML_PREFIX,m);
+      if(target){ if(m.protoId===activeProtocolId) render(); persistAll(); }
+      abRenderTasks();toast('✓ Beweisfoto entfernt');
+    });
+  };
   // ══ Nur-Mängel-Sicht (Feedback 22.08.2026, Baran Koc) ══════════════════
   // «wenn ich der bin, der die mängel beheben soll, kann ich dennoch angaben
   //  vom projekt und auch die unterschriften ändern, das darf nicht sein»
@@ -4747,13 +5098,16 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     // E-Mail ist der stabile Anker, falls das Konto neu angelegt/gemergt wurde).
     var meineMl=abPoolRead(ML_POOL).filter(function(r){return abIstMeineMl(r)&&(r.status==='offen');});
     meineMl.forEach(function(ml){
-      var items=ml.items||[];var done=items.filter(function(x){return x.status==='erledigt';}).length;
+      var items=ml.items||[];var done=items.filter(_abMlFertig).length;
+      var best=items.filter(function(x){return x.status==='akzeptiert';}).length;
+      var rueck=items.filter(function(x){return x.status!=='akzeptiert'&&x.kommentarVerantwortlicher;}).length;
       var inArb=items.filter(function(x){return x.status==='in_arbeit';}).length;
       var vonWem=esc((ml.verantwortlich&&ml.verantwortlich.name)||'')+((ml.verantwortlich&&ml.verantwortlich.firma)?' ('+esc(ml.verantwortlich.firma)+')':'');
-      h+='<div class="card" style="margin-bottom:14px;border-color:#93c5fd"><div class="card-hd"><div class="card-hd-ic">📋</div><div><div class="card-hd-title">Mängelliste — '+esc(ml.objektName||'')+'</div><div class="card-hd-sub">'+esc(ml.protoName||'')+' · von '+vonWem+' · '+done+'/'+items.length+' erledigt'+(inArb?' · '+inArb+' in Arbeit':'')+'</div></div></div><div class="card-body">'
+      h+='<div class="card" style="margin-bottom:14px;border-color:#93c5fd"><div class="card-hd"><div class="card-hd-ic">📋</div><div><div class="card-hd-title">Mängelliste — '+esc(ml.objektName||'')+'</div><div class="card-hd-sub">'+esc(ml.protoName||'')+' · von '+vonWem+' · '+done+'/'+items.length+' erledigt'+(best?' · '+best+' bestätigt':'')+(rueck?' · '+rueck+' mit Rückmeldung':'')+(inArb?' · '+inArb+' in Arbeit':'')+'</div></div></div><div class="card-body">'
         +abMlProjektHtml(ml)
         +items.map(function(it){
-          var zg=it.status==='zurueckgewiesen';
+          // Rot hinterlegt ist ein Punkt, zu dem eine Rückmeldung offen ist.
+          var zg=(it.status==='zurueckgewiesen')||(!!it.kommentarVerantwortlicher&&it.status!=='akzeptiert');
           // Status rechts als drei Knöpfe (Feedback 09.09.2026: «nicht eine
           // Checkbox … sondern drei Buttons … eher rechts. Offen, in Arbeit
           // und erledigt» — «Offen» ist zugleich der Weg zurück).
@@ -4761,16 +5115,23 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
             +'<div style="display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap">'
             +'<div style="flex:1;min-width:180px"><b style="font-size:13.5px">'+esc(it.ort||'—')+'</b> <span style="font-size:13px">'+esc(it.mangel||'')+'</span>'
             +(it.erledigungBis?'<br><span style="font-size:11px;color:var(--mut)">bis '+esc(it.erledigungBis)+'</span>':'')
-            +(it.kommentarVerantwortlicher
-               ?'<br><span style="font-size:12px;color:#b91c1c;font-weight:700">↩ '+(zg?'Zurückgewiesen':'Zuvor zurückgewiesen')+': «'+esc(it.kommentarVerantwortlicher)+'»</span>'
-               :'')
             +'</div>'
             +'<div class="ml-actcol">'
             +  abMlSegHtml(ml.id,it.id,it.status)
-            +  '<span class="ml-fotos">'+abMlFotoThumbs(it.fotos,true)+abMlFotoThumbs(it.fixFotos)+'<button class="act-btn" style="min-height:34px" onclick="abMlItemFoto(\''+ml.id+'\',\''+it.id+'\')">📷 Beweis</button></span>'
+            +  '<span class="ml-fotos">'+abMlFotoThumbs(it.fotos,true)+abMlFotoThumbs(it.fixFotos,false,_abMlFotoDel(ml,it))+'<button class="act-btn" style="min-height:34px" onclick="abMlItemFoto(\''+ml.id+'\',\''+it.id+'\')">📷 Beweis</button></span>'
             +'</div>'
             +'</div>'
-            +'<input placeholder="Kommentar zur Behebung (optional) …" value="'+escAttr(it.kommentar||'')+'" style="margin-top:8px;width:100%;padding:8px 10px;border:1.5px solid var(--brd2);border-radius:8px;font-size:13px" onchange="abMlItemKommentar(\''+ml.id+'\',\''+it.id+'\',this.value)"/>'
+            /* Rückmeldung des Planers: die auffälligste Zeile des Punktes —
+               genau hier soll der Abarbeiter sehen, was nicht in Ordnung war. */
+            +(it.kommentarVerantwortlicher&&it.status!=='akzeptiert'
+               ? '<div class="ml-rueck"><b>↩ Rückmeldung'+(it.rueckmeldungVon?' von '+esc(it.rueckmeldungVon):'')
+                 +(it.rueckmeldungAm?' am '+_abDatKurz(it.rueckmeldungAm):'')+':</b> «'+esc(it.kommentarVerantwortlicher)+'»'
+                 +'<div style="color:#b45309;margin-top:3px">Der Punkt steht wieder in Arbeit — bitte nacharbeiten und erneut auf «Erledigt» setzen.</div></div>'
+               : '')
+            +(it.status==='akzeptiert'
+               ? '<div style="margin-top:7px;font-size:12.5px;color:#15803d;font-weight:700">✓ Vom Planer bestätigt'
+                 +(it.akzeptiertVon?' — '+esc(it.akzeptiertVon):'')+(it.akzeptiertAm?' am '+_abDatKurz(it.akzeptiertAm):'')+'</div>'
+               : '<input placeholder="Kommentar zur Behebung (optional) …" value="'+escAttr(it.kommentar||'')+'" style="margin-top:8px;width:100%;padding:8px 10px;border:1.5px solid var(--brd2);border-radius:8px;font-size:13px" onchange="abMlItemKommentar(\''+ml.id+'\',\''+it.id+'\',this.value)"/>')
             +'</div>';
         }).join('')
         +'<button class="act-btn primary" style="margin-top:10px;width:100%" onclick="abMlFertigmelden(\''+ml.id+'\')">✓ Alle abgearbeitet — an '+esc((ml.verantwortlich&&ml.verantwortlich.name)||'Verantwortlichen')+' melden</button>'
@@ -4786,42 +5147,56 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     });
     laufend.forEach(function(ml){
       var items=ml.items||[];
-      var done=items.filter(function(x){return x.status==='erledigt';}).length;
+      var done=items.filter(_abMlFertig).length;
+      var akz=items.filter(function(x){return x.status==='akzeptiert';}).length;
+      var offenBest=items.filter(function(x){return x.status==='erledigt';}).length;   // wartet auf Gegenbestätigung
       var zurueck=items.filter(function(x){return x.status==='zurueckgewiesen';}).length;
       var inArbeit=items.filter(function(x){return x.status==='in_arbeit';}).length;
       var alleFertig=items.length>0&&done===items.length;
+      var selN=_abMlSelN(ml.id);
       var wer=esc(ml.monteurName||'')+(ml.monteurFirma?' ('+esc(ml.monteurFirma)+')':'')+(ml.extern?' · ✉️ extern':'');
       var pct=items.length?Math.round(done/items.length*100):0;
       h+='<div class="card" style="margin-bottom:14px;border-color:'+(alleFertig?'#86efac':'#bfdbfe')+'">'
         +'<div class="card-hd"><div class="card-hd-ic">'+(alleFertig?'✅':'🔧')+'</div><div>'
         +'<div class="card-hd-title">Übergeben — '+esc(ml.objektName||'')+'</div>'
-        +'<div class="card-hd-sub">an '+wer+' · '+done+'/'+items.length+' erledigt'+(inArbeit?' · '+inArbeit+' in Arbeit':'')+(zurueck?' · '+zurueck+' zurückgewiesen':'')+'</div>'
+        +'<div class="card-hd-sub">an '+wer+' · '+done+'/'+items.length+' erledigt'+(akz?' · '+akz+' bestätigt':'')+(offenBest?' · '+offenBest+' zur Bestätigung':'')+(inArbeit?' · '+inArbeit+' in Arbeit':'')+(zurueck?' · '+zurueck+' zurückgewiesen':'')+'</div>'
         +'</div></div><div class="card-body">'
         +'<div style="height:7px;border-radius:99px;background:var(--bg2);overflow:hidden;margin-bottom:10px">'
         +'<div style="height:100%;width:'+pct+'%;background:'+(alleFertig?'var(--grn)':'#3b82f6')+'"></div></div>'
-        +(alleFertig&&ml.status==='offen'
+        +(alleFertig&&ml.status==='offen'&&offenBest
           ? '<div style="padding:9px 11px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:9px;font-size:12.5px;color:#065f46;margin-bottom:10px">'
-            +'Alle Punkte sind abgehakt. Der Abarbeiter hat noch nicht formell fertiggemeldet — Sie können die Behebung trotzdem prüfen und freigeben.</div>'
+            +'Alle Punkte sind abgehakt und warten auf Ihre Gegenbestätigung.</div>'
+          : '')
+        /* Sammelaktionen: einzeln, ausgewählte oder alle bestätigen. */
+        +(offenBest
+          ? '<div class="ml-bestleiste">'
+            +'<label class="ml-selall"><input type="checkbox" '+(selN&&selN===offenBest?'checked':'')+' onchange="abMlSelAlle(\''+ml.id+'\',this.checked)"/> Alle zur Bestätigung markieren</label>'
+            +'<button class="act-btn" onclick="abMlAkzeptierenAuswahl(\''+ml.id+'\')"'+(selN?'':' disabled')+'>✓ Auswahl bestätigen'+(selN?' ('+selN+')':'')+'</button>'
+            +'<button class="act-btn primary" onclick="abMlAkzeptierenAlle(\''+ml.id+'\')">✓ Alle '+offenBest+' bestätigen</button>'
+            +'</div>'
           : '')
         +items.map(function(it){
           var st=abMlStandLabel({status:it.status,monteurName:ml.monteurName,monteurFirma:ml.monteurFirma,
             kommentarVerantwortlicher:it.kommentarVerantwortlicher});
-          return '<div style="padding:9px 2px;border-bottom:1px solid var(--brd)">'
+          var wartet=it.status==='erledigt';
+          var gewaehlt=!!(_abMlSel[ml.id]&&_abMlSel[ml.id][it.id]);
+          return '<div style="padding:9px 2px;border-bottom:1px solid var(--brd)'+(it.status==='akzeptiert'?';background:#f6fefa':'')+'">'
             +'<div style="display:flex;align-items:flex-start;gap:9px;flex-wrap:wrap">'
-            +'<span class="status-badge '+st.cls+'" style="font-size:11px;flex-shrink:0">'+st.ic+'</span>'
+            +(wartet
+               ? '<input type="checkbox" title="Für die Sammelbestätigung markieren" style="width:20px;height:20px;flex-shrink:0;margin-top:3px" '+(gewaehlt?'checked':'')+' onchange="abMlSelToggle(\''+ml.id+'\',\''+it.id+'\',this.checked)"/>'
+               : '<span class="status-badge '+st.cls+'" style="font-size:11px;flex-shrink:0">'+st.ic+'</span>')
             +'<div style="flex:1;min-width:180px"><b style="font-size:13.5px">'+esc(it.ort||'—')+'</b> <span style="font-size:13px">'+esc(it.mangel||'')+'</span>'
             +(it.kommentar?'<br><span style="font-size:12px;color:var(--txt2)">💬 '+esc(it.kommentar)+'</span>':'')
-            +(it.status==='zurueckgewiesen'&&it.kommentarVerantwortlicher?'<br><span style="font-size:12px;color:#b91c1c;font-weight:700">↩ «'+esc(it.kommentarVerantwortlicher)+'»</span>':'')
+            +(it.status==='akzeptiert'?'<br><span style="font-size:12px;color:#15803d;font-weight:700">✓ Bestätigt'+(it.akzeptiertVon?' von '+esc(it.akzeptiertVon):'')+(it.akzeptiertAm?' am '+_abDatKurz(it.akzeptiertAm):'')+' — im Protokoll eingetragen</span>':'')
+            +(it.status!=='akzeptiert'&&it.kommentarVerantwortlicher?'<br><span style="font-size:12px;color:#b91c1c;font-weight:700">↩ Ihre Rückmeldung: «'+esc(it.kommentarVerantwortlicher)+'»</span>':'')
             +'</div>'
-            +'<span style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">'+abMlFotoThumbs(it.fixFotos)
-            +(it.status==='erledigt'?'<button class="act-btn" style="min-height:34px" onclick="abMlZurueckweisen(\''+ml.id+'\',\''+it.id+'\')">↩ Zurückweisen</button>':'')
+            +'<span style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">'+abMlFotoThumbs(it.fixFotos,false,_abMlFotoDel(ml,it))
+            +(wartet?'<button class="act-btn ok" style="min-height:34px" onclick="abMlAkzeptieren(\''+ml.id+'\',\''+it.id+'\')">✓ Akzeptieren</button>':'')
+            +((wartet||it.status==='akzeptiert')?'<button class="act-btn" style="min-height:34px" onclick="abMlRueckmeldung(\''+ml.id+'\',\''+it.id+'\')">↩ Rückmeldung</button>':'')
             +'</span></div></div>';
         }).join('')
-        +'<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'
-        +(alleFertig
-          ? '<button class="act-btn primary" style="flex:1" onclick="abMlFreigeben(\''+ml.id+'\')">✅ Freigeben &amp; ins Protokoll übernehmen</button>'
-          : '<span style="font-size:12px;color:var(--mut)">Freigeben ist möglich, sobald alle Punkte abgehakt sind. Zurückweisen geht jederzeit.</span>')
-        +'</div></div></div>';
+        +(offenBest?'':'<div style="font-size:12px;color:var(--mut);margin-top:10px">Sobald der Abarbeiter Punkte als erledigt meldet, erscheinen sie hier zur Gegenbestätigung. Eine Rückmeldung ist jederzeit möglich.</div>')
+        +'</div></div>';
     });
     // 3) Kontrolle durch den Verantwortlichen — NIE durch die abarbeitende
     // Person selbst (externe Übergabe: der Unternehmer arbeitet nur ab,
@@ -4837,7 +5212,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
             +'<div style="flex:1;min-width:180px"><b style="font-size:13.5px">'+esc(it.ort||'—')+'</b> <span style="font-size:13px">'+esc(it.mangel||'')+'</span>'
             +(it.kommentar?'<br><span style="font-size:12px;color:var(--txt2)">💬 '+esc(it.kommentar)+'</span>':'')
             +'</div>'
-            +'<span style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">'+abMlFotoThumbs(it.fixFotos)
+            +'<span style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">'+abMlFotoThumbs(it.fixFotos,false,_abMlFotoDel(ml,it))
             +'<button class="act-btn" style="min-height:34px" onclick="abMlZurueckweisen(\''+ml.id+'\',\''+it.id+'\')">↩ Zurückweisen</button></span>'
             +'</div>';
         }).join('')
