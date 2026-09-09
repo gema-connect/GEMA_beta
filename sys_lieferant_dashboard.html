@@ -2795,6 +2795,20 @@ function _dwzAllTools(){
   }
   try{var a=JSON.parse(localStorage.getItem('gema_werkzeug')||'[]');return Array.isArray(a)?a:[];}catch(e){return [];}
 }
+// Gehoert dieses Geraet MIR als Lieferant? Entweder ueber das
+// hinterlegte Benutzerkonto (t.supplierId) oder ueber den Lieferanten-
+// DATENSATZ (t.supplierLieferantId) — Letzteres haelt die Zuordnung,
+// wenn im Team der hinterlegte Ansprechpartner wechselt.
+function _dwzIstMeinLieferantTool(t,myIds){
+  if(!t) return false;
+  if(t.supplierId && myIds.indexOf(t.supplierId)>=0) return true;
+  if(t.supplierLieferantId){
+    var u=null;try{u=GemaAuth.getCurrentUser();}catch(e){}
+    if(u&&u.lieferantId&&u.lieferantId===t.supplierLieferantId) return true;
+    if(_lief&&_lief.id&&_lief.id===t.supplierLieferantId) return true;
+  }
+  return false;
+}
 // Eigene User-ID + alle Team-User desselben Lieferanten-Datensatzes —
 // Auftraege an einen Kollegen sind fuer das ganze Team sichtbar.
 function _dwzMyIds(){
@@ -3305,7 +3319,7 @@ function _dwzKundenOrgs(){
   var orgIds={};
   _dwzAllTools().forEach(function(t){
     if(!t||!t.orgId)return;
-    var linked=(t.supplierId&&myIds.indexOf(t.supplierId)>=0)
+    var linked=_dwzIstMeinLieferantTool(t,myIds)
       ||(t.pruefAnfrage&&myIds.indexOf(t.pruefAnfrage.lieferantId)>=0)
       ||((t.ersatzAnfragen||[]).some(function(a){return myIds.indexOf(a.lieferantId)>=0;}));
     if(linked)orgIds[t.orgId]=true;
@@ -3400,6 +3414,7 @@ window._dwzEinbuchenSave=function(){
     orgId:orgId,
     supplier:firma,
     supplierId:(me&&me.id)||'',
+    supplierLieferantId:(me&&me.lieferantId)||(_lief&&_lief.id)||'',
     katalogProduktId:pid,
     bildUrl:d.bild||'',
     // NIV-Empfehlung aus dem Katalogprodukt uebernehmen
@@ -3454,7 +3469,7 @@ function renderWerkzeuge(){
 
   var myIds=_dwzMyIds();
   var mine=_dwzFiltern(_dwzAllTools().filter(function(t){
-    if(t.supplierId&&myIds.indexOf(t.supplierId)>=0)return true;
+    if(_dwzIstMeinLieferantTool(t,myIds))return true;
     if(t.pruefAnfrage&&myIds.indexOf(t.pruefAnfrage.lieferantId)>=0)return true;
     if((t.ersatzAnfragen||[]).some(function(a){return myIds.indexOf(a.lieferantId)>=0;}))return true;
     return false;
@@ -3551,7 +3566,7 @@ function renderWzDefekte(){
   // An mich gemeldete, offene Defekte auf Werkzeugen mit meiner Verknuepfung
   var meineDefekte=[];
   _dwzFiltern(_dwzAllTools()).forEach(function(t){
-    if(!t.supplierId||myIds.indexOf(t.supplierId)<0)return;
+    if(!_dwzIstMeinLieferantTool(t,myIds))return;
     (t.berichte||[]).forEach(function(b){
       if(b.typ==='defekt'&&!b.erledigt&&b.anLieferantGemeldet){
         meineDefekte.push({tool:t,bericht:b});

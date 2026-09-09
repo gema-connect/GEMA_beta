@@ -157,6 +157,11 @@
       '.gn .gn-ac-it{display:flex;width:100%;align-items:center;justify-content:space-between;gap:10px;padding:11px 13px;' +
       'border:none;background:none;font:500 15px var(--gn-font);color:var(--gn-ink);text-align:left;cursor:pointer;-webkit-tap-highlight-color:transparent}' +
       '.gn .gn-ac-it + .gn-ac-it{border-top:1px solid var(--gn-hair)}' +
+      /* Optionale Gruppen-Kopfzeile (it.group) — kein .gn-ac-it, damit weder
+         Tap-Handler noch der data-i-Index darauf zeigen. */
+      '.gn .gn-ac-g{padding:7px 13px 4px;font:800 10px/13px var(--gn-font);letter-spacing:.4px;text-transform:uppercase;' +
+      'color:var(--gn-ink-2);background:var(--gn-fill);border-top:1px solid var(--gn-hair);pointer-events:none}' +
+      '.gn .gn-ac-g:first-child{border-top:none}' +
       '.gn .gn-ac-it:active{background:var(--gn-fill)}' +
       '.gn .gn-ac-l{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
       '.gn .gn-ac-h{flex:none;font-size:12px;color:var(--gn-ink-2);max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
@@ -606,8 +611,11 @@
       var q = (inp.value || '').trim();
       items = []; try { items = getSugg(q) || []; } catch (e) { items = []; }
       if (!items.length) { hide(); return; }
+      var letzteGruppe = null;
       wrap.innerHTML = items.slice(0, 8).map(function (it, i) {
-        return '<button type="button" class="gn-ac-it" data-i="' + i + '">'
+        var kopf = '';
+        if (it.group && it.group !== letzteGruppe) { letzteGruppe = it.group; kopf = '<div class="gn-ac-g">' + esc(it.group) + '</div>'; }
+        return kopf + '<button type="button" class="gn-ac-it" data-i="' + i + '">'
           + '<span class="gn-ac-l">' + esc(it.label) + '</span>'
           + (it.hint ? '<span class="gn-ac-h">' + esc(it.hint) + '</span>' : '')
           + '</button>';

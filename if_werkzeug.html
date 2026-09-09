@@ -435,6 +435,11 @@ tr.sml-err td{background:#fef2f2}
 .ac-item .ac-main{font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ac-item .ac-hint{font-size:11px;color:var(--mut);font-weight:500;white-space:nowrap;flex-shrink:0}
 .ac-item mark{background:rgba(124,58,237,.15);color:var(--plan);border-radius:2px;font-weight:700;padding:0 1px}
+/* Gruppen-Kopf im Vorschlags-Dropdown (Lieferant: GEMA-Lieferanten zuerst,
+   danach die frueher selbst getippten). Kein .ac-item — damit weder Klick
+   noch Pfeiltasten darauf landen. */
+.ac-group{padding:6px 14px 3px;font-size:10px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:var(--mut);background:var(--bg2);border-top:1px solid var(--brd);pointer-events:none}
+.ac-group:first-child{border-top:none;border-radius:9px 9px 0 0}
 .ac-toggle-row{display:flex;align-items:center;gap:8px;padding:2px 0 6px}
 .ac-toggle-row span{font-size:11.5px;color:var(--mut);font-weight:600}
 
@@ -1009,6 +1014,10 @@ tr.sml-err td{background:#fef2f2}
 
     <input type="hidden" id="f_editId">
     <input type="hidden" id="f_supplierId">
+    <!-- Datensatz-ID des GEMA-Lieferanten (lieferant:-Pool). Ergaenzt
+         f_supplierId (Benutzerkonto): wechselt im Lieferanten-Team der
+         Ansprechpartner, bleibt die Firmen-Zuordnung trotzdem bestehen. -->
+    <input type="hidden" id="f_supplierLieferantId">
     <div class="modal-ft">
       <button class="mft-cancel" onclick="closeAdd()">Abbrechen</button>
       <button class="mft-cancel" onclick="_wzSaveAndQR()" title="Speichern und QR-Code anzeigen">🔲 QR</button>
@@ -1234,6 +1243,12 @@ window._wzIsNurExtern=_wzIsNurExtern;
 window._wzCanEditTool=_wzCanEditTool;
 window._wzIstFremdesTool=_wzIstFremdesTool;
 window._wzIsPartnerView=_wzIsPartnerView;
+// Test-Hooks: `tools` ist eine let-Variable des Script-Blocks und damit
+// von aussen unerreichbar (Muster _wzAuditHooks/_wzEtikHooks).
+window._wzHooks={
+  tools:function(){ return tools; },
+  byId:function(id){ return tools.find(function(t){ return t.id===id; }); }
+};
 
 function _wzCanEdit(){
   if(_wzIsMonteur()) return false;
@@ -1771,7 +1786,7 @@ function _wzBeCollect(){
   if(on('brand')){var bv=val('be_v_brand').trim();out.push({label:'Hersteller → '+(bv||'(leer)'),apply:function(t){t.brand=bv;}});}
   if(on('model')){var mv=val('be_v_model').trim();out.push({label:'Modell → '+(mv||'(leer)'),apply:function(t){t.model=mv;}});}
   if(on('intern')){var ikv=val('be_v_intern').trim();out.push({label:'Interne Kennung → '+(ikv||'(leer)'),apply:function(t){t.internKennung=ikv;}});}
-  if(on('supplier')){var sv=val('be_v_supplier').trim();out.push({label:'Lieferant → '+(sv||'(leer)'),apply:function(t){t.supplier=sv;if(!sv)t.supplierId='';}});}
+  if(on('supplier')){var sv=val('be_v_supplier').trim();out.push({label:'Lieferant → '+(sv||'(leer)'),apply:function(t){t.supplier=sv;if(!sv){t.supplierId='';t.supplierLieferantId='';}}});}
   if(on('notes')){var nv=val('be_v_notes').trim();out.push({label:'Standort/Notizen → '+(nv||'(leer)'),apply:function(t){t.notes=nv;}});}
   if(on('lifecycle')){var lv=val('be_v_lifecycle');out.push({label:'Status → '+lv,apply:function(t){t.lifecycleStatus=lv;}});}
   if(on('bought')){var kv=val('be_v_bought');if(kv)out.push({label:'Kaufdatum → '+kv,apply:function(t){t.bought=kv;}});}
@@ -2602,11 +2617,14 @@ window._wzKatalogPick=null;
 function _wzApplyKatalogPick(e){
   if(!e||e.src!=='lieferant')return;
   window._wzKatalogPick={name:e.name||'',model:e.model||'',bildUrl:e.bild||'',katalogProduktId:e.prodId||'',lieferantFirma:e.lieferantFirma||'',lieferantId:e.lieferantId||''};
-  // Lieferant-Feld vorbefuellen (supplierId = GemaAuth-User des Lieferanten)
+  // Lieferant-Feld vorbefuellen (supplierId = GemaAuth-User des Lieferanten,
+  // supplierLieferantId = sein Datensatz im lieferant:-Pool)
   var fs=document.getElementById('f_supplier');
   if(fs&&!fs.value.trim()&&e.lieferantFirma){
     fs.value=e.lieferantFirma;
     var fid=document.getElementById('f_supplierId');
+    var flid=document.getElementById('f_supplierLieferantId');
+    if(flid)flid.value=e.lieferantId||'';
     if(fid&&typeof GemaAuth!=='undefined'){
       try{
         var su=(GemaAuth.getUsers()||[]).find(function(x){return x.active&&x.lieferantId===e.lieferantId;});
@@ -2634,6 +2652,9 @@ function _wzInitAC(inputId,getSugg,onSelect){
   drop.setAttribute('data-ac-for',inputId);
   document.body.appendChild(drop);
   var activeIdx=-1,items=[];
+  // Eine Obergrenze fuer Anzeige UND Tastatur-Navigation — laufen die
+  // beiden auseinander, springt der Pfeil-Cursor ins Leere.
+  var AC_MAX=12;
 
   function positionDrop(){
     if(!drop.classList.contains('open')) return;
@@ -2682,8 +2703,14 @@ function _wzInitAC(inputId,getSugg,onSelect){
     items=getSugg(q);
     if(!items.length){drop.classList.remove('open');return;}
     activeIdx=-1;
-    drop.innerHTML=items.slice(0,10).map(function(it,i){
-      return '<div class="ac-item" data-idx="'+i+'"><span class="ac-main">'+_wzHighlight(it.label,q)+'</span>'+(it.hint?'<span class="ac-hint">'+esc(it.hint)+'</span>':'')+'</div>';
+    // Optionale Gruppierung (it.group): der Kopf ist KEIN .ac-item, damit
+    // Klick-Handler und Pfeiltasten-Index unveraendert auf die Eintraege
+    // zeigen.
+    var letzteGruppe=null;
+    drop.innerHTML=items.slice(0,AC_MAX).map(function(it,i){
+      var kopf='';
+      if(it.group && it.group!==letzteGruppe){ letzteGruppe=it.group; kopf='<div class="ac-group">'+esc(it.group)+'</div>'; }
+      return kopf+'<div class="ac-item" data-idx="'+i+'"><span class="ac-main">'+_wzHighlight(it.label,q)+'</span>'+(it.hint?'<span class="ac-hint">'+esc(it.hint)+'</span>':'')+'</div>';
     }).join('');
     drop.classList.add('open');
     scrollIntoSpace();
@@ -2722,7 +2749,7 @@ function _wzInitAC(inputId,getSugg,onSelect){
   inp.addEventListener('blur',function(){setTimeout(function(){drop.classList.remove('open');},180);});
   inp.addEventListener('keydown',function(e){
     if(!drop.classList.contains('open'))return;
-    var max=Math.min(items.length,10);
+    var max=Math.min(items.length,AC_MAX);
     if(e.key==='ArrowDown'){e.preventDefault();activeIdx=Math.min(activeIdx+1,max-1);updAc();}
     else if(e.key==='ArrowUp'){e.preventDefault();activeIdx=Math.max(activeIdx-1,0);updAc();}
     else if(e.key==='Enter'&&activeIdx>=0){e.preventDefault();inp.value=items[activeIdx].value;drop.classList.remove('open');if(onSelect)onSelect(items[activeIdx]);}
@@ -2878,36 +2905,121 @@ function _wzModelSuggestions(q,curNameRaw,curBrandRaw){
   var seen={};
   return result.filter(function(r){var k=r.label+'|'+(r.entry?r.entry.brand:'');if(seen[k])return false;seen[k]=true;return true;});
 }
-function _wzSupplierSuggestions(q){
-  var ql=(q||'').toLowerCase(),seen={},result=[];
-  // Aus bestehenden Geräten
-  tools.forEach(function(t){
-    if(!t.supplier)return;
-    if(ql&&t.supplier.toLowerCase().indexOf(ql)<0)return;
-    if(seen[t.supplier])return;
-    seen[t.supplier]=true;
-    result.push({label:t.supplier,value:t.supplier,hint:'Eigene Geräte',supplierId:t.supplierId||''});
-  });
-  // Aus Lieferanten-Accounts (GemaAuth) — nur Kategorie 'werkzeuge'
-  if(typeof GemaAuth!=='undefined'){
-    try{
-      var users=GemaAuth.getUsers()||[];
-      users.forEach(function(u){
-        if(!u.active||!u.roleIds||!u.roleIds.some(function(r){return typeof r==='string'&&(r.indexOf('role_lieferant')===0||r.indexOf('role_produktlieferant')===0);}))return;
-        if(typeof GemaProdukte!=='undefined'&&GemaProdukte.getAllLieferanten){
-          var lief=GemaProdukte.getAllLieferanten().find(function(l){return l.orgId===u.orgId||l.firma===(u.profile&&u.profile.firma);});
-          if(lief&&lief.lieferantKategorien&&lief.lieferantKategorien.length>0&&lief.lieferantKategorien.indexOf('werkzeuge')<0)return;
-        }
-        var firma=(u.profile&&u.profile.firma)||u.name||u.username||'';
-        if(!firma)return;
-        if(ql&&firma.toLowerCase().indexOf(ql)<0)return;
-        if(seen[firma])return;
-        seen[firma]=true;
-        result.push({label:firma,value:firma,hint:'Werkzeug-Lieferant',supplierId:u.id});
-      });
-    }catch(e){}
+// ── Registrierte GEMA-Lieferanten (Werkzeug-Sortiment) ────────────
+// Quelle ist der Lieferanten-Datensatz (`lieferant:`-Pool, GemaProdukte)
+// UND die Lieferanten-Benutzerkonten (GemaAuth) — ein Lieferant kann als
+// Datensatz gepflegt sein, ohne dass jemand aus seinem Team schon
+// eingeloggt war, und umgekehrt.
+// Zurueck kommt {firma, lieferantId, supplierId}: supplierId ist das
+// GemaAuth-Konto, an das eine Defektmeldung zugestellt wird. Ist keines
+// auffindbar, bleibt es leer — dann wird das beim Melden BENANNT statt
+// eine Zustellung vorzutaeuschen (No-silent-caps).
+function _wzIstLieferantenRolle(u){
+  return !!(u && Array.isArray(u.roleIds) && u.roleIds.some(function(r){
+    return typeof r==='string' && (r.indexOf('role_lieferant')===0 || r.indexOf('role_produktlieferant')===0);
+  }));
+}
+function _wzRegistrierteLieferanten(){
+  var out=[], seen={}, users=[];
+  try{ if(typeof GemaAuth!=='undefined'&&GemaAuth.getUsers) users=GemaAuth.getUsers()||[]; }catch(e){}
+  function nk(k){
+    try{ if(typeof GemaProdukte!=='undefined'&&GemaProdukte.normKatId) return GemaProdukte.normKatId(k); }catch(e){}
+    return k;
   }
-  return result;
+  function fuehrtWerkzeuge(kats){
+    // Kein Kategorie-Profil = unbeschraenkt (dieselbe Regel wie bisher).
+    if(!Array.isArray(kats)||!kats.length) return true;
+    return kats.some(function(k){ return nk(k)==='werkzeuge'; });
+  }
+  function add(firma, lieferantId, supplierId){
+    firma=(firma||'').trim();
+    if(!firma) return;
+    var k=firma.toLowerCase();
+    if(seen[k]){
+      // Konto nachtragen, falls der Datensatz zuerst kam (oder umgekehrt)
+      if(supplierId && !seen[k].supplierId) seen[k].supplierId=supplierId;
+      if(lieferantId && !seen[k].lieferantId) seen[k].lieferantId=lieferantId;
+      return;
+    }
+    var e={firma:firma, lieferantId:lieferantId||'', supplierId:supplierId||''};
+    seen[k]=e; out.push(e);
+  }
+  // a) Lieferanten-Datensaetze
+  try{
+    if(typeof GemaProdukte!=='undefined'&&GemaProdukte.getAllLieferanten){
+      (GemaProdukte.getAllLieferanten()||[]).forEach(function(l){
+        if(!l||l.status==='inaktiv') return;
+        if(!fuehrtWerkzeuge(l.lieferantKategorien)) return;
+        // Konto des Lieferanten-Teams: erst ueber die harte Verknuepfung
+        // (user.lieferantId), erst danach ueber die Org — NIE ein
+        // `users[0]`-Fallback (sonst landet die Meldung bei einer fremden Firma).
+        var u = users.find(function(x){ return x && x.active && x.lieferantId===l.id; })
+             || users.find(function(x){ return x && x.active && l.orgId && x.orgId===l.orgId && _wzIstLieferantenRolle(x); });
+        add(l.firma, l.id, u?u.id:'');
+      });
+    }
+  }catch(e){}
+  // b) Lieferanten-Konten ohne (auffindbaren) Datensatz
+  users.forEach(function(u){
+    if(!u||!u.active||!_wzIstLieferantenRolle(u)) return;
+    var firma=(u.profile&&u.profile.firma)||u.name||u.username||'';
+    if(!firma) return;
+    if(seen[firma.toLowerCase()]){ add(firma,u.lieferantId||'',u.id); return; }
+    // Kategorie-Profil des zugehoerigen Datensatzes respektieren
+    try{
+      if(typeof GemaProdukte!=='undefined'&&GemaProdukte.getAllLieferanten){
+        var lief=(GemaProdukte.getAllLieferanten()||[]).find(function(l){
+          return l && (l.id===u.lieferantId || (l.orgId&&l.orgId===u.orgId) || l.firma===firma);
+        });
+        if(lief&&!fuehrtWerkzeuge(lief.lieferantKategorien)) return;
+      }
+    }catch(e){}
+    add(firma,u.lieferantId||'',u.id);
+  });
+  return out;
+}
+window._wzRegistrierteLieferanten=_wzRegistrierteLieferanten;
+
+// Vorschlaege fuer das Lieferanten-Feld. Reihenfolge (User-Vorgabe
+// 09.09.2026): zuerst die REGISTRIERTEN GEMA-Lieferanten — und davon
+// zuoberst die, die im eigenen Bestand schon vorkommen —, danach die
+// uebrigen Freitext-Eintraege aus den eigenen Geraeten. Nur die
+// registrierten tragen supplierId/lieferantId; daran haengt, ob eine
+// Defektmeldung beim Lieferanten ankommt.
+function _wzSupplierSuggestions(q){
+  var ql=(q||'').toLowerCase(),seen={},reg=[],regNeu=[],eigene=[];
+  function passt(s){ return !ql || s.toLowerCase().indexOf(ql)>=0; }
+  // Wie oft kommt eine Firma im eigenen Bestand vor? (case-insensitiv)
+  var benutzt={};
+  tools.forEach(function(t){
+    var s=(t.supplier||'').trim(); if(!s) return;
+    var k=s.toLowerCase();
+    if(!benutzt[k]) benutzt[k]={n:0,label:s,supplierId:''};
+    benutzt[k].n++;
+    if(!benutzt[k].supplierId && t.supplierId) benutzt[k].supplierId=t.supplierId;
+  });
+  // 1)+2) Registrierte GEMA-Lieferanten
+  _wzRegistrierteLieferanten().forEach(function(l){
+    if(!passt(l.firma)) return;
+    var k=l.firma.toLowerCase();
+    if(seen[k]) return;
+    seen[k]=true;
+    var it={label:l.firma,value:l.firma,supplierId:l.supplierId||(benutzt[k]&&benutzt[k].supplierId)||'',lieferantId:l.lieferantId||''};
+    if(benutzt[k]){ it.hint='🏷 GEMA · '+benutzt[k].n+'×'; it.group='GEMA-Lieferanten (bereits verwendet)'; reg.push(it); }
+    else { it.hint='🏷 GEMA-Lieferant'; it.group='Weitere GEMA-Lieferanten'; regNeu.push(it); }
+  });
+  // 3) Freitext aus dem eigenen Bestand (kein GEMA-Konto dahinter)
+  Object.keys(benutzt).forEach(function(k){
+    if(seen[k]) return;
+    var b=benutzt[k];
+    if(!passt(b.label)) return;
+    seen[k]=true;
+    eigene.push({label:b.label,value:b.label,hint:'Eigene Geräte',supplierId:b.supplierId||'',lieferantId:'',group:'Schon verwendet'});
+  });
+  reg.sort(function(a,b){return a.label.localeCompare(b.label);});
+  regNeu.sort(function(a,b){return a.label.localeCompare(b.label);});
+  eigene.sort(function(a,b){return a.label.localeCompare(b.label);});
+  return reg.concat(regNeu, eigene);
 }
 
 function _wzSetupAutocomplete(){
@@ -2985,8 +3097,27 @@ function _wzSetupAutocomplete(){
   });
 
   _wzInitAC('f_supplier',_wzSupplierSuggestions,function(sel){
-    if(sel.supplierId){document.getElementById('f_supplierId').value=sel.supplierId;}
+    var fid=document.getElementById('f_supplierId');
+    var flid=document.getElementById('f_supplierLieferantId');
+    if(fid) fid.value=sel.supplierId||'';
+    if(flid) flid.value=sel.lieferantId||'';
   });
+  // Wird der Lieferant von Hand umgeschrieben, faellt die Verknuepfung weg —
+  // sonst ginge die naechste Defektmeldung an den ZULETZT gewaehlten
+  // Lieferanten, obwohl im Feld ein anderer Name steht. Nur bei echter
+  // Benutzeraktion (isTrusted), damit Formular-Befuellung beim Bearbeiten
+  // die gespeicherte Verknuepfung nicht wegwischt.
+  (function(){
+    var fs=document.getElementById('f_supplier');
+    if(!fs) return;
+    fs.addEventListener('input',function(ev){
+      if(!ev.isTrusted) return;
+      var fid=document.getElementById('f_supplierId');
+      var flid=document.getElementById('f_supplierLieferantId');
+      if(fid) fid.value='';
+      if(flid) flid.value='';
+    });
+  })();
 
   // Standort / Abteilung — Vorschläge aus bereits erfassten Standorten
   _wzInitAC('f_notes',_wzStandortSuggestions,null);
@@ -3100,6 +3231,13 @@ function _wzIsBeauftragt(t, myIds){
   if(!t) return false;
   if(t.pruefAnfrage && myIds.indexOf(t.pruefAnfrage.lieferantId)>=0) return true;
   if(t.supplierId && myIds.indexOf(t.supplierId)>=0) return true;
+  // Firmen-Verknuepfung: das Geraet zeigt auf den Lieferanten-DATENSATZ.
+  // So bleibt die Zuordnung bestehen, wenn im Lieferanten-Team der
+  // hinterlegte Ansprechpartner wechselt.
+  if(t.supplierLieferantId){
+    var me=_wzGetUser();
+    if(me && me.lieferantId && me.lieferantId===t.supplierLieferantId) return true;
+  }
   if((t.ersatzAnfragen||[]).some(function(a){ return myIds.indexOf(a.lieferantId)>=0; })) return true;
   return false;
 }
@@ -4070,7 +4208,7 @@ function _wzResetModalScroll(){
 }
 function closeAdd(){_wzUnlock();_wzCloseAllAC();document.getElementById('addModal').classList.add('hidden');clearForm();_wzUnlockScroll();}
 function clearForm(){
-  ['f_name','f_intern','f_brand','f_model','f_supplier','f_supplierId','f_bought','f_warranty','f_serial','f_notes','f_assignee','f_lastService','f_lastElec','f_lastLeiter','f_editId','f_belegNr','f_belegBetrag','f_belegBestellNr','f_belegLieferdatum','f_schutzklasse','f_leitungLaenge','f_heizleistung'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  ['f_name','f_intern','f_brand','f_model','f_supplier','f_supplierId','f_supplierLieferantId','f_bought','f_warranty','f_serial','f_notes','f_assignee','f_lastService','f_lastElec','f_lastLeiter','f_editId','f_belegNr','f_belegBetrag','f_belegBestellNr','f_belegLieferdatum','f_schutzklasse','f_leitungLaenge','f_heizleistung'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
   var fp=document.getElementById('f_belegPreview');if(fp)fp.innerHTML='';
   window._wzBelegFile=null;
   window._wzKatalogPick=null;
@@ -4233,6 +4371,7 @@ function submitForm(){
     model:document.getElementById('f_model').value.trim(),
     supplier:document.getElementById('f_supplier').value.trim(),
     supplierId:document.getElementById('f_supplierId').value||'',
+    supplierLieferantId:(document.getElementById('f_supplierLieferantId')||{}).value||'',
     bought, warranty:document.getElementById('f_warranty').value||null,
     serial:document.getElementById('f_serial').value.trim(),
     notes:document.getElementById('f_notes').value.trim(),
@@ -4302,7 +4441,7 @@ function editTool(id){
   _wzPopulateCatSelect(t.cat);
   _wzApplyOptFelder();
   const sv=(fid,v)=>{const e=document.getElementById(fid);if(e&&v!=null&&v!=='')e.value=v;};
-  sv('f_name',t.name);sv('f_intern',t.internKennung);sv('f_brand',t.brand);sv('f_model',t.model);sv('f_supplier',t.supplier);sv('f_supplierId',t.supplierId);sv('f_cat',t.cat);
+  sv('f_name',t.name);sv('f_intern',t.internKennung);sv('f_brand',t.brand);sv('f_model',t.model);sv('f_supplier',t.supplier);sv('f_supplierId',t.supplierId);sv('f_supplierLieferantId',t.supplierLieferantId);sv('f_cat',t.cat);
   sv('f_bought',t.bought);sv('f_warranty',t.warranty);sv('f_serial',t.serial);sv('f_notes',t.notes);
   // Beim Edit: gespeicherte Garantie ist eine bewusste Entscheidung —
   // Auto-Recalc bei Kaufdatums-Aenderung sperren.
@@ -4371,13 +4510,24 @@ function _wzNewBerichtId(){return 'ber_'+Date.now().toString(36)+'_'+Math.random
 // '#wzPhotoPreview'.
 window._wzReportPhotos=[];
 window._wzReportPhotosChanged=function(inp){
-  var files=Array.from(inp.files||[]).slice(0,3);
-  window._wzReportPhotos=[];
+  // ANHAENGEN, nicht ersetzen: eine zweite Dateiwahl warf frueher die
+  // erste stillschweigend weg (und beim Bearbeiten eines Berichts die
+  // bereits vorhandenen Bilder gleich mit). Was der 3er-Deckel
+  // abschneidet, wird BENANNT statt weggelassen.
+  var files=Array.from(inp.files||[]);
   var prev=document.getElementById('wzPhotoPreview');
   if(prev)prev.innerHTML='<div style="font-size:11px;color:#64748b">Komprimiere Bilder …</div>';
   Promise.all(files.map(_wzCompressImage)).then(function(results){
-    window._wzReportPhotos=results.filter(function(r){return r;});
+    var neu=results.filter(function(r){return r;});
+    var vorhanden=Array.isArray(window._wzReportPhotos)?window._wzReportPhotos:[];
+    var platz=Math.max(0,3-vorhanden.length);
+    var uebrig=neu.length-platz;
+    window._wzReportPhotos=vorhanden.concat(neu.slice(0,platz));
     _wzRenderReportPhotoPreview();
+    if(uebrig>0&&prev){
+      prev.insertAdjacentHTML('beforeend','<div style="font-size:10.5px;color:#92400e;width:100%">⚠ '+uebrig+' Bild'+(uebrig>1?'er':'')+' nicht übernommen — maximal 3 pro Bericht. Zuerst eines entfernen.</div>');
+    }
+    try{ inp.value=''; }catch(e){}
   }).catch(function(e){
     if(prev)prev.innerHTML='<div style="font-size:11px;color:#dc2626">Fehler: '+esc(e.message||'')+'</div>';
   });
@@ -4433,6 +4583,24 @@ function openDefektMelden(toolId){
   if(!t)return;
   window._wzReportPhotos=[];
   var u=_wzGetUser()||{};
+  // Lieferant des GERAETS: kann die Meldung direkt mitbekommen. Ist
+  // keiner hinterlegt oder hat er kein GEMA-Konto, wird das BENANNT —
+  // statt einen Haken anzubieten, der nichts zustellt.
+  var _emp=_wzLieferantEmpfaenger(t);
+  var liefBox='';
+  if(_emp.ids.length){
+    liefBox='<div style="border-top:1px dashed #e5e7eb;padding-top:10px;margin-top:4px">'
+      +'<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600;color:#475569">'
+      +'<input type="checkbox" id="defAnLief" checked style="width:18px;height:18px;accent-color:#7c3aed"/> Lieferant «'+esc(_emp.firma)+'» informieren</label>'
+      +'<div style="font-size:10.5px;color:#94a3b8;margin-top:4px">Die Meldung erscheint im Lieferanten-Dashboard, er kann direkt eine Offerte oder Reparatur eröffnen.</div></div>';
+  } else if(t.supplier){
+    liefBox='<div style="border-top:1px dashed #e5e7eb;padding-top:10px;margin-top:4px;font-size:11.5px;color:#92400e;background:#fffbeb;border-radius:8px;padding:9px 11px">'
+      +'⚠ Lieferant «'+esc(t.supplier)+'» ist als Freitext hinterlegt und hat kein GEMA-Konto — die Meldung kann ihm nicht zugestellt werden. '
+      +'Im Gerät einen registrierten GEMA-Lieferanten wählen.</div>';
+  } else {
+    liefBox='<div style="border-top:1px dashed #e5e7eb;padding-top:10px;margin-top:4px;font-size:11.5px;color:#64748b">'
+      +'Kein Lieferant am Gerät hinterlegt — die Meldung geht nur an den Magaziner.</div>';
+  }
   var html = '<div class="dlg-card">'
     + '<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#c2410c">⚠ Defekt melden</h3>'
     + '<div style="font-size:12px;color:#64748b;margin-bottom:16px">Gerät: <strong>'+esc(t.name)+'</strong></div>'
@@ -4441,6 +4609,7 @@ function openDefektMelden(toolId){
     + '  <div><label class="dlg-lbl">Schweregrad</label><select id="defSev" class="dlg-inp"><option value="leicht">Leicht (nutzbar)</option><option value="mittel" selected>Mittel (eingeschränkt)</option><option value="schwer">Schwer (nicht nutzbar)</option><option value="ausser_betrieb">Ausser Betrieb</option></select></div>'
     + '  <div><label class="dlg-lbl">Beschreibung *</label><textarea id="defBeschr" rows="4" placeholder="Was ist kaputt? Wann ist es aufgefallen?" class="dlg-txt"></textarea></div>'
     +    _wzPhotoFieldHtml()
+    +    liefBox
     + '  <div style="border-top:1px dashed #e5e7eb;padding-top:10px;margin-top:4px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600;color:#475569"><input type="checkbox" id="defFollowUp" onchange="document.getElementById(\'defFollowFields\').style.display=this.checked?\'block\':\'none\'" style="width:18px;height:18px;accent-color:#c2410c"/> Folge-Termin vorplanen</label><div style="font-size:10.5px;color:#94a3b8;margin-top:4px">z. B. „in 14 Tagen pruefen, ob behoben" — wird zur Faelligkeit als Notif ausgeloest.</div><div id="defFollowFields" style="display:none;margin-top:8px;display:none"><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div><label class="dlg-lbl" style="font-size:11px">Datum *</label><input id="defFollowDate" type="date" class="dlg-inp"/></div><div><label class="dlg-lbl" style="font-size:11px">Was?</label><input id="defFollowText" type="text" placeholder="z. B. Pruefen ob Akku ersetzt" class="dlg-inp"/></div></div></div></div>'
     + '</div>'
     + '<div class="dlg-row">'
@@ -4466,16 +4635,23 @@ function _wzSaveDefekt(toolId){
   var fuChk=document.getElementById('defFollowUp');
   var fuDate=fuChk&&fuChk.checked?(document.getElementById('defFollowDate').value||''):'';
   var fuText=fuChk&&fuChk.checked?(document.getElementById('defFollowText').value.trim()||''):'';
-  t.berichte.push({
+  var _ber={
     id:_wzNewBerichtId(),typ:'defekt',datum:new Date().toISOString(),
     autorUserId:u.id||'',autorName:u.name||'Unbekannt',
     titel:titel,beschreibung:beschr,schweregrad:sev,
     photos:Array.isArray(window._wzReportPhotos)?window._wzReportPhotos.slice(0,3):[],
     followUpDate:fuDate||null, followUpText:fuText||'',
     erledigt:false,erledigtAm:null
-  });
+  };
+  t.berichte.push(_ber);
+  // Lieferant des Geraets direkt informieren (Haken im Dialog, vorbelegt
+  // wenn ein zustellbares Lieferantenkonto hinterlegt ist). Ohne diesen
+  // Weg erreichte eine Monteur-Meldung den Lieferanten NIE — den Knopf
+  // «An Lieferant melden» sieht nur der Magaziner.
+  var _liefChk=document.getElementById('defAnLief');
+  var _liefN=(_liefChk&&_liefChk.checked)?_wzSendDefektAnLieferant(t,_ber):0;
   save();renderList();_wzCloseModal();
-  _wzActLog('defekt','Defekt gemeldet: '+titel+' ('+sev+')', t, {schweregrad:sev});
+  _wzActLog('defekt','Defekt gemeldet: '+titel+' ('+sev+')'+(_liefN?' · an Lieferant '+(t.supplier||'')+' gemeldet':''), t, {schweregrad:sev});
   // Notifikation an Magaziner
   if(typeof GemaNotify!=='undefined'){
     GemaNotify.push({
@@ -4489,7 +4665,7 @@ function _wzSaveDefekt(toolId){
       link:'if_werkzeug.html?view='+encodeURIComponent(t.id)
     });
   }
-  alert('✓ Defektmeldung gespeichert');
+  alert('✓ Defektmeldung gespeichert'+(_liefN?' und an '+(t.supplier||'den Lieferanten')+' gesendet':''));
 }
 
 function openZuweisung(toolId){
@@ -6431,19 +6607,36 @@ function openBerichte(toolId){
             :(la.pdfDataUrl?'<div style="margin-top:2px"><a href="'+la.pdfDataUrl+'" download="'+esc(la.pdfName||'Offerte.pdf')+'" style="color:#2563eb;font-weight:700">📄 '+esc(la.pdfName||'Offerte.pdf')+'</a></div>':''))
           +'</div>';
       }
+      // Aktionen am Defekt: erledigen bzw. WIEDER OEFFNEN (Fehlklick),
+      // an den Lieferanten melden, bearbeiten und loeschen. Bearbeiten/
+      // Loeschen darf zusaetzlich der Melder selbst (er hat den Tippfehler
+      // gemacht) — siehe _wzCanEditBericht.
       var aktion='';
-      if(isDef && !b.erledigt && _wzCanEdit()){
-        aktion='<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">';
-        aktion+='<button onclick="_wzDefektErledigt(\''+toolId+'\',\''+b.id+'\')" style="padding:4px 10px;background:#16a34a;color:#fff;border:none;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer">✓ Erledigt</button>';
-        if(t.supplierId){
-          aktion+=b.anLieferantGemeldet
-            ?'<span style="font-size:10.5px;color:#6366f1;padding:4px 8px">📤 Gemeldet am '+fmt((b.anLieferantGemeldet||'').split('T')[0])+'</span>'
-            :'<button onclick="_wzDefektAnLieferant(\''+toolId+'\',\''+b.id+'\')" style="padding:4px 10px;background:#7c3aed;color:#fff;border:none;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer">📤 An Lieferant melden</button>';
+      var btn=function(lbl,fn,bg,brd,col){
+        return '<button onclick="'+fn+'" style="padding:4px 10px;background:'+bg+';color:'+col+';border:1px solid '+brd+';border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">'+lbl+'</button>';
+      };
+      if(isDef){
+        var acts=[];
+        if(!b.erledigt && _wzCanEdit()){
+          acts.push(btn('✓ Erledigt','_wzDefektErledigt(\''+toolId+'\',\''+b.id+'\')','#16a34a','#16a34a','#fff'));
+          if(t.supplierId||t.supplierLieferantId){
+            acts.push(b.anLieferantGemeldet
+              ?'<span style="font-size:10.5px;color:#6366f1;padding:4px 8px">📤 Gemeldet am '+fmt((b.anLieferantGemeldet||'').split('T')[0])+'</span>'
+              :btn('📤 An Lieferant melden','_wzDefektAnLieferant(\''+toolId+'\',\''+b.id+'\')','#7c3aed','#7c3aed','#fff'));
+          }
         }
-        aktion+='</div>';
+        if(b.erledigt && _wzCanEdit()){
+          acts.push(btn('↩ Wieder öffnen','_wzDefektWiederOeffnen(\''+toolId+'\',\''+b.id+'\')','#fff','#cbd5e1','#475569'));
+        }
+        if(_wzCanEditBericht(t,b)){
+          acts.push(btn('✏️ Bearbeiten','_wzDefektBearbeiten(\''+toolId+'\',\''+b.id+'\')','#fff','#cbd5e1','#475569'));
+          acts.push(btn('🗑 Löschen','_wzDefektLoeschen(\''+toolId+'\',\''+b.id+'\')','#fff','#fecaca','#b91c1c'));
+        }
+        if(acts.length) aktion='<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">'+acts.join('')+'</div>';
       }
       return '<div style="background:'+bgCol+';border:1.5px solid '+brdCol+';border-radius:8px;padding:10px 12px;margin-bottom:8px">'
-        +'<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#64748b"><span style="font-weight:800;color:#0f172a">'+icon+' '+typLabel+'</span><span>·</span><span>'+esc(b.autorName||'—')+'</span><span>·</span><span>'+fmt((b.datum||'').split('T')[0])+'</span></div>'
+        +'<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#64748b;flex-wrap:wrap"><span style="font-weight:800;color:#0f172a">'+icon+' '+typLabel+'</span><span>·</span><span>'+esc(b.autorName||'—')+'</span><span>·</span><span>'+fmt((b.datum||'').split('T')[0])+'</span>'
+        +(b.geaendertAm?'<span title="Meldung wurde nachträglich korrigiert">· ✏️ geändert '+fmt((b.geaendertAm||'').split('T')[0])+(b.geaendertVonName?' ('+esc(b.geaendertVonName)+')':'')+'</span>':'')+'</div>'
         +_wzQualiBerichtHtml(b)
         +'<div style="font-size:13px;font-weight:700;margin-top:4px">'+esc(b.titel||'')+'</div>'
         +(b.beschreibung?'<div style="font-size:12px;color:#475569;margin-top:2px">'+esc(b.beschreibung)+'</div>':'')
@@ -6518,6 +6711,116 @@ function _wzDefektErledigt(toolId, berId){
   save();renderList();openBerichte(toolId);
   _wzActLog('defekt_erledigt','Defekt erledigt: '+(b.titel||''), t);
 }
+
+// ── Defektmeldung korrigieren ───────────────────────────────────
+// Eine Meldung ist eine Beobachtung, kein Nachweis: Titel, Schweregrad,
+// Beschreibung und Fotos bleiben aenderbar, ein Fehlklick auf «Erledigt»
+// laesst sich zuruecknehmen und eine versehentliche Meldung loeschen.
+// (Pruefberichte bleiben bewusst unangetastet — sie sind der Nachweis.)
+// Berechtigt ist, wer das Geraet bearbeiten darf, ODER der Melder selbst.
+function _wzCanEditBericht(t,b){
+  if(!t||!b)return false;
+  if(b.typ!=='defekt')return false;
+  if(_wzCanEditTool(t))return true;
+  var u=_wzGetUser();
+  return !!(u&&u.id&&b.autorUserId&&b.autorUserId===u.id);
+}
+window._wzCanEditBericht=_wzCanEditBericht;
+
+function _wzDefektWiederOeffnen(toolId, berId){
+  if(!_wzCanEdit())return;
+  var t=tools.find(function(x){return x.id===toolId;});
+  if(!t||!t.berichte)return;
+  var b=t.berichte.find(function(x){return x.id===berId;});
+  if(!b||b.typ!=='defekt')return;
+  b.erledigt=false;b.erledigtAm=null;
+  save();renderList();openBerichte(toolId);
+  _wzActLog('defekt','Defekt wieder geöffnet: '+(b.titel||''), t);
+}
+window._wzDefektWiederOeffnen=_wzDefektWiederOeffnen;
+
+function _wzDefektLoeschen(toolId, berId){
+  var t=tools.find(function(x){return x.id===toolId;});
+  if(!t||!t.berichte)return;
+  var b=t.berichte.find(function(x){return x.id===berId;});
+  if(!b||!_wzCanEditBericht(t,b))return;
+  var warn=b.anLieferantGemeldet
+    ? ' Die Meldung wurde bereits an '+((b.anLieferantFirma||t.supplier||'den Lieferanten'))+' gesendet — dort bleibt die Benachrichtigung bestehen.'
+    : '';
+  GemaDialog.confirm({
+    title:'Defektmeldung löschen',
+    message:'Meldung «'+(b.titel||'Defekt')+'» wirklich löschen?'+warn,
+    confirmLabel:'Löschen', danger:true, focusCancel:true
+  }).then(function(ok){
+    if(!ok)return;
+    var i=t.berichte.indexOf(b);
+    if(i>=0)t.berichte.splice(i,1);
+    save();renderList();openBerichte(toolId);
+    _wzActLog('geloescht','Defektmeldung gelöscht: '+(b.titel||''), t);
+  });
+}
+window._wzDefektLoeschen=_wzDefektLoeschen;
+
+function _wzDefektBearbeiten(toolId, berId){
+  var t=tools.find(function(x){return x.id===toolId;});
+  if(!t||!t.berichte)return;
+  var b=t.berichte.find(function(x){return x.id===berId;});
+  if(!b||!_wzCanEditBericht(t,b)){alert('Keine Berechtigung — nur der Melder oder der Magaziner darf eine Defektmeldung ändern.');return;}
+  // Bestehende Fotos in den Sammler legen: sie erscheinen in der Vorschau,
+  // lassen sich einzeln entfernen und neue kommen dazu (max 3).
+  window._wzReportPhotos=Array.isArray(b.photos)?b.photos.slice(0,3):[];
+  var sevs=[['leicht','Leicht (nutzbar)'],['mittel','Mittel (eingeschränkt)'],['schwer','Schwer (nicht nutzbar)'],['ausser_betrieb','Ausser Betrieb']];
+  var sevOpts=sevs.map(function(s){return '<option value="'+s[0]+'"'+((b.schweregrad||'mittel')===s[0]?' selected':'')+'>'+s[1]+'</option>';}).join('');
+  var html = '<div class="dlg-card">'
+    + '<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#c2410c">✏️ Defektmeldung bearbeiten</h3>'
+    + '<div style="font-size:12px;color:#64748b;margin-bottom:16px">Gerät: <strong>'+esc(t.name)+'</strong> · gemeldet von '+esc(b.autorName||'—')+' am '+fmt((b.datum||'').split('T')[0])+'</div>'
+    + '<div class="dlg-fields">'
+    + '  <div><label class="dlg-lbl">Titel *</label><input id="defTitel" type="text" class="dlg-inp" value="'+esc(b.titel||'')+'"/></div>'
+    + '  <div><label class="dlg-lbl">Schweregrad</label><select id="defSev" class="dlg-inp">'+sevOpts+'</select></div>'
+    + '  <div><label class="dlg-lbl">Beschreibung *</label><textarea id="defBeschr" rows="4" class="dlg-txt">'+esc(b.beschreibung||'')+'</textarea></div>'
+    +    _wzPhotoFieldHtml()
+    + '  <div style="border-top:1px dashed #e5e7eb;padding-top:10px;margin-top:4px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600;color:#475569"><input type="checkbox" id="defFollowUp"'+(b.followUpDate?' checked':'')+' onchange="document.getElementById(\'defFollowFields\').style.display=this.checked?\'block\':\'none\'" style="width:18px;height:18px;accent-color:#c2410c"/> Folge-Termin vorplanen</label>'
+    + '    <div id="defFollowFields" style="display:'+(b.followUpDate?'block':'none')+';margin-top:8px"><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+    + '      <div><label class="dlg-lbl" style="font-size:11px">Datum *</label><input id="defFollowDate" type="date" class="dlg-inp" value="'+esc(b.followUpDate||'')+'"/></div>'
+    + '      <div><label class="dlg-lbl" style="font-size:11px">Was?</label><input id="defFollowText" type="text" class="dlg-inp" value="'+esc(b.followUpText||'')+'"/></div>'
+    + '    </div></div></div>'
+    + '</div>'
+    + '<div class="dlg-row">'
+    + '  <button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button>'
+    + '  <button onclick="_wzSaveDefektEdit(\''+toolId+'\',\''+berId+'\')" style="padding:9px 18px;border-radius:8px;border:none;background:#c2410c;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">✓ Änderungen speichern</button>'
+    + '</div>'
+    + '</div>';
+  _wzShowModal(html);
+  setTimeout(_wzRenderReportPhotoPreview,0);
+}
+window._wzDefektBearbeiten=_wzDefektBearbeiten;
+
+function _wzSaveDefektEdit(toolId, berId){
+  var t=tools.find(function(x){return x.id===toolId;});
+  if(!t||!t.berichte)return;
+  var b=t.berichte.find(function(x){return x.id===berId;});
+  if(!b||!_wzCanEditBericht(t,b))return;
+  var titel=document.getElementById('defTitel').value.trim();
+  var beschr=document.getElementById('defBeschr').value.trim();
+  if(!titel||!beschr){alert('Bitte Titel und Beschreibung angeben');return;}
+  var fuChk=document.getElementById('defFollowUp');
+  b.titel=titel;
+  b.beschreibung=beschr;
+  b.schweregrad=document.getElementById('defSev').value;
+  b.photos=Array.isArray(window._wzReportPhotos)?window._wzReportPhotos.slice(0,3):[];
+  b.followUpDate=(fuChk&&fuChk.checked)?(document.getElementById('defFollowDate').value||null):null;
+  b.followUpText=(fuChk&&fuChk.checked)?(document.getElementById('defFollowText').value.trim()||''):'';
+  // Nachvollziehbarkeit: eine korrigierte Meldung bleibt als korrigiert
+  // erkennbar (der Lieferant hat u. U. den alten Text erhalten).
+  var u=_wzGetUser()||{};
+  b.geaendertAm=new Date().toISOString();
+  b.geaendertVonName=u.name||'';
+  save();renderList();_wzCloseModal();
+  _wzActLog('geaendert','Defektmeldung geändert: '+titel, t, {schweregrad:b.schweregrad});
+  alert('✓ Defektmeldung aktualisiert');
+  openBerichte(toolId);
+}
+window._wzSaveDefektEdit=_wzSaveDefektEdit;
 
 // ── Messwerte + Protokoll: geteilte Bausteine ────────────────────
 // Dieselben vier Felder erscheinen im Magaziner-Dialog UND in der
@@ -7562,29 +7865,82 @@ function _wzViewBeleg(toolId){
   }
 }
 
+// ── Zustellung einer Defektmeldung an den hinterlegten Lieferanten ──
+// Der Lieferant haengt PRO WERKZEUG am Datensatz (t.supplierId =
+// Benutzerkonto, t.supplierLieferantId = Firmen-Datensatz). Zugestellt
+// wird an das GANZE Lieferanten-Team, damit die Meldung nicht liegen
+// bleibt, wenn der eine hinterlegte Kollege gerade nicht arbeitet.
+// Rueckgabe: {ids:[...], firma:'…'} — leeres ids heisst «niemand
+// erreichbar» und wird vom Aufrufer BENANNT, nie stillschweigend als
+// Erfolg verkauft.
+function _wzLieferantEmpfaenger(t){
+  var ids=[], firma=(t&&t.supplier)||'', liefId=(t&&t.supplierLieferantId)||'';
+  if(!t) return {ids:ids, firma:firma};
+  var users=[];
+  try{ if(typeof GemaAuth!=='undefined'&&GemaAuth.getUsers) users=GemaAuth.getUsers()||[]; }catch(e){}
+  function add(id){ if(id && ids.indexOf(id)<0) ids.push(id); }
+  var haupt=t.supplierId?users.find(function(x){return x&&x.id===t.supplierId;}):null;
+  // Das hinterlegte Konto zaehlt auch dann, wenn der Benutzer-Cache es
+  // (noch) nicht kennt — sonst faellt die Meldung bei kaltem Cache aus.
+  add(t.supplierId||'');
+  if(haupt&&haupt.lieferantId&&!liefId) liefId=haupt.lieferantId;
+  if(liefId){
+    users.forEach(function(x){ if(x&&x.active&&x.lieferantId===liefId) add(x.id); });
+    try{
+      if(typeof GemaProdukte!=='undefined'&&GemaProdukte.getAllLieferanten){
+        var l=(GemaProdukte.getAllLieferanten()||[]).find(function(y){return y&&y.id===liefId;});
+        if(l){
+          if(!firma) firma=l.firma||'';
+          if(!ids.length&&l.orgId) users.forEach(function(x){ if(x&&x.active&&x.orgId===l.orgId&&_wzIstLieferantenRolle(x)) add(x.id); });
+        }
+      }
+    }catch(e){}
+  }
+  return {ids:ids, firma:firma||'Lieferant', lieferantId:liefId};
+}
+// Sendet die Meldung und stempelt den Bericht. Gibt die Zahl der
+// erreichten Empfaenger zurueck (0 = kein Lieferantenkonto auffindbar).
+function _wzSendDefektAnLieferant(t,b){
+  var emp=_wzLieferantEmpfaenger(t);
+  if(!emp.ids.length) return 0;
+  var u=_wzGetUser()||{};
+  if(typeof GemaNotify!=='undefined'){
+    emp.ids.forEach(function(uid){
+      GemaNotify.push({
+        eventKey:'werkzeug_defekt_lieferant',
+        empfaengerUserId:uid,
+        modul:'werkzeug',
+        typ:'warnung',
+        titel:'⚠ Defektmeldung: '+t.name,
+        text:(u.name||'Magaziner')+': '+(b?b.titel:'Defekt gemeldet')+' · '+(t.brand||'')+(t.model?' '+t.model:'')+(b&&b.schweregrad?' · Schweregrad: '+b.schweregrad:''),
+        link:'sys_lieferant_dashboard.html?tab=werkzeuge'
+      });
+    });
+  }
+  if(b){
+    b.anLieferantGemeldet=new Date().toISOString();
+    b.anLieferantFirma=emp.firma;
+  }
+  return emp.ids.length;
+}
+window._wzLieferantEmpfaenger=_wzLieferantEmpfaenger;
+window._wzSendDefektAnLieferant=_wzSendDefektAnLieferant;
+
 function _wzDefektAnLieferant(toolId,berId){
   var t=tools.find(function(x){return x.id===toolId;});
   if(!t)return;
-  if(!t.supplierId){alert('Kein Lieferant verknüpft. Bitte zuerst einen Lieferant im Gerät hinterlegen.');return;}
+  if(!t.supplierId&&!t.supplierLieferantId){alert('Kein Lieferant verknüpft. Bitte zuerst einen Lieferant im Gerät hinterlegen.');return;}
   var b=null;
   if(berId&&t.berichte)b=t.berichte.find(function(x){return x.id===berId;});
-  var u=_wzGetUser()||{};
-  var text=b?b.titel+' — '+b.beschreibung:'Defekt an '+t.name;
-  if(typeof GemaNotify!=='undefined'){
-    GemaNotify.push({
-      eventKey:'werkzeug_defekt_lieferant',
-      empfaengerUserId:t.supplierId,
-      modul:'werkzeug',
-      typ:'warnung',
-      titel:'⚠ Defektmeldung: '+t.name,
-      text:(u.name||'Magaziner')+': '+(b?b.titel:'Defekt gemeldet')+' · '+(t.brand||'')+(t.model?' '+t.model:'')+(b&&b.schweregrad?' · Schweregrad: '+b.schweregrad:''),
-      link:'sys_lieferant_dashboard.html?tab=werkzeuge'
-    });
+  var n=_wzSendDefektAnLieferant(t,b);
+  if(!n){
+    alert('«'+(t.supplier||'Der Lieferant')+'» hat kein GEMA-Konto hinterlegt — die Meldung konnte nicht zugestellt werden. '
+      +'Bitte im Gerät einen registrierten GEMA-Lieferanten auswählen.');
+    return;
   }
-  if(b)b.anLieferantGemeldet=new Date().toISOString();
   save();
   _wzActLog('defekt','Defekt an Lieferant gemeldet ('+(t.supplier||'Lieferant')+')'+(b?': '+(b.titel||'').slice(0,60):''), t);
-  alert('✓ Defektmeldung an '+esc(t.supplier||'Lieferant')+' gesendet');
+  alert('✓ Defektmeldung an '+(t.supplier||'Lieferant')+' gesendet');
   openBerichte(toolId);
 }
 
@@ -10682,6 +11038,7 @@ try{
       +(id?'':'<div class="gn-label" style="text-transform:none;font-weight:500">Prüfungen, Kaufbeleg &amp; Details lassen sich später über «Bearbeiten» am Desktop ergänzen — Service/NIV-Standards werden automatisch gesetzt.</div>');
     var natPick=null;                                  // Lieferanten-Katalog-Pick des Sheets
     var supplierId=(t&&t.supplierId)||'';
+    var supplierLiefId=(t&&t.supplierLieferantId)||'';
     var sh=nat.sheet({
       title:id?'Gerät bearbeiten':'Neues Gerät',
       saveLabel:'💾 Speichern',
@@ -10705,6 +11062,7 @@ try{
           try{ onCatChange(); }catch(e){}
           natSet('f_intern',g('intern')); natSet('f_brand',g('brand')); natSet('f_model',g('model'));
           natSet('f_supplier',g('supplier')); natSet('f_supplierId',g('supplier')?supplierId:'');
+          natSet('f_supplierLieferantId',g('supplier')?supplierLiefId:'');
           natSet('f_serial',g('serial')); natSet('f_bought',g('bought')); natSet('f_notes',g('notes'));
           var rid=submitForm();               // speichert + schliesst das Modal
           if(!rid){ try{ closeAdd(); }catch(e){} return false; }
@@ -10726,6 +11084,7 @@ try{
       natPick={name:e.name||'',model:e.model||'',bildUrl:e.bild||'',katalogProduktId:e.prodId||'',lieferantFirma:e.lieferantFirma||'',lieferantId:e.lieferantId||''};
       if(fSup&&!fSup.value.trim()&&e.lieferantFirma){
         fSup.value=e.lieferantFirma;
+        supplierLiefId=e.lieferantId||'';
         try{
           var su=(GemaAuth.getUsers()||[]).find(function(x){return x.active&&x.lieferantId===e.lieferantId;});
           if(su) supplierId=su.id;
@@ -10757,8 +11116,8 @@ try{
       setCatIf(e.cat);
       applyLiefPick(e);
     });
-    GemaNativeMobil.ac(fSup,_wzSupplierSuggestions,function(sel){ supplierId=sel.supplierId||''; });
-    if(fSup) fSup.addEventListener('input',function(){ supplierId=''; });   // manuell getippt = keine User-Verknüpfung
+    GemaNativeMobil.ac(fSup,_wzSupplierSuggestions,function(sel){ supplierId=sel.supplierId||''; supplierLiefId=sel.lieferantId||''; });
+    if(fSup) fSup.addEventListener('input',function(){ supplierId=''; supplierLiefId=''; });   // manuell getippt = keine Verknüpfung
     GemaNativeMobil.ac(fNotes,_wzStandortSuggestions,null);
   }
 
