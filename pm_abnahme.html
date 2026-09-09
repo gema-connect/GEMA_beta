@@ -266,6 +266,14 @@ body.ab-nur-maengel #view_maengel button{pointer-events:none !important}
 .typ-pill.mangel{background:var(--red-bg,#fef2f2);color:var(--red);border:1px solid #fca5a5}
 .typ-pill.pendenz{background:#fffbeb;color:#b45309;border:1px solid #fcd34d}
 .status-badge.sb-teil{background:#fffbeb;color:#b45309;border:1px solid #fcd34d}
+/* Live-Stand aus einer übergebenen Mängelliste (nur Anzeige — das Protokoll
+   selbst wird erst beim Freigeben geschrieben). */
+.status-badge.sb-mlwip{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}
+.status-badge.sb-mlok {background:#ecfdf5;color:#047857;border:1px solid #a7f3d0}
+.status-badge.sb-mlzur{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}
+.ab-mlinfo{margin-top:10px;padding:10px 12px;border:1.5px solid #bfdbfe;background:#f8fbff;border-radius:10px;font-size:12.5px;line-height:1.5}
+.ab-mlinfo-hd{font-weight:800;color:#1d4ed8;margin-bottom:3px}
+.ab-mlinfo img{width:52px;height:52px;object-fit:cover;border-radius:7px;border:1px solid var(--brd2);cursor:zoom-in}
 
 /* mangel detail */
 .mangel-detail{border-top:1.5px dashed var(--brd2);background:var(--bg2);padding:14px 16px;display:none}
@@ -1264,6 +1272,20 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       const statusBadge = done ? '<span class="status-badge sb-done">✅ Erledigt</span>'
         : teil ? '<span class="status-badge sb-teil">🟡 Teilweise erledigt</span>'
         : '<span class="status-badge sb-open">🔴 Offen</span>';
+      // Punkt ist an eine Mängelliste übergeben → deren Live-Stand daneben
+      // zeigen. Rein informativ; das Protokoll bleibt unverändert, bis die
+      // verantwortliche Seite freigibt.
+      const mlSt   = abMlIdx()[it.id];
+      const mlLbl  = done ? null : abMlStandLabel(mlSt);
+      const mlBadge= mlLbl ? `<span class="status-badge ${mlLbl.cls}" style="font-size:11px" title="${escAttr(mlLbl.tip)}">${mlLbl.ic} ${mlLbl.txt}</span>` : '';
+      const mlInfo = (mlSt && !done) ? `
+        <div class="ab-mlinfo">
+          <div class="ab-mlinfo-hd">${mlLbl.ic} ${mlLbl.txt} — ${esc(mlSt.monteurName||'Monteur')}${mlSt.monteurFirma?' ('+esc(mlSt.monteurFirma)+')':''}${mlSt.extern?' · ✉️ extern':''}</div>
+          ${mlSt.kommentar?`<div>💬 ${esc(mlSt.kommentar)}</div>`:''}
+          ${mlSt.kommentarVerantwortlicher?`<div style="color:#b91c1c">↩ ${esc(mlSt.kommentarVerantwortlicher)}</div>`:''}
+          ${mlSt.fixFotos.length?`<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">${mlSt.fixFotos.map(f=>{const src=_abFotoSrc(f);return src?`<img src="${esc(src)}" alt="Beweisfoto" onclick="openLightbox(this.src);event.stopPropagation()"/>`:'';}).join('')}</div>`:''}
+          <div style="color:var(--mut);margin-top:5px">Das Protokoll wird erst beim Freigeben aktualisiert — unten unter «Aufgaben».</div>
+        </div>` : '';
 
       card.innerHTML=`
         <div class="mangel-summary">
@@ -1275,6 +1297,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
           <div class="mangel-mangel">${esc(it.mangel)||'<span style="color:var(--mut2)">Beschreibung ausfüllen</span>'}</div>
           <div class="mangel-status-col">
             ${statusBadge}
+            ${mlBadge}
             ${it.erledigungBis?`<span class="status-badge sb-mut" style="font-size:11px">bis ${esc(it.erledigungBis)}</span>`:''}
           </div>
         </div>
@@ -1314,6 +1337,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
                 <button class="act-btn" data-action="insertBelow">+ Zeile</button>
                 <button class="act-btn danger" data-action="delete">🗑 Löschen</button>
               </div>
+              ${mlInfo}
             </div>
             <div class="card" style="padding:14px;background:var(--sur)">
               <div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--mut);margin-bottom:12px">Fotos</div>
@@ -3950,8 +3974,68 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     var i=pool.findIndex(function(x){return x.id===rec.id;});
     if(i>=0)pool[i]=rec;else pool.push(rec);
     _abMemPools[key]=pool;
-    try{localStorage.setItem(key,JSON.stringify(pool));}catch(e){}
+    // Cache über GemaSync.setCached statt eigenem localStorage.setItem:
+    // scheitert der localStorage-Write an der Quota (Mängellisten tragen
+    // Beweisfotos), räumt GemaSync den veralteten Eintrag ab und hält den
+    // Stand im Spiegel + IndexedDB. Mit einem EIGENEN Write bliebe der alte,
+    // kürzere Pool stehen — getCached hätte ihn beim nächsten Klick
+    // zurückgeliefert und das eben Abgehakte wäre still verloren gegangen.
+    if(typeof GemaSync!=='undefined'&&GemaSync.setCached){ try{ GemaSync.setCached(key,pool); }catch(e){ try{localStorage.setItem(key,JSON.stringify(pool));}catch(_e){} } }
+    else { try{localStorage.setItem(key,JSON.stringify(pool));}catch(e){} }
+    if(key===ML_POOL) abMlIdxInvalidate();
     if(typeof GemaSync!=='undefined'&&GemaSync.saveRecord)GemaSync.saveRecord(AB_SYNC,prefix+rec.id,rec).catch(function(){});
+  }
+
+  // ── Live-Stand der übergebenen Mängel (EINE Wahrheit für Protokoll + Panel) ──
+  // Der Abarbeiter hakt in SEINER Mängelliste ab (abml:-Record). Das
+  // Protokoll des Planers wurde davon bisher gar nicht berührt — er sah
+  // weder den Fortschritt noch die Beweisfotos, solange der Monteur nicht
+  // zusätzlich «Alle abgearbeitet» drückte (Feedback 09.09.2026: «wenn er es
+  // als erledigt markiert, kann der Planer dies nicht sehen»).
+  // NUR LESEND: `it.erledigt` im Protokoll wird hier NIE gesetzt — die
+  // Übernahme bleibt die bewusste Entscheidung der verantwortlichen Seite
+  // (abMlFreigeben). Sonst stünde «erledigt» im Protokoll, bevor jemand
+  // kontrolliert hat.
+  // Memoisiert je Render: abPoolRead liefert pro Aufruf frische Kopien,
+  // ein Aufruf pro Mangel-Karte wäre quadratisch.
+  var _abMlIdx=null;
+  function abMlIdxInvalidate(){ _abMlIdx=null; }
+  function abMlIdx(){
+    if(_abMlIdx) return _abMlIdx;
+    var map={};
+    abPoolRead(ML_POOL).forEach(function(ml){
+      if(!ml) return;
+      // Freigegebene Listen sind im Protokoll angekommen — ihr Stand steht
+      // dort in it.erledigt und würde hier nur doppelt gemeldet.
+      if(ml.status==='freigegeben') return;
+      (ml.items||[]).forEach(function(mi){
+        if(!mi||!mi.itemId) return;
+        var alt=map[mi.itemId];
+        // Ein Punkt kann mehrfach übergeben worden sein — die JÜNGERE Liste gilt.
+        if(alt && String(alt.mlErstelltAm||'') > String(ml.erstelltAm||'')) return;
+        map[mi.itemId]={
+          status:mi.status||'offen', mlId:ml.id, mlStatus:ml.status||'offen',
+          monteurName:ml.monteurName||'', monteurFirma:ml.monteurFirma||'',
+          extern:!!ml.extern, erledigtAm:mi.erledigtAm||'', kommentar:mi.kommentar||'',
+          kommentarVerantwortlicher:mi.kommentarVerantwortlicher||'',
+          fixFotos:Array.isArray(mi.fixFotos)?mi.fixFotos:[], mlErstelltAm:ml.erstelltAm||''
+        };
+      });
+    });
+    _abMlIdx=map; return map;
+  }
+  window._abMlIdx=abMlIdx;
+  window._abMlIdxInvalidate=abMlIdxInvalidate;
+  // Beschriftung eines übergebenen Punktes — dieselbe Wahrheit in der
+  // Mangel-Karte und im Panel des Verantwortlichen.
+  function abMlStandLabel(st){
+    if(!st) return null;
+    if(st.status==='erledigt') return {ic:'✅',txt:'Vom Monteur erledigt',cls:'sb-mlok',
+      tip:(st.monteurName||'Monteur')+' hat den Punkt abgehakt — noch nicht ins Protokoll übernommen'};
+    if(st.status==='zurueckgewiesen') return {ic:'↩',txt:'Zurückgewiesen',cls:'sb-mlzur',
+      tip:st.kommentarVerantwortlicher||'Punkt wurde zurückgewiesen'};
+    return {ic:'🔧',txt:'Beim Monteur',cls:'sb-mlwip',
+      tip:'Übergeben an '+(st.monteurName||'Monteur')+(st.monteurFirma?' ('+st.monteurFirma+')':'')};
   }
   function abUser(){return _getUser();}
   function abUserEmail(){var u=abUser();return String((u&&((u.profile&&u.profile.email)||u.username))||'').toLowerCase();}
@@ -4171,7 +4255,18 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     var it=(ml.items||[]).find(function(x){return x.id===itemId;});if(!it)return;
     it.status=chk?'erledigt':'offen';
     it.erledigtAm=chk?new Date().toISOString():'';
+    // Ist damit der LETZTE offene Punkt gefallen, bekommt die verantwortliche
+    // Seite EINE Meldung — auch ohne das formelle «Alle abgearbeitet». Genau
+    // dieser Fall war bisher unsichtbar. Der Stempel verhindert, dass ein
+    // Aus-/Wieder-Anhaken erneut meldet.
+    var offen=(ml.items||[]).filter(function(x){return x.status!=='erledigt';}).length;
+    var meldenAn=(!offen&&ml.status==='offen'&&!ml.alleErledigtAm&&ml.verantwortlich&&ml.verantwortlich.userId)?ml.verantwortlich.userId:'';
+    if(!offen&&!ml.alleErledigtAm) ml.alleErledigtAm=new Date().toISOString();
     abPoolSave(ML_POOL,ML_PREFIX,ml);
+    if(meldenAn) abNotify({eventKey:'abnahme_maengel_abgearbeitet',empfaengerUserId:meldenAn,modul:'abnahme',typ:'info',
+      titel:'Alle Mängelpunkte abgehakt',
+      text:(ml.objektName||'')+' — '+(ml.monteurName||'')+' hat alle '+(ml.items||[]).length+' Punkte abgehakt. Sie können die Behebung prüfen und freigeben.',
+      link:'pm_abnahme.html'+(ml.objektId?'?objekt='+ml.objektId:'')});
     abRenderTasks();
   };
   window.abMlItemKommentar=function(mlId,itemId,val){
@@ -4202,7 +4297,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
   window.abMlFertigmelden=function(mlId){
     var ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});if(!ml)return;
     var offen=(ml.items||[]).filter(function(x){return x.status!=='erledigt';}).length;
-    if(offen){toast('⚠ Noch '+offen+' Punkt(e) offen');return;}
+    if(offen){toast('⚠ Noch '+offen+' Punkt(e) offen — Ihr Zwischenstand ist beim Verantwortlichen aber bereits sichtbar');return;}
     ml.status='abgearbeitet';ml.abgearbeitetAm=new Date().toISOString();
     abPoolSave(ML_POOL,ML_PREFIX,ml);
     if(ml.verantwortlich&&ml.verantwortlich.userId)abNotify({eventKey:'abnahme_maengel_abgearbeitet',empfaengerUserId:ml.verantwortlich.userId,modul:'abnahme',typ:'erfolg',
@@ -4240,11 +4335,23 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
   window.abMlFreigeben=function(mlId){
     var _ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});
     if(!abMlDarfKontrollieren(_ml)){toast('⚠ Nur die verantwortliche Seite kann kontrollieren');return;}
-    GemaDialog.confirm({title:'Mängelbehebung freigeben',message:'Alle Punkte akzeptieren und als erledigt ins Protokoll übernehmen?',confirmLabel:'Freigeben'}).then(function(ok){
+    // Der Dialog sagt VORHER, was passiert — nicht erst hinterher: sind noch
+    // Punkte offen, wandern nur die erledigten ins Protokoll und die Liste
+    // bleibt bestehen.
+    var _off=((_ml&&_ml.items)||[]).filter(function(x){return x.status!=='erledigt';}).length;
+    GemaDialog.confirm({title:'Mängelbehebung freigeben',
+      message:_off
+        ? _off+' Punkt(e) sind noch nicht abgehakt. Es werden NUR die erledigten Punkte ins Protokoll übernommen — die Liste bleibt offen. Fortfahren?'
+        : 'Alle Punkte akzeptieren und als erledigt ins Protokoll übernehmen?',
+      confirmLabel:'Freigeben'}).then(function(ok){
       if(!ok)return;
       var ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});if(!ml)return;
-      ml.status='freigegeben';ml.freigegebenAm=new Date().toISOString();
-      var u=abUser();ml.freigegebenVon=u?u.name:'';
+      // Sicherheitsnetz: NUR abgehakte Punkte wandern ins Protokoll. Ein noch
+      // offener oder zurückgewiesener Punkt darf nie als «erledigt» im
+      // Protokoll landen, nur weil die Liste freigegeben wurde.
+      var nichtFertig=(ml.items||[]).filter(function(x){return x.status!=='erledigt';}).length;
+      ml.status=nichtFertig?'offen':'freigegeben';
+      if(!nichtFertig){ ml.freigegebenAm=new Date().toISOString(); var u=abUser();ml.freigegebenVon=u?u.name:''; }
       abPoolSave(ML_POOL,ML_PREFIX,ml);
       // Rückschreiben ins Protokoll: beim AKTIVEN Protokoll in den Live-State
       // (der Snapshot in protocols[] kann älter sein), sonst in den Snapshot.
@@ -4252,6 +4359,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       var target=ml.protoId===activeProtocolId?state:(proto&&proto.state);
       if(target){
         (ml.items||[]).forEach(function(mi){
+          if(mi.status!=='erledigt') return;      // offen/zurückgewiesen bleibt offen
           var it=(target.items||[]).find(function(x){return x.id===mi.itemId;});
           if(it){
             it.erledigt=(mi.erledigtAm||new Date().toISOString()).slice(0,10).split('-').reverse().join('.')+' / '+(ml.monteurName||'');
@@ -4271,8 +4379,10 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
         persistAll();
       }
       abNotify({eventKey:'abnahme_maengel_abgearbeitet',empfaengerUserId:ml.monteurUserId,modul:'abnahme',typ:'erfolg',
-        titel:'Mängelbehebung freigegeben',text:(ml.objektName||'')+' — alle Punkte akzeptiert. Danke!',link:'pm_abnahme.html'});
-      abRenderTasks();toast('✅ Freigegeben'+(proto?' — Protokoll aktualisiert':''));
+        titel:nichtFertig?'Mängelbehebung teilweise freigegeben':'Mängelbehebung freigegeben',
+        text:(ml.objektName||'')+(nichtFertig?' — die erledigten Punkte sind akzeptiert, '+nichtFertig+' bleiben offen.':' — alle Punkte akzeptiert. Danke!'),link:'pm_abnahme.html'});
+      abRenderTasks();
+      toast(nichtFertig?('✅ Erledigte Punkte übernommen — '+nichtFertig+' bleiben offen'):('✅ Freigegeben'+(proto?' — Protokoll aktualisiert':'')));
     });
   };
   window.abMlErneutAbnahme=function(mlId){
@@ -4405,6 +4515,52 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
         }).join('')
         +'<button class="act-btn primary" style="margin-top:10px;width:100%" onclick="abMlFertigmelden(\''+ml.id+'\')">✓ Alle abgearbeitet — an '+esc((ml.verantwortlich&&ml.verantwortlich.name)||'Verantwortlichen')+' melden</button>'
         +'</div></div>';
+    });
+    // 2b) ÜBERGEBEN — in Arbeit. Der Fortschritt des Abarbeiters war für die
+    // verantwortliche Seite bisher unsichtbar: die Kontroll-Karte (3) erscheint
+    // erst bei status==='abgearbeitet', und die setzt NUR der Monteur, indem er
+    // zusätzlich «Alle abgearbeitet» drückt. Hakte er die Punkte bloss ab, sah
+    // der Planer nichts — weder hier noch im Protokoll (Feedback 09.09.2026).
+    var laufend=abPoolRead(ML_POOL).filter(function(r){
+      return (r.status==='offen'||r.status==='erneute_abnahme')&&abMlDarfKontrollieren(r);
+    });
+    laufend.forEach(function(ml){
+      var items=ml.items||[];
+      var done=items.filter(function(x){return x.status==='erledigt';}).length;
+      var zurueck=items.filter(function(x){return x.status==='zurueckgewiesen';}).length;
+      var alleFertig=items.length>0&&done===items.length;
+      var wer=esc(ml.monteurName||'')+(ml.monteurFirma?' ('+esc(ml.monteurFirma)+')':'')+(ml.extern?' · ✉️ extern':'');
+      var pct=items.length?Math.round(done/items.length*100):0;
+      h+='<div class="card" style="margin-bottom:14px;border-color:'+(alleFertig?'#86efac':'#bfdbfe')+'">'
+        +'<div class="card-hd"><div class="card-hd-ic">'+(alleFertig?'✅':'🔧')+'</div><div>'
+        +'<div class="card-hd-title">Übergeben — '+esc(ml.objektName||'')+'</div>'
+        +'<div class="card-hd-sub">an '+wer+' · '+done+'/'+items.length+' erledigt'+(zurueck?' · '+zurueck+' zurückgewiesen':'')+'</div>'
+        +'</div></div><div class="card-body">'
+        +'<div style="height:7px;border-radius:99px;background:var(--bg2);overflow:hidden;margin-bottom:10px">'
+        +'<div style="height:100%;width:'+pct+'%;background:'+(alleFertig?'var(--grn)':'#3b82f6')+'"></div></div>'
+        +(alleFertig&&ml.status==='offen'
+          ? '<div style="padding:9px 11px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:9px;font-size:12.5px;color:#065f46;margin-bottom:10px">'
+            +'Alle Punkte sind abgehakt. Der Abarbeiter hat noch nicht formell fertiggemeldet — Sie können die Behebung trotzdem prüfen und freigeben.</div>'
+          : '')
+        +items.map(function(it){
+          var st=abMlStandLabel({status:it.status,monteurName:ml.monteurName,monteurFirma:ml.monteurFirma,
+            kommentarVerantwortlicher:it.kommentarVerantwortlicher});
+          return '<div style="padding:9px 2px;border-bottom:1px solid var(--brd)">'
+            +'<div style="display:flex;align-items:flex-start;gap:9px;flex-wrap:wrap">'
+            +'<span class="status-badge '+st.cls+'" style="font-size:11px;flex-shrink:0">'+st.ic+'</span>'
+            +'<div style="flex:1;min-width:180px"><b style="font-size:13.5px">'+esc(it.ort||'—')+'</b> <span style="font-size:13px">'+esc(it.mangel||'')+'</span>'
+            +(it.kommentar?'<br><span style="font-size:12px;color:var(--txt2)">💬 '+esc(it.kommentar)+'</span>':'')
+            +(it.status==='zurueckgewiesen'&&it.kommentarVerantwortlicher?'<br><span style="font-size:12px;color:#b91c1c;font-weight:700">↩ «'+esc(it.kommentarVerantwortlicher)+'»</span>':'')
+            +'</div>'
+            +'<span style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">'+abMlFotoThumbs(it.fixFotos)
+            +(it.status==='erledigt'?'<button class="act-btn" style="min-height:34px" onclick="abMlZurueckweisen(\''+ml.id+'\',\''+it.id+'\')">↩ Zurückweisen</button>':'')
+            +'</span></div></div>';
+        }).join('')
+        +'<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'
+        +(alleFertig
+          ? '<button class="act-btn primary" style="flex:1" onclick="abMlFreigeben(\''+ml.id+'\')">✅ Freigeben &amp; ins Protokoll übernehmen</button>'
+          : '<span style="font-size:12px;color:var(--mut)">Freigeben ist möglich, sobald alle Punkte abgehakt sind. Zurückweisen geht jederzeit.</span>')
+        +'</div></div></div>';
     });
     // 3) Kontrolle durch den Verantwortlichen — NIE durch die abarbeitende
     // Person selbst (externe Übergabe: der Unternehmer arbeitet nur ab,
@@ -4588,7 +4744,26 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
         GemaSync.bindCollection(AB_SYNC,ML_POOL,ML_PREFIX,'id')
       ]),
       new Promise(function(res){setTimeout(res,6000);})
-    ]).then(function(){_abProtoAfterCloud();abRenderTasks();try{abRenderTeilnehmer();}catch(e){}}).catch(function(){});
+    ]).then(function(){
+      _abProtoAfterCloud();
+      // Der frische abml:-Stand entscheidet über die Live-Badges an den
+      // Mängelpunkten — Index verwerfen und neu zeichnen. NIE mitten in einer
+      // Eingabe (Fokus-Regel), _abProtoAfterCloud hat ggf. schon gerendert.
+      abMlIdxInvalidate();
+      abRenderTasks();
+      try{abRenderTeilnehmer();}catch(e){}
+      try{
+        var ae=document.activeElement;
+        if(!(ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName))){
+          // _abAdopting wie in _abProtoAfterCloud: dieser Render zeigt nur den
+          // frischen Fremd-Stand an und darf NIEMALS einen Protokoll-Save
+          // auslösen (render() endet auf scheduleSave) — sonst schriebe ein
+          // Betrachter den eben geladenen Stand wieder hoch.
+          _abAdopting=true;
+          try{ render(); } finally { _abAdopting=false; }
+        }
+      }catch(e){ _abAdopting=false; }
+    }).catch(function(){});
   }
   abRenderTasks();
 
