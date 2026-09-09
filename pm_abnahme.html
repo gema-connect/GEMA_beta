@@ -221,6 +221,26 @@ body.ab-nur-maengel #view_maengel button{pointer-events:none !important}
 
 /* MÄNGELPUNKTE */
 .maengel-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+/* Mängelstand — auf dem Bildschirm UND im Ausdruck sichtbar. Die Fusszeile
+   mit dem Zähler wird beim Drucken ausgeblendet; ohne diesen Block stünde
+   auf dem Papier nirgends, wie weit die Behebung ist. */
+.stand-box{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:11px 14px;border:1.5px solid var(--brd2);border-radius:12px;background:var(--bg2);margin-bottom:12px;font-size:13px}
+.stand-box.fertig{border-color:#86efac;background:#f0fdf4}
+.stand-tit{font-weight:800;color:var(--txt)}
+.stand-box.fertig .stand-tit{color:#15803d}
+.stand-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:8px;font-size:12px;font-weight:700;border:1px solid var(--brd2);background:var(--sur);color:var(--txt2)}
+.stand-chip.c-erl{background:var(--grn-bg);color:var(--grn);border-color:var(--grn-bd)}
+.stand-chip.c-arb{background:#fffbeb;color:#b45309;border-color:#fcd34d}
+.stand-chip.c-mon{background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe}
+.stand-chip.c-off{background:var(--red-bg);color:var(--red);border-color:var(--red-bd)}
+.stand-per{margin-left:auto;font-size:12px;color:var(--mut)}
+.stand-print{display:none}
+@media print{
+  .stand-box{break-inside:avoid;border:1px solid #999;background:#fff}
+  .stand-box.fertig{border:2px solid #15803d}
+  .stand-per{margin-left:auto}
+  .stand-print{display:flex}
+}
 .filter-btns{display:flex;gap:4px}
 .fb{padding:6px 13px;border-radius:8px;border:1.5px solid var(--brd2);background:var(--sur);font-size:12.5px;font-weight:700;color:var(--mut);cursor:pointer;transition:.15s}
 .fb:hover{background:var(--bg2)}
@@ -511,6 +531,11 @@ body.ab-nur-maengel #view_maengel button{pointer-events:none !important}
   <!-- ══════ TAB: ABNAHMEPROTOKOLL ══════ -->
   <div id="view_abnahme">
 
+    <!-- Mängelstand nur im AUSDRUCK: gedruckt wird die sichtbare Ansicht.
+         Wer vom Protokoll-Tab aus druckt, sähe die Mängelliste sonst gar
+         nicht und damit auch nicht, wie weit die Behebung ist. -->
+    <div class="stand-box stand-print" id="maengelStandPrint"></div>
+
     <!-- Protokollkopf -->
     <div class="card" style="margin-bottom:14px">
       <div class="card-hd" style="flex-wrap:wrap">
@@ -771,6 +796,7 @@ body.ab-nur-maengel #view_maengel button{pointer-events:none !important}
       <button class="act-btn primary" id="addTop">+ Neuer Punkt</button>
     </div>
 
+    <div class="stand-box" id="maengelStand"></div>
     <div class="maengel-list" id="items"></div>
   </div>
 
@@ -1235,6 +1261,11 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
 
     // Render Mängel
     renderMaengel(visible, hideDone);
+    renderMaengelStand();
+    // Auch aus render(): die Schnellaktionen (Erledigt setzen / als offen
+    // markieren) und die Mängel-Freigabe laufen über render, nicht über
+    // updateStats.
+    try{ _abMaengelFertigPruefen(); }catch(e){}
 
     // Der Protokoll-Knopf beschriftet sich aus dem Kopf (Arbeitsgattung,
     // geprüfter Teil, Datum) — er muss jeder Änderung folgen, sonst wählt man
@@ -1248,6 +1279,46 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
 
   const itemDone = it => (it.erledigt||'').trim().length>0;
   const itemTeil = it => !itemDone(it) && !!it.teilweise;
+
+  /* Mängelstand über der Liste — sichtbar auf dem Bildschirm UND im Ausdruck
+     (Feedback 09.09.2026: «beim Ausdruck wie beim PDF soll der aktuelle Stand
+     ersichtlich sein … und dass es fertig ist»). Die Fusszeile mit dem Zähler
+     verschwindet beim Drucken, hier steht der Stand fest im Inhalt. */
+  function renderMaengelStand(){
+    const box=$('maengelStand'); if(!box) return;
+    // Zweite, nur im Ausdruck sichtbare Kopie im Protokoll-Tab — dieselbe
+    // Funktion füllt beide, damit sie nie auseinanderlaufen.
+    const boxP=$('maengelStandPrint');
+    const setz=(cls,html)=>{ box.className=cls; box.innerHTML=html;
+      if(boxP){ boxP.className=cls+' stand-print'; boxP.innerHTML=html; } };
+    const s=abMaengelStand();
+    if(!s.total){
+      setz('stand-box','<span class="stand-tit">Noch keine Mängel oder Pendenzen erfasst</span>');
+      return;
+    }
+    const chip=(cls,txt)=>`<span class="stand-chip ${cls}">${txt}</span>`;
+    let h='';
+    let cls='stand-box';
+    if(s.fertig){
+      cls='stand-box fertig';
+      h+=`<span class="stand-tit">✅ Fertig — alle ${s.total} Punkte erledigt</span>`;
+      h+=chip('c-erl',`${s.erledigt} / ${s.total} erledigt`);
+      if(s.letztesDatum) h+=`<span class="stand-per">Letzte Erledigung: ${esc(s.letztesDatum)}</span>`;
+    } else {
+      h+=`<span class="stand-tit">Stand: ${s.erledigt} von ${s.total} erledigt</span>`;
+      if(s.erledigt)   h+=chip('c-erl',`${s.erledigt} erledigt`);
+      if(s.mlBehoben)  h+=chip('c-mon',`${s.mlBehoben} behoben – Freigabe offen`);
+      if(s.mlArbeit)   h+=chip('c-arb',`${s.mlArbeit} in Arbeit`);
+      if(s.mlZurueck)  h+=chip('c-off',`${s.mlZurueck} zurückgewiesen`);
+      if(s.teilweise)  h+=chip('c-arb',`${s.teilweise} teilweise`);
+      const restOffen=s.offen-s.mlBehoben-s.mlArbeit-s.mlZurueck-s.mlOffen;
+      if(s.mlOffen)    h+=chip('c-mon',`${s.mlOffen} beim Unternehmer`);
+      if(restOffen>0)  h+=chip('c-off',`${restOffen} offen`);
+      h+=`<span class="stand-per">Stand ${fmtDate()}</span>`;
+    }
+    setz(cls,h);
+  }
+  window._abRenderMaengelStand=renderMaengelStand;
 
   function renderMaengel(visible, hideDone){
     const container=$('items');
@@ -1454,7 +1525,45 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     $('s_pct').textContent=total?pct+'%':'—';
     $('progBar').style.width=pct+'%';
     $('countInfo').textContent=`${total} Mängelpunkte · ${doneN} erledigt · ${openN} offen`;
+    // Der Stand-Block hängt an denselben Zahlen — er schreibt nur seine eigene
+    // Box neu, nie die Liste (Fokus-Regel bleibt gewahrt).
+    try{ renderMaengelStand(); }catch(e){}
+    // Alle Punkte erledigt → die verantwortliche Seite EINMAL benachrichtigen.
+    try{ _abMaengelFertigPruefen(); }catch(e){}
   }
+
+  // ── Meldung «alle Pendenzen erledigt» ────────────────────────────────
+  // Feedback 09.09.2026: «der Planer soll eine Meldung bekommen, wenn alle
+  // Pendenzen erledigt sind». Die Mängelliste meldet bereits, wenn der
+  // Abarbeiter seinen letzten Punkt abhakt (abMlItemStatus) — das hier ist
+  // die Stufe darüber: das PROTOKOLL ist vollständig, egal ob die letzten
+  // Punkte aus einer Freigabe oder aus eigener Hand stammen.
+  // Empfänger sind die verantwortlichen Personen der übergebenen Listen —
+  // NIE die Person, die den letzten Haken gerade selbst gesetzt hat.
+  // Der Stempel am Protokoll-State sorgt für genau eine Meldung; wird ein
+  // Punkt wieder geöffnet, fällt er weg und eine spätere Fertigstellung
+  // meldet erneut.
+  function _abMaengelFertigPruefen(){
+    if(!_abBootDone||_abAdopting) return;
+    var s=abMaengelStand();
+    if(!s.fertig){ if(state.maengelFertigAm){ state.maengelFertigAm=''; } return; }
+    if(state.maengelFertigAm) return;
+    state.maengelFertigAm=new Date().toISOString();
+    var me=abUser()||{};
+    var empf={};
+    abPoolRead(ML_POOL).forEach(function(ml){
+      if(!ml||ml.protoId!==activeProtocolId) return;
+      var uid=ml.verantwortlich&&ml.verantwortlich.userId;
+      if(uid&&uid!==me.id) empf[uid]=1;
+    });
+    Object.keys(empf).forEach(function(uid){
+      abNotify({eventKey:'abnahme_maengel_abgearbeitet',empfaengerUserId:uid,modul:'abnahme',typ:'erfolg',
+        titel:'Alle Pendenzen erledigt',
+        text:(state.abnahme.bauobjekt||'Abnahme')+' — alle '+s.total+' Mängel/Pendenzen sind erledigt. Das Protokoll kann abgeschlossen werden.',
+        link:'pm_abnahme.html'+(state._objektId?'?objekt='+state._objektId:'')});
+    });
+  }
+  window._abMaengelFertigPruefen=_abMaengelFertigPruefen;
 
   // ── DELETE PHOTO ──
   window.deletePhoto = (itemId, pi) => {
@@ -3494,6 +3603,16 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
         y=_abTabZeile(doc,br,M,y,'Anhang',state.anhaenge.map(a=>({plan:'Plan',zusatzblatt:'Zusatzblatt',sonstiges:'Beilage'}[a.typ||'sonstiges'])+' «'+(a.name||'')+'»').join(' | '));
       }
       y=_abTabZeile(doc,br,M,y,'Frist Mängelbehebung',state.abnahme.fristMaengel||'-');
+      /* Mängelstand schon auf Seite 1 (Feedback 09.09.2026: «der aktuelle
+         Stand … und dass es fertig ist, soll im PDF ersichtlich sein»).
+         Wer nur das Deckblatt liest, sieht damit, ob noch etwas offen ist. */
+      var _st=abMaengelStand();
+      if(_st.total){
+        y=_abTabZeile(doc,br,M,y,'Mängelstand',
+          _st.fertig
+            ? 'Alle '+_st.total+' Punkte erledigt'+(_st.letztesDatum?' (Stand '+_st.letztesDatum+')':'')
+            : _st.erledigt+' von '+_st.total+' erledigt'+_abStandZusatz(_st));
+      }
       y+=18;
 
       /* Bemerkungen — eigene Sektion mit dem Zitat-Strich des Vorschlags */
@@ -3655,15 +3774,35 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
         .forEach(([l,v])=>{ y=_abMetaZeile(doc,M,y,l,v); });
       y+=8;
 
-      // Fortschritts-Kachel in der Markenfarbe (Muster KPI-Strip)
-      const total=state.items.length, doneN=state.items.filter(it=>(it.erledigt||'').trim()).length;
+      /* Fortschritts-Kachel. Sind ALLE Punkte erledigt, wird sie grün und
+         sagt das ausdrücklich — «fertig» ist eine Zustandsaussage, keine
+         Markenfrage (gleiche Regel wie die rote Defekt-Farbe im Werkzeug-PDF).
+         Sonst bleibt sie in der Markenfarbe und weist den Live-Stand der
+         übergebenen Mängellisten mit aus. */
+      const stand=abMaengelStand();
+      const total=stand.total, doneN=stand.erledigt;
       const pct=total?Math.round(doneN/total*100):0;
-      doc.setFillColor(br.tint.r,br.tint.g,br.tint.b); doc.rect(M,y,515,26,'F');
-      doc.setDrawColor(br.acc.r,br.acc.g,br.acc.b); doc.setLineWidth(2);
-      doc.line(M,y,M,y+26); doc.setLineWidth(0.2);
-      doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(br.acc.r,br.acc.g,br.acc.b);
-      doc.text(`Fortschritt: ${doneN} / ${total} erledigt (${pct} %)`,M+10,y+17);
-      doc.setTextColor(0,0,0); doc.setFont('helvetica','normal'); y+=38;
+      const kFill=stand.fertig?{r:236,g:253,b:245}:br.tint;
+      const kAcc =stand.fertig?{r:21,g:128,b:61}:br.acc;
+      // Die Zusatzzeile («davon 2 in Arbeit, 1 zurückgewiesen …») wird VOR dem
+      // Zeichnen umbrochen und die Kachel danach bemessen — sonst liefe eine
+      // lange Aufzählung über den rechten Rand hinaus.
+      doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
+      const zusTxt=stand.fertig?'':_abStandZusatz(stand).replace(/^ - /,'');
+      const zusL=zusTxt?doc.splitTextToSize(zusTxt,495):[];
+      const kH=26+(zusL.length?zusL.length*11+2:0);
+      doc.setFillColor(kFill.r,kFill.g,kFill.b); doc.rect(M,y,515,kH,'F');
+      doc.setDrawColor(kAcc.r,kAcc.g,kAcc.b); doc.setLineWidth(2);
+      doc.line(M,y,M,y+kH); doc.setLineWidth(0.2);
+      doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(kAcc.r,kAcc.g,kAcc.b);
+      doc.text(stand.fertig
+        ? `FERTIG - alle ${total} Mängel und Pendenzen erledigt`+(stand.letztesDatum?`  (Stand ${stand.letztesDatum})`:'')
+        : `Fortschritt: ${doneN} / ${total} erledigt (${pct} %)`,M+10,y+17);
+      if(zusL.length){
+        doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
+        zusL.forEach((z,i)=>doc.text(z,M+10,y+29+i*11));
+      }
+      doc.setTextColor(0,0,0); doc.setFont('helvetica','normal'); doc.setFontSize(10); y+=kH+12;
 
       /* Kleines Foto direkt in der Mängelzeile (Feedback 03.08.2026 «kleines
          Foto noch darstellen») — der Foto-Anhang hinten bleibt unverändert.
@@ -3680,7 +3819,9 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       /* Spaltenbreiten (Feedback 20.08.2026): «Durch wen» trägt nur noch den
          Firmennamen und gibt Breite an «Ort/Raum» ab — dort brach vorher
          «Technikzentrale» mitten im Wort um. Summe bleibt exakt 515. */
-      const AB_SP={nr:22,typ:40,ort:72,mangel:112,foto:AB_THUMB+8,akz:38,frist:50,wer:63,erl:64};
+      // «Status / Erledigt» braucht mehr Platz als das reine Visum — die
+      // 14 pt kommen aus der Mangel-Spalte (Summe bleibt exakt 515).
+      const AB_SP={nr:22,typ:40,ort:72,mangel:98,foto:AB_THUMB+8,akz:38,frist:50,wer:63,erl:78};
       const _pad=8;   // cellPadding links + rechts
       // «Durch wen» leer → Standard = Unternehmer aus dem Kopf (Feedback 07/2026)
       const rows=state.items.map((it,i)=>[
@@ -3692,11 +3833,14 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
         it.akzeptiert||'Ja',
         it.erledigungBis||state.maengelMeta.standardErledigenBis||'',
         _abTrenn(doc,_nurFirma(it.kuerzel||kuerzelVorschlag()||''),AB_SP.wer-_pad,8),
-        (it.erledigt||'').trim()||(it.teilweise?'teilweise erledigt':'')
+        // Der aktuelle Stand JEDES Punktes — bisher blieb die Zelle leer,
+        // solange nichts freigegeben war, und das Papier sagte nicht, ob der
+        // Punkt offen, in Arbeit oder beim Unternehmer schon behoben ist.
+        _abTrenn(doc,abItemStandText(it),AB_SP.erl-_pad,8)
       ]);
       doc.autoTable({
         startY:y,
-        head:[['Nr.','Typ','Ort/Raum','Mangel / Pendenz','Foto','Akzept.','Erledigen bis','Durch wen','Erledigt']],
+        head:[['Nr.','Typ','Ort/Raum','Mangel / Pendenz','Foto','Akzept.','Erledigen bis','Durch wen','Status / Erledigt']],
         body:rows,
         theme:'grid',
         styles:{font:'helvetica',fontSize:8,cellPadding:4,overflow:'linebreak',lineColor:[195,202,212],lineWidth:0.4,textColor:[0,0,0]},
@@ -4046,6 +4190,69 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
   }
   window._abMlIdx=abMlIdx;
   window._abMlIdxInvalidate=abMlIdxInvalidate;
+  // ── Mängelstand: EINE Wahrheit für Bildschirm, Ausdruck und PDF ──────
+  // Zählt den Protokoll-Stand (it.erledigt) UND den Live-Stand der
+  // übergebenen Mängellisten. Kein Emoji im Rückgabewert: die Texte landen
+  // 1:1 im PDF, und die jsPDF-Standardfonts sind latin1.
+  function abMaengelStand(items){
+    var list=items||(state&&state.items)||[];
+    var r={total:list.length,erledigt:0,teilweise:0,offen:0,mlArbeit:0,mlBehoben:0,mlZurueck:0,mlOffen:0,letztesDatum:''};
+    var idx=abMlIdx();
+    list.forEach(function(it){
+      var fertig=String(it.erledigt||'').trim();
+      if(fertig){
+        r.erledigt++;
+        // «12.09.2026 / RJ» → für den «Stand per»-Hinweis das jüngste Datum
+        var d=(fertig.match(/\d{2}\.\d{2}\.\d{4}/)||[])[0]||'';
+        if(d){
+          var iso=d.split('.').reverse().join('-');
+          var altIso=r.letztesDatum?r.letztesDatum.split('.').reverse().join('-'):'';
+          if(!altIso||iso>altIso) r.letztesDatum=d;
+        }
+        return;
+      }
+      if(it.teilweise) r.teilweise++;
+      else r.offen++;
+      var st=idx[it.id];
+      if(!st) return;
+      if(st.status==='erledigt') r.mlBehoben++;
+      else if(st.status==='in_arbeit') r.mlArbeit++;
+      else if(st.status==='zurueckgewiesen') r.mlZurueck++;
+      else r.mlOffen++;
+    });
+    r.fertig = r.total>0 && r.erledigt===r.total;
+    return r;
+  }
+  // Kurzer Statustext EINES Punktes — im Protokoll erledigt schlägt alles,
+  // sonst gilt der Live-Stand der Mängelliste. Reiner Text (PDF-tauglich).
+  function abItemStandText(it){
+    var fertig=String(it.erledigt||'').trim();
+    if(fertig) return fertig;
+    var st=abMlIdx()[it.id];
+    if(st){
+      if(st.status==='erledigt')        return 'behoben - Freigabe offen';
+      if(st.status==='in_arbeit')       return 'in Arbeit';
+      if(st.status==='zurueckgewiesen') return 'zurückgewiesen';
+      return 'beim Unternehmer';
+    }
+    if(it.teilweise) return 'teilweise erledigt';
+    return 'offen';
+  }
+  // Zusatzzeile «davon …» für PDF-Kachel und Deckblatt. Leerer String,
+  // wenn es nichts zu ergänzen gibt — dann bleibt die Kachel einzeilig.
+  function _abStandZusatz(s){
+    var t=[];
+    if(s.mlBehoben) t.push(s.mlBehoben+' beim Unternehmer behoben (Freigabe offen)');
+    if(s.mlArbeit)  t.push(s.mlArbeit+' in Arbeit');
+    if(s.mlOffen)   t.push(s.mlOffen+' beim Unternehmer');
+    if(s.mlZurueck) t.push(s.mlZurueck+' zurückgewiesen');
+    if(s.teilweise) t.push(s.teilweise+' teilweise erledigt');
+    return t.length?' - davon '+t.join(', '):'';
+  }
+  window._abMaengelStand=abMaengelStand;
+  window._abItemStandText=abItemStandText;
+  window._abStandZusatz=_abStandZusatz;
+
   // Beschriftung eines übergebenen Punktes — dieselbe Wahrheit in der
   // Mangel-Karte und im Panel des Verantwortlichen.
   function abMlStandLabel(st){
