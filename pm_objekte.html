@@ -606,6 +606,10 @@ table.tbl .cellcap{display:block;max-width:260px;overflow:hidden;text-overflow:e
         </div>
         <input type="hidden" id="objGemeinde"/><input type="hidden" id="objKanton"/>
         <div class="fg"><label>Notizen</label><textarea id="objNotizen" placeholder="Zusätzliche Informationen zum Standort…"></textarea></div>
+        <!-- Vermerke aus der ERP-Migration: Felder, für die GEMA kein eigenes
+             Feld führt. Sie werden nur angezeigt (nie gespeichert von hier) —
+             ohne diesen Block lägen sie unsichtbar im Datensatz. -->
+        <div id="objAltVermerke" style="display:none"></div>
       </div>
 
       <!-- STEP 3: Team -->
@@ -1195,12 +1199,47 @@ function buildObjektTree(list){
     (childMap[o.id]||[]).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de')).forEach(c=>walk(c,depth+1));
   }
   roots.sort((a,b)=>(a.name||'').localeCompare(b.name||'','de')).forEach(r=>walk(r,0));
-  // Fallback: Objekte, die weder Root noch Kind waren (z.B. durch Filter verschwundener Parent), anhängen
-  list.forEach(o=>{if(result.indexOf(o)<0){o._depth=0;result.push(o);}});
+  // Fallback: Objekte, die weder Root noch Kind waren (z.B. durch Filter verschwundener Parent), anhängen.
+  // Über ein Set statt indexOf: bei 4 173 Objekten wären das sonst rund
+  // 17 Millionen Vergleiche bei JEDEM Aufbau (auch bei jedem Tastendruck
+  // in der Suche).
+  const drin=new Set(result);
+  list.forEach(o=>{if(!drin.has(o)){o._depth=0;result.push(o);}});
   return result;
 }
+/* Kinderzahl je Objekt: EINMAL je Aufbau gezählt statt je Zeile die ganze
+   Liste zu durchsuchen. Der Index wird zu Beginn von renderObjekte gebaut —
+   die einzigen Aufrufer stehen dort. Ohne Index (Sicherheitsnetz) zählt die
+   Funktion wie früher direkt. */
+let _kindIx=null,_betIx=null;
+function kindIndexBauen(){
+  _kindIx={};_betIx={};
+  (_mem.objekte||[]).forEach(o=>{const p=o&&o.parentObjektId;if(p)_kindIx[p]=(_kindIx[p]||0)+1;});
+  (_mem.beteiligte||[]).forEach(b=>{const k=b&&b.objektId;if(k)_betIx[k]=(_betIx[k]||0)+1;});
+}
 function getChildCount(objektId){
+  if(_kindIx)return _kindIx[objektId]||0;
   return _mem.objekte.filter(o=>o.parentObjektId===objektId).length;
+}
+// Beteiligte je Objekt — aus demselben Grund indexiert wie die Kinderzahl.
+function getBetCount(objektId){
+  if(_betIx)return _betIx[objektId]||0;
+  return (_mem.beteiligte||[]).filter(b=>b.objektId===objektId).length;
+}
+/* Anzeige-Deckel: nach einer ERP-Migration liegen über 4 000 Objekte im
+   Pool. Alle auf einmal zu zeichnen macht die Seite unbedienbar. Was NICHT
+   gezeigt wird, steht darunter — nie stillschweigend weggelassen. */
+const OBJ_LIST_SCHRITT=300;
+let _objListLimit=OBJ_LIST_SCHRITT;
+function objMehrLaden(){_objListLimit+=OBJ_LIST_SCHRITT;renderObjekte();}
+function _objDeckel(arr){
+  const g=arr.length;
+  if(g<=_objListLimit)return {liste:arr,mehr:''};
+  return {liste:arr.slice(0,_objListLimit),
+    mehr:'<div style="grid-column:1/-1;padding:14px;text-align:center;color:var(--mut,#64748b);font-size:13px">'
+      +'<b>'+_objListLimit.toLocaleString('de-CH')+'</b> von <b>'+g.toLocaleString('de-CH')+'</b> angezeigt — '
+      +'<button class="btn btn-ghost" style="margin-left:6px" onclick="objMehrLaden()">Mehr laden</button>'
+      +' <span style="font-size:12px">oder mit der Suche eingrenzen</span></div>'};
 }
 function getObjektBreadcrumb(objektId){
   const names=[];
@@ -1448,6 +1487,7 @@ function renderObjekte(){
 
   // Tenant-Filter: Nicht-Admins sehen nur Objekte ihrer eigenen Org
   const visibleObjekte = _mem.objekte.filter(_objSichtbar);
+  kindIndexBauen();   // Kinderzahl einmal je Aufbau (statt je Zeile)
 
   // Scope-Filter (Meine vs. Büro) — P08
   const myId=(typeof GemaAuth!=='undefined'&&GemaAuth.getCurrentUser)?(GemaAuth.getCurrentUser()?.id):null;
@@ -1578,8 +1618,9 @@ function renderObjekte(){
         const lbl=c.id==='beteiligte'?'👷':esc(c.label);
         return `<th${align}>${lbl}${rsz}</th>`;
       }).join('')+'</tr></thead>';
-      const rows=list.map(o=>{
-        const betCount=_mem.beteiligte.filter(b=>b.objektId===o.id).length;
+      const dkL=_objDeckel(list);
+      const rows=dkL.liste.map(o=>{
+        const betCount=getBetCount(o.id);
         const isActive=o.id===_mem.activeObjektId;
         const depth=(typeof o._depth==='number')?o._depth:0;
         const isChild=depth>0;
@@ -1595,7 +1636,7 @@ function renderObjekte(){
         }).join('');
         return `<tr class="orow${isActive?' active':''}" onclick="selectObjekt('${esc(o.id)}')" oncontextmenu="_objRowCtx(event,'${esc(o.id)}')">${tds}</tr>`;
       }).join('');
-      _tw.innerHTML=lfHtml+`<div style="overflow-x:auto"><table class="obj-table">${colgroup}${thead}<tbody>${rows}</tbody></table></div>`;
+      _tw.innerHTML=lfHtml+`<div style="overflow-x:auto"><table class="obj-table">${colgroup}${thead}<tbody>${rows}</tbody></table></div>`+dkL.mehr;
     }
     return;
   }
@@ -1603,8 +1644,9 @@ function renderObjekte(){
   // ── KARTENANSICHT ──
   if(_tw){_tw.style.display='none';_tw.innerHTML='';}
   $('objGrid').style.display='';
-  $('objGrid').innerHTML=list.map(o=>{
-    const betCount=_mem.beteiligte.filter(b=>b.objektId===o.id).length;
+  const dkK=_objDeckel(list);
+  $('objGrid').innerHTML=dkK.liste.map(o=>{
+    const betCount=getBetCount(o.id);
     const isActive=o.id===_mem.activeObjektId;
     const depth=(typeof o._depth==='number')?o._depth:0;
     const isChild=depth>0;
@@ -1631,9 +1673,10 @@ function renderObjekte(){
         ${isActive?'<span style="font-size:11px;color:var(--acc);font-weight:700;padding:3px 0;margin-left:auto">● Selektiert</span>':'<button class="btn btn-ghost btn-xs" style="margin-left:auto" onclick="event.stopPropagation();setActive(\''+esc(o.id)+'\')">Selektieren</button>'}
       </div>
     </div>`;
-  }).join('');
+  }).join('')+dkK.mehr;
 }
 window.renderObjekte=renderObjekte;
+window.objMehrLaden=objMehrLaden;
 
 function selectObjekt(id){
   // Klick auf ein Objekt setzt es als aktiv — oeffnet NICHT mehr
@@ -1971,6 +2014,38 @@ function _objWzNext(){
 function _objWzPrev(){if(_objWzStep>1)_objWzGo(_objWzStep-1);}
 window._objWzGo=_objWzGo;window._objWzNext=_objWzNext;window._objWzPrev=_objWzPrev;
 
+/* Vermerke aus der ERP-Migration am Objekt. GEMA führt für diese Felder kein
+   eigenes Feld — ohne diesen Block lägen sie unsichtbar im Datensatz (der
+   Import schreibt sie, niemand zeigte sie). Reine Anzeige, nichts davon wird
+   beim Speichern gelesen: `saveObjekt` legt seine Daten über den bestehenden
+   Datensatz, die Vermerke bleiben damit erhalten.
+
+   «objekt1»/«objekt2» sind am Altbestand gemessen die KUNDENADRESSE (63.6 %
+   stimmen mit der Adresse des Zahlers überein, 52.9 % zugleich mit der
+   Objektstrasse) — keine Bezeichnung und keine zweite Objektadresse. Sie
+   stehen darum hier als Vermerk; die Adresse selbst kommt über den Slot
+   «Zahlbar durch». Die 36 % Abweichungen lohnen den Blick. */
+const _OBJ_ALT_VERMERKE=[
+  ['importObjekt1','Kundenadresse im Altsystem — Strasse'],
+  ['importObjekt2','Kundenadresse im Altsystem — Ort'],
+  ['externeRef1','Externe Referenz 1'],
+  ['externeRef2','Externe Referenz 2'],
+  ['importOrdner','Dokumenten-Ordner (Altsystem)']
+];
+function _objAltVermerke(o){
+  const box=$('objAltVermerke'); if(!box)return;
+  const zeilen=o?_OBJ_ALT_VERMERKE.filter(v=>String(o[v[0]]||'').trim())
+    .map(v=>'<div><span style="color:var(--mut)">'+v[1]+':</span> <b>'+esc(o[v[0]])+'</b></div>'):[];
+  if(o&&String(o.importAdresseHerkunft||'').trim())
+    zeilen.push('<div style="grid-column:1/-1;color:var(--amber)">⚠ '+esc(o.importAdresseHerkunft)+'</div>');
+  if(!zeilen.length){box.style.display='none';box.innerHTML='';return;}
+  box.style.display='';
+  box.innerHTML='<div style="margin-top:12px;border-top:1px dashed var(--brd);padding-top:8px">'
+    +'<div style="font-weight:800;font-size:11.5px;color:var(--mut);margin-bottom:4px">📎 Aus dem Altsystem</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:3px 16px;font-size:12px">'
+    +zeilen.join('')+'</div></div>';
+}
+
 function openObjektModal(editId){
   const isEdit=!!editId;
   $('objModalTitle').textContent=isEdit?'Objekt bearbeiten':'Neues Objekt';
@@ -1990,13 +2065,14 @@ function openObjektModal(editId){
     $('objAktivePhase').value=o.aktivePhase||'';
     if($('objParentId'))$('objParentId').value=o.parentObjektId||'';
     $('objStatus').value=o.status||'aktiv';$('objNotizen').value=o.notizen||'';
+    _objAltVermerke(o);
     // Object.assign statt Feld-Picking: unbekannte Zusatzfelder eines
     // Beteiligten überleben den Edit-Roundtrip (nichts still verwerfen).
     _objBeteiligte=(o.beteiligte||[]).map(function(b){return Object.assign({},b,{person:b.person||''});});
     _objAdrSlots=Object.assign({},o.adressen||{});
     _objBp=(o.bezugspersonen||[]).map(function(b){return Object.assign({},b);});
   } else {
-    _objBeteiligte=[];_objAdrSlots={};_objBp=[];
+    _objBeteiligte=[];_objAdrSlots={};_objBp=[];_objAltVermerke(null);
     ['objName','objStrasse','objPlz','objOrt','objGemeinde','objKanton','objNotizen','objProjektnummer','objRevision'].forEach(id=>{if($(id))$(id).value='';});
     $('objBauvorhaben').value='Neubau';$('objStatus').value='aktiv';$('objAktivePhase').value='';
     // Übergeordnetes Objekt standardmässig «Kein» (User-Vorgabe 23.07.2026 —

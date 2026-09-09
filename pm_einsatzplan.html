@@ -406,7 +406,7 @@ function epAll(){var u=epUser();return poolRead().filter(function(e){return u&&e
 // ═══════════════════════════════════════════════════════════
 function epUser(){try{return GemaAuth.getCurrentUser();}catch(e){return null;}}
 function epHas(r){var u=epUser();return !!(u&&u.roleIds&&u.roleIds.indexOf(r)>=0);}
-function epCanPlan(){return epHas('role_admin')||epHas('role_planer')||epHas('role_hlkk_planer')||epHas('role_lueftung_planer')||epHas('role_elektro_planer')||epHas('role_abteilungsleiter')||epHas('role_magaziner');}
+function epCanPlan(){return epHas('role_admin')||epHas('role_planer')||epHas('role_hlkk_planer')||epHas('role_lueftung_planer')||epHas('role_elektro_planer')||epHas('role_abteilungsleiter')||epHas('role_erp_abteilungsleiter')||epHas('role_erp_sachbearbeiter')||epHas('role_magaziner');}
 function epOrg(){try{return GemaAuth.getCurrentOrg();}catch(e){return null;}}
 function epSettings(){
   var org=epOrg();var s=(org&&org.settings&&org.settings.einsatzplan)||{};
@@ -811,8 +811,49 @@ var IST_INFO={
   freigegeben: {ic:'✅', n:'freigegeben',        bg:'#ecfdf5', bd:'#6ee7b7', c:'#047857'},
   ausgefallen: {ic:'✕',  n:'nicht stattgefunden',bg:'#fef2f2', bd:'#fca5a5', c:'#b91c1c'}
 };
+/* Ist-Rückmeldung: normalerweise schreibt pm_stunden sie beim Speichern an
+   den Termin (ev.ist). Importierte Termine haben sie nicht — die Zeit ist
+   erfasst und über `einsatzId` mit dem Termin verknüpft, nur hat sie nie
+   jemand zurückgeschrieben. Fehlt ev.ist, wird das Ist deshalb aus dem
+   Stundenpool GERECHNET (einmal je Seitenaufbau indexiert). */
+var EP_OHNE='__ohne_zuordnung';
+var _epStdIx=null;
+function epStdIstIndex(){
+  if(_epStdIx)return _epStdIx;
+  _epStdIx={};
+  var pool=[];
+  try{if(typeof GemaSync!=='undefined'&&GemaSync.getCached)pool=GemaSync.getCached('gema_std_pool_v1')||[];}catch(e){}
+  if(!pool.length){try{var r=localStorage.getItem('gema_std_pool_v1');if(r){var d=JSON.parse(r);if(Array.isArray(d))pool=d;}}catch(e){}}
+  (pool||[]).forEach(function(t){
+    if(!t||t.typ)return;
+    (t.eintraege||[]).forEach(function(e){
+      if(!e||!e.einsatzId)return;
+      var min=epEintragMin(e);
+      if(!min)return;
+      var o=_epStdIx[e.einsatzId]=_epStdIx[e.einsatzId]||{min:0,datum:t.datum};
+      o.min+=min;
+    });
+  });
+  return _epStdIx;
+}
+// Dauer eines Zeiteintrags — importierte tragen nur `dauerMin`.
+function epEintragMin(e){
+  var d=parseInt(e.dauerMin,10);
+  if(d>0)return d;
+  var v=epHmToH(e.von),b=epHmToH(e.bis);
+  if(v==null||b==null)return 0;
+  if(b<=v)b+=24;
+  return Math.max(0,Math.round((b-v)*60)-(parseInt(e.pauseMin,10)||0));
+}
+/* Das wirksame Ist eines Termins: gemeldet (ev.ist) oder gerechnet. */
+function epIst(ev){
+  if(ev&&ev.ist)return ev.ist;
+  var o=ev?epStdIstIndex()[ev.id]:null;
+  if(!o||!o.min)return null;
+  return {status:'erfasst',stunden:Math.round(o.min/60*100)/100,datum:o.datum||(ev&&ev.datum)||'',gerechnet:true};
+}
 function epIstStd(ev){
-  var i=ev&&ev.ist;
+  var i=epIst(ev);
   return (i&&typeof i.stunden==='number')?i.stunden:0;
 }
 function epPlanStd(ev){
@@ -829,7 +870,7 @@ function epFmtH(x){return (Math.round(x*100)/100).toFixed(2).replace(/\.?0+$/,''
 function epIstZahlenSichtbar(){ try{ return epCanPlan(); }catch(e){ return false; } }
 // Kompakter Chip für die Wochen-/Monats-Karten (nur Zeichen, kein Umbruch)
 function epIstKurz(ev){
-  var i=ev&&ev.ist;if(!i||!i.status||i.status==='offen')return '';
+  var i=epIst(ev);if(!i||!i.status||i.status==='offen')return '';
   if(i.status==='ausgefallen')return '<span title="Nicht stattgefunden'+(epIstZahlenSichtbar()&&i.grund?': '+esc(i.grund):'')+'">✕</span> ';
   if(!epIstZahlenSichtbar())return '<span title="'+(i.status==='freigegeben'?'freigegeben':'Zeit erfasst')+'">'+(i.status==='freigegeben'?'✅':'⏱')+'</span> ';
   var plan=epPlanStd(ev),ist=epIstStd(ev);
@@ -839,7 +880,7 @@ function epIstKurz(ev){
 }
 // Ausführliche Zeile für «Meine Woche», Tages-Modal und Termin-Dialog
 function epIstZeile(ev){
-  var i=ev&&ev.ist;if(!i||!i.status||i.status==='offen')return '';
+  var i=epIst(ev);if(!i||!i.status||i.status==='offen')return '';
   var inf=IST_INFO[i.status];if(!inf)return '';
   var box=function(txt){
     return '<div style="margin-top:6px;background:'+inf.bg+';border:1.5px solid '+inf.bd+';color:'+inf.c
@@ -854,6 +895,7 @@ function epIstZeile(ev){
     if(ist>0)txt+=' · Zeit trotzdem erfasst: '+epFmtH(ist)+' h';
   } else {
     txt+=': '+(i.von?esc(i.von)+'–'+esc(i.bis||''):'')+' · <b>'+epFmtH(ist)+' h</b>';
+    if(i.gerechnet)txt+=' <span style="opacity:.7;font-weight:600">(aus der Zeiterfassung gerechnet)</span>';
     if(plan){
       var abw=ist-plan;
       txt+=' <span style="opacity:.75">(geplant '+epFmtH(plan)+' h'+(Math.abs(abw)>=0.25?', '+(abw>0?'+':'')+epFmtH(abw)+' h':'')+')</span>';
@@ -1104,6 +1146,21 @@ function epRenderWoche(){
     var last=evs.filter(function(e){return e.monteurUserId===p.id;}).length;
     return '<tr><td class="mn">'+esc(p.name||p.username)+'<div class="mn-sub">'+last+' Einsätze total</div></td>'+cells+'</tr>';
   }).join('');
+  /* Sammelzeile: Termine, deren Person keine Zeile hat — nicht zugeordnet,
+     ausgetreten, oder als Sachbearbeiter/Leitung angelegt. Ohne sie wären
+     sie in der Wochenansicht unsichtbar (nur Monat und Tag zeigten sie),
+     und nach einer Migration betrifft das eine ganze Reihe von Terminen. */
+  var bekannt={};pers.forEach(function(p){bekannt[p.id]=true;});
+  var sammelP={id:EP_OHNE,name:'ohne Zuordnung',_sammel:true,_bekannt:bekannt};
+  var sammelWoche=evs.filter(function(e){
+    return !(e.monteurUserId&&bekannt[e.monteurUserId])&&tage.some(function(d){return epCovers(e,d);});
+  });
+  if(sammelWoche.length){
+    var sammelTotal=evs.filter(function(e){return !(e.monteurUserId&&bekannt[e.monteurUserId]);}).length;
+    rows+='<tr><td class="mn" style="color:var(--mut)">ohne Zuordnung'
+      +'<div class="mn-sub" title="Termine ohne Person, von ausgetretenen Mitarbeitenden oder von Personen, die nicht in der Plantafel geführt werden">'+sammelTotal+' Einsätze total</div></td>'
+      +tage.map(function(d){return epTlCellHtml(sammelP,d,evs,s,t,nowF);}).join('')+'</tr>';
+  }
   if(!pers.length)rows='<tr><td colspan="'+(tage.length+1)+'"><div class="empty">'
     +(epGrpFilterEff()
       ?'Keine Personen in der Gruppe «'+esc(epGrpFilterEff()==='__ohne'?'ohne Gruppe':(grById(epGrpFilterEff())||{}).label||'')+'» — Zuordnung unter ⚙️ Monteur-Gruppen, Filter oben auf «Alle Gruppen» stellen.'
@@ -1116,7 +1173,10 @@ function epRenderWoche(){
 // Überlappungen in Spuren gestapelt, Jetzt-Linie am heutigen Tag)
 function epTlCellHtml(p,d,evs,s,t,nowF){
   var span=s.tagBis-s.tagVon;
-  var dayEvs=evs.filter(function(e){return e.monteurUserId===p.id&&epCovers(e,d);});
+  var dayEvs=evs.filter(function(e){
+    var passt=p._sammel?!(e.monteurUserId&&p._bekannt[e.monteurUserId]):(e.monteurUserId===p.id);
+    return passt&&epCovers(e,d);
+  });
   var items=dayEvs.map(function(e){var hh=epEvHours(e,s);return {e:e,von:hh.von,bis:hh.bis};});
   items.sort(function(a,b){return a.von-b.von||a.bis-b.bis;});
   var lanes=[];
@@ -1407,10 +1467,16 @@ function epGarantieAuswertung(einsaetze,tage,rapporte,jahr){
     if(!t||t.typ||!Array.isArray(t.eintraege))return;   // nur Tages-Records (typ-Records = Anträge/Auszahlungen)
     t.eintraege.forEach(function(en){
       if(!en||!en.einsatzId||!ids[en.einsatzId])return;
-      var a=_epHm(en.von),b=_epHm(en.bis);
-      if(a==null||b==null)return;
-      if(b<=a)b+=1440;   // über Mitternacht (Regel wie Stundenerfassung)
-      var min=Math.max(0,(b-a)-(parseInt(en.pauseMin,10)||0));
+      var a=_epHm(en.von),b=_epHm(en.bis),min;
+      if(a==null||b==null){
+        // Aus dem Altsystem übernommene Einträge führen nur eine DAUER
+        // (dauerMin), keine Uhrzeiten — Regel wie stdEintragMin in pm_stunden.
+        min=Math.max(0,parseInt(en.dauerMin,10)||0);
+        if(!min)return;
+      }else{
+        if(b<=a)b+=1440;   // über Mitternacht (Regel wie Stundenerfassung)
+        min=Math.max(0,(b-a)-(parseInt(en.pauseMin,10)||0));
+      }
       stunden[en.einsatzId]=(stunden[en.einsatzId]||0)+min/60;
       eintraege++;
       if(en.rapportId)(rapIds[en.einsatzId]=rapIds[en.einsatzId]||{})[en.rapportId]=1;
@@ -1543,6 +1609,9 @@ function epTdHour(td,clientX){
 }
 function epDropOn(data,monteurId,datum,vonH){
   if(!epCanPlan())return;
+  // Die Sammelzeile ist eine Anzeige, keine Person — auf sie wird nicht
+  // geplant (sonst trüge der Termin eine Benutzer-ID, die es nicht gibt).
+  if(monteurId===EP_OHNE){toast('Bitte auf eine Person ziehen — «ohne Zuordnung» ist nur eine Anzeige.');return;}
   if(data.indexOf('ev:')===0){
     var ev=poolRead().find(function(x){return x.id===data.slice(3);});
     if(!ev)return;
@@ -2207,10 +2276,14 @@ document.addEventListener('DOMContentLoaded',function(){
     Promise.race([
       Promise.all([
         GemaSync.bindCollection(EP_MODULE,EP_POOL,EP_PREFIX,'id'),
-        GemaSync.bindCollection('erp','gema_erp_dok_pool_v1','erpdok:','id')
+        GemaSync.bindCollection('erp','gema_erp_dok_pool_v1','erpdok:','id'),
+        // Die Zeiterfassung liefert das Ist zu jedem Termin. Termine, die
+        // pm_stunden nie zurückgeschrieben hat (Import), rechnet die Tafel
+        // selbst aus diesem Pool — ohne ihn bliebe ihr Ist leer.
+        GemaSync.bindCollection('stundenerfassung','gema_std_pool_v1','std:','id')
       ]),
       new Promise(function(res){setTimeout(res,6000);})
-    ]).then(function(){_epCloudLoaded=true;epRender();}).catch(function(){_epCloudLoaded=true;epRender();});
+    ]).then(function(){_epCloudLoaded=true;_epStdIx=null;epRender();}).catch(function(){_epCloudLoaded=true;_epStdIx=null;epRender();});
   }
   window.addEventListener('gema-objekte-loaded',function(){epRender();});
   // Jetzt-Linie minütlich nachführen (nur Positions-Update, kein Re-Render)

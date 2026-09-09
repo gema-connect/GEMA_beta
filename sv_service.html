@@ -174,7 +174,7 @@ table.t{border-collapse:collapse;width:100%;font-size:12.5px}
       <div class="fld"><label>Seriennummer</label><input id="an_serien" type="text"/></div>
       <div class="fld"><label>Lieferant</label><input id="an_lieferant" type="text"/></div>
     </div>
-    <div class="fld"><label>GEMA-Projekt/Objekt</label><select id="an_objekt"></select></div>
+    <div class="fld"><label>GEMA-Projekt/Objekt</label><div id="an_objektBox"></div></div>
     <div class="fld-row">
       <div class="fld"><label>🔑 Schlüsselcode / Tresor-Code</label><input id="an_sk_code" type="text" placeholder="z.B. 4711"/></div>
       <div class="fld"><label>Schlüssel wo / bei wem</label><input id="an_sk_info" type="text" placeholder="z.B. Hauswart Müller, 079 …"/></div>
@@ -254,7 +254,7 @@ table.t{border-collapse:collapse;width:100%;font-size:12.5px}
   <div class="modal-bd">
     <div class="fld"><label>Titel *</label><input id="vt_titel" type="text" placeholder="z.B. Wartungsvertrag MFH Sonnenweg"/></div>
     <div class="fld"><label>Kunde / Vertragspartner *</label><input id="vt_kunde" type="text" placeholder="z.B. Immobilien AG Basel"/></div>
-    <div class="fld"><label>GEMA-Projekt/Objekt</label><select id="vt_objekt"></select></div>
+    <div class="fld"><label>GEMA-Projekt/Objekt</label><div id="vt_objektBox"></div></div>
     <div class="fld-row">
       <div class="fld"><label>Jahrespauschale CHF (netto)</label><input id="vt_pauschale" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="0.00"/></div>
       <div class="fld"><label>Vertragsbeginn</label><input id="vt_start" type="date"/></div>
@@ -404,7 +404,7 @@ function xPoolAdd(storageKey,moduleKey,prefix,rec){
 }
 function svUser(){try{return GemaAuth.getCurrentUser();}catch(e){return null;}}
 function svHas(r){var u=svUser();return !!(u&&u.roleIds&&u.roleIds.indexOf(r)>=0);}
-function svCanEdit(){return svHas('role_admin')||svHas('role_planer')||svHas('role_hlkk_planer')||svHas('role_lueftung_planer')||svHas('role_elektro_planer')||svHas('role_abteilungsleiter')||svHas('role_magaziner');}
+function svCanEdit(){return svHas('role_admin')||svHas('role_planer')||svHas('role_hlkk_planer')||svHas('role_lueftung_planer')||svHas('role_elektro_planer')||svHas('role_abteilungsleiter')||svHas('role_erp_abteilungsleiter')||svHas('role_erp_sachbearbeiter')||svHas('role_magaziner');}
 function svCanWork(){return svCanEdit()||svHas('role_monteur')||svHas('role_spengler');}   // Wartung dokumentieren
 function myAnlagen(){var u=svUser();return poolRead('anl').filter(function(x){return u&&x.orgId===u.orgId;});}
 // ── Verknüpfung Einsatzplan: Arbeitsbereiche + Besonderheiten (org.settings) ──
@@ -453,10 +453,23 @@ function svClose(id){document.getElementById(id).classList.remove('open');}
 function svOpen(id){document.getElementById(id).classList.add('open');}
 function svNotify(o){try{if(typeof GemaNotify!=='undefined')GemaNotify.push(o);}catch(e){}}
 function svObjekte(){try{return (typeof GemaObjekte!=='undefined')?GemaObjekte.getAll():[];}catch(e){return [];}}
-function svObjektOptions(sel){
-  return '<option value="">— kein Projekt —</option>'+svObjekte().map(function(o){
-    return '<option value="'+o.id+'"'+(sel===o.id?' selected':'')+'>'+esc(GemaObjekte.displayName(o))+'</option>';
-  }).join('');
+/* Projektwahl als Suchfeld (zentrale Combobox aus gema_objekte_api).
+   Eine Optionsliste mit allen Objekten war ab einigen hundert Einträgen
+   nicht mehr bedienbar. Der gewählte Wert steht weiterhin unter der ID
+   `an_objekt` bzw. `vt_objekt`; den Namen liefert svObjektName(). */
+function svObjektCombo(boxId,feldId,sel){
+  var box=document.getElementById(boxId);if(!box)return;
+  if(typeof GemaObjekte==='undefined'||!GemaObjekte.comboHtml){
+    box.innerHTML='<input type="hidden" id="'+feldId+'" value="'+esc(sel||'')+'"/><input type="text" disabled placeholder="Objekte nicht geladen"/>';
+    return;
+  }
+  box.innerHTML=GemaObjekte.comboHtml(feldId,sel||'',{placeholder:'Projekt suchen … (leer = kein Projekt)',leerText:'— kein Projekt —'});
+}
+function svObjektName(feldId){
+  var el=document.getElementById(feldId);
+  var id=el?el.value:'';
+  if(!id)return '';
+  try{var o=GemaObjekte.getById(id);return o?(GemaObjekte.displayName(o)||o.name||''):'';}catch(e){return '';}
 }
 function svWartungBadge(a){
   var next=svNextWartung(a);
@@ -571,6 +584,16 @@ function svRenderAnlagen(){
       +(function(){var b=svBereichById(a.bereichId);return b?' · <span style="display:inline-flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:50%;background:'+b.farbe+';display:inline-block"></span>'+esc(b.name)+'</span>':'';})()
       +'<br>🔁 '+(parseInt(a.intervallMonate,10)>0?'alle '+a.intervallMonate+' Monate':'kein Intervall')
       +(a.letzteWartung?' · letzte '+dfmt(a.letzteWartung):'')
+      // Vermerke aus der ERP-Migration: der Alt-Termin, wenn er vom gerechneten
+      // abweicht oder das Altsystem ab einer festen Revisionsbasis rechnete —
+      // sonst stünde hier ein Datum, das dem Betrieb unbekannt ist, ohne Hinweis.
+      +((a.importRevBasisModus||(a.importNaechsteRevision&&a.importNaechsteRevision!==next))
+        ?'<br><span style="color:var(--amber)" title="Der Termin des Altsystems — GEMA rechnet «letzte Wartung + Intervall»">⚠ Altsystem: nächste Revision '+dfmt(a.importNaechsteRevision)+(a.importRevBasisModus?' (feste Revisionsbasis — bitte prüfen)':'')+'</span>':'')
+      +(a.importVertragsNr?' · 📑 Vertrag '+esc(a.importVertragsNr)+' (Altsystem)':'')
+      // Ordnername auf dem Netzlaufwerk des Altsystems — kein Pfad (die Wurzel
+      // steht in dessen Client-Konfiguration). Sichtbar, solange die Dokumente
+      // dort liegen, statt still im Datensatz zu schlummern.
+      +(a.importOrdner?' · <span title="Ordner auf dem Netzlaufwerk des Altsystems — die Dokumente sind noch nicht migriert">🗂 '+esc(a.importOrdner)+'</span>':'')
       +(svGarantieAktiv(a,today())?'<br><span class="badge b-grn">🛡 Garantie bis '+dfmt(a.garantieBis)+'</span>':'')
       +(a.vertragId?' <span class="badge b-vio">📑 im Vertrag</span>':'')
       +'</div>'
@@ -639,7 +662,7 @@ function svAnlNeu(){
   document.getElementById('anlTitle').textContent='Neue Anlage';
   ['an_name','an_kat','an_standort','an_hersteller','an_modell','an_serien','an_lieferant','an_inbetrieb','an_garantie','an_letzte','an_notizen','an_sk_code','an_sk_info'].forEach(function(i){document.getElementById(i).value='';});
   document.getElementById('an_intervall').value='12';
-  document.getElementById('an_objekt').innerHTML=svObjektOptions('');
+  svObjektCombo('an_objektBox','an_objekt','');
   svAnlBereichFill('');
   svAnlAushangFill(null);
   document.getElementById('anlDelBtn').style.display='none';
@@ -663,7 +686,7 @@ function svAnlEdit(id){
   document.getElementById('an_notizen').value=a.notizen||'';
   document.getElementById('an_sk_code').value=(a.schluessel&&a.schluessel.code)||'';
   document.getElementById('an_sk_info').value=(a.schluessel&&a.schluessel.info)||'';
-  document.getElementById('an_objekt').innerHTML=svObjektOptions(a.objektId||'');
+  svObjektCombo('an_objektBox','an_objekt',a.objektId||'');
   svAnlBereichFill(a.bereichId||'');
   svAnlAushangFill(a);
   document.getElementById('anlDelBtn').style.display='';
@@ -674,7 +697,7 @@ function svAnlSave(){
   var name=document.getElementById('an_name').value.trim();
   if(!name){toast('Bezeichnung fehlt');return;}
   var objSel=document.getElementById('an_objekt');
-  var objId=objSel.value;var objName=objId?(objSel.options[objSel.selectedIndex].textContent||''):'';
+  var objId=objSel?objSel.value:'';var objName=objId?svObjektName('an_objekt'):'';
   var old=_anlEditId?poolRead('anl').find(function(x){return x.id===_anlEditId;}):null;
   var a={
     id:_anlEditId||uid(),orgId:old?old.orgId:u.orgId,
@@ -1029,7 +1052,7 @@ function svVtrNeu(){
   document.getElementById('vtrTitle').textContent='Neuer Wartungsvertrag';
   ['vt_titel','vt_kunde','vt_pauschale','vt_notizen'].forEach(function(i){document.getElementById(i).value='';});
   document.getElementById('vt_start').value=today();
-  document.getElementById('vt_objekt').innerHTML=svObjektOptions('');
+  svObjektCombo('vt_objektBox','vt_objekt','');
   document.getElementById('vt_anlagen').innerHTML=svVtrAnlagenChecks([]);
   document.getElementById('vtrDelBtn').style.display='none';
   svOpen('vtrModal');
@@ -1043,7 +1066,7 @@ function svVtrEdit(id){
   document.getElementById('vt_pauschale').value=v.pauschaleNetto||'';
   document.getElementById('vt_start').value=v.startDatum||'';
   document.getElementById('vt_notizen').value=v.notizen||'';
-  document.getElementById('vt_objekt').innerHTML=svObjektOptions(v.objektId||'');
+  svObjektCombo('vt_objektBox','vt_objekt',v.objektId||'');
   document.getElementById('vt_anlagen').innerHTML=svVtrAnlagenChecks(v.anlagenIds||[]);
   document.getElementById('vtrDelBtn').style.display='';
   svOpen('vtrModal');
@@ -1059,7 +1082,7 @@ function svVtrSave(){
   var v={
     id:_vtrEditId||uid(),orgId:old?old.orgId:u.orgId,
     titel:titel,kundeText:kunde,
-    objektId:objSel.value,objektName:objSel.value?(objSel.options[objSel.selectedIndex].textContent||''):'',
+    objektId:objSel?objSel.value:'',objektName:(objSel&&objSel.value)?svObjektName('vt_objekt'):'',
     anlagenIds:ids,
     pauschaleNetto:parseFloat(document.getElementById('vt_pauschale').value)||0,
     startDatum:document.getElementById('vt_start').value,

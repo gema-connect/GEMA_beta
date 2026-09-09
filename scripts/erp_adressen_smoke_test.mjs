@@ -127,7 +127,13 @@ await page.selectOption('#fAdrTyp', '');
 console.log('\n═══ 4 — Migration: Assistent ═══');
 await page.click('#mtabs .mtab:has-text("Migration")');
 const karten = await page.$$eval('.mig-card', e => e.map(x => x.className));
-eq('5 Abschnitts-Karten', karten.length, 5);
+// BEWUSST ÜBERSTEUERT: der Guard pinnte die Zahl 5. Der Assistent zeigt je
+// registriertem Abschnitt eine Karte, und aus den fünf Kopf-Abschnitten sind
+// zehn geworden. Geprüft wird die Absicht — jeder Abschnitt ist erreichbar —
+// statt einer Zahl, die jede Erweiterung blockieren würde.
+const sekIds = await page.evaluate(() => (window.GemaErpImport.SEKTIONEN || []).map(x => x.id));
+eq('je registriertem Abschnitt eine Karte', karten.length, sekIds.length);
+t('und es sind mehr als die fünf Kopf-Abschnitte', sekIds.length > 5);
 eq('Kein Abschnitt wartet mehr auf einen Export', karten.filter(c => /aus/.test(c)).length, 0);
 await page.click('.mig-card:has-text("Objekte")');
 await page.waitForSelector('#migModal.open');

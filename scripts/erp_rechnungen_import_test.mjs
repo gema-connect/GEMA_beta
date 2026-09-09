@@ -153,20 +153,38 @@ console.log('\n═══ 1 — Engine: Status, Art, ESR, Frist ═══');
 const e = await page.evaluate(() => {
   const I = GemaErpImport;
   return {
-    st: ['Versandt', 'Entwurf', 'Storniert', 'Bezahlt', 'Gemahnt', 'Wiedervorlage', ''].map(x => [x, I.rechnungStatus(x)]),
+    // Die sechs Werte, die `debistatus` im Altbestand tatsaechlich fuehrt,
+    // plus zwei Gegenproben (unbekannt, leer).
+    st: ['Versandt', 'Entwurf', 'Storniert', 'Bezahlt', 'Gemahnt', 'Wiedervorlage', '',
+         'Offen', 'In Buchhaltung geschrieben', 'Kulanz', 'Garantie'].map(x => [x, I.rechnungStatus(x)]),
     art: ['Schlussrechnung', 'Akontorechnung', 'Teilrechnung', 'Abschlagsrechnung', 'Verrechnungsschein', ''].map(x => [x, I.rechnungArt(x)]),
     esr: ['384400000000000000202602523', '384400000000000000202604008', '38440000000000000020260252', 'abc', ''].map(x => [x, I.esrGueltig(x)]),
     frist: [I.fristTage('01', 45), I.fristTage('10 Tage', 45), I.fristTage('XX', 45), I.fristTage('', 45)],
     add: [I.addTage('2026-04-21', 30), I.addTage('2026-12-20', 30), I.addTage('', 30)]
   };
 });
-eq('«Versandt» → gestellt', e.st[0][1], { status: 'gestellt', erkannt: true });
+// BEWUSST UEBERSTEUERT — geprueft wird die AUSSAGE (Status + erkannt), nicht
+// die Objektform: rechnungStatus fuehrt seit den echten debistatus-Werten ein
+// drittes Feld `vermerk`. Ein gepinntes Objekt blockierte jede Ergaenzung.
+eq('«Versandt» → gestellt', [e.st[0][1].status, e.st[0][1].erkannt], ['gestellt', true]);
 eq('«Entwurf» → entwurf', e.st[1][1].status, 'entwurf');
 eq('«Storniert» → storniert', e.st[2][1].status, 'storniert');
 eq('«Bezahlt» → bezahlt', e.st[3][1].status, 'bezahlt');
 eq('«Gemahnt» → gestellt (noch offen)', e.st[4][1].status, 'gestellt');
-eq('Unbekannt → gestellt + Hinweis', e.st[5][1], { status: 'gestellt', erkannt: false });
-eq('Leer → gestellt, nicht als erkannt markiert', e.st[6][1], { status: 'gestellt', erkannt: false });
+eq('Unbekannt → gestellt + Hinweis', [e.st[5][1].status, e.st[5][1].erkannt], ['gestellt', false]);
+eq('Leer → gestellt, nicht als erkannt markiert', [e.st[6][1].status, e.st[6][1].erkannt], ['gestellt', false]);
+// Die im Bestand gezaehlten Werte muessen ALLE erkannt werden — sonst meldete
+// der Bericht 961 Rechnungen als unbekannten Status und die echten Ausreisser
+// gingen in dem Rauschen unter.
+eq('«Offen» → gestellt', [e.st[7][1].status, e.st[7][1].erkannt], ['gestellt', true]);
+eq('«In Buchhaltung geschrieben» → gestellt, nicht bezahlt',
+   [e.st[8][1].status, e.st[8][1].erkannt, e.st[8][1].vermerk], ['gestellt', true, 'fibu']);
+// Kulanz/Garantie sind ein Verzichtsgrund: erkannt, aber die Rechnung bleibt
+// offen — sie duerfen NIE als bezahlt durchgehen.
+eq('«Kulanz» → gestellt + Verzichtsvermerk',
+   [e.st[9][1].status, e.st[9][1].vermerk], ['gestellt', 'verzicht']);
+eq('«Garantie» → gestellt + Verzichtsvermerk',
+   [e.st[10][1].status, e.st[10][1].vermerk], ['gestellt', 'verzicht']);
 eq('«Schlussrechnung» → schluss', e.art[0][1], { art: 'schluss', erkannt: true });
 eq('«Akontorechnung» → akonto', e.art[1][1].art, 'akonto');
 eq('«Teilrechnung» → teil', e.art[2][1].art, 'teil');

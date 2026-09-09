@@ -256,12 +256,14 @@ table.t{border-collapse:collapse;width:100%;font-size:12.5px}
     <div style="font-size:12.5px;font-weight:800;color:var(--txt2);margin-bottom:10px" id="ein_datumLbl"></div>
     <div class="fld" id="ein_einsatzWrap" style="display:none"><label>Aus Termin übernehmen</label><select id="ein_einsatz" onchange="stEinsatzPick()"></select></div>
     <div class="fld-row3">
-      <div class="fld"><label>Von *</label><input id="ein_von" type="time"/></div>
-      <div class="fld"><label>Bis *</label><input id="ein_bis" type="time"/></div>
-      <div class="fld"><label>Pause (Min.)</label><input id="ein_pause" type="text" inputmode="numeric" onblur="fixLeadingZero(this)" placeholder="0"/></div>
+      <div class="fld" id="ein_vonWrap"><label>Von *</label><input id="ein_von" type="time"/></div>
+      <div class="fld" id="ein_bisWrap"><label>Bis *</label><input id="ein_bis" type="time"/></div>
+      <div class="fld" id="ein_pauseWrap"><label>Pause (Min.)</label><input id="ein_pause" type="text" inputmode="numeric" onblur="fixLeadingZero(this)" placeholder="0"/></div>
+      <div class="fld" id="ein_dauerWrap" style="display:none"><label>Dauer *</label><div class="g-inp-group"><input id="ein_dauer" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="8"/><span class="g-inp-unit">h</span></div>
+        <div style="font-size:11.5px;color:var(--mut);margin-top:4px">Aus dem Altsystem übernommen: nur die Dauer, keine Uhrzeiten — Nacht- und Wochenendzuschläge entfallen bewusst.</div></div>
     </div>
     <div class="hint" id="ein_pauseHint" style="font-size:10.5px;color:var(--mut);margin:-4px 0 10px"></div>
-    <div class="fld"><label>Projekt / Objekt</label><select id="ein_objekt"></select></div>
+    <div class="fld"><label>Projekt / Objekt</label><div id="ein_objektBox"></div></div>
     <div class="fld"><label>Tätigkeit</label><input id="ein_taetigkeit" type="text" placeholder="z.B. Steigzone 2.OG, Montage Verteilbatterie"/></div>
   </div>
   <div class="modal-ft">
@@ -639,8 +641,13 @@ function stdAbsenzBezogen(tage,typ,jahr,p){
   });
   return sum;
 }
-function stdAbsenzAnteil(t){
+function stdAbsenzAnteil(t,T){
   if(!t||!t.absenz)return 0;
+  // Stundenbasierte Absenz (Import aus dem Altsystem, Auto-Kompensation):
+  // Anteil am Tagessoll T, gedeckelt bei einem Tag — sonst zählte ein halber
+  // Ferientag im Feriensaldo als ganzer.
+  var st=parseFloat(t.absenz.stunden);
+  if(isFinite(st)&&st>0&&T>0)return Math.min(1,st/T);
   return t.absenz.anteil===0.5?0.5:1;
 }
 // Tagessoll in h (inkl. Vorholzeit-Anteil)
@@ -693,7 +700,13 @@ function stdMin(hhmm){
 // Netto-Minuten eines Eintrags (bis ≤ von = über Mitternacht)
 function stdEintragMin(e){
   var a=stdMin(e.von),b=stdMin(e.bis);
-  if(a==null||b==null)return 0;
+  /* Aus dem Altsystem übernommene Zeiten führen nur eine DAUER, keine
+     Uhrzeiten — dort steht `dauerMin`. Ohne diesen Zweig zählten sie als null
+     Stunden, und zwar stillschweigend.
+     Bewusst KEINE erfundenen Uhrzeiten: `stdNachtMin` liefert ohne von/bis 0,
+     ein importierter Tag löst damit nie einen Nacht- oder Wochenendzuschlag
+     aus, den niemand geleistet hat. */
+  if(a==null||b==null)return Math.max(0,parseInt(e.dauerMin,10)||0);
   if(b<=a)b+=1440;
   return Math.max(0,(b-a)-(parseInt(e.pauseMin,10)||0));
 }
@@ -772,7 +785,7 @@ function stdWochenSollEff(tage,wochenStart,p){
 // gekappt = Differenz («über Tagessoll — nicht angerechnet»). Ohne Regeln/maxTagessoll
 // ist ist === istRoh (bisheriges Verhalten).
 function stdWochenAuswertung(tage,wochenStart,p){
-  var ist=0,istRoh=0,gekappt=0,sa=0,so=0,nachtMin=0,mittage=0,km=0;
+  var ist=0,istRoh=0,gekappt=0,sa=0,so=0,nachtMin=0,mittage=0,km=0,spesenImport=0;
   (tage||[]).forEach(function(t){
     var h=stdTagStunden(t,p);istRoh+=h;
     var cap=stdTagCapH(t,t.datum,p);
@@ -784,6 +797,9 @@ function stdWochenAuswertung(tage,wochenStart,p){
     (t.eintraege||[]).forEach(function(e){nachtMin+=stdNachtMin(e,p);});
     if(t.spesen&&t.spesen.mittag)mittage++;
     km+=parseFloat(t.spesen&&t.spesen.km)||0;
+    // Spesenbetrag aus der App des Altsystems — GEMA führt Mittag und km
+    // getrennt; dieser Betrag steht daneben und wird NIE hineingerechnet.
+    spesenImport+=parseFloat(t.spesen&&t.spesen.importBetrag)||0;
   });
   var aktiv=stdWochenAktivTage(tage,wochenStart,p);
   var soll=aktiv*((p.wochenSoll+p.vorholProWocheH)/5);
@@ -796,6 +812,7 @@ function stdWochenAuswertung(tage,wochenStart,p){
   return {ist:ist,istRoh:istRoh,gekappt:gekappt,soll:soll,saldo:ist-soll,ueberstunden:ueber,topfA:topfA,topfB:topfB,vorholWoche:vorholWoche,
     samstag:sa,sonntag:so,nacht:nacht,
     zuschlagZeit:zuschlagZeit,mittage:mittage,km:km,
+    spesenImport:Math.round(spesenImport*100)/100,
     chfMittag:mittage*p.mittagCHF,chfKm:km*p.kmCHF};
 }
 // Monatssoll: Werktage (Mo–Fr, ohne Feiertage) × Tagessoll INKL. Vorholzeit
@@ -810,7 +827,7 @@ function stdMonatSoll(jahr,monat,p){
 // Monatsauswertung eines Users. Überstunden/Töpfe werden GAV-konform pro Woche
 // ermittelt (Wochen am Monatsrand: nur mit den Tagen im Monat — Näherung).
 function stdMonatsAuswertung(tage,jahr,monat,p){
-  var ist=0,istRoh=0,gekappt=0,sa=0,so=0,nachtMin=0,mittage=0,km=0,absKredit=0;
+  var ist=0,istRoh=0,gekappt=0,sa=0,so=0,nachtMin=0,mittage=0,km=0,absKredit=0,spesenImport=0;
   var wochen={};
   (tage||[]).forEach(function(t){
     var h=stdTagStunden(t,p);istRoh+=h;
@@ -823,6 +840,9 @@ function stdMonatsAuswertung(tage,jahr,monat,p){
     (t.eintraege||[]).forEach(function(e){nachtMin+=stdNachtMin(e,p);});
     if(t.spesen&&t.spesen.mittag)mittage++;
     km+=parseFloat(t.spesen&&t.spesen.km)||0;
+    // Spesenbetrag aus der App des Altsystems — GEMA führt Mittag und km
+    // getrennt; dieser Betrag steht daneben und wird NIE hineingerechnet.
+    spesenImport+=parseFloat(t.spesen&&t.spesen.importBetrag)||0;
     absKredit+=stdTagAbzugH(t,p);
     var ws=stdWochenStart(t.datum);
     (wochen[ws]=wochen[ws]||[]).push(t);
@@ -837,6 +857,7 @@ function stdMonatsAuswertung(tage,jahr,monat,p){
   var zuschlagZeit=ueber*p.zuschlagUeberstunden/100+sa*p.zuschlagSamstag/100+so*p.zuschlagSonntag/100+nacht*p.zuschlagNacht/100;
   return {ist:ist,istRoh:istRoh,gekappt:gekappt,soll:soll,saldo:ist-soll,ueberstunden:ueber,topfA:topfA,topfB:topfB,samstag:sa,sonntag:so,nacht:nacht,
     zuschlagZeit:zuschlagZeit,mittage:mittage,km:km,
+    spesenImport:Math.round(spesenImport*100)/100,
     chfMittag:mittage*p.mittagCHF,chfKm:km*p.kmCHF};
 }
 // Pro-rata-Ferienanspruch: Jahresanspruch × angestellter Jahresanteil
@@ -894,36 +915,99 @@ function stdFerienSaldoDetail(o){
     vorholSaldoH:vh,vorholTage:ts>0?vh/ts:0};
 }
 // Jahres-Salden eines Users: Töpfe A/B, Vorhol-Konto, Ferien.
-// opts = {auszahlungH, eintritt, austritt, ferienTageJahr}
+// opts = {auszahlungH, eintritt, austritt, ferienTageJahr, uebertrag}
+//
+// `uebertrag` = {datum, ferienH, ueberzeitH} — der Stand von Ferienguthaben und
+// Überzeit auf einen Stichtag. Ohne ihn beginnt jedes Jahr bei null, und ein
+// Restguthaben vom 31.12. wäre am 1.1. verschwunden.
+//
+// KRITISCH — das Ferienguthaben des Übertrags ENTHÄLT BEREITS den Anspruch der
+// neuen Periode (im Altsystem der Knopf «Ferienguthaben berechnen», in GEMA das
+// Feld «Anspruch neue Periode»). Es darf deshalb NICHT zusätzlich mit dem
+// Jahresanspruch aufgerechnet werden — sonst bekäme jede Person ihre Ferien
+// doppelt. Am Bestand nachgerechnet: 68.50 h Rest per 31.10.2025 + 200 h neuer
+// Anspruch − 19.75 h bezogen = 248.75 h per 01.01.2026, genau der gebuchte Wert.
 function stdJahresAuswertung(tage,jahr,p,opts){
   opts=opts||{};
   var ts=p.wochenSoll/5;               // Basis-Tagessoll (Konto-Bezüge)
-  var wochen={},ferien=0,krank=0,kompH=0,brueckH=0,absTage={};
+  var ub=opts.uebertrag||null;
+  // Nur ein Stichtag IM ausgewerteten Jahr zählt — ein älterer Übertrag gehört
+  // zu einem anderen Jahr und wird hier nicht stillschweigend weitergezogen.
+  var ubDatum=(ub&&/^\d{4}-\d{2}-\d{2}/.test(String(ub.datum||'')))?String(ub.datum).slice(0,10):'';
+  if(ubDatum.slice(0,4)!==String(jahr))ubDatum='';
+  var ubFerienH=(ubDatum&&ub.ferienH!=null&&isFinite(parseFloat(ub.ferienH)))?parseFloat(ub.ferienH):null;
+  var ubUeberzeitH=(ubDatum&&ub.ueberzeitH!=null&&isFinite(parseFloat(ub.ueberzeitH)))?parseFloat(ub.ueberzeitH):null;
+  // Zwei GETRENNTE Zählfenster: ein Übertrag, der nur die Überzeit führt, darf
+  // die Ferienzählung nicht beschneiden — und umgekehrt. Ohne Wert zählt das
+  // jeweilige Konto das ganze Jahr wie ohne Übertrag.
+  var ferienAb=(ubFerienH!=null)?ubDatum:'';
+  var zeitAb=(ubUeberzeitH!=null)?ubDatum:'';
+  var wochen={},byDate={},ferien=0,krank=0,kompH=0,brueckH=0,absTage={};
   (tage||[]).forEach(function(t){
     if(String(t.datum).slice(0,4)!==String(jahr))return;
-    var ws=stdWochenStart(t.datum);(wochen[ws]=wochen[ws]||[]).push(t);
+    var d=String(t.datum).slice(0,10);
+    byDate[d]=t;
+    var ws=stdWochenStart(d);(wochen[ws]=wochen[ws]||[]).push(t);
     if(t.absenz){
-      var a=stdAbsenzAnteil(t);
+      var a=stdAbsenzAnteil(t,ts);
       absTage[t.absenz.typ]=(absTage[t.absenz.typ]||0)+a;
       var absH=parseFloat(t.absenz.stunden); // stunden-basierte Absenz (Auto-Kompensation) übersteuert anteil×Tagessoll
-      if(t.absenz.typ==='ferien')ferien+=a;
+      // Ferien tagesgenau ab dem Ferien-Stichtag — das Guthaben des Übertrags
+      // gilt ab dort, ein Bezug davor belastete ein Guthaben, das noch nicht galt.
+      if(t.absenz.typ==='ferien'&&(!ferienAb||d>=ferienAb))ferien+=a;
       if(t.absenz.typ==='krank'||t.absenz.typ==='unfall')krank+=a;
       if(t.absenz.typ==='kompensation')kompH+=(isFinite(absH)&&absH>0)?absH:a*ts;
       if(t.absenz.typ==='brueckentag')brueckH+=(isFinite(absH)&&absH>0)?absH:a*ts;
     }
   });
-  var ist=0,soll=0,topfA=0,topfB=0,vorhol=0;
+  /* Ist und Soll TAGESGENAU statt wochenweise — nur über Wochen, die
+     Tagesrapporte haben (Wochen ohne Rapport zählen wie bisher nicht).
+
+     KRITISCH — die Wochenrechnung setzte für die Randwochen des Jahres das
+     volle Wochensoll an, obwohl nur Do/Fr (Jahresanfang) bzw. Mo–Do
+     (Jahresende) im Jahr liegen: ein perfektes Jahr mit exakt 8 h an jedem
+     Werktag ergab −32 h. Und der Stichtag eines Übertrags rundete auf den
+     Montag DAVOR, sodass Tage doppelt zählten, die schon im übernommenen
+     Saldo stecken. Beides fällt weg, wenn jeder Tag für sich zählt.
+     Die Töpfe A/B bleiben wochenweise — das ist die GAV-Regel. */
+  var ist=0,soll=0,topfA=0,topfB=0,vorhol=0,T=stdTagSollH(p),vT=p.vorholProWocheH/5;
   Object.keys(wochen).forEach(function(ws){
     var wa=stdWochenAuswertung(wochen[ws],ws,p);
-    ist+=wa.ist;soll+=wa.soll;topfA+=wa.topfA;topfB+=wa.topfB;vorhol+=wa.vorholWoche;
+    topfA+=wa.topfA;topfB+=wa.topfB;
+    for(var i=0;i<7;i++){
+      var d=stdAddTage(ws,i);
+      if(d.slice(0,4)!==String(jahr))continue;
+      if(zeitAb&&d<zeitAb)continue;
+      var t=byDate[d];
+      if(t){
+        var h=stdTagStunden(t,p),cap=stdTagCapH(t,d,p);
+        ist+=(cap!=null&&h>cap)?cap:h;
+      }
+      if(stdTagTyp(d,p.feiertage)!=='werktag')continue;
+      var abz=t?stdTagAbzugH(t,p):0;
+      soll+=T-abz;
+      vorhol+=(T>0)?vT*(1-abz/T):0;
+    }
   });
   var ausbezahlt=parseFloat(opts.auszahlungH)||0;
-  var anspruch=stdFerienAnspruch(parseFloat(opts.ferienTageJahr)||p.ferienTage,jahr,opts.eintritt,opts.austritt);
-  return {ist:ist,soll:soll,saldo:ist-soll,
+  // Das Guthaben steht in STUNDEN (so führt es der GAV und so kam es aus dem
+  // Altsystem), GEMA rechnet Ferien in TAGEN — umgerechnet über das Tagessoll
+  // des Mitarbeiters, also inklusive Pensum. Bewusst `ts` (wochenSoll/5) und
+  // NICHT stdTagSollH: die Vorholzeit erhöht das Arbeitssoll, nicht den Wert
+  // eines Ferientages — sie als Teiler zu nehmen kürzte das Guthaben.
+  var tagSoll=ts;
+  var ausUebertrag=(ubFerienH!=null&&tagSoll>0);
+  var anspruch=ausUebertrag?(ubFerienH/tagSoll)
+    :stdFerienAnspruch(parseFloat(opts.ferienTageJahr)||p.ferienTage,jahr,opts.eintritt,opts.austritt);
+  return {ist:ist,soll:soll,saldo:(ubUeberzeitH||0)+(ist-soll),
+    saldoJahr:ist-soll,
     topfA:topfA,topfB:topfB,kompensiertH:kompH,topfASaldo:topfA-kompH,
     ausbezahltH:ausbezahlt,topfBOffen:topfB-ausbezahlt,
     vorholEarned:vorhol,brueckentagH:brueckH,vorholSaldo:vorhol-brueckH,
     ferienAnspruch:anspruch,ferienBezogen:ferien,ferienSaldo:anspruch-ferien,
+    ferienAusUebertrag:ausUebertrag,
+    uebertragDatum:ubDatum,uebertragFerienH:ubFerienH,uebertragUeberzeitH:(ubUeberzeitH||0),
+    uebertragFerienAb:ferienAb,uebertragZeitAb:zeitAb,
     krankTage:krank,absTage:absTage};
 }
 function stdFmtH(h){return (Math.round(h*100)/100).toFixed(2);}
@@ -1004,7 +1088,7 @@ function stdJahresMonatswerte(tage,jahr,p){
       ueberstunden:hat?a.ueberstunden:0,topfA:hat?a.topfA:0,topfB:hat?a.topfB:0,
       samstag:hat?a.samstag:0,sonntag:hat?a.sonntag:0,nacht:hat?a.nacht:0,
       zuschlagZeit:hat?a.zuschlagZeit:0,mittage:hat?a.mittage:0,km:hat?a.km:0,
-      spesenChf:hat?(a.chfMittag+a.chfKm):0,absenzTage:absT});
+      spesenChf:hat?(a.chfMittag+a.chfKm):0,spesenImport:hat?(a.spesenImport||0):0,absenzTage:absT});
   }
   return out;
 }
@@ -1079,7 +1163,7 @@ function poolSave(rec){
 }
 function stUser(){try{return GemaAuth.getCurrentUser();}catch(e){return null;}}
 function stHas(r){var u=stUser();return !!(u&&u.roleIds&&u.roleIds.indexOf(r)>=0);}
-function stCanApprove(){return stHas('role_admin')||stHas('role_planer')||stHas('role_hlkk_planer')||stHas('role_lueftung_planer')||stHas('role_elektro_planer')||stHas('role_abteilungsleiter');}
+function stCanApprove(){return stHas('role_admin')||stHas('role_planer')||stHas('role_hlkk_planer')||stHas('role_lueftung_planer')||stHas('role_elektro_planer')||stHas('role_abteilungsleiter')||stHas('role_erp_abteilungsleiter');}
 // Organisations-Admin (org.admins) darf die GAV-Parameter ebenfalls pflegen —
 // auch ohne Planer-/Freigabe-Rolle (z.B. Geschäftsführung mit Monteur-Rolle).
 function stIsOrgAdmin(){
@@ -1099,6 +1183,29 @@ function stAuszahlungen(userId,jahr){
 function stAuszahlungH(userId,jahr){
   var s=0;stAuszahlungen(userId,jahr).forEach(function(a){s+=parseFloat(a.stunden)||0;});
   return s;
+}
+// Ferien-/Überzeitüberträge (typ:'uebertrag') — liegen im selben Pool wie die
+// Tagesrapporte, getrennt über t.typ. Jeder Datensatz ist ein SALDO auf seinen
+// Stichtag, kein Zuwachs: für ein Jahr gilt der NEUESTE Stichtag dieses Jahres,
+// nie eine Summe über mehrere.
+function stUebertraege(userId){
+  var u=stUser();
+  return poolRead().filter(function(t){
+    return t.typ==='uebertrag'&&u&&t.orgId===u.orgId&&t.userId===userId;
+  }).sort(function(a,b){return String(a.datum||'')<String(b.datum||'')?1:-1;});
+}
+function stUebertrag(userId,jahr){
+  return stUebertraege(userId).find(function(t){
+    return String(t.datum||'').slice(0,4)===String(jahr);
+  })||null;
+}
+// Der letzte Übertrag VOR dem Jahr — nur für den Hinweis «für dieses Jahr fehlt
+// einer». Er wird bewusst nicht angerechnet: welche Ferien seither bezogen
+// wurden, weiss nur die Fortschreibung, und die ist ein eigener Vorgang.
+function stUebertragDavor(userId,jahr){
+  return stUebertraege(userId).find(function(t){
+    return String(t.datum||'').slice(0,4)<String(jahr);
+  })||null;
 }
 // Mitarbeiter-Stammdaten (Eintritt/Austritt/Ferienanspruch) aus org.settings.stunden.mitarbeiter
 function stMitarbeiterInfo(userId){
@@ -1121,9 +1228,19 @@ function stFerienDetail(userId,jahr){
   var p=stParamsFor(userId);
   var mi=stMitarbeiterInfo(userId);
   var tage=orgTage().filter(function(t){return t.userId===userId&&String(t.datum).slice(0,4)===String(jahr);});
+  var ub=stUebertrag(userId,jahr);
+  // Zählfenster: gibt es einen Übertrag MIT Ferienguthaben, gilt es AB dem
+  // Stichtag — dann dürfen auch nur die Ferien ab diesem Tag dagegen gerechnet
+  // werden. Ohne diese Klammer belastete ein Bezug aus dem Januar ein Guthaben,
+  // das erst ab Oktober gilt. Ein Übertrag, der nur die Überzeit führt, lässt
+  // die Ferienzählung unberührt — sonst fiele der Anspruch aufs ganze Jahr
+  // zurück, während der Bezug erst ab Stichtag zählte.
+  var ubFerienH=(ub&&ub.ferienH!=null&&isFinite(parseFloat(ub.ferienH)))?parseFloat(ub.ferienH):null;
+  var ubAb=(ubFerienH!=null&&/^\d{4}-\d{2}-\d{2}/.test(String(ub.datum||'')))?String(ub.datum).slice(0,10):'';
   var bezogen=0,gebucht=[];
   tage.forEach(function(t){
-    if(t.absenz&&t.absenz.typ==='ferien'){bezogen+=stdAbsenzAnteil(t);gebucht.push(t.datum);}
+    if(ubAb&&String(t.datum).slice(0,10)<ubAb)return;
+    if(t.absenz&&t.absenz.typ==='ferien'){bezogen+=stdAbsenzAnteil(t,(parseFloat(p&&p.wochenSoll)||0)/5);gebucht.push(t.datum);}
   });
   var beantragt=0;
   stFerienAntraege().forEach(function(a){
@@ -1134,10 +1251,17 @@ function stFerienDetail(userId,jahr){
     }).length;
   });
   var bf=stdBetriebsferienTage(p.betriebsferien,jahr,p.feiertage,gebucht,mi.eintritt,mi.austritt);
-  var anspruch=stdFerienAnspruch(mi.ferienTage!=null?mi.ferienTage:p.ferienTage,jahr,mi.eintritt,mi.austritt);
-  var j=stdJahresAuswertung(tage,jahr,p,{});
-  return stdFerienSaldoDetail({anspruch:anspruch,bezogen:bezogen,beantragt:beantragt,bfReserve:bf,
+  var j=stdJahresAuswertung(tage,jahr,p,{uebertrag:ub});
+  // Liegt ein Übertrag für dieses Jahr vor, ist SEIN Guthaben massgebend — es
+  // enthält den Anspruch der Periode bereits. Sonst der gerechnete Anspruch.
+  var anspruch=j.ferienAusUebertrag?j.ferienAnspruch
+    :stdFerienAnspruch(mi.ferienTage!=null?mi.ferienTage:p.ferienTage,jahr,mi.eintritt,mi.austritt);
+  var d=stdFerienSaldoDetail({anspruch:anspruch,bezogen:bezogen,beantragt:beantragt,bfReserve:bf,
     vorholSaldoH:j.vorholSaldo,tagesSollH:p.wochenSoll/5});
+  d.uebertrag=ub;
+  d.ausUebertrag=j.ferienAusUebertrag;
+  d.uebertragFehlt=(!ub&&!!stUebertragDavor(userId,jahr));
+  return d;
 }
 // Wer ist im Zeitraum eines Antrags ebenfalls abwesend? (andere Anträge + Ferien-Absenzen, pro User dedupliziert)
 function stFerienKonflikte(antrag){
@@ -1391,6 +1515,10 @@ function stTagKarte(datum,p,gross){
       +'<label><input type="checkbox" '+(t&&t.spesen&&t.spesen.mittag?'checked':'')+' onchange="stSpesen(\''+datum+'\',\'mittag\',this.checked)"/> 🍽 Mittag auswärts</label>'
       // km-Spesen nur wenn org-weit aktiv — bereits erfasste km bleiben korrigierbar
       +((p.kmAktiv||(parseFloat(t&&t.spesen&&t.spesen.km)||0)>0)?'<label>🚗 <input type="text" inputmode="decimal" placeholder="km" value="'+(t&&t.spesen&&t.spesen.km?t.spesen.km:'')+'" onblur="stSpesen(\''+datum+'\',\'km\',this.value)"/> km</label>':'')
+      // Spesenbetrag aus der App des Altsystems: sichtbar am Tag, aber nie in
+      // Mittag/km hineingerechnet — GEMA kennt diese Grösse nicht.
+      +((parseFloat(t&&t.spesen&&t.spesen.importBetrag)||0)>0
+        ?'<span style="color:var(--mut)" title="Aus der App des Altsystems übernommen — Vermerk, fliesst nicht in Mittag/km ein">🧾 '+(parseFloat(t.spesen.importBetrag)||0).toFixed(2)+' CHF (Altsystem)</span>':'')
       +'</div>';
   } else if(t&&t.spesen&&(t.spesen.mittag||t.spesen.km)){
     h+='<div class="spesen-row">'+(t.spesen.mittag?'🍽 Mittag auswärts':'')+(t.spesen.km?' · 🚗 '+t.spesen.km+' km':'')+'</div>';
@@ -2402,8 +2530,18 @@ function stRegieQueueUpload(){
 }
 if(_stQ)_stQ.auto(function(){stQueueUpload();});
 if(_stRegieQ)_stRegieQ.auto(function(){stRegieQueueUpload();});
+// Dauer-Modus: importierte Einträge tragen nur `dauerMin` (keine Uhrzeiten).
+// Der Editor zeigt dann ein Dauer-Feld statt Von/Bis — und erfindet beim
+// Speichern keine Uhrzeit.
+var _einDauerModus=false;
+function stEinModus(dauer){
+  _einDauerModus=!!dauer;
+  ['ein_vonWrap','ein_bisWrap','ein_pauseWrap'].forEach(function(id){var el=document.getElementById(id);if(el)el.style.display=dauer?'none':'';});
+  var dw=document.getElementById('ein_dauerWrap');if(dw)dw.style.display=dauer?'':'none';
+}
 function stEinNeu(datum){
   _einDatum=datum;_einId=null;
+  stEinModus(false);
   document.getElementById('einTitle').textContent='Arbeitszeit erfassen';
   document.getElementById('ein_datumLbl').textContent=WOCHENTAGE[(new Date(datum+'T12:00:00Z').getUTCDay()+6)%7]+', '+dfmt(datum);
   document.getElementById('ein_von').value='07:00';
@@ -2425,18 +2563,36 @@ function stEinNeu(datum){
   document.getElementById('einDelBtn').style.display='none';
   stOpen('einModal');
 }
+/* Projektwahl als Suchfeld (zentrale Combobox aus gema_objekte_api).
+   Eine Auswahlliste mit allen Objekten war ab einigen hundert Einträgen
+   nicht mehr bedienbar. Der gewählte Wert steht weiterhin unter der ID
+   `ein_objekt` — nur der Name kommt jetzt aus `_einObjName`. */
+var _einObjName='';
 function stEinObjekte(sel){
-  var objs=[];
-  try{objs=(typeof GemaObjekte!=='undefined')?GemaObjekte.getAll():[];}catch(e){}
-  document.getElementById('ein_objekt').innerHTML='<option value="">— ohne Projekt —</option>'+objs.map(function(o){
-    return '<option value="'+o.id+'"'+(sel===o.id?' selected':'')+'>'+esc(GemaObjekte.displayName(o))+'</option>';
-  }).join('');
+  var box=document.getElementById('ein_objektBox');
+  if(!box)return;
+  if(typeof GemaObjekte==='undefined'||!GemaObjekte.comboHtml){
+    box.innerHTML='<input type="hidden" id="ein_objekt" value="'+esc(sel||'')+'"/><input type="text" disabled placeholder="Objekte nicht geladen"/>';
+    return;
+  }
+  box.innerHTML=GemaObjekte.comboHtml('ein_objekt',sel||'',{placeholder:'Projekt suchen … (leer = ohne Projekt)',leerText:'— ohne Projekt —'});
+  _einObjName=(function(){try{var o=sel?GemaObjekte.getById(sel):null;return o?(GemaObjekte.displayName(o)||o.name||''):'';}catch(e){return '';}})();
+  GemaObjekte.comboBind('ein_objekt',function(id,o){
+    _einObjName=o?(GemaObjekte.displayName(o)||o.name||''):'';
+  });
+}
+function stEinObjektSetzen(objektId){
+  if(typeof GemaObjekte!=='undefined'&&GemaObjekte._comboPick&&document.getElementById('ein_objekt_txt')){
+    GemaObjekte._comboPick('ein_objekt',objektId||'');
+    return;
+  }
+  var el=document.getElementById('ein_objekt');if(el)el.value=objektId||'';
 }
 function stEinsatzPick(){
   var sel=document.getElementById('ein_einsatz');
   var opt=sel.options[sel.selectedIndex];
   if(!opt||!opt.value)return;
-  if(opt.getAttribute('data-objekt'))document.getElementById('ein_objekt').value=opt.getAttribute('data-objekt');
+  if(opt.getAttribute('data-objekt'))stEinObjektSetzen(opt.getAttribute('data-objekt'));
   if(opt.getAttribute('data-titel')&&!document.getElementById('ein_taetigkeit').value)document.getElementById('ein_taetigkeit').value=opt.getAttribute('data-titel');
 }
 function stEinEdit(datum,einId){
@@ -2445,6 +2601,9 @@ function stEinEdit(datum,einId){
   stEinNeu(datum);
   _einId=einId;
   document.getElementById('einTitle').textContent='Eintrag bearbeiten';
+  var nurDauer=!e.von&&!e.bis&&parseInt(e.dauerMin,10)>0;
+  stEinModus(nurDauer);
+  if(nurDauer)document.getElementById('ein_dauer').value=String(Math.round(parseInt(e.dauerMin,10)/60*100)/100);
   document.getElementById('ein_von').value=e.von;
   document.getElementById('ein_bis').value=e.bis;
   document.getElementById('ein_pause').value=e.pauseMin||'';
@@ -2455,7 +2614,12 @@ function stEinEdit(datum,einId){
 function stEinSave(){
   var u=stUser();if(!u)return;
   var von=document.getElementById('ein_von').value,bis=document.getElementById('ein_bis').value;
-  if(stdMin(von)==null||stdMin(bis)==null){toast('Von/Bis fehlt');return;}
+  var dauerMin=null;
+  if(_einDauerModus){
+    var dh=parseFloat(String(document.getElementById('ein_dauer').value||'').replace(',','.'));
+    if(!(dh>0)||dh>24){toast('Dauer fehlt oder ist unplausibel');return;}
+    dauerMin=Math.round(dh*60);von='';bis='';
+  }else if(stdMin(von)==null||stdMin(bis)==null){toast('Von/Bis fehlt');return;}
   var t=stTagFor(_einDatum,u.id);
   if(t&&!stTagEditable(t)){toast('Tag ist eingereicht — nicht mehr änderbar');return;}
   if(!t)t={id:uid(),orgId:u.orgId,userId:u.id,userName:u.name,datum:_einDatum,eintraege:[],spesen:{},status:'offen',erstelltAm:new Date().toISOString()};
@@ -2463,20 +2627,27 @@ function stEinSave(){
   var e={
     id:_einId||uid(),
     von:von,bis:bis,
-    pauseMin:parseInt(document.getElementById('ein_pause').value,10)||0,
+    pauseMin:_einDauerModus?0:(parseInt(document.getElementById('ein_pause').value,10)||0),
     objektId:objSel.value,
-    objektName:objSel.value?(objSel.options[objSel.selectedIndex].textContent||''):'',
+    objektName:objSel.value?_einObjName:'',
     taetigkeit:document.getElementById('ein_taetigkeit').value.trim()
   };
+  if(_einDauerModus)e.dauerMin=dauerMin;
   var einSel=document.getElementById('ein_einsatz');
-  if(document.getElementById('ein_einsatzWrap').style.display!=='none'&&einSel.value)e.einsatzId=einSel.value;
+  var einsatzGesetzt=document.getElementById('ein_einsatzWrap').style.display!=='none'&&!!einSel.value;
+  if(einsatzGesetzt)e.einsatzId=einSel.value;
   var i=(t.eintraege||[]).findIndex(function(x){return x.id===e.id;});
   var neu=i<0;
   if(i>=0){
-    // Rapport-Verknüpfung + Material-Antwort überleben das Bearbeiten (e wird neu aufgebaut)
-    e.rapportId=t.eintraege[i].rapportId;
-    e.rapportNr=t.eintraege[i].rapportNr;
-    e.materialAntwort=t.eintraege[i].materialAntwort;
+    // Alles, was der Editor nicht kennt, überlebt das Bearbeiten: Rapport-
+    // Verknüpfung, Material-Antwort — und die Import-Marker (importKey,
+    // importAuftragNr, importQuelle, importKonflikt, bemerkung …). Ohne sie
+    // legte ein Wiederholungs-Import den Eintrag ein zweites Mal an.
+    var altE=t.eintraege[i];
+    var m=Object.assign({},altE,e);
+    if(!_einDauerModus)delete m.dauerMin;          // Uhrzeiten gesetzt → Dauer wird gerechnet
+    if(!einsatzGesetzt)delete m.einsatzId;          // Auswahl geleert → Bezug weg (wie bisher)
+    e=m;
     t.eintraege[i]=e;
   } else t.eintraege.push(e);
   if(t.status==='zurueck')t.status='offen';
@@ -2897,7 +3068,7 @@ function stTopfBCheck(datum){
   if(lock[k])return;
   lock[k]=1;
   try{localStorage.setItem('gema_std_topfb_lock_v1',JSON.stringify(lock));}catch(e){}
-  ['role_planer','role_abteilungsleiter'].forEach(function(r){
+  ['role_planer','role_abteilungsleiter','role_erp_abteilungsleiter'].forEach(function(r){
     stNotify({eventKey:'stunden_topfb',empfaengerRoleId:r,empfaengerOrgId:u.orgId,modul:'stundenerfassung',typ:'warnung',
       titel:'Topf B überschritten: '+u.name,
       text:'KW '+stKw(ws)+': '+stdFmtH(aus.topfB)+' h über der Topf-A-Grenze ('+stdFmtH(p.topfGrenzeH)+' h) — Auszahlung fällig.',
@@ -2952,7 +3123,7 @@ var FA_TYPEN=['ferien','kompensation','militaer','schule','uek'];
 // Topf-A-Saldo eines Users im Jahr (für die Antrags-Vorschau/Freigabe bei Kompensation)
 function stTopfASaldo(userId,jahr){
   var tage=orgTage().filter(function(t){return t.userId===userId&&String(t.datum).slice(0,4)===String(jahr);});
-  return stdJahresAuswertung(tage,jahr,stParamsFor(userId),{}).topfASaldo;
+  return stdJahresAuswertung(tage,jahr,stParamsFor(userId),{uebertrag:stUebertrag(userId,jahr)}).topfASaldo;
 }
 function stFerienOpen(){
   var u=stUser();if(!u)return;
@@ -3015,7 +3186,7 @@ function stFerienSubmit(){
     von:von,bis:bis,tage:tage,bemerkung:document.getElementById('fa_bem').value.trim(),
     status:'beantragt',beantragtAm:new Date().toISOString()};
   poolSave(a);
-  ['role_planer','role_abteilungsleiter'].forEach(function(r){
+  ['role_planer','role_abteilungsleiter','role_erp_abteilungsleiter'].forEach(function(r){
     stNotify({eventKey:'ferien_antrag',empfaengerRoleId:r,empfaengerOrgId:u.orgId,modul:'stundenerfassung',typ:'aktion',
       titel:ft.n+'-Antrag: '+u.name,
       text:dfmt(von)+' – '+dfmt(bis)+' ('+tage+' Werktage)'+(a.bemerkung?' · '+a.bemerkung:''),
@@ -3457,8 +3628,11 @@ function stRenderAusMonat(){
   var soll=stdMonatSoll(jahr,monat,p);
   // km-Spalte nur wenn km-Erfassung aktiv ODER im Monat km erfasst wurden (Altdaten bleiben sichtbar)
   var kmCol=p.kmAktiv||Object.keys(users).some(function(k){return users[k].tage.some(function(t){return (parseFloat(t.spesen&&t.spesen.km)||0)>0;});});
+  // Spesenbeträge aus der App des Altsystems: eigene Spalte, damit sie sich
+  // nicht mit GEMAs Mittag/km vermischen — und nur, wenn es sie gibt.
+  var spCol=Object.keys(users).some(function(k){return users[k].tage.some(function(t){return (parseFloat(t.spesen&&t.spesen.importBetrag)||0)>0;});});
   h+='<div class="card"><div class="card-hd"><h3>📊 Monatsauswertung '+_monat+'</h3><span class="sub">Soll (Vollzeit) '+stdFmtH(soll)+' h'+(p.vorholProWocheH>0?' (inkl. Vorholzeit)':'')+(p.maxTagessoll?' · max. Tagessoll aktiv':'')+' · reduzierte Pensen pro Mitarbeiter berücksichtigt · Zuschläge als Zeitwert ('+p.zuschlagUeberstunden+'/'+p.zuschlagSamstag+'/'+p.zuschlagSonntag+'/'+p.zuschlagNacht+'%)</span></div><div class="card-bd"><div class="t-wrap"><table class="t"><thead><tr>'
-    +'<th>Mitarbeiter</th><th class="num">Ist h</th><th class="num">Soll h</th><th class="num">Saldo h</th><th class="num">Üst h</th><th class="num">Topf A h</th><th class="num">Topf B h</th><th class="num">Sa h</th><th class="num">So/Ft h</th><th class="num">Nacht h</th><th class="num">Zuschlag h</th><th class="num">Mittage</th>'+(kmCol?'<th class="num">km</th>':'')+'<th class="num">Spesen CHF</th><th>Status</th><th></th></tr></thead><tbody>';
+    +'<th>Mitarbeiter</th><th class="num">Ist h</th><th class="num">Soll h</th><th class="num">Saldo h</th><th class="num">Üst h</th><th class="num">Topf A h</th><th class="num">Topf B h</th><th class="num">Sa h</th><th class="num">So/Ft h</th><th class="num">Nacht h</th><th class="num">Zuschlag h</th><th class="num">Mittage</th>'+(kmCol?'<th class="num">km</th>':'')+'<th class="num">Spesen CHF</th>'+(spCol?'<th class="num" title="Spesenbeträge aus der App des Altsystems — separat ausgewiesen, nicht in «Spesen CHF» enthalten">Spesen App CHF</th>':'')+'<th>Status</th><th></th></tr></thead><tbody>';
   Object.keys(users).forEach(function(uidk){
     var x=users[uidk];
     var pu=stParamsFor(uidk);
@@ -3472,7 +3646,7 @@ function stRenderAusMonat(){
       +'<td class="num"'+(a.topfB>0.004?' style="color:var(--red);font-weight:800"':'')+'>'+stdFmtH(a.topfB)+'</td>'
       +'<td class="num">'+stdFmtH(a.samstag)+'</td><td class="num">'+stdFmtH(a.sonntag)+'</td><td class="num">'+stdFmtH(a.nacht)+'</td>'
       +'<td class="num"><b>+'+stdFmtH(a.zuschlagZeit)+'</b></td>'
-      +'<td class="num">'+a.mittage+'</td>'+(kmCol?'<td class="num">'+(Math.round(a.km*10)/10)+'</td>':'')+'<td class="num">'+(a.chfMittag+a.chfKm).toFixed(2)+'</td>'
+      +'<td class="num">'+a.mittage+'</td>'+(kmCol?'<td class="num">'+(Math.round(a.km*10)/10)+'</td>':'')+'<td class="num">'+(a.chfMittag+a.chfKm).toFixed(2)+'</td>'+(spCol?'<td class="num">'+((a.spesenImport||0)?(a.spesenImport).toFixed(2):'—')+'</td>':'')
       +'<td>'+Object.keys(st).map(function(s){var m=ST_STATUS[s]||ST_STATUS.offen;return '<span class="badge '+m.cls+'">'+m.n+'</span>';}).join(' ')+'</td>'
       +'<td><button class="btn sm" title="Monatsblatt (Lohnlauf) als PDF" onclick="stPdf(\''+esc(uidk)+'\')">📄 PDF</button></td></tr>';
   });
@@ -3514,10 +3688,13 @@ function stRenderAusJahr(){
     +'</div>';
   h+='<div class="card"><div class="card-hd"><h3>📈 Jahresverlauf — '+esc(users[sel]||'')+'</h3><span class="sub">Ist (blau) vs. Soll (grau) pro Monat</span></div><div class="card-bd"><canvas id="ausJahrChart" style="width:100%;height:190px;display:block"></canvas></div></div>';
   var MONK=['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+  // Spesen-Spalte des Altsystems nur zeigen, wenn im Jahr überhaupt Beträge
+  // stehen — sonst eine leere Spalte für alle.
+  function _spImpJahr(m){return (m||[]).some(function(x){return (x.spesenImport||0)>0;});}
   h+='<div class="card"><div class="card-hd"><h3>📅 Monate im Detail</h3><span class="sub">Monate ohne Erfassung zählen nicht ins Soll · * = über Tagessoll gekappt</span></div><div class="card-bd"><div class="t-wrap"><table class="t"><thead><tr>'
-    +'<th>Monat</th><th class="num">Ist h</th><th class="num">Soll h</th><th class="num">Saldo h</th><th class="num">kum. Saldo</th><th class="num">Üst h</th><th class="num">Topf A</th><th class="num">Topf B</th><th class="num">Sa h</th><th class="num">So/Ft h</th><th class="num">Nacht h</th><th class="num">Zuschlag h</th><th class="num">Absenz Tg</th><th class="num">Spesen CHF</th></tr></thead><tbody>';
+    +'<th>Monat</th><th class="num">Ist h</th><th class="num">Soll h</th><th class="num">Saldo h</th><th class="num">kum. Saldo</th><th class="num">Üst h</th><th class="num">Topf A</th><th class="num">Topf B</th><th class="num">Sa h</th><th class="num">So/Ft h</th><th class="num">Nacht h</th><th class="num">Zuschlag h</th><th class="num">Absenz Tg</th><th class="num">Spesen CHF</th>'+(_spImpJahr(mon)?'<th class="num" title="Spesenbeträge aus der App des Altsystems">Spesen App CHF</th>':'')+'</tr></thead><tbody>';
   mon.forEach(function(x){
-    if(!x.hatDaten){h+='<tr><td>'+MONK[x.monat-1]+'</td><td class="num" colspan="13" style="color:var(--mut2)">— keine Erfassung —</td></tr>';return;}
+    if(!x.hatDaten){h+='<tr><td>'+MONK[x.monat-1]+'</td><td class="num" colspan="'+(_spImpJahr(mon)?14:13)+'" style="color:var(--mut2)">— keine Erfassung —</td></tr>';return;}
     h+='<tr><td><b>'+MONK[x.monat-1]+'</b></td>'
       +'<td class="num">'+stdFmtH(x.ist)+(x.gekappt>0.004?' <span style="color:var(--amber)" title="'+stdFmtH(x.gekappt)+' h über Tagessoll nicht angerechnet (erfasst '+stdFmtH(x.istRoh)+' h)">*</span>':'')+'</td>'
       +'<td class="num">'+stdFmtH(x.soll)+'</td>'
@@ -3528,7 +3705,8 @@ function stRenderAusJahr(){
       +'<td class="num">'+stdFmtH(x.samstag)+'</td><td class="num">'+stdFmtH(x.sonntag)+'</td><td class="num">'+stdFmtH(x.nacht)+'</td>'
       +'<td class="num">+'+stdFmtH(x.zuschlagZeit)+'</td>'
       +'<td class="num">'+stFmtT(x.absenzTage)+'</td>'
-      +'<td class="num">'+x.spesenChf.toFixed(2)+'</td></tr>';
+      +'<td class="num">'+x.spesenChf.toFixed(2)+'</td>'
+      +(_spImpJahr(mon)?'<td class="num">'+((x.spesenImport||0)?x.spesenImport.toFixed(2):'—')+'</td>':'')+'</tr>';
   });
   h+='<tr style="font-weight:900"><td style="border-top:2px solid var(--brd2)">Total</td>'
     +'<td class="num" style="border-top:2px solid var(--brd2)">'+stdFmtH(tot.ist)+'</td>'
@@ -3543,8 +3721,11 @@ function stRenderAusJahr(){
     +'<td class="num" style="border-top:2px solid var(--brd2)">'+stdFmtH(tot.nacht)+'</td>'
     +'<td class="num" style="border-top:2px solid var(--brd2)">+'+stdFmtH(tot.zu)+'</td>'
     +'<td class="num" style="border-top:2px solid var(--brd2)">'+stFmtT(tot.abs)+'</td>'
-    +'<td class="num" style="border-top:2px solid var(--brd2)">'+tot.chf.toFixed(2)+'</td></tr>';
+    +'<td class="num" style="border-top:2px solid var(--brd2)">'+tot.chf.toFixed(2)+'</td>'
+    +(_spImpJahr(mon)?'<td class="num" style="border-top:2px solid var(--brd2)">'+mon.reduce(function(a,x){return a+(x.spesenImport||0);},0).toFixed(2)+'</td>':'')
+    +'</tr>';
   h+='</tbody></table></div></div></div>';
+  h+=stSpesenAuftragHtml(alle,jahr,sel,users[sel]||'');
   return h+stRenderJahresSalden(alle,jahr);
 }
 // Balken-Diagramm Ist vs. Soll (Canvas, NUR literale Hex-Farben — GemaPDF-Regel)
@@ -3685,12 +3866,12 @@ function stCsvJahrRows(){
   var jahr=parseInt(_ausJahr,10);
   var users={};
   alle.forEach(function(t){if(String(t.datum).slice(0,4)===_ausJahr)users[t.userId]=t.userName||t.userId;});
-  var rows=[['Mitarbeiter','Monat','Ist h','Soll h','Saldo h','kum. Saldo h','Ueberstunden h','Topf A h','Topf B h','Samstag h','Sonntag/Feiertag h','Nacht h','Zuschlag h','Absenz Tage','Mittage','km','Spesen CHF'].join(';')];
+  var rows=[['Mitarbeiter','Monat','Ist h','Soll h','Saldo h','kum. Saldo h','Ueberstunden h','Topf A h','Topf B h','Samstag h','Sonntag/Feiertag h','Nacht h','Zuschlag h','Absenz Tage','Mittage','km','Spesen CHF','Spesen App CHF (Altsystem)'].join(';')];
   Object.keys(users).sort(function(a,b){return String(users[a]).localeCompare(String(users[b]));}).forEach(function(uidk){
     var mon=stdJahresMonatswerte(alle.filter(function(t){return t.userId===uidk;}),jahr,stParamsFor(uidk));
     mon.forEach(function(x){
       if(!x.hatDaten)return;
-      rows.push([users[uidk],_ausJahr+'-'+(x.monat<10?'0':'')+x.monat,stdFmtH(x.ist),stdFmtH(x.soll),stdFmtH(x.saldo),stdFmtH(x.kumSaldo),stdFmtH(x.ueberstunden),stdFmtH(x.topfA),stdFmtH(x.topfB),stdFmtH(x.samstag),stdFmtH(x.sonntag),stdFmtH(x.nacht),stdFmtH(x.zuschlagZeit),stFmtT(x.absenzTage),x.mittage,Math.round(x.km*10)/10,x.spesenChf.toFixed(2)].join(';'));
+      rows.push([users[uidk],_ausJahr+'-'+(x.monat<10?'0':'')+x.monat,stdFmtH(x.ist),stdFmtH(x.soll),stdFmtH(x.saldo),stdFmtH(x.kumSaldo),stdFmtH(x.ueberstunden),stdFmtH(x.topfA),stdFmtH(x.topfB),stdFmtH(x.samstag),stdFmtH(x.sonntag),stdFmtH(x.nacht),stdFmtH(x.zuschlagZeit),stFmtT(x.absenzTage),x.mittage,Math.round(x.km*10)/10,x.spesenChf.toFixed(2),(x.spesenImport||0).toFixed(2)].join(';'));
     });
   });
   return rows;
@@ -3732,6 +3913,42 @@ function stCsvProjekteRows(){
 }
 function stCsvProjekte(){stCsvDownload(stCsvProjekteRows(),'Projektstunden_'+(_prjZeitraum==='jahr'?_ausJahr:_monat)+'.csv');}
 // Jahres-Salden: Töpfe A/B, Vorhol-Konto, Ferien (pro-rata) — pro Mitarbeiter
+/* Spesen aus der App des Altsystems — je Auftrag und in Summe.
+   GEMA führt Mittag und Kilometer als eigene Grössen; der Betrag aus der
+   App passt in keine davon und wird deshalb NIE hineingerechnet. Er wäre
+   sonst aber unsichtbar, obwohl er importiert ist — hier steht er, mit dem
+   Auftrag, auf den er gebucht war. Zeilen ohne Auftragsnummer und Beträge,
+   die nur am Tag hängen (ältere Importläufe), werden eigens ausgewiesen. */
+function stSpesenAuftragHtml(alle,jahr,userId,userName){
+  var proAuftrag={},total=0,ohne=0,nurTag=0;
+  (alle||[]).forEach(function(t){
+    if(t.typ||String(t.datum).slice(0,4)!==String(jahr))return;
+    if(userId&&t.userId!==userId)return;
+    var eSum=0;
+    (t.eintraege||[]).forEach(function(e){
+      var b=parseFloat(e.importSpesen)||0;
+      if(!b)return;
+      eSum+=b;total+=b;
+      var a=String(e.importAuftragNr||'').trim();
+      if(a)proAuftrag[a]=(proAuftrag[a]||0)+b;else ohne+=b;
+    });
+    var tb=parseFloat(t.spesen&&t.spesen.importBetrag)||0;
+    if(tb>eSum+0.005){nurTag+=tb-eSum;total+=tb-eSum;}
+  });
+  if(total<0.005)return '';
+  var liste=Object.keys(proAuftrag).sort(function(a,b){return proAuftrag[b]-proAuftrag[a];});
+  var zeilen=liste.map(function(a){
+    return '<tr><td>'+esc(a)+'</td><td class="num">'+proAuftrag[a].toFixed(2)+'</td></tr>';
+  }).join('');
+  if(ohne>0.005)zeilen+='<tr><td style="color:var(--mut)">ohne Auftragsnummer</td><td class="num">'+ohne.toFixed(2)+'</td></tr>';
+  if(nurTag>0.005)zeilen+='<tr><td style="color:var(--mut)" title="Nur als Tagesbetrag importiert — die Zuordnung auf einen Auftrag liegt im Altsystem nicht vor">nur am Tag erfasst</td><td class="num">'+nurTag.toFixed(2)+'</td></tr>';
+  return '<div class="card"><div class="card-hd"><h3>🧾 Spesen aus der App '+esc(String(jahr))+(userName?' — '+esc(userName):'')+'</h3>'
+    +'<span class="sub">Beträge aus dem Altsystem, je Auftrag. Sie sind ein Vermerk und fliessen NICHT in Mittag/km oder die Lohnbüro-Summen ein.</span></div>'
+    +'<div class="card-bd"><div class="t-wrap"><table class="t"><thead><tr><th>Auftrag</th><th class="num">CHF</th></tr></thead><tbody>'
+    +zeilen
+    +'<tr style="font-weight:900"><td style="border-top:2px solid var(--brd2)">Total</td><td class="num" style="border-top:2px solid var(--brd2)">'+total.toFixed(2)+'</td></tr>'
+    +'</tbody></table></div></div></div>';
+}
 function stRenderJahresSalden(alle,jahr){
   var p=stParams();
   var imJahr=alle.filter(function(t){return String(t.datum).slice(0,4)===String(jahr);});
@@ -3739,20 +3956,30 @@ function stRenderJahresSalden(alle,jahr){
   imJahr.forEach(function(t){(users[t.userId]=users[t.userId]||{name:t.userName,tage:[]}).tage.push(t);});
   if(!Object.keys(users).length)return '';
   var canA=stCanApprove();
-  var h='<div class="card"><div class="card-hd"><h3>💰 Jahres-Salden '+jahr+'</h3><span class="sub">Töpfe kumuliert über alle Wochen · Ferien pro-rata nach Ein-/Austritt · Vorholzeit '+stdFmtH(p.vorholProWocheH)+' h/Woche (Vollzeit — skaliert mit dem Pensum)</span></div><div class="card-bd"><div class="t-wrap"><table class="t"><thead><tr>'
+  var h='<div class="card"><div class="card-hd"><h3>💰 Jahres-Salden '+jahr+'</h3><span class="sub">Töpfe kumuliert über alle Wochen · Ferien pro-rata nach Ein-/Austritt, bzw. ab Übertrag · Vorholzeit '+stdFmtH(p.vorholProWocheH)+' h/Woche (Vollzeit — skaliert mit dem Pensum)</span></div><div class="card-bd"><div class="t-wrap"><table class="t"><thead><tr>'
     +'<th>Mitarbeiter</th><th class="num">Topf A Saldo h</th><th class="num">Topf B offen h</th><th class="num">Ausbezahlt h</th><th class="num">Vorhol-Saldo h</th><th class="num">Ferien Anspruch</th><th class="num">bezogen</th><th class="num">verfügbar</th><th class="num">Krank/Unfall Tg</th>'+(canA?'<th></th>':'')+'</tr></thead><tbody>';
   Object.keys(users).forEach(function(uidk){
     var x=users[uidk];
     var mi=stMitarbeiterInfo(uidk);
     var pu=stParamsFor(uidk);
+    var ub=stUebertrag(uidk,jahr);
     var j=stdJahresAuswertung(x.tage,jahr,pu,{
       auszahlungH:stAuszahlungH(uidk,jahr),
-      eintritt:mi.eintritt,austritt:mi.austritt,ferienTageJahr:mi.ferienTage
+      eintritt:mi.eintritt,austritt:mi.austritt,ferienTageJahr:mi.ferienTage,
+      uebertrag:ub
     });
     var infoZeile=[];
     if(pu.pensumFaktor!==1)infoZeile.push('Pensum '+Math.round(pu.pensumFaktor*100)+' %');
     if(mi.eintritt)infoZeile.push('Eintritt '+dfmt(mi.eintritt));
     if(mi.austritt)infoZeile.push('Austritt '+dfmt(mi.austritt));
+    // Der Übertrag wird BEZIFFERT angezeigt, nicht bloss verrechnet — sonst
+    // liesse sich der Feriensaldo nicht nachvollziehen.
+    if(ub)infoZeile.push('Übertrag per '+dfmt(ub.datum)
+      +(j.uebertragFerienH!=null?' · Ferien '+stdFmtH(j.uebertragFerienH)+' h':'')
+      +(j.uebertragUeberzeitH?' · Überzeit '+(j.uebertragUeberzeitH>0?'+':'')+stdFmtH(j.uebertragUeberzeitH)+' h':''));
+    else if(stUebertragDavor(uidk,jahr))
+      infoZeile.push('<span style="color:var(--amber)">⚠ kein Übertrag für '+jahr
+        +' — Guthaben aus dem Vorjahr nicht angeschlossen</span>');
     h+='<tr><td><b>'+esc(x.name||'')+'</b>'+(infoZeile.length?'<div style="font-size:10px;color:var(--mut)">'+infoZeile.join(' · ')+'</div>':'')+'</td>'
       +'<td class="num">'+stdFmtH(j.topfASaldo)+'</td>'
       +'<td class="num"'+(j.topfBOffen>0.004?' style="color:var(--red);font-weight:800"':'')+'>'+stdFmtH(j.topfBOffen)+'</td>'
@@ -3764,11 +3991,15 @@ function stRenderJahresSalden(alle,jahr){
           +'<td class="num" style="font-weight:800;color:'+(fd.verfuegbar>=0?'var(--grn)':'var(--red)')+'" title="− offen beantragt '+stFmtT(fd.beantragt)+' Tg · − Betriebsferien-Reserve '+stFmtT(fd.bfReserve)+' Tg">'+stFmtT(fd.verfuegbar)+'</td>';
       })()
       +'<td class="num">'+j.krankTage.toFixed(1)+'</td>'
-      +(canA?'<td>'+(j.topfBOffen>0.004?'<button class="btn sm" onclick="stAuszahlung(\''+esc(uidk)+'\',\''+esc((x.name||'').replace(/'/g,''))+'\','+jahr+')">💰 Auszahlung</button>':'')+'</td>':'')
+      +(canA?'<td style="white-space:nowrap">'
+        +(j.topfBOffen>0.004?'<button class="btn sm" onclick="stAuszahlung(\''+esc(uidk)+'\',\''+esc((x.name||'').replace(/'/g,''))+'\','+jahr+')">💰 Auszahlung</button> ':'')
+        +(stUebertrag(uidk,jahr+1)?'':'<button class="btn sm" title="Ferienrest und Überzeit auf den 01.01.'+(jahr+1)+' fortschreiben" onclick="stUebertragErfassen(\''+esc(uidk)+'\',\''+esc((x.name||'').replace(/'/g,''))+'\','+jahr+')">🧮 Übertrag '+(jahr+1)+'</button>')
+        +'</td>':'')
       +'</tr>';
   });
   h+='</tbody></table></div>'
-    +'<div class="gavnote" style="margin-top:10px">Topf A = Mehrstunden über (Soll + Vorholzeit) bis '+stdFmtH(p.topfGrenzeH)+' h/Woche bei Vollzeit — die Grenze skaliert mit dem Pensum (individueller Override in den ⚙️-Stammdaten möglich); Bezug via Absenz «Kompensation». Topf B = darüber, auszahlungspflichtig (Erinnerung an Vorgesetzte bei Überschreitung). Vorhol-Konto wird durch Absenz «Brückentag» belastet. Bei reduziertem Pensum skalieren Soll, Vorholzeit und Tageswerte automatisch; Ferientage bleiben in Tagen (Tageswert = reduziertes Tagessoll).</div>'
+    +'<div class="gavnote" style="margin-top:10px">Topf A = Mehrstunden über (Soll + Vorholzeit) bis '+stdFmtH(p.topfGrenzeH)+' h/Woche bei Vollzeit — die Grenze skaliert mit dem Pensum (individueller Override in den ⚙️-Stammdaten möglich); Bezug via Absenz «Kompensation». Topf B = darüber, auszahlungspflichtig (Erinnerung an Vorgesetzte bei Überschreitung). Vorhol-Konto wird durch Absenz «Brückentag» belastet. Bei reduziertem Pensum skalieren Soll, Vorholzeit und Tageswerte automatisch; Ferientage bleiben in Tagen (Tageswert = reduziertes Tagessoll). '
+    +'<b>Übertrag:</b> liegt für das Jahr ein Ferien-/Überzeitübertrag vor, gilt DESSEN Guthaben ab dem Stichtag — es enthält den Anspruch der Periode bereits und wird deshalb nicht zusätzlich aufgerechnet. Ohne Übertrag rechnet GEMA den Jahresanspruch pro rata; ein Restguthaben aus dem Vorjahr fliesst dann nicht ein und wird oben als Hinweis ausgewiesen.</div>'
     +'</div></div>';
   return h;
 }
@@ -3795,9 +4026,66 @@ function stAuszahlung(userId,name,jahr){
     toast('💰 Auszahlung erfasst');stRender();
   });
 }
+/* Jahresübertrag fortschreiben — das Gegenstück zur Übertragsmaske des
+   Altsystems. Es rechnet den Restbestand des laufenden Jahres und legt ihn
+   zusammen mit dem Anspruch der neuen Periode als Startguthaben auf den
+   1. Januar des Folgejahres.
+
+   Ohne diesen Schritt beginnt jedes Jahr wieder bei null: GEMA rechnet die
+   Jahresbilanz aus den Tagesrapporten, ein Rest vom 31.12. wäre am 1.1. weg. */
+function stUebertragErfassen(userId,name,jahr){
+  if(!stCanApprove())return;
+  var ziel=jahr+1;
+  if(stUebertrag(userId,ziel)){toast('Für '+ziel+' besteht bereits ein Übertrag');return;}
+  var pu=stParamsFor(userId);
+  var mi=stMitarbeiterInfo(userId);
+  var ts=pu.wochenSoll/5;
+  var fd=stFerienDetail(userId,jahr);
+  var tage=orgTage().filter(function(t){return t.userId===userId&&String(t.datum).slice(0,4)===String(jahr);});
+  var j=stdJahresAuswertung(tage,jahr,pu,{auszahlungH:stAuszahlungH(userId,jahr),
+    eintritt:mi.eintritt,austritt:mi.austritt,ferienTageJahr:mi.ferienTage,
+    uebertrag:stUebertrag(userId,jahr)});
+  // Rest in STUNDEN — so führt es der GAV und so kam es aus dem Altsystem.
+  // `verfuegbar` ist bereits um offene Anträge und Betriebsferien bereinigt;
+  // für den Übertrag zählt der reine Rest (Anspruch − bezogen).
+  var restH=(fd.anspruch-fd.bezogen)*ts;
+  var neuerAnspruchH=(mi.ferienTage!=null?mi.ferienTage:pu.ferienTage)*ts;
+  var ueberzeitH=j.saldo;
+  GemaDialog.prompt({
+    title:'Ferien-/Überzeitübertrag auf 01.01.'+ziel,
+    // html:true → der Aufrufer escapt selbst (hier: esc(name), alles andere
+    // sind gerechnete Zahlen).
+    html:true,
+    message:'<b>'+esc(name)+'</b><br><br>'
+      +'Ferienrest am 31.12.'+jahr+': <b>'+stdFmtH(restH)+' h</b> '
+      +'('+stFmtT(fd.anspruch)+' Tg Anspruch − '+stFmtT(fd.bezogen)+' Tg bezogen, Tageswert '+stdFmtH(ts)+' h)<br>'
+      +'Überzeitsaldo: <b>'+(ueberzeitH>0?'+':'')+stdFmtH(ueberzeitH)+' h</b><br><br>'
+      +'Anspruch für '+ziel+' in Stunden — er wird zum Rest addiert und ergibt das Startguthaben:',
+    placeholder:'Stunden, z.B. '+stdFmtH(neuerAnspruchH),
+    defaultValue:stdFmtH(neuerAnspruchH)
+  }).then(function(v){
+    if(v===null)return;
+    var neu=parseFloat(String(v).replace(',','.'));
+    if(!isFinite(neu)||neu<0){toast('Ungültige Stundenzahl');return;}
+    var u=stUser();
+    var rec={id:uid(),typ:'uebertrag',orgId:u.orgId,userId:userId,userName:name,
+      datum:ziel+'-01-01',
+      ferienH:Math.round((restH+neu)*100)/100,
+      ueberzeitH:Math.round(ueberzeitH*100)/100,
+      ausbezahltH:0,zuschlagH:0,
+      bemerkung:'Übertrag aus '+jahr+': Rest '+stdFmtH(restH)+' h + Anspruch '+stdFmtH(neu)+' h',
+      von:u.name,vonUserId:u.id,erstelltAm:new Date().toISOString()};
+    poolSave(rec);
+    stNotify({eventKey:'stunden_uebertrag',empfaengerUserId:userId,modul:'stundenerfassung',typ:'info',
+      titel:'Ferienübertrag auf '+ziel,
+      text:'Startguthaben '+stdFmtH(rec.ferienH)+' h Ferien, Überzeit '+(rec.ueberzeitH>0?'+':'')+stdFmtH(rec.ueberzeitH)+' h.',
+      link:'pm_stunden.html'});
+    toast('🧮 Übertrag auf '+ziel+' erfasst');stRender();
+  });
+}
 function stdJahresAuswertungOffen(userId,jahr){
   var tage=orgTage().filter(function(t){return t.userId===userId&&String(t.datum).slice(0,4)===String(jahr);});
-  var j=stdJahresAuswertung(tage,jahr,stParamsFor(userId),{auszahlungH:stAuszahlungH(userId,jahr)});
+  var j=stdJahresAuswertung(tage,jahr,stParamsFor(userId),{auszahlungH:stAuszahlungH(userId,jahr),uebertrag:stUebertrag(userId,jahr)});
   return j.topfBOffen;
 }
 function stCsv(){
@@ -3814,7 +4102,7 @@ function stCsv(){
     var a=stdMonatsAuswertung(x.tage,jahr,monat,pu);
     var mi=stMitarbeiterInfo(uidk);
     var jt=alle.filter(function(t){return t.userId===uidk&&String(t.datum).slice(0,4)===String(jahr);});
-    var j=stdJahresAuswertung(jt,jahr,pu,{auszahlungH:stAuszahlungH(uidk,jahr),eintritt:mi.eintritt,austritt:mi.austritt,ferienTageJahr:mi.ferienTage});
+    var j=stdJahresAuswertung(jt,jahr,pu,{auszahlungH:stAuszahlungH(uidk,jahr),eintritt:mi.eintritt,austritt:mi.austritt,ferienTageJahr:mi.ferienTage,uebertrag:stUebertrag(uidk,jahr)});
     var fd=stFerienDetail(uidk,jahr);
     rows.push([x.name,Math.round(pu.pensumFaktor*100),_monat,stdFmtH(a.ist),stdFmtH(a.soll),stdFmtH(a.saldo),stdFmtH(a.ueberstunden),stdFmtH(a.topfA),stdFmtH(a.topfB),stdFmtH(a.samstag),stdFmtH(a.sonntag),stdFmtH(a.nacht),stdFmtH(a.zuschlagZeit),a.mittage,a.chfMittag.toFixed(2),Math.round(a.km*10)/10,a.chfKm.toFixed(2),stdFmtH(j.topfASaldo),stdFmtH(j.topfBOffen),stdFmtH(j.vorholSaldo),fd.anspruch.toFixed(1),fd.bezogen.toFixed(1),fd.verfuegbar.toFixed(1)].join(';'));
   });
@@ -3841,7 +4129,7 @@ function stPdf(userId){
   var a=stdMonatsAuswertung(tage,jahr,monat,pu);
   var mi=stMitarbeiterInfo(userId);
   var jTage=alle.filter(function(t){return t.userId===userId&&String(t.datum).slice(0,4)===String(jahr);});
-  var j=stdJahresAuswertung(jTage,jahr,pu,{auszahlungH:stAuszahlungH(userId,jahr),eintritt:mi.eintritt,austritt:mi.austritt,ferienTageJahr:mi.ferienTage});
+  var j=stdJahresAuswertung(jTage,jahr,pu,{auszahlungH:stAuszahlungH(userId,jahr),eintritt:mi.eintritt,austritt:mi.austritt,ferienTageJahr:mi.ferienTage,uebertrag:stUebertrag(userId,jahr)});
   var org=null;try{org=GemaAuth.getCurrentOrg();}catch(e){}
   var orgName=(org&&org.name)||'GEMA';
   var MON=['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
@@ -4226,6 +4514,11 @@ function stSetSave(){
   try{
     var org=GemaAuth.getCurrentOrg();
     var settings=(org&&org.settings)||{};
+    // Stand VOR dem Speichern festhalten: die Mitarbeiter-Einträge tragen
+    // Vermerke, die dieser Editor nicht anzeigt (Wochensoll, Ansatz und
+    // Kürzel aus der ERP-Migration). Ohne diese Kopie gingen sie beim
+    // ersten Speichern still verloren.
+    var _mitAlt=((settings.stunden||{}).mitarbeiter)||{};
     settings.stunden={
       wochenSoll:parseFloat(document.getElementById('s_wochenSoll').value)||40,
       zuschlagUeberstunden:parseFloat(document.getElementById('s_zUeber').value)||0,
@@ -4311,15 +4604,22 @@ function stSetSave(){
           if(!(pen>0&&pen<=200))pen=NaN;
           if(pen===100)pen=NaN; // 100 % = Default, nicht speichern
           if(!(topf>=0))topf=NaN;
-          if(!ein&&!aus&&isNaN(fer)&&isNaN(pen)&&isNaN(topf)&&erf)return;
-          var o={};
+          var uid=row.getAttribute('data-uid');
+          // Über den bestehenden Eintrag MERGEN, nicht neu bauen: sonst
+          // verschwinden beim ersten Speichern die Vermerke, die dieser
+          // Editor gar nicht anzeigt (Wochensoll, Stundenansatz und Kürzel
+          // aus der ERP-Migration) — ein stiller Verlust.
+          var o=Object.assign({},_mitAlt[uid]||{});
+          delete o.eintritt;delete o.austritt;delete o.ferienTage;
+          delete o.pensum;delete o.topfGrenzeH;delete o.ohneErfassung;
           if(ein)o.eintritt=ein;
           if(aus)o.austritt=aus;
           if(!isNaN(fer))o.ferienTage=fer;
           if(!isNaN(pen))o.pensum=pen;
           if(!isNaN(topf))o.topfGrenzeH=topf;
           if(!erf)o.ohneErfassung=true;
-          m[row.getAttribute('data-uid')]=o;
+          if(!Object.keys(o).length)return;
+          m[uid]=o;
         });
         return m;
       })()
@@ -4350,6 +4650,14 @@ function stFeiertageEinfuegen(){
 // ═══════════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════════
+// Sync-Deckel erreicht → der Stunden-Pool ist unvollständig. Das darf nie
+// still bleiben: Salden und Freigaben wären sonst falsch, ohne dass es
+// jemand merkt (No-silent-caps).
+window.addEventListener('gema-sync-capped',function(ev){
+  var d=(ev&&ev.detail)||{};
+  if(d.moduleKey!=='stundenerfassung')return;
+  try{toast('⚠ Nur die ersten '+(d.rows||0).toLocaleString('de-CH')+' Tagesrapporte geladen — der Bestand ist grösser als der Lade-Deckel. Salden sind unvollständig.');}catch(e){}
+});
 document.addEventListener('DOMContentLoaded',function(){
   var m=location.search.match(/[?&]d=(\d{4}-\d{2}-\d{2})/);
   if(m)_wkStart=stdWochenStart(m[1]);
@@ -4684,7 +4992,7 @@ document.addEventListener('DOMContentLoaded',function(){
           if(einId) stEinEdit(datum,einId); else stEinNeu(datum);
           var set=function(id,v){ var el=document.getElementById(id); if(el) el.value=v; };
           set('ein_von',g('von')); set('ein_bis',g('bis')); set('ein_pause',g('pause'));
-          set('ein_taetigkeit',g('taetigkeit')); set('ein_objekt',g('objekt'));
+          set('ein_taetigkeit',g('taetigkeit')); stEinObjektSetzen(g('objekt'));
           var ew=document.getElementById('ein_einsatzWrap');
           if(ew&&ew.style.display!=='none'){ set('ein_einsatz',g('einsatz')||''); }
           stEinSave();

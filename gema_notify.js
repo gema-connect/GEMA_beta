@@ -315,6 +315,11 @@
       modul:'stundenerfassung',
       defaultOn:true
     },
+    stunden_uebertrag: {
+      label:'Ferien-/Überzeitübertrag ins neue Jahr erfasst',
+      modul:'stundenerfassung',
+      defaultOn:true
+    },
     ferien_antrag: {
       label:'Ferienantrag eingereicht (Freigabe)',
       modul:'stundenerfassung',
