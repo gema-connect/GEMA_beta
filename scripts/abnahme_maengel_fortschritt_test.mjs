@@ -571,6 +571,31 @@ async function pdfTexte(page) {
   await page.waitForFunction(() => window.__pdfSaved === true, null, { timeout: 30000 }).catch(() => {});
   return page.evaluate(() => ({ roh: window.__pdfRoh, tab: window.__pdfTab, saved: window.__pdfSaved }));
 }
+
+// Das zuletzt erzeugte PDF mit pdf.js wieder aufmachen: Text + Bildzahl je
+// Seite. Gemessen statt aus dem Rohstrom geraten.
+async function pdfSeiten(ctx, page) {
+  const bytes = await page.evaluate(() => { const b = []; const r = window.__pdfRohBytes || []; for (let i = 0; i < r.length; i++) b.push(r[i]); return b; });
+  const v = await ctx.newPage();
+  await v.setContent('<body><script src="https://vendor/pdf.min.js"></script></body>');
+  await v.waitForFunction(() => typeof window.pdfjsLib !== 'undefined', null, { timeout: 20000 }).catch(() => {});
+  const out = await v.evaluate(async (roh) => {
+    if (typeof window.pdfjsLib === 'undefined') return null;
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://vendor/pdf.worker.min.js';
+    const pdf = await pdfjsLib.getDocument({ data: Uint8Array.from(roh) }).promise;
+    const res = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const pg = await pdf.getPage(i);
+      const tc = await pg.getTextContent();
+      const ops = await pg.getOperatorList();
+      res.push({ text: tc.items.map(x => x.str).join(' ').replace(/\s+/g, ' '),
+                 bilder: ops.fnArray.filter(f => f === pdfjsLib.OPS.paintImageXObject || f === pdfjsLib.OPS.paintJpegXObject).length });
+    }
+    return res;
+  }, bytes);
+  await v.close();
+  return out;
+}
 const pdfFertig = await pdfTexte(E);
 ok(pdfFertig.saved, 'das PDF wurde erzeugt', pdfFertig.saved);
 ok(/FERTIG - alle 3 M.ngel und Pendenzen erledigt/.test(pdfFertig.roh),
@@ -896,6 +921,192 @@ ok(g5.proto, 'alle Punkte stehen im Protokoll');
 ok(!g5.komm, 'die erledigte Rückmeldung wird beim Bestätigen aufgeräumt', g5.komm);
 ok(!!g5.freigegebenVon, 'die freigebende Person ist festgehalten', g5.freigegebenVon);
 }
+
+// ══════════════════════════════════════════════════════════════════
+// H) Ein unbrauchbares Beweisfoto (verwackelt) einzeln entfernen
+// ══════════════════════════════════════════════════════════════════
+console.log('— H) Beweisfoto löschen —');
+CLOUD.clear();
+const cH = await ctxFor('u_plan');
+const H = await open(cH, 'planer-fotodel');
+const JPG = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AVN//2Q==';
+const hAufbau = await H.evaluate(async (jpg) => {
+  const st = _abState();
+  st.abnahme = st.abnahme || {}; st.abnahme.bauobjekt = 'MFH Musterweg 3';
+  st.maengelFertigAm = ''; st.items.length = 0;
+  const it = _abCreateItem({ ort: 'Bad EG', mangel: 'Fuge' });
+  it.photos = [{ name: 'mangel.jpg', dataUrl: jpg }];   // Aufnahme des Planers
+  st.items.push(it);
+  const ml = { id: 'ml_fd', orgId: 'org_p', objektId: 'obj1', objektName: 'MFH Musterweg 3', protoId: _abActiveProtoId(),
+    monteurUserId: 'u_mont', monteurName: 'Max Monteur', monteurFirma: 'Montage GmbH', extern: true, monteurEmail: 'mont@m.ch',
+    verantwortlich: { userId: 'u_plan', name: 'Peter Planer' }, status: 'offen', erstelltAm: new Date().toISOString(),
+    items: [{ id: 'f1', itemId: it.id, ort: it.ort, mangel: it.mangel, status: 'erledigt',
+      erledigtAm: '2026-09-09T10:00:00Z', kommentar: 'behoben',
+      fotos: [{ name: 'mangel.jpg', dataUrl: jpg }],
+      fixFotos: [{ name: 'scharf.jpg', dataUrl: jpg + '#a' }, { name: 'verwackelt.jpg', dataUrl: jpg + '#b' }] }] };
+  _abPoolSave('gema_abnahme_ml_pool_v1', 'abml:', ml);
+  _abRender();
+  await new Promise(r => setTimeout(r, 300));
+  return { fix: ml.items[0].fixFotos.length };
+}, JPG);
+ok(hAufbau.fix === 2, 'ein erledigter Punkt mit zwei Beweisfotos', hAufbau.fix);
+
+console.log('  H0) Statik: kein nativer Dialog beim Foto-Löschen, Protokoll schlägt die Liste');
+const src = AB;   // Quelle wurde oben schon gelesen
+const delFn = src.slice(src.indexOf('window.deletePhoto'), src.indexOf('window.deletePhoto') + 900);
+ok(!/[^.\w]confirm\(/.test(delFn), 'das Foto-Löschen im Protokoll fragt nicht mehr nativ nach');
+ok(/GemaDialog\.confirm\(\{title:'Foto löschen'/.test(delFn), 'sondern über GemaDialog mit eigenem Titel');
+ok(/danger:true/.test(delFn), 'Löschen ist als solches gekennzeichnet');
+
+// Ohne die Bedienung sind H1-H5 gegenstandslos: die Gegenprobe soll sie sauber
+// als rot melden statt an einem 'is not a function' abzustuerzen.
+const hFehlt = await H.evaluate(() => typeof window.abMlFotoLoeschen !== 'function');
+ok(!hFehlt, 'ein Beweisfoto lässt sich überhaupt einzeln entfernen');
+if (hFehlt) { ok(false, 'H1-H5 übersprungen — ohne Löschweg nicht prüfbar'); }
+else {
+
+console.log('  H1) der Abarbeiter verwirft sein unscharfes Bild');
+const cHM = await ctxFor('u_mont');
+const HM = await open(cHM, 'monteur-fotodel');
+const h1 = await HM.evaluate(async () => {
+  window.GemaDialog.confirm = () => Promise.resolve(true);
+  const host = document.getElementById('abTasks');
+  // Zählt NUR die Löschknöpfe an den Beweisfotos — die Mangel-Aufnahme
+  // des Planers darf hier keinen bekommen.
+  const knoepfe = host.querySelectorAll('.ml-foto-del').length;
+  const bilder = host.querySelectorAll('.ml-fotos img').length;
+  window.abMlFotoLoeschen('ml_fd', 'f1', 1);          // das verwackelte
+  await new Promise(r => setTimeout(r, 400));
+  const ml = _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_fd');
+  return { knoepfe, bilder, namen: ml.items[0].fixFotos.map(f => f.name),
+           danach: document.getElementById('abTasks').querySelectorAll('.ml-foto-del').length };
+});
+ok(h1.knoepfe === 2, 'genau die zwei eigenen Beweisfotos tragen ein ✕', h1.knoepfe);
+ok(h1.bilder === 3, 'die Mangel-Aufnahme des Planers steht daneben — ohne ✕', h1.bilder);
+ok(h1.namen.join(',') === 'scharf.jpg', 'nur das gewählte Bild ist weg', h1.namen);
+ok(h1.danach === 1, 'die Ansicht zeigt danach noch ein löschbares Bild', h1.danach);
+
+console.log('  H2) nach der Gegenbestätigung ist das Bild für ihn gesperrt');
+// Frische Seite: sie zieht den Stand des Monteurs (ein Bild weniger) aus der
+// gemockten Cloud, bevor der Planer gegenbestätigt.
+await HM.waitForTimeout(1200);
+const H2 = await open(cH, 'planer-fotodel-2');
+const h2 = await H2.evaluate(async () => {
+  window.GemaDialog.confirm = () => Promise.resolve(true);
+  const vorher = (_abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_fd').items[0].fixFotos || []).length;
+  window.abMlAkzeptieren('ml_fd', 'f1');
+  await new Promise(r => setTimeout(r, 600));
+  const st = _abState();
+  return { vorher, proto: (st.items[0].photos || []).filter(p => p.beweis).length,
+           gesamt: (st.items[0].photos || []).length };
+});
+ok(h2.vorher === 1, 'der Planer sieht den bereinigten Nachweis', h2.vorher);
+ok(h2.proto === 1, 'das verbliebene Beweisfoto steht im Protokoll', h2.proto);
+ok(h2.gesamt === 2, 'die Mangel-Aufnahme bleibt daneben bestehen', h2.gesamt);
+
+await H2.waitForTimeout(1200);
+const HM2 = await open(cHM, 'monteur-fotodel-2');
+const h2b = await HM2.evaluate(async () => {
+  window.GemaDialog.confirm = () => Promise.resolve(true);
+  const knoepfe = document.getElementById('abTasks').querySelectorAll('.ml-foto-del').length;
+  window.abMlFotoLoeschen('ml_fd', 'f1', 0);          // Versuch trotz Sperre
+  await new Promise(r => setTimeout(r, 500));
+  const ml = _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_fd');
+  return { knoepfe, fix: (ml.items[0].fixFotos || []).length };
+});
+ok(h2b.knoepfe === 0, 'am bestätigten Punkt bietet der Abarbeiter kein ✕ mehr an', h2b.knoepfe);
+ok(h2b.fix === 1, 'und ein direkter Aufruf ändert nichts', h2b.fix);
+
+console.log('  H3) die verantwortliche Seite räumt auch die Protokoll-Kopie mit weg');
+const h3 = await H2.evaluate(async () => {
+  window.GemaDialog.confirm = () => Promise.resolve(true);
+  window.abMlFotoLoeschen('ml_fd', 'f1', 0);
+  await new Promise(r => setTimeout(r, 700));
+  const ml = _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_fd');
+  const st = _abState();
+  return { fix: (ml.items[0].fixFotos || []).length,
+           beweis: (st.items[0].photos || []).filter(p => p.beweis).length,
+           mangel: (st.items[0].photos || []).filter(p => !p.beweis).length,
+           visum: !!(st.items[0].erledigt || '').trim() };
+});
+ok(h3.fix === 0, 'der Nachweis ist leer', h3.fix);
+ok(h3.beweis === 0, 'die Kopie im Protokoll ist mitgegangen — nicht im PDF stehengeblieben', h3.beweis);
+ok(h3.mangel === 1, 'die Mangel-Aufnahme des Planers ist unangetastet', h3.mangel);
+ok(h3.visum, 'das Visum der Gegenbestätigung bleibt bestehen', h3.visum);
+
+console.log('  H4) Statik: kein nativer Dialog, ✕ nicht auf dem Papier');
+// Sichtbarkeit MESSEN statt am Markup ablesen — auch fürs Papier.
+const hDruck = await H2.evaluate(async () => {
+  const w = document.createElement('span'); w.className = 'ml-foto';
+  const b = document.createElement('button'); b.className = 'ml-foto-del';
+  w.appendChild(b); document.body.appendChild(w);
+  return getComputedStyle(b).display;
+});
+ok(hDruck !== 'none', 'auf dem Bildschirm ist das ✕ da', hDruck);
+await H2.emulateMedia({ media: 'print' });
+const hDruck2 = await H2.evaluate(() => getComputedStyle(document.querySelector('.ml-foto .ml-foto-del')).display);
+await H2.emulateMedia({ media: 'screen' });
+ok(hDruck2 === 'none', 'im Ausdruck fällt es gemessen weg', hDruck2);
+
+}
+
+console.log('  H5) der Weg des Planers: Protokoll-Foto weg = auch im PDF weg');
+CLOUD.clear();
+const cH5 = await ctxFor('u_plan');
+const H5 = await open(cH5, 'planer-pdfdel');
+// Ein echtes, dekodierbares JPEG — ein Platzhalter kommt im PDF gar nicht an,
+// dann waere die Messung gegenstandslos (Muster wie in Abschnitt F).
+const h5Bild = await H5.evaluate(async (svg) => await new Promise(res => {
+  const i2 = new Image();
+  i2.onload = () => { const c = document.createElement('canvas'); c.width = i2.width; c.height = i2.height;
+    c.getContext('2d').drawImage(i2, 0, 0); res(c.toDataURL('image/jpeg', 0.8)); };
+  i2.onerror = () => res('');
+  i2.src = svg;
+}), 'data:image/svg+xml;base64,' + Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600"><rect width="100%" height="100%" fill="#15803d"/></svg>').toString('base64'));
+ok(!!h5Bild, 'Testbild für den PDF-Vergleich erzeugt');
+const h5auf = await H5.evaluate(async (jpg) => {
+  window.GemaDialog.confirm = () => Promise.resolve(true);
+  const st = _abState();
+  st.abnahme = st.abnahme || {}; st.abnahme.bauobjekt = 'MFH Musterweg 3';
+  st.maengelFertigAm = ''; st.items.length = 0;
+  ['Bad EG|Fuge', 'Küche|Ventil'].forEach(x => { const [o, m] = x.split('|'); st.items.push(_abCreateItem({ ort: o, mangel: m })); });
+  const ml = { id: 'ml_pd', orgId: 'org_p', objektId: 'obj1', objektName: 'MFH Musterweg 3', protoId: _abActiveProtoId(),
+    monteurUserId: 'u_mont', monteurName: 'Max Monteur', monteurFirma: 'Montage GmbH', extern: true,
+    verantwortlich: { userId: 'u_plan', name: 'Peter Planer' }, status: 'offen', erstelltAm: new Date().toISOString(),
+    items: st.items.map((it, i) => ({ id: 'p' + i, itemId: it.id, ort: it.ort, mangel: it.mangel, status: 'erledigt',
+      erledigtAm: '2026-09-09T10:0' + i + ':00Z', kommentar: 'behoben ' + i,
+      fixFotos: [{ name: 'b' + i + '.jpg', dataUrl: jpg }] })) };
+  _abPoolSave('gema_abnahme_ml_pool_v1', 'abml:', ml);
+  // Nur den ERSTEN Punkt gegenbestätigen: die Liste bleibt offen, damit die
+  // laufende Liste und das Protokoll gleichzeitig Quellen wären.
+  window.abMlAkzeptieren('ml_pd', 'p0');
+  await new Promise(r => setTimeout(r, 600));
+  return { beweis: (_abState().items[0].photos || []).filter(p => p.beweis).length,
+           offenNoch: _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_pd').status };
+}, h5Bild);
+ok(h5auf.beweis === 1, 'der bestätigte Punkt trägt sein Beweisfoto im Protokoll', h5auf.beweis);
+ok(h5auf.offenNoch === 'offen', 'die Liste ist noch offen — beide Quellen wären aktiv', h5auf.offenNoch);
+
+await pdfTexte(H5);
+const h5a = await pdfSeiten(cH5, H5);
+ok(!!h5a, 'das PDF mit dem bestätigten Beweisfoto liess sich lesen');
+const bwA = (h5a || []).reduce((n, s2) => n + s2.bilder, 0);
+const h5del = await H5.evaluate(async () => {
+  window.GemaDialog.confirm = () => Promise.resolve(true);
+  const st = _abState();
+  const pi = (st.items[0].photos || []).findIndex(p => p && p.beweis);
+  window.deletePhoto(st.items[0].id, pi);
+  await new Promise(r => setTimeout(r, 400));
+  return { rest: (_abState().items[0].photos || []).filter(p => p.beweis).length };
+});
+ok(h5del.rest === 0, 'der Planer entfernt das Bild im Protokoll', h5del.rest);
+await pdfTexte(H5);
+const h5s = await pdfSeiten(cH5, H5);
+const bwB = (h5s || []).reduce((n, s2) => n + s2.bilder, 0);
+ok(bwB < bwA, 'im PDF ist es danach wirklich weg — die laufende Liste holt es nicht zurück',
+   { vorher: bwA, nachher: bwB });
+ok((h5s || []).some(s2 => /Beweisfotos zur M.ngelbehebung|Nachher - Behebung/.test(s2.text)),
+   'der Nachweis-Abschnitt bleibt für den zweiten Punkt bestehen');
 
 ok(errs.length === 0, 'keine JS-Fehler in beiden Kontexten', errs.slice(0, 3));
 

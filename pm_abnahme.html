@@ -315,6 +315,12 @@ body.ab-nur-maengel #view_maengel button{pointer-events:none !important}
 .ml-rueck b{color:#b91c1c}
 .ml-actcol{display:flex;flex-direction:column;gap:7px;align-items:flex-end;flex:0 1 auto;min-width:0}
 .ml-actcol .ml-fotos{display:flex;gap:5px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+/* Beweisfoto einzeln verwerfen (verwackelt, falscher Ausschnitt): das ✕ liegt
+   auf dem Daumennagel, im Ausdruck ist es weg. */
+.ml-foto{position:relative;display:inline-block;flex-shrink:0;line-height:0}
+.ml-foto-del{position:absolute;top:-5px;right:-5px;width:19px;height:19px;padding:0;border-radius:50%;border:1.5px solid #fff;background:rgba(15,23,42,.78);color:#fff;font-size:10px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.ml-foto-del:hover{background:#dc2626}
+@media print{ .ml-foto-del{display:none!important} }
 @media(max-width:640px){
   /* Auf dem Phone volle Breite — drei Daumenflächen nebeneinander. */
   .ml-actcol{flex:1 1 100%;align-items:stretch}
@@ -1593,9 +1599,17 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
 
   // ── DELETE PHOTO ──
   window.deletePhoto = (itemId, pi) => {
-    if(!confirm('Foto löschen?'))return;
-    const it=state.items.find(x=>x.id===itemId);
-    if(it){ it.photos.splice(pi,1); render(); }
+    const it0=state.items.find(x=>x.id===itemId);
+    const ph=it0&&(it0.photos||[])[pi];
+    if(!ph){ toast('⚠ Foto nicht gefunden — Ansicht ist veraltet'); render(); return; }
+    GemaDialog.confirm({title:'Foto löschen',
+      message:ph.beweis?'Das Beweisfoto wird aus dem Protokoll entfernt. Beim Abarbeiter bleibt es als Nachweis bestehen.':'Foto wirklich entfernen?',
+      confirmLabel:'Löschen',danger:true}).then(function(ok){
+      if(!ok)return;
+      const it=state.items.find(x=>x.id===itemId);
+      if(!it||!(it.photos||[])[pi])return;
+      it.photos.splice(pi,1); render(); persistAll();
+    });
   };
 
   // ── LIGHTBOX ──
@@ -3973,7 +3987,12 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
           const it=state.items[i];
           const live=idx[it.id];
           const uebernommen=(it.photos||[]).filter(p=>p&&p.beweis);
-          const roh=[].concat((live&&Array.isArray(live.fixFotos))?live.fixFotos:[], uebernommen);
+          /* Ist der Punkt schon ins Protokoll übernommen, ist das Protokoll die
+             Wahrheit: die laufende Liste würde dieselben Bilder ein zweites Mal
+             liefern — und ein hier gelöschtes Bild über die Liste wieder
+             auferstehen lassen. Die Liste füllt nur, was noch nicht drin ist. */
+          const roh=uebernommen.length?uebernommen
+            :((live&&Array.isArray(live.fixFotos))?live.fixFotos:[]);
           if(!roh.length) continue;
           // Kopfangaben — laufende Liste zuerst, sonst aus dem übernommenen Foto
           const q=uebernommen[0]||{};
@@ -4922,12 +4941,71 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       abRenderTasks();toast('📋 Erneute Abnahme vormerkt');
     });
   };
-  function abMlFotoThumbs(fotos,klein){
-    return (fotos||[]).map(function(f){
+  /* `del` = {mlId,itemId} blendet je Bild ein ✕ ein. Ohne die Marke bleibt
+     das Markup exakt wie bisher (Mangel-Aufnahmen des Planers sind hier
+     nicht löschbar — die gehören dem Protokoll und werden dort gepflegt). */
+  function abMlFotoThumbs(fotos,klein,del){
+    var kant=klein?34:46;
+    return (fotos||[]).map(function(f,i){
       var src=_abFotoSrc(f);if(!src)return '';
-      return '<img src="'+esc(src)+'" style="width:'+(klein?34:46)+'px;height:'+(klein?34:46)+'px;object-fit:cover;border-radius:7px;border:1px solid var(--brd2);cursor:zoom-in" onclick="openLightbox(this.src)"/>';
+      var img='<img src="'+esc(src)+'" style="width:'+kant+'px;height:'+kant+'px;object-fit:cover;border-radius:7px;border:1px solid var(--brd2);cursor:zoom-in" onclick="openLightbox(this.src)"/>';
+      if(!del) return img;
+      return '<span class="ml-foto">'+img
+        +'<button class="ml-foto-del" title="Beweisfoto löschen" aria-label="Beweisfoto löschen" onclick="event.stopPropagation();abMlFotoLoeschen(\''+del.mlId+'\',\''+del.itemId+'\','+i+')">✕</button></span>';
     }).join('');
   }
+
+  /* Ein unbrauchbares Beweisfoto (verwackelt, falscher Ausschnitt) muss
+     einzeln weg können. Wer den Punkt bearbeiten darf, darf auch dessen
+     Nachweisbilder aufräumen: die verantwortliche Seite immer, der
+     Abarbeiter solange sein Punkt nicht gegenbestätigt ist. */
+  function _abMlFotoDarf(ml,it){
+    if(!ml||!it) return false;
+    if(abMlDarfKontrollieren(ml)) return true;
+    return abIstMeineMl(ml) && it.status!=='akzeptiert';
+  }
+  function _abMlFotoDel(ml,it){ return _abMlFotoDarf(ml,it)?{mlId:ml.id,itemId:it.id}:null; }
+  /* War das Bild schon ins Protokoll übernommen, verschwindet dort GENAU
+     diese Kopie mit — sonst stünde das verworfene Bild weiter im PDF.
+     Erkannt an der Herkunftsmarke UND der Quelle; fremde Aufnahmen und
+     von Hand eingefügte Bilder bleiben unangetastet. */
+  function _abBeweisKopieWeg(ml,mi,ff,target){
+    var it=target&&(target.items||[]).find(function(x){return x.id===mi.itemId;});
+    if(!it||!Array.isArray(it.photos)) return;
+    var marke=ml.id+'|'+mi.id, weg=false;
+    it.photos=it.photos.filter(function(p){
+      if(weg||!p||p.beweisMlItem!==marke) return true;
+      var gleich=(ff.url&&p.url===ff.url)||(ff.dataUrl&&p.dataUrl===ff.dataUrl)||(ff.pendingId&&p.pendingId===ff.pendingId);
+      if(!gleich) return true;
+      weg=true;return false;
+    });
+  }
+  window.abMlFotoLoeschen=function(mlId,itemId,idx){
+    var ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});
+    var it=ml&&(ml.items||[]).find(function(x){return x.id===itemId;});
+    if(!_abMlFotoDarf(ml,it)){ toast('⚠ Dieses Beweisfoto lässt sich hier nicht entfernen'); return; }
+    if(!((it.fixFotos||[])[idx])){ toast('⚠ Foto nicht gefunden — Ansicht ist veraltet'); abRenderTasks(); return; }
+    GemaDialog.confirm({title:'Beweisfoto löschen',
+      message:'Das Bild wird aus dem Nachweis entfernt'+(it.status==='akzeptiert'?' — auch aus dem Protokoll.':'.'),
+      confirmLabel:'Löschen',danger:true}).then(function(ok){
+      if(!ok)return;
+      // Frisch lesen: zwischen Dialog-Öffnen und Bestätigen kann die Cloud
+      // einen neueren Stand geliefert haben.
+      var m=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});if(!m)return;
+      var mi=(m.items||[]).find(function(x){return x.id===itemId;});if(!mi)return;
+      // Erneut prüfen: hat die verantwortliche Seite den Punkt inzwischen
+      // gegenbestätigt, ist der Nachweis für den Abarbeiter geschlossen.
+      if(!_abMlFotoDarf(m,mi)){ toast('⚠ Der Punkt wurde inzwischen bestätigt — der Nachweis ist geschlossen'); abRenderTasks(); return; }
+      var ff=(mi.fixFotos||[])[idx];
+      if(!ff){ toast('⚠ Foto war bereits entfernt'); abRenderTasks(); return; }
+      var target=_abMlZielState(m);
+      if(target) _abBeweisKopieWeg(m,mi,ff,target);
+      mi.fixFotos.splice(idx,1);
+      abPoolSave(ML_POOL,ML_PREFIX,m);
+      if(target){ if(m.protoId===activeProtocolId) render(); persistAll(); }
+      abRenderTasks();toast('✓ Beweisfoto entfernt');
+    });
+  };
   // ══ Nur-Mängel-Sicht (Feedback 22.08.2026, Baran Koc) ══════════════════
   // «wenn ich der bin, der die mängel beheben soll, kann ich dennoch angaben
   //  vom projekt und auch die unterschriften ändern, das darf nicht sein»
@@ -5040,7 +5118,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
             +'</div>'
             +'<div class="ml-actcol">'
             +  abMlSegHtml(ml.id,it.id,it.status)
-            +  '<span class="ml-fotos">'+abMlFotoThumbs(it.fotos,true)+abMlFotoThumbs(it.fixFotos)+'<button class="act-btn" style="min-height:34px" onclick="abMlItemFoto(\''+ml.id+'\',\''+it.id+'\')">📷 Beweis</button></span>'
+            +  '<span class="ml-fotos">'+abMlFotoThumbs(it.fotos,true)+abMlFotoThumbs(it.fixFotos,false,_abMlFotoDel(ml,it))+'<button class="act-btn" style="min-height:34px" onclick="abMlItemFoto(\''+ml.id+'\',\''+it.id+'\')">📷 Beweis</button></span>'
             +'</div>'
             +'</div>'
             /* Rückmeldung des Planers: die auffälligste Zeile des Punktes —
@@ -5112,7 +5190,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
             +(it.status==='akzeptiert'?'<br><span style="font-size:12px;color:#15803d;font-weight:700">✓ Bestätigt'+(it.akzeptiertVon?' von '+esc(it.akzeptiertVon):'')+(it.akzeptiertAm?' am '+_abDatKurz(it.akzeptiertAm):'')+' — im Protokoll eingetragen</span>':'')
             +(it.status!=='akzeptiert'&&it.kommentarVerantwortlicher?'<br><span style="font-size:12px;color:#b91c1c;font-weight:700">↩ Ihre Rückmeldung: «'+esc(it.kommentarVerantwortlicher)+'»</span>':'')
             +'</div>'
-            +'<span style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">'+abMlFotoThumbs(it.fixFotos)
+            +'<span style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">'+abMlFotoThumbs(it.fixFotos,false,_abMlFotoDel(ml,it))
             +(wartet?'<button class="act-btn ok" style="min-height:34px" onclick="abMlAkzeptieren(\''+ml.id+'\',\''+it.id+'\')">✓ Akzeptieren</button>':'')
             +((wartet||it.status==='akzeptiert')?'<button class="act-btn" style="min-height:34px" onclick="abMlRueckmeldung(\''+ml.id+'\',\''+it.id+'\')">↩ Rückmeldung</button>':'')
             +'</span></div></div>';
@@ -5134,7 +5212,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
             +'<div style="flex:1;min-width:180px"><b style="font-size:13.5px">'+esc(it.ort||'—')+'</b> <span style="font-size:13px">'+esc(it.mangel||'')+'</span>'
             +(it.kommentar?'<br><span style="font-size:12px;color:var(--txt2)">💬 '+esc(it.kommentar)+'</span>':'')
             +'</div>'
-            +'<span style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">'+abMlFotoThumbs(it.fixFotos)
+            +'<span style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">'+abMlFotoThumbs(it.fixFotos,false,_abMlFotoDel(ml,it))
             +'<button class="act-btn" style="min-height:34px" onclick="abMlZurueckweisen(\''+ml.id+'\',\''+it.id+'\')">↩ Zurückweisen</button></span>'
             +'</div>';
         }).join('')
