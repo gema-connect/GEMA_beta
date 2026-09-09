@@ -66,8 +66,16 @@ ok(/function abPoolSave[\s\S]{0,900}GemaSync\.setCached\(key,pool\)/.test(AB),
   'Pool-Write läuft über GemaSync.setCached (localStorage + Spiegel + IndexedDB)');
 ok(/NUR LESEND: `it\.erledigt` im Protokoll wird hier NIE gesetzt/.test(AB),
   'die Absicht «kein stiller Rückschrieb» ist am Code dokumentiert');
-ok(/if\(mi\.status!=='erledigt'\) return;\s*\/\/ offen\/zurückgewiesen bleibt offen/.test(AB),
-  'Freigabe übernimmt NUR abgehakte Punkte');
+ok(/function _abMlAkzeptieren[\s\S]{0,900}if\(x\.status!=='erledigt'\) return false;/.test(AB),
+  'gegenbestätigt werden NUR Punkte, die der Abarbeiter als erledigt gemeldet hat');
+ok(/function _abMlPunktAusProtokoll[\s\S]{0,600}p\.beweisMlItem===marke/.test(AB),
+  'eine Rückmeldung nimmt Visum UND die kopierten Beweisfotos exakt wieder zurück');
+ok(/window\.abMlRueckmeldung[\s\S]{0,1400}it\.status='in_arbeit';\s*\/\/ ausdrücklich: wieder in Arbeit/.test(AB),
+  'eine Rückmeldung setzt den Punkt automatisch zurück auf «in Arbeit»');
+ok(/window\.abMlAkzeptierenAuswahl/.test(AB) && /window\.abMlAkzeptierenAlle/.test(AB) && /window\.abMlAkzeptieren=/.test(AB),
+  'einzeln, ausgewählte und alle bestätigen sind je ein eigener Weg');
+ok(/if\(it\.status==='akzeptiert'\)\{ toast\('✓ Bereits vom Planer akzeptiert'\); return; \}/.test(AB),
+  'der Abarbeiter kann einen bestätigten Punkt nicht mehr umstellen');
 ok(/_abAdopting=true;\s*\n\s*try\{ render\(\); \} finally \{ _abAdopting=false; \}/.test(AB),
   'der Render nach dem Cloud-Pull löst keinen Protokoll-Save aus');
 ok(/function scheduleSave[\s\S]{0,400}ab-nur-maengel'\)\) return;/.test(AB),
@@ -97,8 +105,8 @@ ok(/@media print\{[\s\S]{0,200}\.stand-box\{/.test(AB),
   'der Stand-Block hat eigene Druckregeln');
 ok(/const _mangelFotos = it => \(it\.photos\|\|\[\]\)\.filter\(p=>p && !p\.beweis\)/.test(AB),
   'der Foto-Anhang zeigt nur Mangel-Aufnahmen — Beweisfotos haben ihren eigenen Nachweis');
-ok(/beweis:true, beweisVon:\(ml\.monteurName\|\|''\)/.test(AB),
-  'bei der Freigabe übernommene Beweisfotos behalten Herkunft, Datum und Kommentar');
+ok(/beweis:true, beweisMlItem:ml\.id\+'\|'\+mi\.id,[\s\S]{0,200}beweisVon:\(ml\.monteurName\|\|''\)/.test(AB),
+  'übernommene Beweisfotos behalten Herkunft, Datum und Kommentar');
 ok(/_abBand\(doc,br,M,yb,'Beweisfotos zur Mängelbehebung'\)/.test(AB),
   'das PDF hat einen eigenen Abschnitt «Beweisfotos zur Mängelbehebung»');
 ok(/const bwIntro=doc\.splitTextToSize\(/.test(AB),
@@ -257,7 +265,9 @@ const teil = await P.evaluate(() => {
     detail: !!c.querySelector('.ab-mlinfo')
   }));
   return { tasks: (host ? host.innerText : '').replace(/\s+/g, ' ').trim(), karten,
-           freiBtn: !!(host && host.querySelector('button[onclick*="abMlFreigeben"]')),
+           akzBtn: (host ? host.querySelectorAll('button[onclick*="abMlAkzeptieren("]').length : 0),
+           alleBtn: (host ? (host.querySelector('button[onclick*="abMlAkzeptierenAlle"]') || {}).textContent || '' : ''),
+           auswahl: (host ? host.querySelectorAll('input[type=checkbox][onchange*="abMlSelToggle"]').length : 0),
            proto: (_abState().items || []).map(i => i.erledigt) };
 });
 ok(/Übergeben/.test(teil.tasks) && /1\/2 erledigt/.test(teil.tasks),
@@ -266,7 +276,12 @@ ok(/Vom Monteur erledigt/.test(teil.karten[0].badges || '') && teil.karten[0].de
   'der abgehakte Punkt trägt im Protokoll den Live-Stand', teil.karten[0]);
 ok(!/Vom Monteur erledigt/.test(teil.karten[1].badges || '') && /Beim Monteur/.test(teil.karten[1].badges || ''),
   'der noch offene Punkt zeigt «Beim Monteur», nicht «erledigt»', teil.karten[1]);
-ok(teil.freiBtn === false, 'der Freigeben-Knopf erscheint erst, wenn alles abgehakt ist', teil.freiBtn);
+/* Feedback 09.09.2026 übersteuert die frühere Regel «Freigeben erst, wenn
+   alles abgehakt ist»: der Planer bestätigt jetzt EINZELNE Punkte, sobald sie
+   gemeldet sind — auf die restlichen muss er nicht warten. */
+ok(teil.akzBtn === 1, 'genau der eine gemeldete Punkt hat einen «Akzeptieren»-Knopf', teil.akzBtn);
+ok(/Alle 1 bestätigen/.test(teil.alleBtn), 'die Sammelaktion nennt die Zahl der bestätigbaren Punkte', teil.alleBtn);
+ok(teil.auswahl === 1, 'nur gemeldete Punkte sind für die Sammelbestätigung markierbar', teil.auswahl);
 
 console.log('— B2b) Drei Status-Knöpfe statt Checkbox —');
 const seg = await M.evaluate(() => {
@@ -345,7 +360,7 @@ P = await open(cP, 'planer2b');
 const arbeitSicht = await P.evaluate(() => ({
   tasks: (document.getElementById('abTasks') || {}).innerText?.replace(/\s+/g, ' ').trim() || '',
   badge: document.querySelector('#items .mangel-status-col')?.innerText.replace(/\s+/g, ' ').trim() || '',
-  freiBtn: !!document.querySelector('#abTasks button[onclick*="abMlFreigeben"]')
+  freiBtn: !!document.querySelector('#abTasks button[onclick*="abMlAkzeptierenAlle"]')
 }));
 ok(/in Arbeit/.test(arbeitSicht.tasks), 'der Planer sieht «in Arbeit» in der Kopfzeile', arbeitSicht.tasks.slice(0, 120));
 ok(/In Arbeit/.test(arbeitSicht.badge), 'der Protokollpunkt zeigt «In Arbeit»', arbeitSicht.badge);
@@ -385,10 +400,11 @@ await M.waitForTimeout(1200);
 await P.close();
 P = await open(cP, 'planer3');
 const voll = await P.evaluate(() => ({
-  tasks: (document.getElementById('abTasks') || {}).innerText?.replace(/\s+/g, ' ').trim() || ''
+  tasks: (document.getElementById('abTasks') || {}).innerText?.replace(/\s+/g, ' ').trim() || '',
+  alleBtn: !!document.querySelector('#abTasks button[onclick*="abMlAkzeptierenAlle"]')
 }));
-ok(/2\/2 erledigt/.test(voll.tasks) && /Freigeben/.test(voll.tasks),
-  'bei Vollstand bietet der Planer die Freigabe an, obwohl der Monteur nicht fertiggemeldet hat', voll.tasks.slice(0, 160));
+ok(/2\/2 erledigt/.test(voll.tasks) && voll.alleBtn,
+  'bei Vollstand bietet der Planer die Gegenbestätigung an, obwohl der Monteur nicht fertiggemeldet hat', voll.tasks.slice(0, 160));
 
 console.log('— B4) Freigeben übernimmt die Punkte ins Protokoll —');
 const frei = await P.evaluate(async () => {
@@ -586,8 +602,8 @@ ok(/1 von 3 erledigt/.test(pdfOffen.stand) && /Freigabe offen/.test(pdfOffen.sta
   'der Bildschirm-Stand weist «behoben – Freigabe offen» und «in Arbeit» getrennt aus', pdfOffen.stand);
 const pdf2 = await pdfTexte(E);
 const tab2 = pdf2.tab.find(t => t.head && /Status \/ Erledigt/.test(JSON.stringify(t.head)));
-ok(!!tab2 && /behoben - Freigabe offen/.test(tab2.body[1][8]),
-  'im PDF steht beim übergebenen, behobenen Punkt «behoben - Freigabe offen»', tab2 && tab2.body.map(r => r[8]));
+ok(!!tab2 && /behoben - Bestätigung offen/.test(tab2.body[1][8]),
+  'im PDF steht beim übergebenen, behobenen Punkt «behoben - Bestätigung offen»', tab2 && tab2.body.map(r => r[8]));
 ok(!!tab2 && /in Arbeit/.test(tab2.body[2][8]), 'und beim laufenden Punkt «in Arbeit»', tab2 && tab2.body[2][8]);
 ok(!!tab2 && tab2.body.every(r => String(r[8]).trim().length > 0),
   'keine Zelle bleibt leer — offen wird als «offen» benannt', tab2 && tab2.body.map(r => r[8]));
@@ -739,6 +755,147 @@ const keineSelbst = await E.evaluate(async () => {
   return window.__n.length;
 });
 ok(keineSelbst === 0, 'wer selbst abschliesst, benachrichtigt sich nicht', keineSelbst);
+
+// ══════════════════════════════════════════════════════════════════
+// G) Gegenbestätigung des Planers (einzeln / mehrere / alle) + Rückmeldung
+// ══════════════════════════════════════════════════════════════════
+console.log('— G) Gegenbestätigung und Rückmeldung —');
+CLOUD.clear();
+const cG = await ctxFor('u_plan');
+const G = await open(cG, 'planer-gb');
+const gAufbau = await G.evaluate(async () => {
+  const st = _abState();
+  st.abnahme = st.abnahme || {}; st.abnahme.bauobjekt = 'MFH Musterweg 3';
+  st.maengelFertigAm = '';
+  st.items.length = 0;
+  ['Bad EG|Fuge', 'Küche|Ventil', 'WC|Spülkasten'].forEach(s => { const [o, m] = s.split('|'); st.items.push(_abCreateItem({ ort: o, mangel: m })); });
+  const ml = { id: 'ml_gb', orgId: 'org_p', objektId: 'obj1', objektName: 'MFH Musterweg 3', protoId: _abActiveProtoId(),
+    monteurUserId: 'u_mont', monteurName: 'Max Monteur', monteurFirma: 'Montage GmbH', extern: true, monteurEmail: 'mont@m.ch',
+    verantwortlich: { userId: 'u_plan', name: 'Peter Planer' }, status: 'offen', erstelltAm: new Date().toISOString(),
+    items: st.items.map((it, i) => ({ id: 'g' + i, itemId: it.id, ort: it.ort, mangel: it.mangel, status: 'erledigt',
+      erledigtAm: '2026-09-09T10:0' + i + ':00Z', kommentar: 'behoben ' + i,
+      fixFotos: [{ name: 'b' + i + '.jpg', dataUrl: 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AVN//2Q==' }] })) };
+  _abPoolSave('gema_abnahme_ml_pool_v1', 'abml:', ml);
+  _abRender();
+  await new Promise(r => setTimeout(r, 300));
+  window.__n = []; if (!window.GemaNotify) window.GemaNotify = {};
+  window.GemaNotify.push = function (n) { window.__n.push(n); return Promise.resolve(); };
+  return { items: ml.items.length };
+});
+ok(gAufbau.items === 3, 'drei gemeldete Punkte zur Gegenbestätigung', gAufbau.items);
+
+// Ohne die Bedienung sind G1-G5 gegenstandslos: die Gegenprobe soll sie sauber
+// als rot melden statt an einem 'is not a function' abzustuerzen.
+const gFehlt = await G.evaluate(() => ['abMlAkzeptieren', 'abMlAkzeptierenAuswahl', 'abMlAkzeptierenAlle',
+  'abMlRueckmeldung', 'abMlSelToggle'].filter(n => typeof window[n] !== 'function'));
+ok(gFehlt.length === 0, 'die Gegenbestätigung ist überhaupt bedienbar', gFehlt);
+if (gFehlt.length) { ok(false, 'G1-G5 übersprungen — ohne Gegenbestätigung nicht prüfbar'); }
+else {
+
+console.log('  G1) einen einzelnen Punkt bestätigen');
+const g1 = await G.evaluate(async () => {
+  const ml0 = _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_gb');
+  window.abMlAkzeptieren('ml_gb', ml0.items[0].id);
+  await new Promise(r => setTimeout(r, 400));
+  const ml = _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_gb');
+  const st = _abState();
+  return { stati: ml.items.map(i => i.status), mlStatus: ml.status,
+           visum: st.items[0].erledigt, fotos: (st.items[0].photos || []).filter(p => p.beweis).length,
+           andere: st.items[1].erledigt, notif: window.__n.length };
+});
+ok(g1.stati.join(',') === 'akzeptiert,erledigt,erledigt', 'nur der gewählte Punkt ist bestätigt', g1.stati);
+ok(g1.visum && /Max Monteur/.test(g1.visum), 'der bestätigte Punkt trägt sein Visum im Protokoll', g1.visum);
+ok(g1.fotos === 1, 'das Beweisfoto ist ins Protokoll übernommen', g1.fotos);
+ok(!g1.andere, 'die übrigen Punkte bleiben unangetastet', g1.andere);
+ok(g1.mlStatus === 'offen', 'die Liste bleibt offen, solange nicht alles bestätigt ist', g1.mlStatus);
+ok(g1.notif === 1, 'der Abarbeiter wird über die Bestätigung informiert', g1.notif);
+
+console.log('  G2) Rückmeldung nimmt die Bestätigung zurück und öffnet den Punkt');
+const g2 = await G.evaluate(async () => {
+  window.GemaDialog.prompt = () => Promise.resolve('Fuge weiterhin undicht');
+  const ml0 = _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_gb');
+  window.abMlRueckmeldung('ml_gb', ml0.items[0].id);
+  await new Promise(r => setTimeout(r, 500));
+  const ml = _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_gb');
+  const st = _abState();
+  return { status: ml.items[0].status, komm: ml.items[0].kommentarVerantwortlicher,
+           visum: st.items[0].erledigt, fotos: (st.items[0].photos || []).filter(p => p.beweis).length,
+           erlAm: ml.items[0].erledigtAm, letzte: window.__n[window.__n.length - 1] || null };
+});
+ok(g2.status === 'in_arbeit', 'der Punkt steht automatisch wieder «in Arbeit»', g2.status);
+ok(g2.komm === 'Fuge weiterhin undicht', 'die Begründung hängt am Punkt', g2.komm);
+ok(!g2.visum, 'das Visum im Protokoll ist wieder weg', g2.visum);
+ok(g2.fotos === 0, 'auch die übernommenen Beweisfotos sind wieder entfernt', g2.fotos);
+ok(!g2.erlAm, 'der Erledigt-Stempel des Abarbeiters ist zurückgesetzt', g2.erlAm);
+ok(g2.letzte && g2.letzte.empfaengerUserId === 'u_mont' && /Rückmeldung/.test(g2.letzte.titel || ''),
+  'der Abarbeiter bekommt die Rückmeldung als Meldung', g2.letzte && g2.letzte.titel);
+
+console.log('  G3) mehrere auf einmal bestätigen');
+const g3 = await G.evaluate(async () => {
+  window.GemaDialog.confirm = () => Promise.resolve(true);
+  const ml0 = _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_gb');
+  window.abMlSelToggle('ml_gb', ml0.items[1].id, true);
+  window.abMlSelToggle('ml_gb', ml0.items[2].id, true);
+  await new Promise(r => setTimeout(r, 200));
+  const nSel = _abMlSelN('ml_gb');
+  window.abMlAkzeptierenAuswahl('ml_gb');
+  await new Promise(r => setTimeout(r, 500));
+  const ml = _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_gb');
+  const st = _abState();
+  return { nSel, stati: ml.items.map(i => i.status), mlStatus: ml.status,
+           proto: st.items.map(i => !!(i.erledigt || '').trim()), selDanach: _abMlSelN('ml_gb') };
+});
+ok(g3.nSel === 2, 'zwei Punkte ausgewählt', g3.nSel);
+ok(g3.stati.join(',') === 'in_arbeit,akzeptiert,akzeptiert', 'beide ausgewählten Punkte sind bestätigt', g3.stati);
+ok(g3.proto.join(',') === 'false,true,true', 'genau sie stehen im Protokoll', g3.proto);
+ok(g3.mlStatus === 'offen', 'die Liste bleibt offen — ein Punkt ist ja wieder in Arbeit', g3.mlStatus);
+ok(g3.selDanach === 0, 'die Auswahl ist nach der Bestätigung wieder leer', g3.selDanach);
+
+console.log('  G4) der Abarbeiter sieht Bestätigung und Rückmeldung');
+await G.waitForTimeout(1200);
+const cGM = await ctxFor('u_mont');
+const GM = await open(cGM, 'monteur-gb');
+const g4 = await GM.evaluate(() => {
+  const host = document.getElementById('abTasks');
+  const txt = host.innerText.replace(/\s+/g, ' ');
+  return { txt: txt,
+           rueck: !!host.querySelector('.ml-rueck'),
+           best: host.querySelectorAll('.ml-best').length,
+           segs: host.querySelectorAll('.ml-seg').length };
+});
+ok(g4.rueck && /Fuge weiterhin undicht/.test(g4.txt),
+  'die Rückmeldung des Planers steht beim Abarbeiter am Punkt', g4.txt.slice(0, 160));
+ok(/wieder in Arbeit/.test(g4.txt), 'mit dem Hinweis, dass der Punkt wieder in Arbeit ist');
+ok(g4.best === 2 && g4.segs === 1,
+  'bestätigte Punkte zeigen «Vom Planer bestätigt» statt der Schalter', { best: g4.best, segs: g4.segs });
+const g4b = await GM.evaluate(async () => {
+  const ml = _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_gb');
+  window.abMlItemStatus('ml_gb', ml.items[1].id, 'offen');      // bestätigten Punkt umstellen
+  await new Promise(r => setTimeout(r, 250));
+  return _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_gb').items[1].status;
+});
+ok(g4b === 'akzeptiert', 'ein bestätigter Punkt lässt sich vom Abarbeiter nicht mehr umstellen', g4b);
+
+console.log('  G5) alles bestätigt → Liste abgeschlossen');
+const g5 = await G.evaluate(async () => {
+  const ml0 = _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_gb');
+  window.abMlItemStatus('ml_gb', ml0.items[0].id, 'erledigt');   // Nacharbeit gemeldet
+  await new Promise(r => setTimeout(r, 250));
+  window.GemaDialog.confirm = () => Promise.resolve(true);
+  window.abMlAkzeptierenAlle('ml_gb');
+  await new Promise(r => setTimeout(r, 500));
+  const ml = _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === 'ml_gb');
+  const st = _abState();
+  return { mlStatus: ml.status, stati: ml.items.map(i => i.status),
+           proto: st.items.every(i => (i.erledigt || '').trim().length > 0),
+           komm: ml.items[0].kommentarVerantwortlicher, freigegebenVon: ml.freigegebenVon };
+});
+ok(g5.stati.every(s => s === 'akzeptiert'), 'alle Punkte sind bestätigt', g5.stati);
+ok(g5.mlStatus === 'freigegeben', 'die Liste schliesst sich automatisch', g5.mlStatus);
+ok(g5.proto, 'alle Punkte stehen im Protokoll');
+ok(!g5.komm, 'die erledigte Rückmeldung wird beim Bestätigen aufgeräumt', g5.komm);
+ok(!!g5.freigegebenVon, 'die freigebende Person ist festgehalten', g5.freigegebenVon);
+}
 
 ok(errs.length === 0, 'keine JS-Fehler in beiden Kontexten', errs.slice(0, 3));
 
