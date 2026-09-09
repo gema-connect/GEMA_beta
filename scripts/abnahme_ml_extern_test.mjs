@@ -5,7 +5,8 @@
 // E-Mail wird LIVE gegen die GEMA-Konten geprüft (kein Konto / deaktiviert /
 // kein Modul-Zugriff / ✓ ok mit Name—Firma (Rolle)); nur ein gültiges Konto
 // lässt sich übergeben. Der Externe sieht die Liste cross-org in seinem
-// Panel, kann die Punkte aber NUR abarbeiten (Checkbox/Foto/Kommentar) — nie
+// Panel, kann die Punkte aber NUR abarbeiten (Status-Schalter Offen/In Arbeit/
+// Erledigt, Foto, Kommentar — seit 09.09.2026 statt einer Checkbox) — nie
 // bearbeiten und nie kontrollieren (abMlDarfKontrollieren, eine Wahrheit für
 // Karte UND Aktionen). Die Zustellung matcht über die userId UND die E-Mail
 // (stabiler Anker, falls das Konto neu angelegt wurde).
@@ -302,14 +303,24 @@ ok(/Silikonfuge undicht/.test(panelB.html), 'Mangeltext steht in der Karte');
 const readonlyB = await pB.evaluate(() => {
   const host = document.getElementById('abTasks');
   const inputs = [...host.querySelectorAll('input')];
+  const segs = [...host.querySelectorAll('.ml-seg')];
   return {
     mitMangelWert: inputs.some(i => /Silikonfuge|Ablauf verstopft|Technikzentrale|Bad OG/.test(i.value || '')),
     typen: [...new Set(inputs.map(i => i.type || 'text'))].sort().join(','),
-    nurKommentar: inputs.filter(i => i.type !== 'checkbox').every(i => /Kommentar zur Behebung/.test(i.placeholder || ''))
+    nurKommentar: inputs.every(i => /Kommentar zur Behebung/.test(i.placeholder || '')),
+    segs: segs.length,
+    segBtn: segs.length ? [...segs[0].querySelectorAll('button')].map(b => b.textContent.replace(/^\W+\s*/, '').trim()).join('|') : ''
   };
 });
 ok(!readonlyB.mitMangelWert, 'Ort/Mangel sind NIRGENDS als Eingabefeld editierbar (nur abarbeiten)');
-ok(readonlyB.typen === 'checkbox,text' && readonlyB.nurKommentar, 'einzige Eingaben: Erledigt-Checkbox + Behebungs-Kommentar', readonlyB.typen);
+// Feedback 09.09.2026 übersteuert die frühere Erwartung «checkbox,text»:
+// der Erledigt-Haken ist einem dreiteiligen Schalter gewichen (Offen /
+// In Arbeit / Erledigt). Die Absicht bleibt dieselbe — der Abarbeiter kann
+// NUR den Status setzen und einen Behebungs-Kommentar schreiben.
+ok(readonlyB.typen === 'text' && readonlyB.nurKommentar,
+  'einziges Eingabefeld ist der Behebungs-Kommentar (keine Checkbox mehr)', readonlyB.typen);
+ok(readonlyB.segs > 0 && readonlyB.segBtn === 'Offen|In Arbeit|Erledigt',
+  'der Status läuft über drei Knöpfe statt über eine Checkbox', readonlyB.segBtn);
 
 const darfB = await pB.evaluate(() => {
   const pool = window._abPoolRead('gema_abnahme_ml_pool_v1');

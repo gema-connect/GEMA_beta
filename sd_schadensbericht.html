@@ -366,10 +366,16 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 .mn-del:hover{background:var(--red-bg);color:var(--red);border-color:var(--red-bd)}
 
 /* SUMMARY CARD */
-.sum-card{background:var(--bg2);border:1.5px solid var(--brd);border-radius:var(--r);padding:16px 20px;display:flex;flex-direction:column;gap:8px}
-.sum-row{display:flex;justify-content:space-between;font-size:13px}
-.sum-row .lbl{color:var(--mut);font-weight:600}
-.sum-row .val{font-weight:800;color:var(--txt)}
+.sum-card{background:var(--bg2);border:1.5px solid var(--brd);border-radius:var(--r);padding:16px 20px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.sum-row{display:flex;justify-content:space-between;font-size:13px;gap:8px;min-width:0}
+.sum-row .lbl{color:var(--mut);font-weight:600;flex-shrink:0}
+.sum-row .val{font-weight:800;color:var(--txt);min-width:0;overflow-wrap:anywhere;text-align:right}
+/* Kopfraster der Erfassungs-Phase. minmax(0,1fr) statt 1fr: sonst wächst
+   eine Spalte auf ihren min-content (langer Name, Objekt-Select) und das
+   Raster schiebt die zweite Karte aus dem Bild — auf dem Handy war die
+   Spalte «Datum / Erstellt von» schlicht nicht mehr erreichbar. */
+.erf-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.erf-objsel{max-width:60%;min-width:0;padding:6px 8px;border:1.5px solid var(--brd2);border-radius:8px;font-size:12.5px;font-family:var(--sans);background:var(--bg2);color:var(--txt)}
 .sd-inline-date{border:1px dashed transparent;border-radius:6px;padding:2px 4px !important;transition:border-color .15s}
 .sd-inline-date:hover,.sd-inline-date:focus{border-color:var(--brd2)}
 .sd-inline-date::-webkit-calendar-picker-indicator{opacity:.5;cursor:pointer}
@@ -603,6 +609,11 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
   /* Summary card */
   .sum-card{padding:14px 16px}
   .sum-row{font-size:13px;flex-wrap:wrap;gap:4px}
+  .sum-row .val{text-align:left}
+  /* Erfassung: eine Spalte — zwei nebeneinander sind auf 360-390 px nicht
+     lesbar (die rechte Karte lag ausserhalb des Bildschirms). */
+  .erf-grid{grid-template-columns:1fr}
+  .erf-objsel{max-width:100%;width:100%;flex:1 1 100%}
 
   /* Toolbar */
   .nbtn{padding:8px 14px;font-size:13px;min-height:40px}
@@ -1760,6 +1771,7 @@ function sdRenderCards(list) {
     html += '<div class="tc-foot"><div class="tc-actions">';
     html += '<button class="tc-act accent" onclick="event.stopPropagation();sdOpenDetail(\'' + s.id + '\')">📋 Details</button>';
     if (_sdCanEdit()) {
+      html += '<button class="tc-act" title="Erfassung bearbeiten" onclick="event.stopPropagation();sdOpenEdit(\'' + s.id + '\')">✏️</button>';
       html += '<button class="tc-act danger" onclick="event.stopPropagation();sdDelete(\'' + s.id + '\')">🗑</button>';
     }
     html += '</div></div></div>';
@@ -1788,6 +1800,7 @@ function sdRenderTable(list) {
     html += '<td>' + sdFmtDate(s.erstelltAm) + '</td>';
     html += '<td>' + (s.raeume || []).map(esc).join(', ') + '</td>';
     html += '<td>';
+    if (_sdCanEdit()) html += '<button class="tc-act" title="Erfassung bearbeiten" onclick="event.stopPropagation();sdOpenEdit(\'' + s.id + '\')">✏️</button>';
     if (_sdCanEdit()) html += '<button class="tc-act danger" onclick="event.stopPropagation();sdDelete(\'' + s.id + '\')">🗑</button>';
     html += '</td></tr>';
   });
@@ -1820,9 +1833,80 @@ function sdOpenNew() {
   sdRenderRaumTags();
   // Sachbearbeiter-Dropdown: Default = aktueller User
   sdPopulateSachbearbeiter(null);
+  _sdRaeumeSektion(true);
   document.getElementById('addModal').classList.remove('hidden');
 }
+// Bereits erfassten Schaden bearbeiten (User-Vorgabe 09.09.2026: «wenn
+// man dies bereits erfasst hat, soll man dies noch bearbeiten können»).
+// Nutzt DASSELBE Formular wie die Erfassung — ein zweites Formular liefe
+// unweigerlich auseinander. Die betroffenen Räume bleiben bewusst
+// draussen: sie werden in der Phase «Erfassung» gepflegt, wo Umbenennen
+// und Entfernen die Fotos und Messpunkte mitziehen (_sdBereichUmbenennen-
+// Name / _sdBereichEntfernenName) — hier liessen sie sich verwaisen.
+function sdOpenEdit(id) {
+  if (!_sdCanEdit()) return;
+  var s = sdGetById(id);
+  if (!s) return;
+  if (!_sdSichtbar(s)) {
+    if (typeof GemaDialog !== 'undefined') GemaDialog.alert({ title: 'Kein Zugriff', message: 'Dieser Schadensbericht gehört zu einer anderen Organisation.' });
+    return;
+  }
+  editId = id;
+  _tempRaeume = Array.isArray(s.raeume) ? s.raeume.slice() : [];
+  document.getElementById('addModalTitle').textContent = 'Erfassung bearbeiten';
+  document.getElementById('f_typ').value = s.typ || '';
+  document.getElementById('f_titel').value = s.titel || '';
+  document.getElementById('f_beschreibung').value = s.beschreibung || '';
+  document.getElementById('f_ursache').value = s.ursache || '';
+  document.getElementById('f_datum').value = (s.erstelltAm || '').slice(0, 10);
+  var v = s.versicherung || {};
+  document.getElementById('f_vers_name').value = v.name || '';
+  document.getElementById('f_vers_police').value = v.policeNr || '';
+  document.getElementById('f_vers_schaden').value = v.schadenNr || '';
+  document.getElementById('f_vers_kontakt').value = v.kontakt || '';
+  sdPopulateObjekte();
+  var selO = document.getElementById('f_objekt');
+  // Gespeicherte Zuordnung nie still verlieren: fehlt das Objekt im Pool,
+  // wird es als ⚠-Option ergänzt statt auf ein fremdes zu springen.
+  if (s.objektId && selO && !Array.prototype.some.call(selO.options, function(o){ return o.value === s.objektId; })) {
+    var op = document.createElement('option');
+    op.value = s.objektId;
+    var nm = sdObjektName(s.objektId);
+    op.textContent = (nm.charAt(0) === '⚠' ? nm : '⚠ ' + nm);
+    selO.appendChild(op);
+  }
+  if (selO) selO.value = s.objektId || '';
+  sdRenderRaumTags();
+  sdPopulateSachbearbeiter((s.erstelltVon && s.erstelltVon.userId) || null);
+  _sdRaeumeSektion(false);
+  document.getElementById('addModal').classList.remove('hidden');
+}
+window.sdOpenEdit = sdOpenEdit;
+
+// Räume-Sektion des Formulars ein-/ausblenden. Beim Bearbeiten steht dort
+// ein Verweis auf die Phase «Erfassung» statt einer Bedienung, die Fotos
+// verwaisen liesse.
+function _sdRaeumeSektion(zeigen) {
+  var inp = document.getElementById('f_raum_input');
+  var sek = inp && inp.closest ? inp.closest('.fsec') : null;
+  if (!sek) return;
+  var body = sek.querySelector('#f_raeume_tags');
+  var tagIn = sek.querySelector('.tag-input');
+  if (tagIn) tagIn.style.display = zeigen ? '' : 'none';
+  if (body) body.style.display = zeigen ? '' : 'none';
+  var hint = sek.querySelector('#f_raeume_hint');
+  if (!hint) {
+    hint = document.createElement('div');
+    hint.id = 'f_raeume_hint';
+    hint.style.cssText = 'font-size:12px;color:var(--mut);line-height:1.5';
+    hint.textContent = 'Räume werden in der Phase «Erfassung» gepflegt — dort wandern Fotos und Messpunkte beim Umbenennen oder Entfernen mit.';
+    sek.appendChild(hint);
+  }
+  hint.style.display = zeigen ? 'none' : '';
+}
+
 function sdCloseAdd() {
+  editId = null;
   document.getElementById('addModal').classList.add('hidden');
 }
 function sdRenderRaumTags() {
@@ -1900,6 +1984,39 @@ function sdSaveNew() {
       if (picked) sachbearbeiter = picked;
     }
   } catch(e) {}
+
+  // ── Bearbeiten eines bestehenden Berichts ──
+  // Nur die Grunddaten werden überschrieben; Phasen, Fotos, Messwerte,
+  // Geräte und die Räume bleiben unberührt (Letztere werden in der Phase
+  // «Erfassung» migrationssicher gepflegt).
+  if (editId) {
+    var alt = sdGetById(editId);
+    if (!alt) { editId = null; alert('Der Bericht wurde inzwischen gelöscht.'); sdCloseAdd(); sdRenderList(); return; }
+    alt.typ = typ;
+    alt.titel = titel;
+    alt.beschreibung = document.getElementById('f_beschreibung').value.trim();
+    alt.ursache = document.getElementById('f_ursache').value.trim();
+    alt.objektId = objektId;
+    alt.versicherung = {
+      name: document.getElementById('f_vers_name').value.trim(),
+      policeNr: document.getElementById('f_vers_police').value.trim(),
+      schadenNr: document.getElementById('f_vers_schaden').value.trim(),
+      kontakt: document.getElementById('f_vers_kontakt').value.trim()
+    };
+    alt.erstelltAm = document.getElementById('f_datum').value || alt.erstelltAm;
+    if (sachbearbeiter) alt.erstelltVon = { userId: sachbearbeiter.id || '', name: sachbearbeiter.name || sachbearbeiter.email || '' };
+    // Fehlende orgId nachstempeln (RLS v2 lehnt Records ohne Org ab) —
+    // aber eine bestehende NIE überschreiben (Cross-Org-Bearbeitung).
+    if (!alt.orgId && u && u.orgId) alt.orgId = u.orgId;
+    alt.geaendertAm = new Date().toISOString();
+    sdSave();
+    var _wasDetail = (detailId === alt.id);
+    sdCloseAdd();
+    sdRenderList();
+    if (_wasDetail) { try { sdRenderDetail(alt); } catch(e) {} }
+    return;
+  }
+
   var sd = {
     id: 'sd_' + Date.now(),
     // KRITISCH (RLS v2): schadensbericht ist org-gescopt — ein Record OHNE
@@ -2219,7 +2336,14 @@ window._sdScrollToGeraet = _sdScrollToGeraet;
 // ── PHASE 1: ERFASSUNG ──
 function sdRenderErfassung(s, canEdit) {
   var h = '';
-  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">';
+  // Grunddaten nachträglich korrigierbar (User-Vorgabe 09.09.2026): der
+  // Erfassungs-Dialog öffnet mit den gespeicherten Werten und schreibt in
+  // denselben Datensatz zurück — Phasen, Fotos und Messwerte bleiben.
+  if (canEdit) {
+    h += '<div style="display:flex;justify-content:flex-end;margin-bottom:10px">'
+      + '<button class="nbtn" onclick="sdOpenEdit(\'' + s.id + '\')">✏️ Erfassung bearbeiten</button></div>';
+  }
+  h += '<div class="erf-grid">';
   h += '<div class="sum-card"><div class="sum-row"><span class="lbl">Typ</span><span class="val">' + esc((TYPEN[s.typ] || {}).label || s.typ) + '</span></div></div>';
   h += '<div class="sum-card"><div class="sum-row"><span class="lbl">Datum</span><span class="val">' + sdFmtDate(s.erstelltAm) + '</span></div></div>';
   // Objekt-Zuordnung nachträglich änderbar (Feedback 30.07.2026): der Schaden
@@ -2229,10 +2353,14 @@ function sdRenderErfassung(s, canEdit) {
   if (canEdit) {
     var _objs = sdGetObjekte();
     var _curIn = _objs.some(function(o){ return o.id === s.objektId; });
-    h += '<select class="val" id="erf_objekt_' + s.id + '" onchange="sdObjektWechsel(\'' + s.id + '\',this.value)" style="max-width:60%;padding:6px 8px;border:1.5px solid var(--brd2);border-radius:8px;font-size:12.5px;font-family:var(--sans);background:var(--bg2);color:var(--txt)" title="Objekt-Zuordnung ändern — der Schaden wechselt zum gewählten Objekt">';
+    h += '<select class="val erf-objsel" id="erf_objekt_' + s.id + '" onchange="sdObjektWechsel(\'' + s.id + '\',this.value)" title="Objekt-Zuordnung ändern — der Schaden wechselt zum gewählten Objekt">';
     // Bestehender Wert immer darstellbar — auch wenn das Objekt nicht mehr
     // aktiv ist (⚠-Option, Muster pm_objekte: kein stilles Leeren).
-    if (s.objektId && !_curIn) h += '<option value="' + esc(s.objektId) + '" selected>⚠ ' + esc(sdObjektName(s.objektId)) + '</option>';
+    // sdObjektName trägt das ⚠ bei unauffindbarem Objekt bereits selbst.
+    if (s.objektId && !_curIn) {
+      var _nm = sdObjektName(s.objektId);
+      h += '<option value="' + esc(s.objektId) + '" selected>' + (_nm.charAt(0) === '⚠' ? esc(_nm) : '⚠ ' + esc(_nm)) + '</option>';
+    }
     h += _objs.map(function(o){
       var nm = (typeof GemaObjekte !== 'undefined' && GemaObjekte.displayName ? GemaObjekte.displayName(o) : '') || o.name || o.bezeichnung || o.id;
       return '<option value="' + esc(o.id) + '"' + (o.id === s.objektId ? ' selected' : '') + '>' + esc(nm) + '</option>';
@@ -2245,14 +2373,17 @@ function sdRenderErfassung(s, canEdit) {
   h += '<div class="sum-card"><div class="sum-row"><span class="lbl">Erstellt von</span><span class="val">' + esc(s.erstelltVon ? s.erstelltVon.name : '—') + '</span></div></div>';
   h += '</div>';
 
-  if (s.beschreibung) {
-    h += '<div style="margin-top:12px"><label style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut)">Beschreibung</label>';
-    h += '<div style="margin-top:4px;font-size:13px;color:var(--txt);line-height:1.5;background:var(--bg2);padding:10px 14px;border-radius:8px;border:1px solid var(--brd)">' + esc(s.beschreibung).replace(/\n/g, '<br>') + '</div></div>';
+  // Leere Freitextfelder werden für Bearbeitende als «—» ausgewiesen statt
+  // ganz zu verschwinden — sonst sieht der Bericht aus, als gäbe es das
+  // Feld nicht, und niemand trägt es nach.
+  function _erfText(lbl, val) {
+    if (!val && !canEdit) return '';
+    return '<div style="margin-top:12px"><label style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut)">' + lbl + '</label>'
+      + '<div style="margin-top:4px;font-size:13px;color:' + (val ? 'var(--txt)' : 'var(--mut)') + ';line-height:1.5;background:var(--bg2);padding:10px 14px;border-radius:8px;border:1px solid var(--brd)">'
+      + (val ? esc(val).replace(/\n/g, '<br>') : '—') + '</div></div>';
   }
-  if (s.ursache) {
-    h += '<div style="margin-top:12px"><label style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut)">Ursache</label>';
-    h += '<div style="margin-top:4px;font-size:13px;color:var(--txt);line-height:1.5;background:var(--bg2);padding:10px 14px;border-radius:8px;border:1px solid var(--brd)">' + esc(s.ursache).replace(/\n/g, '<br>') + '</div></div>';
-  }
+  h += _erfText('Beschreibung', s.beschreibung);
+  h += _erfText('Ursache', s.ursache);
   // Betroffene Räume — jederzeit nachtragbar (canEdit), unabhaengig von der Phase.
   if ((s.raeume && s.raeume.length) || canEdit) {
     h += '<div style="margin-top:12px"><label style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut)">Betroffene Räume</label>';
