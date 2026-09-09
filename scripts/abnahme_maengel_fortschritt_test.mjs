@@ -95,6 +95,16 @@ ok(/function _abMaengelFertigPruefen[\s\S]{0,900}uid!==me\.id/.test(AB),
   'wer den letzten Haken selbst setzt, bekommt keine Meldung');
 ok(/@media print\{[\s\S]{0,200}\.stand-box\{/.test(AB),
   'der Stand-Block hat eigene Druckregeln');
+ok(/const _mangelFotos = it => \(it\.photos\|\|\[\]\)\.filter\(p=>p && !p\.beweis\)/.test(AB),
+  'der Foto-Anhang zeigt nur Mangel-Aufnahmen — Beweisfotos haben ihren eigenen Nachweis');
+ok(/beweis:true, beweisVon:\(ml\.monteurName\|\|''\)/.test(AB),
+  'bei der Freigabe übernommene Beweisfotos behalten Herkunft, Datum und Kommentar');
+ok(/_abBand\(doc,br,M,yb,'Beweisfotos zur Mängelbehebung'\)/.test(AB),
+  'das PDF hat einen eigenen Abschnitt «Beweisfotos zur Mängelbehebung»');
+ok(/const bwIntro=doc\.splitTextToSize\(/.test(AB),
+  'die Einleitung wird umbrochen statt in den Rand zu laufen');
+ok(/\.mangel-card > \.ab-mlinfo\{display:none\}/.test(AB) && /\.mangel-card\.karte-offen > \.ab-mlinfo\{display:block\}/.test(AB),
+  'der Nachweis hängt an der Karte, nicht im aufklappbaren Detail (sonst fehlt er im Ausdruck)');
 
 // ══════════════════════════════════════════════════════════════════
 // Gemeinsame gemockte Cloud + zwei Kontexte
@@ -145,8 +155,12 @@ const VENDOR = {};
 try {
   VENDOR['jspdf.umd.min.js'] = await readFile(join(ROOT, 'node_modules/jspdf/dist/jspdf.umd.min.js'), 'utf8');
   VENDOR['jspdf.plugin.autotable.min.js'] = await readFile(join(ROOT, 'node_modules/jspdf-autotable/dist/jspdf.plugin.autotable.min.js'), 'utf8');
+  // pdf.js liest das ERZEUGTE PDF wieder aus — nur so lässt sich seitenweise
+  // prüfen, dass keine Überschrift ohne ihr Bild am Seitenende hängt.
+  VENDOR['pdf.worker.min.js'] = await readFile(join(ROOT, 'node_modules/pdfjs-dist/build/pdf.worker.min.js'), 'utf8');
+  VENDOR['pdf.min.js'] = await readFile(join(ROOT, 'node_modules/pdfjs-dist/build/pdf.min.js'), 'utf8');
 } catch (e) {
-  console.log('  ! jsPDF fehlt lokal — «npm i --no-save jspdf@2.5.1 jspdf-autotable@3.8.2» ausführen; die PDF-Checks schlagen sonst fehl.');
+  console.log('  ! PDF-Bibliotheken fehlen lokal — «npm i --no-save jspdf@2.5.1 jspdf-autotable@3.8.2 pdfjs-dist@3.11.174»; die PDF-Checks schlagen sonst fehl.');
 }
 
 const browser = await chromium.launch({ executablePath: CHROME });
@@ -159,7 +173,9 @@ async function ctxFor(user, extraSeed) {
     if (u.indexOf('/.netlify/functions/') >= 0) return route.fulfill({ contentType:'application/json', body:'{}' });
     // jsPDF + autoTable lokal aus node_modules bedienen — das PDF wird
     // wirklich erzeugt, statt den Export-Zweig zu überspringen.
-    const lib = VENDOR[Object.keys(VENDOR).find(k => u.indexOf(k) >= 0)];
+    // Reihenfolge: der längere Schlüssel zuerst, sonst schluckt «pdf.min.js»
+    // die Worker-Anfrage «pdf.worker.min.js» nicht — aber umgekehrt schon.
+    const lib = VENDOR[Object.keys(VENDOR).sort((a, b) => b.length - a.length).find(k => u.indexOf(k) >= 0)];
     if (lib) return route.fulfill({ contentType: 'text/javascript', body: lib });
     return route.abort();
   });
@@ -527,7 +543,7 @@ async function pdfTexte(page) {
         try {
           const b = new Uint8Array(this.output('arraybuffer'));
           let s = ''; for (let i = 0; i < b.length; i++) s += (b[i] > 31 && b[i] < 127) ? String.fromCharCode(b[i]) : '.';
-          window.__pdfRoh = s;
+          window.__pdfRoh = s; window.__pdfRohBytes = b;
         } catch (e) { window.__pdfRoh = 'ERR ' + e.message; }
         return this;
       };
@@ -578,6 +594,105 @@ ok(!!tab2 && tab2.body.every(r => String(r[8]).trim().length > 0),
 ok(/Fortschritt: 1 \/ 3 erledigt/.test(pdf2.roh) && /davon 1 beim Unternehmer behoben/.test(pdf2.roh),
   'die Kachel zeigt den Fortschritt samt Live-Stand', (pdf2.roh.match(/Fortschritt[^)\\]{0,40}/) || [''])[0]);
 ok(/1 von 3 erledigt/.test(pdf2.roh), 'auch das Deckblatt trägt den Zwischenstand', (pdf2.roh.match(/\d von 3 erledigt[^)\\]{0,60}/) || [''])[0]);
+
+console.log('— F) Beweisfotos im PDF: Vorher/Nachher, sauberer Umbruch —');
+/* Zwei erkennbare Testbilder je Mängelpunkt (Quer- und Hochformat), damit
+   das PDF wirklich Bilder einbettet und die Rahmen beide Formate fassen. */
+const bild = (w, h, txt, farbe) => 'data:image/svg+xml;base64,' + Buffer.from(
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="100%" height="100%" fill="${farbe}"/><text x="50%" y="50%" font-size="${Math.round(w / 7)}" fill="#fff" text-anchor="middle" font-family="sans-serif">${txt}</text></svg>`).toString('base64');
+const rasterBilder = await E.evaluate(async (liste) => {
+  const out = {};
+  for (const [k, src] of Object.entries(liste)) {
+    out[k] = await new Promise(res => { const i = new Image(); i.onload = () => { const c = document.createElement('canvas'); c.width = i.width; c.height = i.height; c.getContext('2d').drawImage(i, 0, 0); res(c.toDataURL('image/jpeg', 0.8)); }; i.onerror = () => res(''); i.src = src; });
+  }
+  return out;
+}, { m1: bild(1200, 900, 'MANGEL', '#b91c1c'), f1: bild(1200, 900, 'BEHOBEN', '#15803d'),
+     m2: bild(900, 1200, 'MANGEL2', '#b45309'), f2a: bild(900, 1200, 'FIX2A', '#0f766e'), f2b: bild(1200, 900, 'FIX2B', '#1d4ed8') });
+
+await E.evaluate((B) => {
+  const st = _abState();
+  st.maengelFertigAm = '';
+  st.items.forEach(i => { i.erledigt = ''; i.photos = []; });
+  st.items[0].photos = [{ name: 'm1.jpg', dataUrl: B.m1, type: 'image/jpeg' }];
+  st.items[1].photos = [{ name: 'm2.jpg', dataUrl: B.m2, type: 'image/jpeg' }];
+  const ml = { id: 'ml_bw', orgId: 'org_p', objektId: 'obj1', objektName: 'MFH', protoId: _abActiveProtoId(),
+    monteurUserId: 'u_mont', monteurName: 'Max Monteur', monteurFirma: 'Montage GmbH', extern: true,
+    verantwortlich: { userId: 'u_plan', name: 'Peter Planer' }, status: 'offen', erstelltAm: new Date().toISOString(),
+    items: [ { id: 'x1', itemId: st.items[0].id, ort: 'Bad EG', mangel: 'a', status: 'erledigt', erledigtAm: '2026-09-09T10:00:00Z',
+               kommentar: 'Alte Fuge entfernt und neu abgedichtet.', fixFotos: [{ name: 'f1.jpg', dataUrl: B.f1 }] },
+             { id: 'x2', itemId: st.items[1].id, ort: 'Küche', mangel: 'b', status: 'erledigt', erledigtAm: '2026-09-09T11:00:00Z',
+               kommentar: 'Eckventil ersetzt.', fixFotos: [{ name: 'f2a.jpg', dataUrl: B.f2a }, { name: 'f2b.jpg', dataUrl: B.f2b }] },
+             { id: 'x3', itemId: st.items[2].id, ort: 'WC', mangel: 'c', status: 'in_arbeit', fixFotos: [] } ] };
+  _abPoolSave('gema_abnahme_ml_pool_v1', 'abml:', ml);
+  _abRender();
+}, rasterBilder);
+await E.waitForTimeout(500);
+const pdfBw = await pdfTexte(E);
+ok(pdfBw.saved, 'das PDF mit Beweisfotos wurde erzeugt');
+ok(/Beweisfotos zur M.ngelbehebung/.test(pdfBw.roh), 'der Abschnitt «Beweisfotos zur Mängelbehebung» steht im PDF');
+ok(/Vorher - Mangel/.test(pdfBw.roh) && /Nachher - Behebung/.test(pdfBw.roh),
+  'jedes Bild ist als «Vorher - Mangel» bzw. «Nachher - Behebung» beschriftet');
+ok(/Behoben von: Max Monteur/.test(pdfBw.roh) && /am 09\.09\.2026/.test(pdfBw.roh),
+  'der Nachweis nennt die ausführende Person und das Datum');
+ok(/Kommentar: Alte Fuge entfernt/.test(pdfBw.roh), 'der Kommentar des Abarbeiters steht dabei');
+ok(/weitere Beweisfotos/.test(pdfBw.roh), 'ein zweites Beweisfoto bekommt eine beschriftete Folgezeile');
+
+// Seitenweise nachlesen: keine Überschrift ohne ihre Bilder am Seitenende.
+const seiten = await (async () => {
+  const v = await cE.newPage();
+  await v.setContent('<body><script src="https://vendor/pdf.min.js"></script></body>');
+  await v.waitForFunction(() => typeof window.pdfjsLib !== 'undefined', null, { timeout: 20000 }).catch(() => {});
+  const out = await v.evaluate(async (roh) => {
+    if (typeof window.pdfjsLib === 'undefined') return null;
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://vendor/pdf.worker.min.js';
+    const pdf = await pdfjsLib.getDocument({ data: Uint8Array.from(roh) }).promise;
+    const res = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const pg = await pdf.getPage(i);
+      const tc = await pg.getTextContent();
+      const ops = await pg.getOperatorList();
+      const bilder = ops.fnArray.filter(f => f === pdfjsLib.OPS.paintImageXObject || f === pdfjsLib.OPS.paintJpegXObject).length;
+      res.push({ text: tc.items.map(x => x.str).join(' ').replace(/\s+/g, ' '), bilder: bilder });
+    }
+    return res;
+  }, await E.evaluate(() => { const b = []; for (let i = 0; i < window.__pdfRohBytes.length; i++) b.push(window.__pdfRohBytes[i]); return b; }));
+  await v.close();
+  return out;
+})();
+ok(!!seiten, 'das erzeugte PDF liess sich mit pdf.js wieder öffnen');
+if (seiten) {
+  const bwSeiten = seiten.filter(s => /Vorher - Mangel|Nachher - Behebung|weitere Beweisfotos/.test(s.text));
+  ok(bwSeiten.length > 0, 'der Beweis-Abschnitt liegt auf mindestens einer Seite', bwSeiten.length);
+  ok(bwSeiten.every(s => s.bilder > 0),
+    'jede Seite mit einer Beweis-Überschrift trägt auch Bilder — keine verwaiste Überschrift',
+    bwSeiten.map(s => s.bilder));
+  const kopfOhneBild = seiten.filter(s => /Behoben von:/.test(s.text) && s.bilder === 0);
+  ok(kopfOhneBild.length === 0, 'kein Kopfblock ohne die zugehörigen Aufnahmen', kopfOhneBild.length);
+  ok(seiten.every(s => s.bilder <= 6), 'keine Seite wird mit Bildern überladen', seiten.map(s => s.bilder));
+}
+
+// Ausdruck GEMESSEN: bei ZUGEKLAPPTER Karte muss der Nachweis samt Fotos
+// sichtbar sein — auf dem Bildschirm bleibt er es nicht.
+await E.evaluate(() => { document.querySelectorAll('.mangel-card.karte-offen').forEach(c => c.classList.remove('karte-offen')); });
+const nwSchirm = await E.evaluate(() => {
+  const n = document.querySelector('.mangel-card > .ab-mlinfo');
+  return n ? { d: getComputedStyle(n).display, h: n.getBoundingClientRect().height } : null;
+});
+ok(nwSchirm && nwSchirm.d === 'none', 'auf dem Bildschirm bleibt der Nachweis in der zugeklappten Karte verborgen', nwSchirm);
+await E.emulateMedia({ media: 'print' });
+await E.waitForTimeout(200);
+const nwDruck = await E.evaluate(() => {
+  const n = document.querySelector('.mangel-card > .ab-mlinfo');
+  const img = n && n.querySelector('img');
+  const hint = n && n.querySelector('.ab-mlinfo-hint');
+  return { d: n ? getComputedStyle(n).display : '—', h: n ? Math.round(n.getBoundingClientRect().height) : 0,
+           imgB: img ? Math.round(img.getBoundingClientRect().width) : 0,
+           hint: hint ? getComputedStyle(hint).display : '—' };
+});
+ok(nwDruck.d === 'block' && nwDruck.h > 20, 'im Ausdruck steht er trotzdem da', nwDruck);
+ok(nwDruck.imgB >= 100, 'die Beweisfotos sind auf Papier gross genug, um etwas zu erkennen', nwDruck.imgB);
+ok(nwDruck.hint === 'none', 'der Bedien-Hinweis wandert nicht mit aufs Papier', nwDruck.hint);
+await E.emulateMedia({ media: 'screen' });
 
 console.log('— E5) Meldung «alle Pendenzen erledigt» an die verantwortliche Seite —');
 const meldung = await E.evaluate(async () => {

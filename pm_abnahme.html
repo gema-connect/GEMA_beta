@@ -311,9 +311,25 @@ body.ab-nur-maengel #view_maengel button{pointer-events:none !important}
   .ml-seg{width:100%}
   .ml-seg button{flex:1;min-height:44px;padding:8px 4px;font-size:12px}
 }
-.ab-mlinfo{margin-top:10px;padding:10px 12px;border:1.5px solid #bfdbfe;background:#f8fbff;border-radius:10px;font-size:12.5px;line-height:1.5}
+/* Der Behebungs-Nachweis hängt direkt an der Karte (nicht im aufklappbaren
+   Detail): auf dem Bildschirm zeigt ihn die geöffnete Karte, im AUSDRUCK
+   steht er immer — sonst fehlten die Beweisfotos auf dem Papier komplett. */
+.ab-mlinfo{margin:10px 16px 0;padding:10px 12px;border:1.5px solid #bfdbfe;background:#f8fbff;border-radius:10px;font-size:12.5px;line-height:1.5}
+.mangel-card > .ab-mlinfo{display:none}
+.mangel-card.karte-offen > .ab-mlinfo{display:block}
 .ab-mlinfo-hd{font-weight:800;color:#1d4ed8;margin-bottom:3px}
 .ab-mlinfo img{width:52px;height:52px;object-fit:cover;border-radius:7px;border:1px solid var(--brd2);cursor:zoom-in}
+.ab-mlinfo-hint{color:var(--mut);margin-top:5px}
+/* NACH den Basisregeln — eine gleich spezifische Regel weiter oben würde
+   von der späteren Basisregel wieder überschrieben. */
+@media print{
+  .mangel-card > .ab-mlinfo{display:block;break-inside:avoid}
+  /* Auf Papier grösser: die Beweisfotos sollen erkennen lassen, WAS gemacht
+     wurde — als 52-px-Kachel ist das nicht möglich. */
+  .ab-mlinfo img{width:120px;height:120px}
+  /* Bedien-Hinweis ist Bildschirm-Führung, nicht Dokumentation. */
+  .ab-mlinfo-hint{display:none}
+}
 
 /* mangel detail */
 .mangel-detail{border-top:1.5px dashed var(--brd2);background:var(--bg2);padding:14px 16px;display:none}
@@ -1346,7 +1362,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       const isOpen=openItemId===it.id;
 
       const card=document.createElement('div');
-      card.className='mangel-card '+(done?'done':'open-card');
+      card.className='mangel-card '+(done?'done':'open-card')+(isOpen?' karte-offen':'');
       card.dataset.id=it.id;
 
       // Fotos RECHTS in der Schnellaktionen-Spalte: grösser, 2-spaltig,
@@ -1375,7 +1391,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
           ${mlSt.kommentar?`<div>💬 ${esc(mlSt.kommentar)}</div>`:''}
           ${mlSt.kommentarVerantwortlicher?`<div style="color:#b91c1c">↩ ${esc(mlSt.kommentarVerantwortlicher)}</div>`:''}
           ${mlSt.fixFotos.length?`<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">${mlSt.fixFotos.map(f=>{const src=_abFotoSrc(f);return src?`<img src="${esc(src)}" alt="Beweisfoto" onclick="openLightbox(this.src);event.stopPropagation()"/>`:'';}).join('')}</div>`:''}
-          <div style="color:var(--mut);margin-top:5px">Das Protokoll wird erst beim Freigeben aktualisiert — unten unter «Aufgaben».</div>
+          <div class="ab-mlinfo-hint">Das Protokoll wird erst beim Freigeben aktualisiert — unten unter «Aufgaben».</div>
         </div>` : '';
 
       card.innerHTML=`
@@ -1392,6 +1408,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
             ${it.erledigungBis?`<span class="status-badge sb-mut" style="font-size:11px">bis ${esc(it.erledigungBis)}</span>`:''}
           </div>
         </div>
+        ${mlInfo}
         <div class="mangel-detail ${isOpen?'open':''}">
           <div class="detail-grid">
             <div class="card" style="padding:14px;background:var(--sur)">
@@ -1428,7 +1445,6 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
                 <button class="act-btn" data-action="insertBelow">+ Zeile</button>
                 <button class="act-btn danger" data-action="delete">🗑 Löschen</button>
               </div>
-              ${mlInfo}
             </div>
             <div class="card" style="padding:14px;background:var(--sur)">
               <div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--mut);margin-bottom:12px">Fotos</div>
@@ -3863,8 +3879,13 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       // und Mängelliste). Nur so stehen die beiden Foto-Slots über die volle
       // Seitenhöhe zur Verfügung; an einer halb gefüllten Seite angehängt
       // blieben je Slot wenige Zentimeter und die Fotos würden Briefmarken.
+      /* Mangel-Aufnahmen vs. Beweisfotos: die Behebungs-Nachweise stehen in
+         einem eigenen Abschnitt (mit Vorher/Nachher, Monteur und Datum) —
+         hier würden sie sonst anonym zwischen den Mangel-Bildern liegen und
+         niemand sähe, was gemacht wurde. */
+      const _mangelFotos = it => (it.photos||[]).filter(p=>p && !p.beweis);
       let y2=doc.lastAutoTable.finalY+20;
-      if(state.items.some(it=>it.photos?.length)){
+      if(state.items.some(it=>_mangelFotos(it).length)){
         doc.addPage(); y2=56;
         y2=_abBand(doc,br,M,y2,'Foto-Anhang'); y2+=6;
         doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.text('Fotos pro Mängelpunkt — zwei Aufnahmen je Seite.',M,y2); y2+=14;
@@ -3878,13 +3899,13 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
            Konstruktion nicht mehr von ihm getrennt werden. */
         const fotos=[];
         for(let i=0;i<state.items.length;i++){
-          const it=state.items[i]; if(!it.photos?.length) continue;
+          const it=state.items[i]; const _mf=_mangelFotos(it); if(!_mf.length) continue;
           let erst=true;
-          for(let p=0;p<it.photos.length;p++){
+          for(let p=0;p<_mf.length;p++){
             // Ausgelagerte Fotos (nur url) fuer den PDF-Embed zurueck zu
             // DataURL holen — jsPDF braucht Base64 (gleiche Kette wie die
             // Vorschaubilder in der Mängelzeile).
-            const _src=await _abFotoDataUrl(it.photos[p]);
+            const _src=await _abFotoDataUrl(_mf[p]);
             if(!_src) continue;
             const info=await new Promise(res=>{ const img=new Image(); img.onload=()=>res({w:img.width,h:img.height}); img.onerror=()=>res({w:4,h:3}); img.src=_src; });
             fotos.push({src:_src,info:info,erst:erst,nr:i+1,ort:(it.ort||'-').slice(0,60),mangel:(it.mangel||'-').slice(0,140)});
@@ -3918,6 +3939,126 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
           // horizontal zentriert — ein Hochformat hing sonst am linken Rand
           if(w>0&&h>0){ try{ doc.addImage(f.src,'JPEG',M+(515-w)/2,yy,w,h); }catch(e){} }
           slot++;
+        }
+        doc.setFontSize(10);
+      }
+
+      /* ══ BEWEISFOTOS ZUR MÄNGELBEHEBUNG ══════════════════════════════
+         Feedback 09.09.2026: «die Beweisbilder sollen auch aufgeführt werden
+         und so dargestellt sein, dass man erkennen kann, was gemacht wurde».
+         Darum VORHER/NACHHER nebeneinander: links die Mangel-Aufnahme, rechts
+         die Behebung — mit Monteur, Datum und seinem Kommentar darüber.
+         Quellen: die laufende Mängelliste (abMlIdx) UND bereits ins Protokoll
+         übernommene, als `beweis` markierte Fotos. Beides zusammen, damit der
+         Nachweis vor UND nach der Freigabe im Dokument steht.
+         Layout: alles wird zuerst in ZEILEN à zwei Bildern flach gelegt; der
+         Kopfblock hängt an der ersten Zeile seines Punktes und kann per
+         Konstruktion nicht von ihr getrennt werden (Muster Foto-Anhang) —
+         so entstehen keine verwaisten Überschriften am Seitenende. */
+      const bwZeilen=[];
+      {
+        const idx=abMlIdx();
+        const BW_MAX=1000;                    // Beweisfotos verkleinern (PDF-Grösse)
+        for(let i=0;i<state.items.length;i++){
+          const it=state.items[i];
+          const live=idx[it.id];
+          const uebernommen=(it.photos||[]).filter(p=>p&&p.beweis);
+          const roh=[].concat((live&&Array.isArray(live.fixFotos))?live.fixFotos:[], uebernommen);
+          if(!roh.length) continue;
+          // Kopfangaben — laufende Liste zuerst, sonst aus dem übernommenen Foto
+          const q=uebernommen[0]||{};
+          const von=(live&&live.monteurName)||q.beweisVon||'';
+          const firma=(live&&live.monteurFirma)||q.beweisFirma||'';
+          const am=((live&&live.erledigtAm)||q.beweisAm||'').slice(0,10).split('-').reverse().join('.');
+          const komm=(live&&live.kommentar)||q.beweisKommentar||'';
+          let stand=live?abItemStandText(it):String(it.erledigt||'').trim();
+          if(stand) stand=stand.charAt(0).toUpperCase()+stand.slice(1);
+          // Vorher-Bild = erste Mangel-Aufnahme des Punktes (falls vorhanden)
+          let vorher=null;
+          const mf=(it.photos||[]).filter(p=>p&&!p.beweis)[0];
+          if(mf){ const s0=await _abFotoDataUrl(mf); if(s0) vorher=await _abThumb(s0,BW_MAX); }
+          // Nachher-Bilder
+          const nach=[];
+          for(let p=0;p<roh.length;p++){
+            const s1=await _abFotoDataUrl(roh[p]); if(!s1) continue;
+            const t=await _abThumb(s1,BW_MAX); if(t) nach.push(t);
+          }
+          if(!nach.length) continue;
+          const kopf={nr:i+1,ort:(it.ort||'-').slice(0,60),mangel:(it.mangel||'-').slice(0,160),
+                      von:von,firma:firma,am:am,komm:komm,stand:stand};
+          // Erste Zeile: Vorher | Nachher 1 — gibt es kein Vorher-Bild, stehen
+          // die ersten beiden Nachher-Bilder nebeneinander.
+          if(vorher) bwZeilen.push({kopf:kopf,zellen:[{bild:vorher,lbl:'Vorher - Mangel'},{bild:nach[0],lbl:'Nachher - Behebung'}]});
+          else       bwZeilen.push({kopf:kopf,zellen:[{bild:nach[0],lbl:'Nachher - Behebung'},nach[1]?{bild:nach[1],lbl:'Nachher - Behebung 2'}:null].filter(Boolean)});
+          let ab=vorher?1:2;
+          for(let p=ab;p<nach.length;p+=2){
+            const z=[{bild:nach[p],lbl:'Nachher - Behebung '+(p+1)}];
+            if(nach[p+1]) z.push({bild:nach[p+1],lbl:'Nachher - Behebung '+(p+2)});
+            bwZeilen.push({kopf:null,fort:kopf,zellen:z});
+          }
+        }
+      }
+      if(bwZeilen.length){
+        doc.addPage(); let yb=56;
+        yb=_abBand(doc,br,M,yb,'Beweisfotos zur Mängelbehebung'); yb+=6;
+        doc.setFont('helvetica','normal'); doc.setFontSize(9);
+        // Umbrechen statt in den Rand laufen lassen — der Satz ist länger als
+        // die Satzbreite und wurde sonst rechts abgeschnitten.
+        const bwIntro=doc.splitTextToSize('Vorher/Nachher je Mängelpunkt, eingereicht von der ausführenden Firma. Links die Mangel-Aufnahme zum Vergleich (in Originalgrösse im Foto-Anhang), rechts der Nachweis der Behebung.',515);
+        bwIntro.forEach((t,i2)=>doc.text(t,M,yb+i2*11));
+        yb+=bwIntro.length*11+5;
+        /* 250 x 150 pt je Bild (ca. 8.8 x 5.3 cm) - zwei nebeneinander füllen
+           die Satzbreite aus und lassen eine Zeile mit Kopfblock plus eine
+           Folgezeile auf dieselbe Seite. Grösser gewählt hätte jede
+           Folgezeile eine eigene, fast leere Seite bekommen. */
+        const SP_W=250, SP_GAP=15, BILD_H=150, LBL_H=12, ZEILE_ABST=14, BOT=784;
+        const kopfH=k=>{
+          doc.setFontSize(9);
+          const mL=doc.splitTextToSize('Mangel: '+k.mangel,515).slice(0,2).length;
+          const kL=k.komm?doc.splitTextToSize('Kommentar: '+k.komm,515).slice(0,2).length:0;
+          return 14+mL*11+11+(kL?kL*11:0)+6;      // Titel + Mangel + Meta + Kommentar
+        };
+        for(const z of bwZeilen){
+          const kH=z.kopf?kopfH(z.kopf):13;
+          const zH=kH+LBL_H+BILD_H+ZEILE_ABST;
+          if(yb+zH>BOT){ doc.addPage(); yb=56; }
+          if(z.kopf){
+            const k=z.kopf;
+            doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(0,0,0);
+            doc.text(`Nr. ${k.nr} - ${k.ort}`,M,yb+9);
+            if(k.stand){
+              doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(br.acc.r,br.acc.g,br.acc.b);
+              doc.text(k.stand,M+515,yb+9,{align:'right'}); doc.setTextColor(0,0,0);
+            }
+            yb+=14;
+            doc.setFont('helvetica','normal'); doc.setFontSize(9);
+            const mL=doc.splitTextToSize('Mangel: '+k.mangel,515).slice(0,2);
+            mL.forEach((t,i2)=>doc.text(t,M,yb+8+i2*11)); yb+=mL.length*11;
+            doc.setFontSize(8.5); doc.setTextColor(110,120,135);
+            const meta=['Behoben von: '+(k.von||'-')+(k.firma?' ('+k.firma+')':''), k.am?'am '+k.am:''].filter(Boolean).join('  ·  ');
+            doc.text(meta,M,yb+8); yb+=11;
+            if(k.komm){
+              const kL=doc.splitTextToSize('Kommentar: '+k.komm,515).slice(0,2);
+              kL.forEach((t,i2)=>doc.text(t,M,yb+8+i2*11)); yb+=kL.length*11;
+            }
+            doc.setTextColor(0,0,0); yb+=6;
+          } else {
+            doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(110,120,135);
+            doc.text(`Nr. ${z.fort.nr} - ${z.fort.ort} (weitere Beweisfotos)`,M,yb+8); doc.setTextColor(0,0,0); yb+=13;
+          }
+          // Bildzeile: feste Spalten, Bild im Rahmen zentriert — gleiche
+          // Grundlinie für beide Seiten, egal ob Hoch- oder Querformat.
+          z.zellen.forEach((c,ci)=>{
+            const x=M+ci*(SP_W+SP_GAP);
+            doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(br.acc.r,br.acc.g,br.acc.b);
+            doc.text(c.lbl,x,yb+8); doc.setTextColor(0,0,0);
+            const by=yb+LBL_H;
+            doc.setDrawColor(206,212,222); doc.setLineWidth(0.5); doc.rect(x,by,SP_W,BILD_H); doc.setLineWidth(0.2);
+            const s=Math.min((SP_W-8)/c.bild.w,(BILD_H-8)/c.bild.h);
+            const w=Math.round(c.bild.w*s), h=Math.round(c.bild.h*s);
+            if(w>0&&h>0){ try{ doc.addImage(c.bild.dataUrl,'JPEG',x+(SP_W-w)/2,by+(BILD_H-h)/2,w,h); }catch(e){} }
+          });
+          yb+=LBL_H+BILD_H+ZEILE_ABST;
         }
         doc.setFontSize(10);
       }
@@ -4617,7 +4758,12 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
             it.erledigt=(mi.erledigtAm||new Date().toISOString()).slice(0,10).split('-').reverse().join('.')+' / '+(ml.monteurName||'');
             (mi.fixFotos||[]).forEach(function(ff){
               it.photos=it.photos||[];
-              var kopie={name:ff.name||'beweis.jpg',url:ff.url||'',dataUrl:ff.url?'':(ff.dataUrl||''),type:'image/jpeg'};
+              // Als BEWEISFOTO kennzeichnen: im PDF steht es damit weiterhin
+              // im Behebungs-Nachweis (mit Monteur, Datum und Kommentar) und
+              // nicht anonym zwischen den Mangel-Aufnahmen.
+              var kopie={name:ff.name||'beweis.jpg',url:ff.url||'',dataUrl:ff.url?'':(ff.dataUrl||''),type:'image/jpeg',
+                beweis:true, beweisVon:(ml.monteurName||''), beweisFirma:(ml.monteurFirma||''),
+                beweisAm:(mi.erledigtAm||''), beweisKommentar:(mi.kommentar||'')};
               if(!kopie.url && !kopie.dataUrl && ff.pendingId){
                 var du=_abQ?_abQ.get(ff.pendingId):'';
                 if(du) kopie.dataUrl=du; else kopie.pendingId=ff.pendingId;   // fremdes Gerät → Platzhalter bis Upload
