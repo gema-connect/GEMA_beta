@@ -270,7 +270,27 @@ body.ab-nur-maengel #view_maengel button{pointer-events:none !important}
    selbst wird erst beim Freigeben geschrieben). */
 .status-badge.sb-mlwip{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}
 .status-badge.sb-mlok {background:#ecfdf5;color:#047857;border:1px solid #a7f3d0}
+.status-badge.sb-mlarb{background:#fffbeb;color:#b45309;border:1px solid #fcd34d}
 .status-badge.sb-mlzur{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}
+/* Status eines Mängelpunkts in der Abarbeitungs-Liste: drei Knöpfe statt
+   einer Checkbox (Feedback 09.09.2026) — «Offen» ist damit auch der Weg
+   zurück. Farben wie die Plan-Pins: rot / amber / grün. */
+.ml-seg{display:inline-flex;border:1.5px solid var(--brd2);border-radius:10px;overflow:hidden;flex-shrink:0}
+.ml-seg button{border:none;background:var(--sur);padding:8px 12px;font-size:12.5px;font-weight:800;color:var(--mut);cursor:pointer;font-family:inherit;min-height:38px;white-space:nowrap}
+.ml-seg button + button{border-left:1.5px solid var(--brd2)}
+.ml-seg button:hover{background:var(--bg2)}
+.ml-seg button.on-offen{background:var(--red);color:#fff}
+.ml-seg button.on-arbeit{background:var(--amb,#d97706);color:#fff}
+.ml-seg button.on-erledigt{background:var(--grn);color:#fff}
+/* Rechte Spalte einer Mängelzeile: Status-Schalter oben, Foto-Aktionen darunter. */
+.ml-actcol{display:flex;flex-direction:column;gap:7px;align-items:flex-end;flex:0 1 auto;min-width:0}
+.ml-actcol .ml-fotos{display:flex;gap:5px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+@media(max-width:640px){
+  /* Auf dem Phone volle Breite — drei Daumenflächen nebeneinander. */
+  .ml-actcol{flex:1 1 100%;align-items:stretch}
+  .ml-seg{width:100%}
+  .ml-seg button{flex:1;min-height:44px;padding:8px 4px;font-size:12px}
+}
 .ab-mlinfo{margin-top:10px;padding:10px 12px;border:1.5px solid #bfdbfe;background:#f8fbff;border-radius:10px;font-size:12.5px;line-height:1.5}
 .ab-mlinfo-hd{font-weight:800;color:#1d4ed8;margin-bottom:3px}
 .ab-mlinfo img{width:52px;height:52px;object-fit:cover;border-radius:7px;border:1px solid var(--brd2);cursor:zoom-in}
@@ -4032,6 +4052,8 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     if(!st) return null;
     if(st.status==='erledigt') return {ic:'✅',txt:'Vom Monteur erledigt',cls:'sb-mlok',
       tip:(st.monteurName||'Monteur')+' hat den Punkt abgehakt — noch nicht ins Protokoll übernommen'};
+    if(st.status==='in_arbeit') return {ic:'🛠',txt:'In Arbeit',cls:'sb-mlarb',
+      tip:(st.monteurName||'Monteur')+' arbeitet an diesem Punkt'};
     if(st.status==='zurueckgewiesen') return {ic:'↩',txt:'Zurückgewiesen',cls:'sb-mlzur',
       tip:st.kommentarVerantwortlicher||'Punkt wurde zurückgewiesen'};
     return {ic:'🔧',txt:'Beim Monteur',cls:'sb-mlwip',
@@ -4250,11 +4272,21 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     if(ok)GemaDialog.confirm({title:'Abnahme freigeben',message:'«'+(rec.objektName||'Abnahme')+' — '+(rec.arbeitsgattung||rec.protoName||'')+'» digital freigeben?',confirmLabel:'Freigeben'}).then(function(k){if(k)done('');});
     else GemaDialog.prompt({title:'Freigabe ablehnen — Begründung',placeholder:'z.B. Mangel Position 3 nicht akzeptiert'}).then(function(v){if(v===null)return;done(v);});
   };
-  window.abMlItemToggle=function(mlId,itemId,chk){
+  // Status eines Mängelpunkts setzen — «offen» | «in_arbeit» | «erledigt».
+  // Die drei Knöpfe der Liste rufen das direkt auf; «Offen» ist damit auch
+  // der Weg zurück (Feedback 09.09.2026). Ein zurückgewiesener Punkt wird
+  // durch jeden Klick wieder zu einem der drei Stände.
+  var AB_ML_STATI={offen:1,in_arbeit:1,erledigt:1};
+  window.abMlItemStatus=function(mlId,itemId,status){
+    if(!AB_ML_STATI[status]) return;
     var ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});if(!ml)return;
     var it=(ml.items||[]).find(function(x){return x.id===itemId;});if(!it)return;
-    it.status=chk?'erledigt':'offen';
-    it.erledigtAm=chk?new Date().toISOString():'';
+    if(it.status===status){ abRenderTasks(); return; }
+    it.status=status;
+    it.erledigtAm=(status==='erledigt')?new Date().toISOString():'';
+    // kommentarVerantwortlicher bleibt STEHEN: die Begründung der
+    // Zurückweisung ist genau das, woran sich der Abarbeiter orientiert —
+    // sie verschwindet nicht, nur weil er den Punkt wieder anfasst.
     // Ist damit der LETZTE offene Punkt gefallen, bekommt die verantwortliche
     // Seite EINE Meldung — auch ohne das formelle «Alle abgearbeitet». Genau
     // dieser Fall war bisher unsichtbar. Der Stempel verhindert, dass ein
@@ -4269,6 +4301,19 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       link:'pm_abnahme.html'+(ml.objektId?'?objekt='+ml.objektId:'')});
     abRenderTasks();
   };
+  // Alter Aufruf-Weg (Checkbox) — bleibt als Wrapper bestehen, damit
+  // gespeicherte Deep-Links, Tests und Alt-Markup weiter funktionieren.
+  window.abMlItemToggle=function(mlId,itemId,chk){
+    window.abMlItemStatus(mlId,itemId,chk?'erledigt':'offen');
+  };
+  // Markup des Status-Schalters — EINE Wahrheit für die Abarbeitungs-Liste.
+  function abMlSegHtml(mlId,itemId,status){
+    var st=[['offen','🔴 Offen','on-offen'],['in_arbeit','🛠 In Arbeit','on-arbeit'],['erledigt','✅ Erledigt','on-erledigt']];
+    return '<span class="ml-seg" role="group" aria-label="Status">'+st.map(function(s){
+      return '<button type="button" class="'+(status===s[0]?s[2]:'')+'" aria-pressed="'+(status===s[0]?'true':'false')+'" '
+        +'onclick="abMlItemStatus(\''+mlId+'\',\''+itemId+'\',\''+s[0]+'\')">'+s[1]+'</button>';
+    }).join('')+'</span>';
+  }
   window.abMlItemKommentar=function(mlId,itemId,val){
     var ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});if(!ml)return;
     var it=(ml.items||[]).find(function(x){return x.id===itemId;});if(!it)return;
@@ -4496,21 +4541,29 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     var meineMl=abPoolRead(ML_POOL).filter(function(r){return abIstMeineMl(r)&&(r.status==='offen');});
     meineMl.forEach(function(ml){
       var items=ml.items||[];var done=items.filter(function(x){return x.status==='erledigt';}).length;
+      var inArb=items.filter(function(x){return x.status==='in_arbeit';}).length;
       var vonWem=esc((ml.verantwortlich&&ml.verantwortlich.name)||'')+((ml.verantwortlich&&ml.verantwortlich.firma)?' ('+esc(ml.verantwortlich.firma)+')':'');
-      h+='<div class="card" style="margin-bottom:14px;border-color:#93c5fd"><div class="card-hd"><div class="card-hd-ic">📋</div><div><div class="card-hd-title">Mängelliste — '+esc(ml.objektName||'')+'</div><div class="card-hd-sub">'+esc(ml.protoName||'')+' · von '+vonWem+' · '+done+'/'+items.length+' erledigt</div></div></div><div class="card-body">'
+      h+='<div class="card" style="margin-bottom:14px;border-color:#93c5fd"><div class="card-hd"><div class="card-hd-ic">📋</div><div><div class="card-hd-title">Mängelliste — '+esc(ml.objektName||'')+'</div><div class="card-hd-sub">'+esc(ml.protoName||'')+' · von '+vonWem+' · '+done+'/'+items.length+' erledigt'+(inArb?' · '+inArb+' in Arbeit':'')+'</div></div></div><div class="card-body">'
         +abMlProjektHtml(ml)
         +items.map(function(it){
           var zg=it.status==='zurueckgewiesen';
+          // Status rechts als drei Knöpfe (Feedback 09.09.2026: «nicht eine
+          // Checkbox … sondern drei Buttons … eher rechts. Offen, in Arbeit
+          // und erledigt» — «Offen» ist zugleich der Weg zurück).
           return '<div style="padding:9px 2px;border-bottom:1px solid var(--brd)'+(zg?';background:#fef2f2':'')+'">'
-            +'<div style="display:flex;align-items:flex-start;gap:9px;flex-wrap:wrap">'
-            +'<input type="checkbox" style="width:22px;height:22px;flex-shrink:0;margin-top:2px" '+(it.status==='erledigt'?'checked':'')+' onchange="abMlItemToggle(\''+ml.id+'\',\''+it.id+'\',this.checked)"/>'
+            +'<div style="display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap">'
             +'<div style="flex:1;min-width:180px"><b style="font-size:13.5px">'+esc(it.ort||'—')+'</b> <span style="font-size:13px">'+esc(it.mangel||'')+'</span>'
             +(it.erledigungBis?'<br><span style="font-size:11px;color:var(--mut)">bis '+esc(it.erledigungBis)+'</span>':'')
-            +(zg?'<br><span style="font-size:12px;color:#b91c1c;font-weight:700">↩ Zurückgewiesen: «'+esc(it.kommentarVerantwortlicher||'')+'»</span>':'')
+            +(it.kommentarVerantwortlicher
+               ?'<br><span style="font-size:12px;color:#b91c1c;font-weight:700">↩ '+(zg?'Zurückgewiesen':'Zuvor zurückgewiesen')+': «'+esc(it.kommentarVerantwortlicher)+'»</span>'
+               :'')
             +'</div>'
-            +'<span style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">'+abMlFotoThumbs(it.fotos,true)+abMlFotoThumbs(it.fixFotos)+'<button class="act-btn" style="min-height:34px" onclick="abMlItemFoto(\''+ml.id+'\',\''+it.id+'\')">📷 Beweis</button></span>'
+            +'<div class="ml-actcol">'
+            +  abMlSegHtml(ml.id,it.id,it.status)
+            +  '<span class="ml-fotos">'+abMlFotoThumbs(it.fotos,true)+abMlFotoThumbs(it.fixFotos)+'<button class="act-btn" style="min-height:34px" onclick="abMlItemFoto(\''+ml.id+'\',\''+it.id+'\')">📷 Beweis</button></span>'
             +'</div>'
-            +'<input placeholder="Kommentar zur Behebung (optional) …" value="'+escAttr(it.kommentar||'')+'" style="margin-top:6px;width:100%;padding:8px 10px;border:1.5px solid var(--brd2);border-radius:8px;font-size:13px" onchange="abMlItemKommentar(\''+ml.id+'\',\''+it.id+'\',this.value)"/>'
+            +'</div>'
+            +'<input placeholder="Kommentar zur Behebung (optional) …" value="'+escAttr(it.kommentar||'')+'" style="margin-top:8px;width:100%;padding:8px 10px;border:1.5px solid var(--brd2);border-radius:8px;font-size:13px" onchange="abMlItemKommentar(\''+ml.id+'\',\''+it.id+'\',this.value)"/>'
             +'</div>';
         }).join('')
         +'<button class="act-btn primary" style="margin-top:10px;width:100%" onclick="abMlFertigmelden(\''+ml.id+'\')">✓ Alle abgearbeitet — an '+esc((ml.verantwortlich&&ml.verantwortlich.name)||'Verantwortlichen')+' melden</button>'
@@ -4528,13 +4581,14 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       var items=ml.items||[];
       var done=items.filter(function(x){return x.status==='erledigt';}).length;
       var zurueck=items.filter(function(x){return x.status==='zurueckgewiesen';}).length;
+      var inArbeit=items.filter(function(x){return x.status==='in_arbeit';}).length;
       var alleFertig=items.length>0&&done===items.length;
       var wer=esc(ml.monteurName||'')+(ml.monteurFirma?' ('+esc(ml.monteurFirma)+')':'')+(ml.extern?' · ✉️ extern':'');
       var pct=items.length?Math.round(done/items.length*100):0;
       h+='<div class="card" style="margin-bottom:14px;border-color:'+(alleFertig?'#86efac':'#bfdbfe')+'">'
         +'<div class="card-hd"><div class="card-hd-ic">'+(alleFertig?'✅':'🔧')+'</div><div>'
         +'<div class="card-hd-title">Übergeben — '+esc(ml.objektName||'')+'</div>'
-        +'<div class="card-hd-sub">an '+wer+' · '+done+'/'+items.length+' erledigt'+(zurueck?' · '+zurueck+' zurückgewiesen':'')+'</div>'
+        +'<div class="card-hd-sub">an '+wer+' · '+done+'/'+items.length+' erledigt'+(inArbeit?' · '+inArbeit+' in Arbeit':'')+(zurueck?' · '+zurueck+' zurückgewiesen':'')+'</div>'
         +'</div></div><div class="card-body">'
         +'<div style="height:7px;border-radius:99px;background:var(--bg2);overflow:hidden;margin-bottom:10px">'
         +'<div style="height:100%;width:'+pct+'%;background:'+(alleFertig?'var(--grn)':'#3b82f6')+'"></div></div>'

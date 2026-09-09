@@ -74,6 +74,14 @@ ok(/function scheduleSave[\s\S]{0,400}ab-nur-maengel'\)\) return;/.test(AB),
   'Regression: der Abarbeiter speichert das Protokoll weiterhin NIE');
 ok(/laufend=abPoolRead\(ML_POOL\)\.filter\(function\(r\)\{[\s\S]{0,180}abMlDarfKontrollieren\(r\)/.test(AB),
   'das neue Panel nutzt denselben Berechtigungs-Guard wie die Aktionen');
+ok(/var AB_ML_STATI=\{offen:1,in_arbeit:1,erledigt:1\}/.test(AB),
+  'Status-Setter akzeptiert genau offen / in_arbeit / erledigt');
+ok(/window\.abMlItemToggle=function[\s\S]{0,200}abMlItemStatus\(mlId,itemId,chk\?'erledigt':'offen'\)/.test(AB),
+  'der alte Checkbox-Aufruf bleibt als Wrapper bestehen (Alt-Markup / Deep-Links)');
+ok(!/type="checkbox"[^>]*onchange="abMlItemToggle/.test(AB),
+  'in der Abarbeitungs-Liste steckt keine Checkbox mehr');
+ok(/kommentarVerantwortlicher bleibt STEHEN/.test(AB),
+  'die Begründung einer Zurückweisung wird beim Neu-Setzen NICHT gelöscht');
 
 // ══════════════════════════════════════════════════════════════════
 // Gemeinsame gemockte Cloud + zwei Kontexte
@@ -215,6 +223,98 @@ ok(/Vom Monteur erledigt/.test(teil.karten[0].badges || '') && teil.karten[0].de
 ok(!/Vom Monteur erledigt/.test(teil.karten[1].badges || '') && /Beim Monteur/.test(teil.karten[1].badges || ''),
   'der noch offene Punkt zeigt «Beim Monteur», nicht «erledigt»', teil.karten[1]);
 ok(teil.freiBtn === false, 'der Freigeben-Knopf erscheint erst, wenn alles abgehakt ist', teil.freiBtn);
+
+console.log('— B2b) Drei Status-Knöpfe statt Checkbox —');
+const seg = await M.evaluate(() => {
+  const ml = (_abPoolRead('gema_abnahme_ml_pool_v1') || []).find(r => _abIstMeineMl(r));
+  const host = document.getElementById('abTasks');
+  const zeilen = [...host.querySelectorAll('.ml-seg')];
+  const ersteZeile = zeilen[0] ? [...zeilen[0].querySelectorAll('button')].map(b => ({ t: b.textContent.trim(), on: b.className.indexOf('on-') >= 0 })) : [];
+  return { checkboxen: host.querySelectorAll('input[type=checkbox]').length, segs: zeilen.length, ersteZeile, mlId: ml.id, itemIds: ml.items.map(i => i.id) };
+});
+ok(seg.checkboxen === 0, 'keine Checkbox mehr in der Mängelliste', seg.checkboxen);
+ok(seg.segs === 2 && seg.ersteZeile.length === 3, 'jeder Punkt hat drei Status-Knöpfe', { segs: seg.segs, n: seg.ersteZeile.length });
+ok(seg.ersteZeile.map(b => b.t.replace(/^\W+\s*/, '')).join('|') === 'Offen|In Arbeit|Erledigt',
+  'Beschriftung Offen / In Arbeit / Erledigt', seg.ersteZeile.map(b => b.t));
+ok(seg.ersteZeile[2].on === true && seg.ersteZeile[0].on === false,
+  'der aktuelle Stand (erledigt) ist als aktiv markiert', seg.ersteZeile);
+// rechts, nicht links: der Schalter sitzt rechts vom Mangeltext
+const rechts = await M.evaluate(() => {
+  const zeile = document.querySelector('#abTasks .ml-seg').closest('div[style*="flex-wrap"]');
+  const txt = zeile.querySelector('div[style*="min-width:180px"]').getBoundingClientRect();
+  const s = zeile.querySelector('.ml-seg').getBoundingClientRect();
+  return { textLinks: Math.round(txt.left), segLinks: Math.round(s.left) };
+});
+ok(rechts.segLinks > rechts.textLinks, 'der Schalter steht rechts vom Mangeltext', rechts);
+// «Offen» macht rückgängig, «In Arbeit» ist ein eigener Zwischenstand
+const dreiWege = await M.evaluate(async () => {
+  const ml = (_abPoolRead('gema_abnahme_ml_pool_v1') || []).find(r => _abIstMeineMl(r));
+  window.abMlItemStatus(ml.id, ml.items[0].id, 'offen');
+  await new Promise(r => setTimeout(r, 200));
+  const a = _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === ml.id).items.map(i => i.status);
+  window.abMlItemStatus(ml.id, ml.items[0].id, 'in_arbeit');
+  await new Promise(r => setTimeout(r, 200));
+  const p = _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === ml.id);
+  window.abMlItemStatus(ml.id, ml.items[0].id, 'quatsch');   // unbekannt → ignorieren
+  await new Promise(r => setTimeout(r, 150));
+  const q = _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === ml.id).items[0].status;
+  return { nachOffen: a, nachArbeit: p.items.map(i => i.status), erledigtAm: p.items[0].erledigtAm, unbekannt: q };
+});
+ok(dreiWege.nachOffen[0] === 'offen', '«Offen» nimmt ein Erledigt zurück', dreiWege.nachOffen);
+ok(dreiWege.nachArbeit[0] === 'in_arbeit' && !dreiWege.erledigtAm,
+  '«In Arbeit» ist ein eigener Stand ohne Erledigt-Stempel', dreiWege);
+ok(dreiWege.unbekannt === 'in_arbeit', 'ein unbekannter Status wird ignoriert statt gespeichert', dreiWege.unbekannt);
+// ECHTER Klick statt Funktionsaufruf: der Nur-Mängel-Modus schaltet
+// pointer-events für Knöpfe ab (#view_abnahme/#view_maengel) — die Schalter
+// im Aufgaben-Panel dürfen davon NICHT betroffen sein.
+const klick = await M.evaluate(async () => {
+  const seg = document.querySelector('#abTasks .ml-seg');
+  const btn = seg.querySelectorAll('button')[2];              // «Erledigt»
+  const r = btn.getBoundingClientRect();
+  const oben = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+  const erreichbar = !!(oben && (oben === btn || btn.contains(oben)));
+  const pe = getComputedStyle(btn).pointerEvents;
+  btn.click();
+  await new Promise(r2 => setTimeout(r2, 250));
+  const ml = (_abPoolRead('gema_abnahme_ml_pool_v1') || []).find(r3 => _abIstMeineMl(r3));
+  return { erreichbar, pe, status: ml.items[0].status };
+});
+ok(klick.erreichbar && klick.pe !== 'none', 'die Knöpfe sind im Nur-Mängel-Modus wirklich anklickbar (gemessen)', klick);
+ok(klick.status === 'erledigt', 'ein echter Klick auf «Erledigt» setzt den Status', klick.status);
+// zurück auf «In Arbeit» für die folgende Prüfung
+await M.evaluate(async () => {
+  const seg = document.querySelector('#abTasks .ml-seg');
+  seg.querySelectorAll('button')[1].click();
+  await new Promise(r => setTimeout(r, 250));
+});
+const fertigBlock = await M.evaluate(async () => {
+  const ml = (_abPoolRead('gema_abnahme_ml_pool_v1') || []).find(r => _abIstMeineMl(r));
+  window.abMlFertigmelden(ml.id);
+  await new Promise(r => setTimeout(r, 250));
+  return _abPoolRead('gema_abnahme_ml_pool_v1').find(r => r.id === ml.id).status;
+});
+ok(fertigBlock === 'offen', '«In Arbeit» zählt nicht als erledigt — Fertigmelden bleibt gesperrt', fertigBlock);
+await M.waitForTimeout(1200);
+
+await P.close();
+P = await open(cP, 'planer2b');
+const arbeitSicht = await P.evaluate(() => ({
+  tasks: (document.getElementById('abTasks') || {}).innerText?.replace(/\s+/g, ' ').trim() || '',
+  badge: document.querySelector('#items .mangel-status-col')?.innerText.replace(/\s+/g, ' ').trim() || '',
+  freiBtn: !!document.querySelector('#abTasks button[onclick*="abMlFreigeben"]')
+}));
+ok(/in Arbeit/.test(arbeitSicht.tasks), 'der Planer sieht «in Arbeit» in der Kopfzeile', arbeitSicht.tasks.slice(0, 120));
+ok(/In Arbeit/.test(arbeitSicht.badge), 'der Protokollpunkt zeigt «In Arbeit»', arbeitSicht.badge);
+ok(arbeitSicht.freiBtn === false, 'kein Freigeben, solange ein Punkt nur «in Arbeit» ist');
+// Stand für die folgenden Blöcke wiederherstellen
+await M.evaluate(async () => {
+  const ml = (_abPoolRead('gema_abnahme_ml_pool_v1') || []).find(r => _abIstMeineMl(r));
+  window.abMlItemStatus(ml.id, ml.items[0].id, 'erledigt');
+  await new Promise(r => setTimeout(r, 250));
+});
+await M.waitForTimeout(1000);
+await P.close();
+P = await open(cP, 'planer2c');
 
 console.log('— C1) Datensicherheit: kein stiller Rückschrieb ins Protokoll —');
 ok(teil.proto.join('|') === '|', 'it.erledigt im Protokoll bleibt leer, bis die verantwortliche Seite freigibt', teil.proto);
