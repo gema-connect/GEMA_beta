@@ -25,6 +25,16 @@
  *   der Kartenkopf (mit «Fortsetzung»-Marke), Tabellen nehmen ihre Kopfzeile
  *   mit. Nichts wird stillschweigend abgeschnitten.
  *
+ * ABSCHNITTE VOLLSTÄNDIG UND EINHEITLICH (Feedback 11.09.2026, Robin — Guard
+ * scripts/pdf_abschnitte_test.mjs): gemessene Scroll-Container werden
+ * geöffnet (nichts, was am Bildschirm scrollt, fehlt auf Papier), ALLE Mappen
+ * eines Tab-Moduls kommen mit ihrem Reiter-Titel in den Bericht (Ausnahmen
+ * werden benannt), Ein-Kind-Ketten werden abgestiegen statt als Block
+ * geschrumpft, Karten beginnen im Restplatz eines Blatts (ab ~28 % frei),
+ * verkleinert wird nur, was auch auf ein leeres Blatt nicht passt, und
+ * zweispaltige Karten-Raster stehen untereinander. Toasts, nackte Pfeile und
+ * leere ✕-Spalten bleiben draussen.
+ *
  * Was im Export NICHT erscheint (bewusst):
  *   Hero-Kopf, Norm-Untertitel, Projektleiste (Objekt/Bearbeiter/Datum/SIA),
  *   der «Zugeordnet zu»-Hinweis, sämtliche Knöpfe inkl. der ✕ zum Löschen.
@@ -160,8 +170,15 @@
     /* Offerten-Postfach: ein Bedien-Reiter der Modulseite («📨 Offerten 0»)
        samt Panel — im Bericht eine tote, klickbare Hülse. */
     '#gema-offerten-tab', '#gema-offerten-panel',
+    /* Toasts («✓ Gespeichert») und alles, was am Bildschirm SCHWEBT
+       (position:fixed, gemessen in stempeln) — im Bericht landete der Toast
+       sonst als Kasten mitten auf dem Blatt (Feedback 11.09.2026). */
+    '#toast', '.toast', '[data-gp-fix]',
     'script', 'link[rel="import"]'
   ].join(',');
+  /* Nackte Pfeil-Glyphen der modul-eigenen Fold-Köpfe («▸», «▾» …): ein
+     Bedienelement ohne Knopf-Markup — im Bericht ein sinnloses Zeichen. */
+  var CHEVRON = /^[▸▾▼▶►▲▴◂◀‹›⌄⌃⯆⯈▹▿]$/;
   /* Bedienelemente — im Bericht nutzlos, «✕ löschen» sogar irreführend */
   var KNOEPFE = 'button,.g-btn,.btn,.row-del,.del,.x,.close,[role="button"],a.g-nav-btn,input[type="button"],input[type="submit"],input[type="file"],input[type="range"]';
 
@@ -209,9 +226,38 @@
       }
       f.setAttribute('data-gp-val', String(f.value == null ? '' : f.value));
     });
-    /* Canvas → Bild (ein geklontes Canvas ist leer) */
+    /* Canvas → Bild (ein geklontes Canvas ist leer). Ein NIE gezeichnetes
+       Canvas (Diagramm einer noch nicht geöffneten Mappe) bliebe im Bericht
+       ein leeres weisses Rechteck — es wird als «leer» gestempelt und im Klon
+       entfernt (die Sektion trägt dann ihre Werte ohne Bild). */
     d.querySelectorAll('canvas').forEach(function (c) {
-      try { if (c.width && c.height) c.setAttribute('data-gp-img', c.toDataURL('image/png')); } catch (e) { }
+      try {
+        if (!(c.width && c.height)) return;
+        if (canvasLeer(c)) { c.setAttribute('data-gp-hide', '1'); return; }
+        c.setAttribute('data-gp-img', c.toDataURL('image/png'));
+      } catch (e) { }
+    });
+    /* SCROLL-CONTAINER (Feedback 11.09.2026 «Abschnitte abgeschnitten»):
+       Ein Rahmen mit max-height + overflow:auto (Dampfdruck-Tafel, lange
+       Wertetabellen) misst im Klon nur seine Rahmenhöhe; auf Papier fehlt
+       alles, was am Bildschirm scrollte — stiller Datenverlust. Hier wird
+       GEMESSEN (getComputedStyle), nicht am Markup abgelesen: jeder Rahmen,
+       der scrollen kann oder dessen Inhalt gekappt wird, bekommt eine Marke,
+       die Druck-CSS öffnet ihn (overflow:visible, keine Höhengrenze).
+       Ebenso: position:fixed-Elemente (Toasts «✓ Gespeichert», schwebende
+       Knöpfe) gehören nie in ein Dokument — die Marke nimmt sie mit dem Klon
+       heraus. */
+    var wurzel = d.querySelector('.g-page') || d.querySelector('main') || d.body;
+    wurzel.querySelectorAll('*').forEach(function (e) {
+      var cs;
+      try { cs = getComputedStyle(e); } catch (err) { return; }
+      if (cs.position === 'fixed') { e.setAttribute('data-gp-fix', '1'); return; }
+      var oy = cs.overflowY, ox = cs.overflowX;
+      var scrollt = oy === 'auto' || oy === 'scroll' || ox === 'auto' || ox === 'scroll';
+      /* nur SENKRECHT gekappte Rahmen — die Breite passt das Einpass-Script
+         ohnehin ein, und waagrecht «gekappt» sind oft Grafiken (Balken) */
+      var gekappt = (oy === 'hidden' || oy === 'clip') && e.scrollHeight > e.clientHeight + 4;
+      if (scrollt || gekappt) e.setAttribute('data-gp-scroll', '1');
     });
     /* Leere Sektionen markieren */
     if (w.GemaSektion) {
@@ -220,11 +266,19 @@
       });
     }
   }
+  /** Ein Canvas ohne einen einzigen gesetzten Pixel wurde nie gezeichnet. */
+  function canvasLeer(c) {
+    try {
+      var g = c.getContext('2d'); if (!g) return false;
+      var px = g.getImageData(0, 0, c.width, c.height).data;
+      for (var i = 3; i < px.length; i += 4) if (px[i]) return false;
+      return true;
+    } catch (e) { return false; }
+  }
+  var STEMPEL = ['data-gp-val', 'data-gp-chk', 'data-gp-img', 'data-gp-leer', 'data-gp-hide', 'data-gp-ta', 'data-gp-fix', 'data-gp-scroll'];
   function entstempeln() {
-    d.querySelectorAll('[data-gp-val],[data-gp-chk],[data-gp-img],[data-gp-leer],[data-gp-hide],[data-gp-ta]').forEach(function (e) {
-      e.removeAttribute('data-gp-val'); e.removeAttribute('data-gp-chk');
-      e.removeAttribute('data-gp-img'); e.removeAttribute('data-gp-leer');
-      e.removeAttribute('data-gp-hide'); e.removeAttribute('data-gp-ta');
+    d.querySelectorAll(STEMPEL.map(function (a) { return '[' + a + ']'; }).join(',')).forEach(function (e) {
+      STEMPEL.forEach(function (a) { e.removeAttribute(a); });
     });
   }
 
@@ -291,6 +345,68 @@
     });
   }
 
+  /** Reiter-Titel einer Mappe: der `.g-tab[data-tab=<id>]`-Knopf der Seite
+      (vor dem Knopf-Kahlschlag gelesen). Kreisziffern bleiben — sie sind die
+      Kapitel-Nummer des Moduls. */
+  function mappenTitel(klon, panel) {
+    var id = panel.id, t = '';
+    if (id) {
+      var btn = klon.querySelector('.g-tab[data-tab="' + id + '"],[data-tab="' + id + '"]');
+      if (btn) t = (btn.textContent || '').replace(/\s+/g, ' ').trim();
+    }
+    return t;
+  }
+  function mappen(klon) {
+    var panels = Array.prototype.slice.call(klon.querySelectorAll('.tab-content'));
+    if (!panels.length) return;
+    var leiste = klon.querySelector('.g-tabs,[role="tablist"]');
+    var nurAktiv = !!(leiste && leiste.getAttribute('data-gp-tabs') === 'aktiv');
+    var mehrere = panels.length > 1;
+    panels.forEach(function (p) {
+      var titel = mappenTitel(klon, p);
+      var weg = p.getAttribute('data-gp-print') === 'weg';
+      var variante = nurAktiv && !p.classList.contains('active');
+      if (weg || variante) {
+        /* BENENNEN, nicht still weglassen (No-silent-caps) */
+        var n = d.createElement('div');
+        n.className = 'gp-mappe-weg';
+        n.textContent = (titel ? '«' + titel + '»' : 'Mappe') + (variante
+          ? ' — nicht gewählte Variante, nicht im Bericht'
+          : ' — Nachschlagetabelle, nicht im Bericht');
+        p.parentNode.replaceChild(n, p);
+        return;
+      }
+      p.classList.add('gp-tab');
+      if (mehrere && titel) {
+        var h = d.createElement('div');
+        h.className = 'gp-mappe';
+        h.textContent = titel;
+        p.insertBefore(h, p.firstChild);
+      }
+    });
+  }
+
+  /** Spalten entfernen, in denen KEINE Zelle etwas zeigt (weder Text noch
+      Bild/Feldwert) — nur bei Tabellen ohne colspan/rowspan, sonst
+      verschöbe sich das Raster. */
+  function leereSpaltenWeg(tab) {
+    if (tab.querySelector('[colspan],[rowspan],colgroup')) return;
+    var zeilen = Array.prototype.slice.call(tab.rows || []);
+    if (!zeilen.length) return;
+    var n = 0;
+    zeilen.forEach(function (r) { n = Math.max(n, r.cells.length); });
+    for (var c = n - 1; c >= 0; c--) {
+      var leer = true;
+      for (var i = 0; i < zeilen.length && leer; i++) {
+        var z = zeilen[i].cells[c];
+        if (!z) continue;
+        if ((z.textContent || '').trim() || z.querySelector('img,svg,canvas,.gp-chk,.gp-val:not(.leer)')) leer = false;
+      }
+      if (!leer) continue;
+      zeilen.forEach(function (r) { if (r.cells[c]) r.removeChild(r.cells[c]); });
+    }
+  }
+
   function aufbereiten(klon) {
     /* Eltern entfernter Bedienelemente — nur DIESE Hülsen werden am Schluss
        aufgeräumt (siehe leereHuelsenWeg). */
@@ -322,8 +438,22 @@
       if (/\d/.test(zeile.textContent || '')) return;
       zeile.parentNode.removeChild(zeile);
     });
+    /* 1c) MAPPEN (Tab-Panels): der Bericht zeigt ALLE Mappen, nicht nur die
+           gerade offene — sonst fehlten in sb_warmwasser fünf von sechs
+           Kapiteln stillschweigend (Feedback 11.09.2026). Jede Mappe bekommt
+           ihren Reiter-Titel als Zwischentitel. Ausnahmen, jeweils BENANNT
+           statt still weggelassen: `data-gp-tabs="aktiv"` an der Reiterleiste
+           (Varianten wie VFD ⇄ Windkessel — nur die gewählte Variante ist
+           der Bericht) und `data-gp-print="weg"` an einer Referenz-Mappe
+           (Nachschlagetabellen). MUSS vor Schritt 2 laufen — die Reiter sind
+           Knöpfe und tragen die Titel. */
+    mappen(klon);
     /* 2) Knöpfe raus (inkl. der ✕ zum Löschen) */
     klon.querySelectorAll(KNOEPFE).forEach(function (e) { raus(e); });
+    /* 2a) Nackte Pfeil-Glyphen (Fold-Köpfe ohne Knopf-Markup) */
+    klon.querySelectorAll('span,i,b,div').forEach(function (e) {
+      if (!e.childElementCount && CHEVRON.test((e.textContent || '').trim())) raus(e);
+    });
     /* 3) Canvas → Bild */
     klon.querySelectorAll('canvas').forEach(function (c) {
       var src = c.getAttribute('data-gp-img');
@@ -362,12 +492,19 @@
     });
     klon.querySelectorAll('[data-gp-leer]').forEach(function (k) { k.removeAttribute('data-gp-leer'); });
     /* 6) Fold-Zustand der Bildschirm-Ansicht aufheben — im Export entscheidet
-          allein, ob Werte drinstehen. */
+          allein, ob Werte drinstehen. Auch native <details> (Erläuterungen
+          in sb_regenwasser_luzern) kommen offen — zugeklappt fehlte ihr
+          Inhalt stillschweigend. */
     klon.querySelectorAll('.gsek-zu').forEach(function (k) { k.classList.remove('gsek-zu'); });
+    klon.querySelectorAll('details').forEach(function (k) { k.setAttribute('open', ''); });
     /* 7) Aufgeräumte Reste */
     klon.querySelectorAll('[onclick],[oninput],[onchange]').forEach(function (e) {
       e.removeAttribute('onclick'); e.removeAttribute('oninput'); e.removeAttribute('onchange');
     });
+    /* 7a) Leere Tabellenspalten (die ✕-Spalte, deren Knöpfe Schritt 2 nahm)
+           — eine leere Spalte mit Kopf-Fläche sieht im Bericht nach einem
+           fehlenden Wert aus. */
+    klon.querySelectorAll('table').forEach(leereSpaltenWeg);
     /* 8) Was durch das Entfernen eines Bedienelements leer wurde */
     leereHuelsenWeg(beruehrt);
     /* 9) Karten-Nummern der Vorlage (01, 02, …) */
@@ -428,6 +565,11 @@
       '.gp-kopf-l{min-width:0;max-width:86mm;text-align:center}',
       '.gp-eimer{color:' + b.acc + ';font-weight:700;font-size:10.5pt;letter-spacing:.01em;margin:0 0 2mm}',
       '.gp-titel{font-size:16.5pt;font-weight:800;line-height:1.08;color:' + b.dunkel + ';margin:0}',
+      /* Lange Modul-Titel («Regenwasserrechner AWEL — Entwässerungsplanung,
+         Retention & Versickerung») liefen 4-zeilig in die Markenlinie —
+         gestuft kleiner, damit sie in den 26-mm-Kopf passen. */
+      '.gp-titel.gp-titel--lang{font-size:13.5pt}',
+      '.gp-titel.gp-titel--sehrlang{font-size:11.5pt}',
       '.gp-meta{justify-self:end;max-width:55mm;text-align:right;font-size:8.4pt;line-height:1.45;color:#667085}',
       '.gp-meta strong{color:#1d2633;font-weight:700}',
       '.gp-linie{position:absolute;top:40mm;left:14mm;right:14mm;height:.55mm;background:' + b.acc + ';border-radius:2mm}',
@@ -445,6 +587,26 @@
       '.gp-kicker{min-height:11.5mm;border:1px solid #dce3ea;background:#fbfcfd;border-radius:3mm;',
       '  display:flex;align-items:center;padding:2mm 5mm;font-size:9.2pt;font-weight:700;',
       '  letter-spacing:.03em;text-transform:uppercase;margin:0 0 5mm;color:#1d2633}',
+      /* ── Mappen (Tab-Panels): ALLE sichtbar, jede mit ihrem Reiter-Titel als
+            Zwischentitel in der Markenfarbe; eine bewusst ausgelassene Mappe
+            wird als Zeile benannt. ── */
+      '.gp-body .tab-content.gp-tab{display:block!important}',
+      '.gp-mappe{font-size:11pt;font-weight:800;color:' + b.dunkel + ';letter-spacing:.01em;',
+      '  padding:1.5mm 0 1.5mm;margin:1mm 0 3.5mm;border-bottom:.45mm solid ' + b.acc + '}',
+      '.gp-mappe-weg{font-size:8pt;color:#98a2b3;font-style:italic;margin:0 0 4mm;padding:0 1mm}',
+      /* Native <details> stehen offen; die Zusammenfassung ist eine
+         Überschrift, kein Klapp-Knopf (kein Pfeil-Marker) */
+      '.gp-body details>summary{list-style:none;cursor:default;font-weight:700}',
+      '.gp-body details>summary::-webkit-details-marker{display:none}',
+      '.gp-body details>summary::before,.gp-body details>summary::after{display:none!important}',
+      /* Gemessene Scroll-Container (stempeln): auf Papier gibt es kein
+         Scrollen — der Rahmen zeigt ALLES, die Paginierung teilt ihn. */
+      '.gp-body [data-gp-scroll]{overflow:visible!important;max-height:none!important;height:auto!important}',
+      /* Mehrspaltige Karten-Raster, die nicht auf ein Blatt passen, werden
+         von der Paginierung untereinander gesetzt (gp-linear) statt als
+         Ganzes verkleinert. */
+      '.gp-body .gp-linear{display:block!important;grid-template-columns:none!important}',
+      '.gp-body .gp-linear>*{width:100%!important;max-width:none!important;flex:none!important;margin:0 0 4.5mm!important}',
 
       /* ── Sektionen als Karten der Vorlage ── */
       '.gp-body .g-card,.gp-body .el-card,.gp-body .g-section,.gp-body .card{',
@@ -490,11 +652,18 @@
             danach nur feine Zeilenlinien (keine Gitter-Rahmen) ── */
       '.gp-body table{width:100%!important;border-collapse:collapse!important;font-size:8.2pt!important;',
       '  table-layout:auto!important}',
+      /* Kopfzellen DÜRFEN umbrechen (die Module setzen nowrap für den
+         Bildschirm-Scroll): «Regulierventil [mbar]» hielt sonst eine Spalte
+         mit dem Wert «0.1» 98 px breit, und die ganze Tabelle wurde auf 65 %
+         geschrumpft. Zellen-Padding schmaler als am Bildschirm — Papier hat
+         182 mm, kein Scrollen. */
       '.gp-body table th{text-transform:uppercase;letter-spacing:.02em;color:#475467!important;',
       '  font-size:7pt!important;font-weight:700!important;background:#f5f7f9!important;',
-      '  border:none!important;border-bottom:1px solid #dce3ea!important;padding:2.2mm 2mm!important}',
+      '  border:none!important;border-bottom:1px solid #dce3ea!important;padding:1.8mm 1.4mm!important;',
+      '  white-space:normal!important;line-height:1.25}',
       '.gp-body table td{border:none!important;border-bottom:1px solid #edf1f4!important;',
-      '  padding:2mm!important;vertical-align:middle;background:transparent!important}',
+      '  padding:1.6mm 1.4mm!important;vertical-align:middle;background:transparent!important;',
+      '  white-space:normal!important}',
       '.gp-body table tr:last-child td{border-bottom:none!important}',
       '.gp-body thead{display:table-header-group}',
       '.gp-body tr{break-inside:avoid;page-break-inside:avoid}',
@@ -608,7 +777,11 @@
       '}',
 
       /* ── Paginierung in feste A4-Blätter (Layout der Kunden-Vorlage) ── */
-      'var GP={flow:null,sig:"",teil:false};',
+      /* GP.zwang: «dieses Blatt ist frisch — das erste Kind MUSS hierhin»
+         (notfalls verkleinert). Ohne Zwang wandert ein Block, der in den
+         Restplatz nicht passt, aber auf ein leeres Blatt passen würde, auf
+         das nächste Blatt, statt in den Restplatz geschrumpft zu werden. */
+      'var GP={flow:null,sig:"",teil:false,zwang:false};',
       'var GP_HD=".gsek-hd,.g-card-hd,.el-card-hd,.g-section-hd,.card-hd";',
       'var GP_BD=".gsek-bd,.g-card-bd,.el-card-bd,.g-section-bd,.card-bd";',
       'function gpKind(el,sel){for(var i=0;i<el.children.length;i++){if(el.children[i].matches(sel))return el.children[i];}return null;}',
@@ -634,13 +807,24 @@
       ' var tpl=tplEl.innerHTML;',
       ' stage.innerHTML="";',
       ' var body=null;',
-      ' function neuesBlatt(){stage.insertAdjacentHTML("beforeend",tpl);body=stage.lastElementChild.querySelector(".gp-body");}',
+      /* Sicherung gegen eine Endlosschleife der Teilungs-Logik: mehr als 300
+         Blätter hat kein Berechnungsbericht — dann wird abgebrochen, was
+         bis dahin steht, bleibt sichtbar (Fehler in der Konsole). */
+      ' function neuesBlatt(){if(stage.querySelectorAll(".gp-blatt").length>300)throw new Error("GemaPrint: Paginierung abgebrochen (>300 Blätter)");stage.insertAdjacentHTML("beforeend",tpl);body=stage.lastElementChild.querySelector(".gp-body");}',
       ' function passt(){return body.scrollHeight<=body.clientHeight+2;}',
       /* «Leer» heisst: es steht noch NICHTS SICHTBARES auf dem Blatt. Gezählt
          wird die gemessene Höhe, nicht die Zahl der Kinder — eine unsichtbare
          Hülse (z.B. ein leeres <span> der Modulseite) machte das Blatt sonst
          «belegt», das erste echte Element rutschte auf Blatt 2 und Blatt 1
          blieb bis auf den Kicker leer (gemeldet 12.08.2026). */
+      /* Freier Platz auf dem Blatt in px. NICHT über body.scrollHeight —
+         mit overflow:hidden meldet es nie weniger als clientHeight, «frei»
+         wäre immer 0. Gemessen wird die Unterkante des tiefsten Kindes. */
+      ' function frei(){',
+      '  var top=body.getBoundingClientRect().top,unten=0;',
+      '  for(var i=0;i<body.children.length;i++){var r=body.children[i].getBoundingClientRect();if(r.height>0)unten=Math.max(unten,r.bottom-top);}',
+      '  return body.clientHeight-unten;',
+      ' }',
       ' function leerIst(){',
       '  for(var i=0;i<body.children.length;i++){',
       '   var c=body.children[i];',
@@ -707,7 +891,10 @@
          damit auch eine allfällige Fusszeile/tfoot GENAU EINMAL, am Schluss). */
       ' function tabelleTeilen(container,huelle,tab){',
       '  var zeilen=Array.prototype.slice.call(tab.querySelectorAll("tr")).filter(function(r){return !r.closest("thead")&&!r.closest("tfoot");});',
-      '  if(!zeilen.length){skaliere(huelle,container);return null;}',
+      /* Ohne Zwang (Restplatz eines belegten Blatts): lieber ganz aufs
+         nächste Blatt als hier hinein geschrumpft — der Aufrufer sieht am
+         unveränderten Rückgabewert, dass NICHTS platziert wurde. */
+      '  if(!zeilen.length){if(!GP.zwang)return huelle;skaliere(huelle,container);return null;}',
       /* Trägt die Hülle einen Breiten-Fit aus der Vorlauf-Messung, wird er
          ABGELÖST: die geklonte fixe Höhe + der Transform würden jede
          Teil-Messung verfälschen. Die Teile stehen dann unskaliert — der
@@ -725,7 +912,8 @@
       '  var mount=shellTab;',
       '  if(huelle!==tab){mount=huelle.cloneNode(false);mount.appendChild(shellTab);}',
       '  container.appendChild(mount);',
-      '  if(!passt()){container.removeChild(mount);skaliere(huelle,container);return null;}',
+      '  var zwang=GP.zwang;',
+      '  if(!passt()){container.removeChild(mount);if(!zwang)return huelle;skaliere(huelle,container);return null;}',
       '  var i=0;',
       '  for(;i<zeilen.length;i++){',
       '   tb.appendChild(zeilen[i]);',
@@ -738,7 +926,12 @@
       '    else (tab.querySelector("tbody")||tab).appendChild(zeilen[i]);',
       '    break;}',
       '  }',
-      '  if(i===0){tb.appendChild(zeilen[0]);i=1;try{console.warn("GemaPrint: Tabellenzeile höher als das Blatt");}catch(e){}}',
+      /* Nicht einmal die erste Zeile passt: ohne Zwang bleibt die Tabelle
+         GANZ beim Original (Kopf allein am Blattende wäre eine Waise); mit
+         Zwang (frisches Blatt) wird die Zeile erzwungen. */
+      '  if(i===0){if(!zwang){container.removeChild(mount);return huelle;}',
+      '   tb.appendChild(zeilen[0]);i=1;try{console.warn("GemaPrint: Tabellenzeile höher als das Blatt");}catch(e){}}',
+      '  GP.zwang=false;',
       '  if(i>=zeilen.length){',
       /* alle Zeilen umgezogen — nur noch tfoot im Original? Dann mitnehmen.
          Passt sie nicht, geht sie ZURÜCK ins Original (gleiche Falle). */
@@ -755,93 +948,186 @@
       ' function rumpfFuellen(rumpf,kinder){',
       '  GP.teil=false;',
       '  while(kinder.length){',
+      /* Schleifen-Sicherung (siehe neuesBlatt) */
+      '   if(++GP.schritte>20000)throw new Error("GemaPrint: Paginierung abgebrochen (Schleife)");',
       '   var k=kinder[0];',
+      /* Diagnose-Haken für Drift-Guards (GP.trace = function(rumpf, kind)) */
+      '   if(GP.trace){try{GP.trace(rumpf,k);}catch(e){}}',
       '   rumpf.appendChild(k);',
-      '   if(passt()){kinder.shift();continue;}',
+      /* Ein Mappen-Titel ist kein Inhalt — er hebt den Zwang nicht auf */
+      '   if(passt()){kinder.shift();if(!k.classList.contains("gp-mappe"))GP.zwang=false;continue;}',
       /* Stil-Messung VOR dem Aushängen — dieselbe Falle wie in platziere */
       '   var kst=stapelt(k);',
+      /* Mehrspaltiges Karten-Raster (zwei Karten nebeneinander), das nicht
+         aufs Blatt passt: untereinander setzen — lesbar in voller Breite
+         statt als Ganzes auf 80 % geschrumpft (sb_druckdispositiv). */
+      '   if(!kst&&linearisierbar(k)){k.classList.add("gp-linear");if(passt()){kinder.shift();GP.zwang=false;continue;}kst=true;}',
       '   rumpf.removeChild(k);',
-      '   if(!rumpf.childElementCount){',
+      /* RESTPLATZ-REGEL (Feedback 11.09.2026): steht schon etwas im Rumpf
+         und ist weniger als gut ein Viertel des Blatts frei, endet das
+         Blatt hier (saubere Grenze). Ist mehr frei, wird das Kind unten
+         geteilt/abgestiegen wie auf einem leeren Blatt — früher wanderte
+         jede nicht ganz passende Karte komplett aufs nächste Blatt, und
+         der Bericht bestand aus halb leeren Seiten. */
+      '   var vorher=rumpf.childElementCount;',
+      '   if(vorher&&!(frei()>=body.clientHeight*0.28)){GP.teil=false;return kinder;}',
+      '   {',
       /* Verschachtelte KARTE (Karte in einem Wrapper wie .g-main-grid): mit
          eigenem Kopf teilen — der Tabellen-Weg würde ihr den Kopf nehmen
          (mount klont die Hülle ohne Kinder). Rekursion: derselbe Füll-Weg,
-         eine Ebene tiefer. */
+         eine Ebene tiefer. Passt NICHTS davon in den Restplatz, geht die
+         Karte unversehrt zurück in die Liste — der Aufrufer setzt sie auf
+         das nächste Blatt (ein Kartenkopf allein am Blattende wäre eine
+         Waise, die Fortsetzung darüber ein leeres Versprechen). */
       '    var kkopf=gpKind(k,GP_HD),krumpf=gpKind(k,GP_BD);',
       '    if(kkopf&&krumpf&&krumpf.childElementCount){',
-      '     rumpf.appendChild(k);',
+      '     fitLoesen(k);rumpf.appendChild(k);',
       '     var kk=Array.prototype.slice.call(krumpf.children);',
       '     kk.forEach(function(c){krumpf.removeChild(c);});',
       '     kk=rumpfFuellen(krumpf,kk);',
       '     if(!kk.length){GP.teil=false;kinder.shift();continue;}',
+      '     if(!krumpf.childElementCount){rumpf.removeChild(k);kk.forEach(function(c){krumpf.appendChild(c);});GP.teil=false;return kinder;}',
       '     var fk=fortsetzung(k),fb=gpKind(fk,GP_BD)||fk.lastElementChild;',
       '     kk.forEach(function(c){fb.appendChild(c);});',
       '     kinder[0]=fk;GP.teil=true;return kinder;',
       '    }',
       /* Verschachtelter WRAPPER ohne Kartenkopf (der innere Spalten-Block
-         der .g-main-grid): an den Kindergrenzen aufteilen — sonst nähme
-         der Tabellen-Weg unten den Wrapper und würfe alles neben der
-         Tabelle weg. Fortsetzung = nackte Hülle (kein Kopf, keine Marke);
-         GP.teil trägt den Zustand der INNEREN Teilung an den Aufrufer
-         weiter (Hinweis nur, wenn wirklich MITTEN in einem Element). */
-      '    if(kst&&(k.tagName==="DIV"||k.tagName==="SECTION"||k.tagName==="MAIN")&&k.childElementCount>1){',
-      '     rumpf.appendChild(k);',
+         der .g-main-grid, ein Tab-Panel, eine Ein-Kind-Hülle): an den
+         Kindergrenzen aufteilen — sonst nähme der Tabellen-Weg unten den
+         Wrapper und würfe alles neben der Tabelle weg. AUCH bei genau EINEM
+         Kind absteigen: `.tab-content > .g-main-grid > Karten` wurde sonst
+         als EIN Block auf 34 % geschrumpft (sb_regenwasserrechner,
+         sb_warmwasser, sa_abwasserhebeanlage — Feedback 11.09.2026).
+         Fortsetzung = nackte Hülle (kein Kopf, keine Marke); GP.teil trägt
+         den Zustand der INNEREN Teilung an den Aufrufer weiter. */
+      '    if(kst&&(k.tagName==="DIV"||k.tagName==="SECTION"||k.tagName==="MAIN"||k.tagName==="DETAILS")&&k.childElementCount>=1){',
+      '     fitLoesen(k);rumpf.appendChild(k);',
       '     var wk=Array.prototype.slice.call(k.children);',
       '     wk.forEach(function(c){k.removeChild(c);});',
       '     wk=rumpfFuellen(k,wk);',
       '     if(!wk.length){GP.teil=false;kinder.shift();continue;}',
+      '     if(!k.childElementCount){rumpf.removeChild(k);wk.forEach(function(c){k.appendChild(c);});GP.teil=false;return kinder;}',
       '     var wf=k.cloneNode(false);',
       '     wk.forEach(function(c){wf.appendChild(c);});',
       '     kinder[0]=wf;return kinder;',
       '    }',
       '    var tab=alsTabelle(k);',
       '    if(tab){var rest=tabelleTeilen(rumpf,k,tab);',
-      '     if(rest){kinder[0]=rest;GP.teil=true;return kinder;}',
+      /* rest === k und rumpf leer → NICHTS platziert (kein Zwang): saubere
+         Grenze, kein Fortsetzungs-Hinweis; sonst wurde die Tabelle geteilt. */
+      '     if(rest){kinder[0]=rest;GP.teil=rumpf.childElementCount>vorher;return kinder;}',
       '     kinder.shift();continue;}',
-      '    skaliere(k,rumpf);kinder.shift();continue;',
+      /* Monolithischer Block (Schema, Bild, Absatz): ohne Zwang aufs nächste
+         Blatt — nicht in den Restplatz geschrumpft (ein Anlagenschema auf
+         40 % wäre unlesbar, obwohl das nächste Blatt Platz hätte). Auf dem
+         leeren Blatt (Zwang) wird verkleinert, was auch dort nicht passt. */
+      '    if(!GP.zwang){GP.teil=false;return kinder;}',
+      '    skaliere(k,rumpf);kinder.shift();GP.zwang=false;continue;',
       '   }',
-      '   GP.teil=false;return kinder;',
       '  }',
       '  return kinder;',
       ' }',
-      /* Karte über mehrere Blätter */
+      /* Ein Container, in den die Paginierung ABSTEIGT, darf keinen
+         Breiten-Fit der Vorlauf-Messung mehr tragen: dessen fixe Höhe
+         (z.B. 2360 px für ein ganzes Tab-Panel) machte jedes Blatt sofort
+         «voll», und jedes Kind wurde auf 20 % geschrumpft. Der Fit wird
+         gelöst; der Blatt-Nachlauf (gemaFit je Blatt) passt zu breite Teile
+         wieder ein. Höhen-Fits (data-gp-hoch) bleiben. */
+      ' function fitLoesen(el){',
+      '  if(!el.classList||!el.classList.contains("gp-fit")||el.getAttribute("data-gp-hoch")) return;',
+      '  el.classList.remove("gp-fit");el.style.height="";',
+      '  var k=el.firstElementChild;if(k&&k.style)k.style.transform="";',
+      ' }',
+      /* Ein Mappen-Titel (.gp-mappe) darf nicht allein am Blattende stehen —
+         er wandert mit dem ersten Inhalt auf das nächste Blatt. */
+      ' function waiseZurueck(bl,kinder){',
+      '  if(bl.childElementCount===1&&bl.firstElementChild.classList.contains("gp-mappe")){',
+      '   kinder.unshift(bl.firstElementChild);bl.removeChild(bl.firstElementChild);}',
+      ' }',
+      /* Karte über mehrere Blätter. `frisch` = die Karte beginnt auf einem
+         leeren Blatt; nur dann darf rumpfFuellen ein zu hohes Kind
+         verkleinern (GP.zwang). Beginnt sie im Restplatz und es passt
+         NICHTS hinein, zieht sie als Ganzes auf ein neues Blatt. */
       ' function karteFuellen(karte,rumpf){',
+      '  fitLoesen(karte);',
       '  var kinder=Array.prototype.slice.call(rumpf.children);',
       '  kinder.forEach(function(k){rumpf.removeChild(k);});',
+      '  var frisch=leerIst();',
       '  body.appendChild(karte);',
-      '  if(!passt()){body.removeChild(karte);if(!leerIst())neuesBlatt();body.appendChild(karte);}',
+      '  if(!passt()){body.removeChild(karte);if(!frisch){neuesBlatt();frisch=true;}body.appendChild(karte);}',
       '  for(;;){',
+      '   GP.zwang=frisch;',
       '   kinder=rumpfFuellen(rumpf,kinder);',
       '   if(!kinder.length) return;',
+      '   if(!rumpf.childElementCount){',
+      '    body.removeChild(karte);',
+      '    if(!frisch){neuesBlatt();frisch=true;body.appendChild(karte);continue;}',
+      /* Notnagel — auf einem leeren Blatt trotz Zwang nichts platziert
+         (z.B. ein zurückgeholter Mappen-Titel vor einem unteilbaren
+         Block): das erste Kind kommt hin, der Rest folgt MIT Zwang. */
+      '    body.appendChild(karte);var e=kinder.shift();rumpf.appendChild(e);',
+      '    if(!passt()){rumpf.removeChild(e);skaliere(e,rumpf);}',
+      /* Zweiter Anlauf am selben Kind → erzwingen (kein Kreisen) */
+      '    if(kinder.length&&GP.notnagel===kinder[0])skaliere(kinder.shift(),rumpf);',
+      '    GP.notnagel=kinder[0]||null;',
+      '    if(!kinder.length)return;continue;',
+      '   }',
       '   weiterHinweis();',
       '   var f=fortsetzung(karte);',
-      '   neuesBlatt();body.appendChild(f);',
+      '   neuesBlatt();frisch=true;body.appendChild(f);',
       '   karte=f;rumpf=gpKind(f,GP_BD)||f.lastElementChild;',
       '  }',
       ' }',
       /* Loser Block-Container (ohne Kartenkopf) über mehrere Blätter */
       ' function containerFuellen(bl){',
+      '  fitLoesen(bl);',
       '  var kinder=Array.prototype.slice.call(bl.children);',
       '  kinder.forEach(function(k){bl.removeChild(k);});',
+      '  var frisch=leerIst();',
       '  body.appendChild(bl);',
-      '  if(!passt()){body.removeChild(bl);if(!leerIst())neuesBlatt();body.appendChild(bl);}',
+      '  if(!passt()){body.removeChild(bl);if(!frisch){neuesBlatt();frisch=true;}body.appendChild(bl);}',
       '  for(;;){',
+      '   GP.zwang=frisch;',
       '   kinder=rumpfFuellen(bl,kinder);',
       '   if(!kinder.length) return;',
+      '   waiseZurueck(bl,kinder);',
+      '   if(!bl.childElementCount){',
+      '    body.removeChild(bl);',
+      '    if(!frisch){neuesBlatt();frisch=true;body.appendChild(bl);continue;}',
+      '    body.appendChild(bl);var e=kinder.shift();bl.appendChild(e);',
+      '    if(!passt()){bl.removeChild(e);skaliere(e,bl);}',
+      '    if(kinder.length&&GP.notnagel===kinder[0])skaliere(kinder.shift(),bl);',
+      '    GP.notnagel=kinder[0]||null;',
+      '    if(!kinder.length)return;continue;',
+      '   }',
       /* Grenze ZWISCHEN zwei Karten des Wrappers = kein «Fortsetzung»-Hinweis
          (nichts wird fortgeführt — die nächste Karte beginnt neu). */
       '   if(GP.teil)weiterHinweis();',
       '   var f=bl.cloneNode(false);',
-      '   neuesBlatt();body.appendChild(f);',
+      '   neuesBlatt();frisch=true;body.appendChild(f);',
       '   bl=f;',
       '  }',
       ' }',
       ' function nackteTabelle(tab){',
-      '  var offen=tab;',
+      '  var offen=tab;GP.zwang=leerIst();',
       '  for(var s=0;s<60&&offen;s++){',
       '   var t=alsTabelle(offen)||offen;',
+      '   var vorher=body.childElementCount;',
       '   offen=tabelleTeilen(body,offen,t);',
-      '   if(offen){weiterHinweis();neuesBlatt();}',
+      '   if(offen){if(body.childElementCount>vorher)weiterHinweis();neuesBlatt();GP.zwang=true;}',
       '  }',
+      ' }',
+      /* Mehrspaltiger Container (Grid mit mehreren Spalten / Flex-Zeile),
+         dessen Kinder Karten oder Spalten-Blöcke sind: lässt sich
+         untereinander setzen. KPI-Kacheln (niedrig) oder Label/Wert-Zeilen
+         fallen durch die Höhen-Schranke. */
+      ' function linearisierbar(k){',
+      '  if(!(k.tagName==="DIV"||k.tagName==="SECTION")||k.childElementCount<2) return false;',
+      '  if(k.getBoundingClientRect().height<body.clientHeight*0.45) return false;',
+      '  for(var i=0;i<k.children.length;i++){var c=k.children[i];',
+      '   if(!(c.tagName==="DIV"||c.tagName==="SECTION")) return false;',
+      '   if(!c.querySelector(GP_HD)&&c.getBoundingClientRect().height<120) return false;}',
+      '  return true;',
       ' }',
       /* Stapelt der Container seine Kinder VERTIKAL? Dann lässt er sich an
          den Kindergrenzen aufteilen. Deckt auch .g-main-grid ab (die
@@ -861,10 +1147,20 @@
       '  var kopf=gpKind(bl,GP_HD),rumpf=gpKind(bl,GP_BD);',
       '  if(kopf&&rumpf){karteFuellen(bl,rumpf);return;}',
       '  if(bl.tagName==="TABLE"){nackteTabelle(bl);return;}',
-      '  if((bl.tagName==="DIV"||bl.tagName==="SECTION"||bl.tagName==="MAIN")&&bl.childElementCount>1&&st){',
+      '  if((bl.tagName==="DIV"||bl.tagName==="SECTION"||bl.tagName==="MAIN"||bl.tagName==="DETAILS")&&bl.childElementCount>=1&&st){',
       '   containerFuellen(bl);return;',
       '  }',
+      /* Monolithisch: auf ein leeres Blatt, dann einpassen */
+      '  if(!leerIst())neuesBlatt();',
       '  body.appendChild(bl);skaliere2(bl);',
+      ' }',
+      /* Lässt sich der Block an Kindergrenzen teilen? (Karte mit Rumpf,
+         Tabelle mit Zeilen, stapelnder Container mit mehreren Kindern) */
+      ' function teilbar(bl,st){',
+      '  var kopf=gpKind(bl,GP_HD),rumpf=gpKind(bl,GP_BD);',
+      '  if(kopf&&rumpf) return rumpf.childElementCount>=1;',
+      '  if(bl.tagName==="TABLE") return bl.querySelectorAll("tr").length>4;',
+      '  return (bl.tagName==="DIV"||bl.tagName==="SECTION"||bl.tagName==="MAIN"||bl.tagName==="DETAILS")&&st&&bl.childElementCount>1;',
       ' }',
       /* skaliere() erwartet das Element noch NICHT im Ziel — hier ist es schon
          platziert: Wrapper darum herum bauen. */
@@ -887,8 +1183,17 @@
          jeder Wrapper fiele aufs Ganz-Verkleinern zurück (genau so lief der
          display:block-Zweig der Vorfassung nachweislich NIE). */
       '  var st=stapelt(bl);',
+      '  if(!st&&linearisierbar(bl)){bl.classList.add("gp-linear");if(passt())return;st=true;}',
       '  body.removeChild(bl);',
-      '  if(!leerIst()){neuesBlatt();return platziere(bl);}',
+      /* RESTPLATZ NUTZEN (Feedback 11.09.2026): eine teilbare Karte beginnt
+         auf dem laufenden Blatt, wenn dort noch gut ein Viertel frei ist —
+         früher wanderte jede Karte, die nicht ganz passte, komplett aufs
+         nächste Blatt, und der Bericht bestand aus halb leeren Seiten
+         (sb_zirkulation: 8 Blätter für 8 Karten). Weniger Platz oder ein
+         unteilbarer Block → neues Blatt wie bisher. */
+      '  if(!leerIst()){',
+      '   if(!(frei()>=body.clientHeight*0.28)||!teilbar(bl,st)){neuesBlatt();return platziere(bl);}',
+      '  }',
       '  teile(bl,st);',
       ' }',
       /* Unsichtbare Reste der Modulseite (leere Hülsen ohne Text, Bild oder
@@ -900,8 +1205,9 @@
       ' function sichtbar(el){',
       '  return el.getBoundingClientRect().height>1||el.scrollHeight>1;',
       ' }',
-      ' neuesBlatt();',
-      ' Array.prototype.slice.call(mess.children).filter(sichtbar).forEach(platziere);',
+      ' neuesBlatt();GP.schritte=0;',
+      ' try{Array.prototype.slice.call(mess.children).filter(sichtbar).forEach(platziere);}',
+      ' catch(err){try{console.error(err);}catch(e){}}',
       /* leeres Schluss-Blatt (Randfall nach einer Teilung) entfernen */
       ' var seiten=stage.querySelectorAll(".gp-blatt");',
       ' if(seiten.length>1){var l=seiten[seiten.length-1],lb=l.querySelector(".gp-body");',
@@ -975,7 +1281,7 @@
       + (m.logo ? '<img class="gp-logo" src="' + esc(m.logo) + '" alt="">' : '<span class="gp-logo-leer"></span>')
       + '<div class="gp-kopf-l">'
       + (m.eimer ? '<div class="gp-eimer">' + esc(m.eimer) + '</div>' : '')
-      + '<div class="gp-titel">' + esc(m.titel) + '</div>'
+      + '<div class="gp-titel' + (m.titel.length > 64 ? ' gp-titel--sehrlang' : m.titel.length > 38 ? ' gp-titel--lang' : '') + '">' + esc(m.titel) + '</div>'
       + '</div>'
       + '<div class="gp-meta">'
       + (m.firma ? '<strong>' + esc(m.firma) + '</strong><br>' : '')
