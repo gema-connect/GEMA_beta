@@ -386,8 +386,13 @@
       if (f.tagName === 'SELECT') { if (f.value && f.selectedIndex > 0) return true; continue; }
       if (String(f.value || '').trim() !== '') return true;
     }
-    /* Ergebniswerte (berechnet, keine Eingabe) */
-    var res = bd.querySelectorAll('.g-result-val,.el-res-val,.kpi-val,.res-val,.g-badge,[id^="out"]');
+    /* Ergebniswerte (berechnet, keine Eingabe) — alle Ergebnis-/KPI-Muster
+       des Repos, sonst erscheint eine reine Ergebnis-Karte («1.4 Ergebnis»
+       in sb_warmwasser mit .ww-kpi .v) im Bericht als «— keine Angaben»
+       (Feedback 11.09.2026). */
+    var res = bd.querySelectorAll('.g-result-val,.el-res-val,.kpi-val,.g-kpi-val,.res-val,.result-val,' +
+      '.ss-res-val,.bra-res-val,.g-result-val-raw,.g-badge,[id^="out"],[id*="_out"],[id*="_kpi"],' +
+      '.ww-kpi .v,.zl-kpi .v,.g-kpi .v,.kpi .v,.sp-kpi .v,.ot-kpi .v,.kpi-row .v');
     for (i = 0; i < res.length; i++) {
       if (!LEER.test(String(res[i].textContent || '').trim())) return true;
     }
